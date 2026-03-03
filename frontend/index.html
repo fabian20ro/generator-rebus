@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rebus Românesc</title>
+  <link rel="stylesheet" href="/src/styles/main.css">
+  <link rel="stylesheet" href="/src/styles/grid.css">
+  <link rel="stylesheet" href="/src/styles/responsive.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Rebus Românesc</h1>
+      <p id="puzzle-title" class="subtitle"></p>
+    </header>
+
+    <main>
+      <!-- Puzzle selector (shown when no puzzle is loaded) -->
+      <div id="puzzle-selector" class="panel">
+        <h2>Alege un rebus</h2>
+        <div id="puzzle-list" class="puzzle-list">
+          <p class="loading">Se încarcă...</p>
+        </div>
+      </div>
+
+      <!-- Puzzle view (shown when a puzzle is loaded) -->
+      <div id="puzzle-view" class="puzzle-view hidden">
+        <div class="puzzle-layout">
+          <div class="grid-container">
+            <div id="grid" class="grid"></div>
+            <div class="toolbar">
+              <button id="btn-check" class="btn" title="Verifică răspunsurile">Verifică</button>
+              <button id="btn-hint-letter" class="btn" title="Arată litera selectată">Arată litera</button>
+              <button id="btn-hint-word" class="btn" title="Arată cuvântul selectat">Arată cuvântul</button>
+              <button id="btn-back" class="btn btn-secondary">Înapoi</button>
+            </div>
+          </div>
+          <div class="clues-container">
+            <div class="clue-section">
+              <h3>Orizontal</h3>
+              <ol id="clues-horizontal" class="clue-list"></ol>
+            </div>
+            <div class="clue-section">
+              <h3>Vertical</h3>
+              <ol id="clues-vertical" class="clue-list"></ol>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Completion modal -->
+      <div id="completion-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>Felicitări!</h2>
+          <p>Ai rezolvat rebusul!</p>
+          <button id="btn-close-modal" class="btn">OK</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
