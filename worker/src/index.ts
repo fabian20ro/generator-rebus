@@ -105,6 +105,7 @@ async function proxyToSupabase(url: string, env: Env): Promise<Response> {
     headers: {
       ...CORS_HEADERS,
       "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=180",
     },
   });
 }
@@ -115,6 +116,7 @@ function jsonResponse(data: unknown, status = 200): Response {
     headers: {
       ...CORS_HEADERS,
       "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=180",
     },
   });
 }
