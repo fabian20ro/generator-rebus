@@ -145,6 +145,7 @@ def _parse_clue_line(line: str) -> ClueEntry | None:
         if "→" in rest:
             note_idx = rest.index("→")
             verify_note = rest[note_idx + 1:].strip()
+            rest = rest[:note_idx].strip()
 
     # Try to match WORD [original] - definition
     m2 = re.match(r"^([A-Z]+)\s*\[([^\]]*)\]\s*-\s*(.*)", rest)
