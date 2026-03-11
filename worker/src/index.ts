@@ -16,6 +16,7 @@ interface Env {
 }
 
 const CORS_HEADERS = {
+  // Keep CORS on every response path so the frontend sees JSON errors too.
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
