@@ -21,6 +21,12 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+function requireEnv(env: Env): string | null {
+  if (!env.SUPABASE_URL) return "Missing SUPABASE_URL";
+  if (!env.SUPABASE_ANON_KEY) return "Missing SUPABASE_ANON_KEY";
+  return null;
+}
+
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -32,6 +38,11 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   if (request.method !== "GET") {
     return jsonResponse({ error: "Method not allowed" }, 405);
+  }
+
+  const envError = requireEnv(env);
+  if (envError) {
+    return jsonResponse({ error: envError }, 500);
   }
 
   // Health check
@@ -122,5 +133,12 @@ function jsonResponse(data: unknown, status = 200): Response {
 }
 
 export default {
-  fetch: handleRequest,
+  async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return await handleRequest(request, env);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown worker error";
+      return jsonResponse({ error: message }, 500);
+    }
+  },
 };
