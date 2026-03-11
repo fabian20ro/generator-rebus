@@ -2,8 +2,20 @@
  * Puzzle data fetching via Cloudflare Worker proxy.
  */
 
-// Will be replaced at build time or configured
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+function normalizeApiBase(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  return withProtocol.replace(/\/+$/, "");
+}
+
+// Will be replaced at build time or configured.
+// Accept both a full URL and a bare host from CI secrets.
+const API_BASE = normalizeApiBase(import.meta.env.VITE_API_BASE || "");
 
 export interface PuzzleSummary {
   id: string;

@@ -23,7 +23,10 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     offset = 0
     batch_size = 1000
     while True:
-        response = client.table("words").select("word").range(offset, offset + batch_size - 1).execute()
+        response = (client.table("words")
+                    .select("word,rarity_level")
+                    .range(offset, offset + batch_size - 1)
+                    .execute())
         batch = response.data
         if not batch:
             break
@@ -52,6 +55,7 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
                 "normalized": normalized,
                 "original": original,
                 "length": len(normalized),
+                "rarity_level": row.get("rarity_level"),
             })
 
     print(f"Unique words after normalization: {len(unique_words)}")

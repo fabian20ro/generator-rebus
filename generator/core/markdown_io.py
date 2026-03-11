@@ -149,29 +149,77 @@ def _parse_clue_line(line: str) -> ClueEntry | None:
     # Try to match WORD [original] - definition
     m2 = re.match(r"^([A-Z]+)\s*\[([^\]]*)\]\s*-\s*(.*)", rest)
     if m2:
+        tail = m2.group(3).strip()
+        parts = [m2.group(1) + (f" [{m2.group(2)}]" if m2.group(2) else "")]
+        parts.extend(p.strip() for p in tail.split(" - ") if p.strip())
+        fill_like = all(re.match(r"^[A-Z]+(\s*\[[^\]]*\])?$", p) for p in parts)
+        if fill_like:
+            parsed_parts: list[tuple[str, str]] = []
+            for part in parts:
+                m_part = re.match(r"^([A-Z]+)(?:\s*\[([^\]]*)\])?$", part)
+                if not m_part:
+                    parsed_parts = []
+                    break
+                parsed_parts.append((m_part.group(1), m_part.group(2) or ""))
+
+            if parsed_parts:
+                return ClueEntry(
+                    row_number=row_num,
+                    word_normalized=" - ".join(word for word, _ in parsed_parts),
+                    word_original=" - ".join(original for _, original in parsed_parts),
+                    definition="",
+                    verified=verified,
+                    verify_note=verify_note,
+                )
+
         return ClueEntry(
             row_number=row_num,
             word_normalized=m2.group(1),
             word_original=m2.group(2),
-            definition=m2.group(3).strip(),
+            definition=tail,
             verified=verified,
             verify_note=verify_note,
         )
 
-    # Try fill-phase format: WORD1 - WORD2 - ...
-    # These are multiple words on the same row, each becomes a separate clue
-    # Actually return as a single entry with concatenated words
-    words = [w.strip() for w in rest.split(" - ") if w.strip()]
-    if words and all(re.match(r"^[A-Z]+$", w) for w in words):
-        # This is fill-phase format
-        return ClueEntry(
-            row_number=row_num,
-            word_normalized=" - ".join(words),
-            word_original="",
-            definition="",
-            verified=verified,
-            verify_note=verify_note,
-        )
+    # Try plain define/verify format: WORD - definition
+    m3 = re.match(r"^([A-Z]+)\s*-\s*(.*)", rest)
+    if m3:
+        head = m3.group(1)
+        tail = m3.group(2).strip()
+
+        # Distinguish a real definition from fill-phase "WORD1 - WORD2 - ..."
+        parts = [p.strip() for p in tail.split(" - ") if p.strip()]
+        fill_like = bool(parts) and all(re.match(r"^[A-Z]+(\s*\[[^\]]*\])?$", p) for p in parts)
+        if not fill_like:
+            return ClueEntry(
+                row_number=row_num,
+                word_normalized=head,
+                word_original="",
+                definition=tail,
+                verified=verified,
+                verify_note=verify_note,
+            )
+
+    # Try fill-phase format: WORD1 [orig1] - WORD2 [orig2] - ...
+    parts = [w.strip() for w in rest.split(" - ") if w.strip()]
+    if parts:
+        parsed_parts: list[tuple[str, str]] = []
+        for part in parts:
+            m_part = re.match(r"^([A-Z]+)(?:\s*\[([^\]]*)\])?$", part)
+            if not m_part:
+                parsed_parts = []
+                break
+            parsed_parts.append((m_part.group(1), m_part.group(2) or ""))
+
+        if parsed_parts:
+            return ClueEntry(
+                row_number=row_num,
+                word_normalized=" - ".join(word for word, _ in parsed_parts),
+                word_original=" - ".join(original for _, original in parsed_parts),
+                definition="",
+                verified=verified,
+                verify_note=verify_note,
+            )
 
     # Fallback: just a word
     word_match = re.match(r"^([A-Z]+)", rest)

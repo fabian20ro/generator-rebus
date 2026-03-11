@@ -23,6 +23,15 @@ def _collect_words(puzzle) -> list[str]:
     return sorted(words)
 
 
+THEME_SYSTEM_PROMPT = (
+    "Ești editor de rebusuri românești. "
+    "Primești o listă de cuvinte deja fixate într-o grilă. "
+    "Propui o temă doar dacă există o legătură semantică clară între mai multe cuvinte. "
+    "Dacă lista este eterogenă sau pare aleatoare, răspunzi exact: Rebus Românesc. "
+    "Răspunsul trebuie să fie o singură linie, 2-5 cuvinte, fără ghilimele, fără explicații, fără punct."
+)
+
+
 def run(input_file: str, output_file: str, **kwargs) -> None:
     """Generate a theme/title for the puzzle using LM Studio."""
     print(f"Reading puzzle from {input_file}...")
@@ -39,17 +48,21 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     client = OpenAI(base_url=f"{LMSTUDIO_BASE_URL}/v1", api_key="not-needed")
 
     prompt = (
-        f"Ai aici o listă de cuvinte dintr-un rebus românesc: {', '.join(words)}.\n"
-        "Sugerează o temă scurtă și creativă pentru acest rebus (maxim 5 cuvinte). "
-        "Răspunde doar cu tema, fără explicații."
+        "Lista de cuvinte este:\n"
+        f"{', '.join(words)}\n\n"
+        "Dacă observi un nucleu tematic real, dă tema. "
+        "Dacă nu, răspunde exact cu: Rebus Românesc"
     )
 
     print("Generating theme with LM Studio...")
     try:
         response = client.chat.completions.create(
             model="default",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.8,
+            messages=[
+                {"role": "system", "content": THEME_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
             max_tokens=50,
         )
         theme = response.choices[0].message.content.strip().strip('"').strip("'")

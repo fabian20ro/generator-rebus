@@ -41,7 +41,13 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     with open(words_file, "r", encoding="utf-8") as f:
         raw_words = json.load(f)
 
-    word_entries = [WordEntry(w["normalized"], w["original"]) for w in raw_words]
+    filtered_words = [
+        w for w in raw_words
+        if w.get("rarity_level") is None or w["rarity_level"] <= max_rarity
+    ]
+    print(f"Using {len(filtered_words)} words with rarity <= {max_rarity}")
+
+    word_entries = [WordEntry(w["normalized"], w["original"]) for w in filtered_words]
     word_index = WordIndex(word_entries)
     print(f"Loaded {word_index.word_count()} words")
 

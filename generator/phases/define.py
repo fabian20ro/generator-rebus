@@ -8,31 +8,59 @@ from ..config import LMSTUDIO_BASE_URL
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 
 
+DEFINITION_SYSTEM_PROMPT = (
+    "Ești autor de definiții de rebus în limba română.\n"
+    "Reguli:\n"
+    "- Răspunzi cu o singură definiție scurtă, firească și exactă.\n"
+    "- Nu incluzi cuvântul-răspuns și nici o formă flexionată evidentă a lui.\n"
+    "- Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]\n"
+    "- Preferi stilul de rebus: concis, concret, ușor de ghicit.\n"
+    "- Pentru substantive: definești prin categorie, rol sau trăsătură distinctivă.\n"
+    "- Pentru adjective: folosești formulări de tipul 'Care ...'.\n"
+    "- Pentru verbe la infinitiv: folosești formulări de tipul 'A ...'.\n"
+    "- Pentru interjecții, pronume, forme gramaticale, simboluri, abrevieri sau domenii internet: explici exact ce sunt.\n"
+    "- Pentru cuvinte de 2-3 litere fii foarte precis.\n"
+    "Exemple bune:\n"
+    "OS -> Țesut dur al scheletului\n"
+    "AT -> Domeniul online al Austriei\n"
+    "AI -> Formă a verbului a avea\n"
+    "CLOU -> Moment culminant"
+)
+
+
 def _generate_definition(client: OpenAI, word: str, original: str,
                          theme: str, retries: int = 3) -> str:
     """Generate a definition for a single word."""
     display_word = original if original else word.lower()
+    length = len(word)
     prompt = (
-        f"Definește cuvântul '{display_word}' ca pentru o definiție de rebus românesc. "
-        f"Tema rebusului este: {theme}. "
-        "Definiția poate fi o propoziție scurtă sau o expresie. "
-        f"Nu include cuvântul '{display_word}' în definiție. "
-        "Răspunde doar cu definiția, fără ghilimele sau explicații."
+        f"Cuvânt: {display_word}\n"
+        f"Formă normalizată: {word}\n"
+        f"Lungime: {length}\n"
+        f"Tema curentă: {theme}\n\n"
+        "Scrie o definiție de rebus pentru acest cuvânt. "
+        "Definiția trebuie să fie scurtă, exactă și să poată duce la răspunsul corect. "
+        "Răspunde doar cu definiția finală."
     )
 
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
                 model="default",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.8,
-                max_tokens=100,
+                messages=[
+                    {"role": "system", "content": DEFINITION_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=120,
             )
             definition = response.choices[0].message.content.strip().strip('"').strip("'")
 
             # Basic validation
             if len(definition) < 5:
                 continue
+            if definition == "[NECLAR]":
+                return definition
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
             # Check the word itself isn't in the definition

@@ -8,21 +8,45 @@ from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.diacritics import normalize
 
 
+VERIFY_SYSTEM_PROMPT = (
+    "Ești rezolvitor de rebusuri românești.\n"
+    "Reguli:\n"
+    "- Răspunzi cu un singur cuvânt, fără explicații.\n"
+    "- Dacă definiția indică o abreviere, un simbol, un domeniu internet, o interjecție sau o formă gramaticală, răspunzi exact cu forma scurtă cerută.\n"
+    "- Nu reformulezi definiția.\n"
+    "- Nu răspunzi cu propoziții.\n"
+    "Exemple:\n"
+    "Definiție: Domeniul online al Austriei\n"
+    "Răspuns: AT\n"
+    "Definiție: Țesut dur al scheletului\n"
+    "Răspuns: OS\n"
+    "Definiție: Formă a verbului a avea\n"
+    "Răspuns: AI"
+)
+
+
 def _verify_definition(client: OpenAI, definition: str) -> str:
     """Ask AI to guess the word from a definition. Returns the guessed word."""
     prompt = (
-        f"Ghicește cuvântul din această definiție de rebus: \"{definition}\"\n"
-        "Răspunde cu un singur cuvânt, fără explicații."
+        f"Definiție: {definition}\n"
+        "Răspuns:"
     )
 
     try:
         response = client.chat.completions.create(
             model="default",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=20,
+            messages=[
+                {"role": "system", "content": VERIFY_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            # Reasoning-capable local models may spend many tokens before
+            # emitting the final answer; leave enough budget for both.
+            max_tokens=160,
         )
         guess = response.choices[0].message.content.strip().strip('"').strip("'")
+        if ":" in guess:
+            guess = guess.split(":", 1)[1].strip()
         # Take only the first word
         guess = guess.split()[0] if guess.split() else guess
         return guess
