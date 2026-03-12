@@ -39,9 +39,9 @@ def _verify_clues(clues: list[ClueEntry], client: OpenAI) -> list[ClueEntry]:
 
 
 def _rate_clues(clues: list[ClueEntry], client: OpenAI) -> None:
-    """Rate each verified clue's definition quality in-place."""
+    """Rate each usable clue definition quality in-place."""
     for clue in clues:
-        if not clue.verified or not clue.definition or clue.definition.startswith("["):
+        if not clue.definition or clue.definition.startswith("["):
             continue
 
         try:
@@ -77,7 +77,7 @@ def verify_puzzle(puzzle, client: OpenAI) -> tuple[int, int]:
 
 
 def rate_puzzle(puzzle, client: OpenAI) -> tuple[float, int]:
-    """Rate all verified definitions in-place. Returns (avg_score, rated_count)."""
+    """Rate all usable definitions in-place. Returns (avg_score, rated_count)."""
     print("Rating horizontal definitions...")
     _rate_clues(puzzle.horizontal_clues, client)
 

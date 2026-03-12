@@ -13,47 +13,28 @@ from .diacritics import normalize
 
 
 DEFINITION_SYSTEM_PROMPT = (
-    "Ești un autor experimentat de definiții de rebus în limba română, "
-    "cunoscut pentru stilul concis, inteligent și elegant.\n"
+    "Ești autor de definiții de rebus în limba română.\n"
     "Reguli:\n"
-    "- Răspunzi cu o singură definiție scurtă, firească și exactă.\n"
-    "- Nu incluzi cuvântul-răspuns și nici o formă flexionată sau derivată a lui.\n"
+    "- Răspunzi cu o singură definiție scurtă.\n"
+    "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
     "- Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]\n"
-    "- Stilul tău de rebus: concis, ingenios, cu o notă de spirit.\n"
-    "- Preferă formulări surprinzătoare, metafore concise sau referințe culturale.\n"
-    "- Evită definițiile de dicționar plictisitoare; caută unghiul neașteptat.\n"
-    "- Pentru cuvinte comune (4+ litere): fii creativ, spiritual, cu jocuri de sens.\n"
-    "- Pentru cuvinte rare sau obscure: fii clar și precis, ajută rezolvitorul.\n"
-    "- Pentru substantive: definești prin categorie, rol sau trăsătură distinctivă.\n"
-    "- Pentru adjective: folosești formulări de tipul 'Care ...'.\n"
-    "- Pentru verbe la infinitiv: folosești formulări de tipul 'A ...'.\n"
-    "- Pentru interjecții, pronume, forme gramaticale, simboluri, abrevieri "
-    "sau domenii internet: explici exact ce sunt.\n"
-    "- Pentru cuvinte de 2-3 litere fii foarte precis.\n"
-    "Exemple bune:\n"
+    "- Preferi definiții precise, naturale, maxim 12 cuvinte.\n"
+    "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.\n"
+    "Exemple:\n"
     "OS -> Țesut dur al scheletului\n"
     "AT -> Domeniul online al Austriei\n"
     "AI -> Formă a verbului a avea\n"
-    "CLOU -> Moment culminant\n"
-    "PLOAIE -> Lacrimile cerului\n"
-    "CARTE -> Prietenul cel mai tăcut\n"
-    "SARE -> Condiment de bază, albul din solniță\n"
-    "LUNA -> Felinar de noapte al pământului"
+    "CLOU -> Moment culminant"
 )
 
 REWRITE_SYSTEM_PROMPT = (
-    "Ești editor de definiții de rebus în limba română, cu experiență în crearea "
-    "de definiții inteligente și precise.\n"
-    "Primești un răspuns corect, o definiție anterioară și feedback despre ce nu a funcționat.\n"
-    "Sarcina ta este să rescrii definiția astfel încât:\n"
-    "1. Să conducă precis la răspunsul corect.\n"
-    "2. Să fie ingenioasă, concisă și cu spirit.\n"
-    "3. Să nu fie o definiție plată de dicționar.\n"
+    "Ești editor de definiții de rebus în limba română.\n"
     "Reguli:\n"
     "- Răspunzi doar cu definiția finală.\n"
-    "- Nu incluzi cuvântul-răspuns și nici o formă evident derivată din el.\n"
-    "- Fii mai specific decât definiția veche.\n"
-    "- Dacă termenul este obscur și nu poți scrie o definiție onestă, răspunzi exact: [NECLAR]"
+    "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
+    "- Fă definiția mai precisă decât cea veche.\n"
+    "- Max 12 cuvinte.\n"
+    "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]"
 )
 
 VERIFY_SYSTEM_PROMPT = (
@@ -73,23 +54,13 @@ VERIFY_SYSTEM_PROMPT = (
 )
 
 RATE_SYSTEM_PROMPT = (
-    "Ești un creator și rezolvitor experimentat de rebusuri românești.\n"
-    "Evaluezi calitatea unei definiții de rebus pe o scară de la 1 la 10.\n"
+    "Evaluezi o definiție de rebus pe scara 1-10.\n"
     "Criterii de evaluare:\n"
-    "- Definiția NU conține cuvântul-răspuns sau o formă evidentă a lui (dacă îl conține -> scor 1).\n"
-    "- Definiția nu este înșelătoare — conduce logic spre răspunsul corect, nu spre alt cuvânt.\n"
-    "- Precizie: definiția identifică exact acest cuvânt, nu o categorie largă.\n"
-    "- Ingeniozitate: formulare surprinzătoare, spirit, metafore elegante, jocuri de sens.\n"
-    "- Concizie: scurtă și la obiect, fără cuvinte inutile.\n"
-    "- Pentru cuvinte rare/obscure: definiția explică suficient de clar pentru a fi rezolvabilă.\n"
-    "- Pentru cuvinte comune: definiția evită banalitatea și adaugă o notă de spirit.\n"
-    "Scor orientativ:\n"
-    "- 1-3: Definiție proastă (conține răspunsul, e înșelătoare, sau complet vagă).\n"
-    "- 4-6: Definiție corectă dar plictisitoare, de dicționar, fără spirit.\n"
-    "- 7-8: Definiție bună, precisă și cu o formulare ingenioasă.\n"
-    "- 9-10: Definiție excelentă, memorabilă, concisă și elegantă.\n"
-    "Răspunzi STRICT cu un obiect JSON: {\"score\": <1-10>, \"feedback\": \"<motiv scurt>\"}\n"
-    "Nu adăuga text în afara JSON-ului."
+    "- dacă include răspunsul sau o derivată clară: scor 1\n"
+    "- dacă duce spre alt răspuns: scor mic\n"
+    "- dacă e precisă și scurtă: scor mare\n"
+    "- dacă e banală dar corectă: scor mediu\n"
+    "Răspunzi STRICT JSON: {\"score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
 )
 
 RATE_MIN_QUALITY = 7
@@ -129,11 +100,9 @@ def generate_definition(
     prompt = (
         f"Cuvânt: {display_word}\n"
         f"Formă normalizată: {word}\n"
-        f"Lungime: {length}\n"
-        f"Tema curentă: {theme}\n\n"
-        "Scrie o definiție de rebus pentru acest cuvânt. "
-        "Definiția trebuie să fie scurtă, exactă și să poată duce la răspunsul corect. "
-        "Răspunde doar cu definiția finală."
+        f"Lungime: {length}\n\n"
+        "Scrie o definiție de rebus scurtă și exactă. "
+        "Răspunde doar cu definiția."
     )
 
     for attempt in range(retries):
@@ -145,7 +114,7 @@ def generate_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
-                max_tokens=120,
+                max_tokens=160,
             )
             definition = _clean_response(response.choices[0].message.content)
             if len(definition) < 5:
@@ -187,10 +156,9 @@ def rewrite_definition(
     prompt = (
         f"Răspuns corect: {display_word}\n"
         f"Formă normalizată: {word}\n"
-        f"Tema curentă: {theme}\n"
         f"Definiția anterioară: {previous_definition}\n"
         f"{feedback_text}\n\n"
-        "Scrie o definiție mai clară, mai specifică și mai ingenioasă."
+        "Rescrie definiția mai precis și mai scurt."
     )
 
     for attempt in range(retries):
@@ -202,7 +170,7 @@ def rewrite_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.1,
-                max_tokens=120,
+                max_tokens=220,
             )
             definition = _clean_response(response.choices[0].message.content)
             if len(definition) < 5:
@@ -237,7 +205,7 @@ def verify_definition(client: OpenAI, definition: str) -> str:
             {"role": "user", "content": prompt},
         ],
         temperature=0.0,
-        max_tokens=160,
+        max_tokens=320,
     )
     guess = _clean_response(response.choices[0].message.content)
     if ":" in guess:
@@ -269,7 +237,7 @@ def rate_definition(
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=150,
+            max_tokens=260,
         )
         raw = _clean_response(response.choices[0].message.content)
         # Extract JSON from response (handles extra text around it)

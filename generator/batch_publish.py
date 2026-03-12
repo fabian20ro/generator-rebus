@@ -7,11 +7,12 @@ import argparse
 import copy
 import json
 import random
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .core.ai_clues import create_client, rate_definition, rewrite_definition, RATE_MIN_QUALITY
+from .core.ai_clues import create_client, rewrite_definition, RATE_MIN_QUALITY
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
 from .core.markdown_io import (
     ClueEntry,
@@ -29,6 +30,23 @@ from .phases.define import generate_definitions_for_puzzle
 from .phases.download import run as download_words
 from .phases.upload import upload_puzzle
 from .phases.verify import verify_puzzle, rate_puzzle
+
+
+class TeeStream:
+    """Write stdout/stderr both to console and to a log file."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+            stream.flush()
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
 
 
 @dataclass
@@ -330,30 +348,45 @@ def _extract_feedback(clue) -> str:
     return ""
 
 
+def _needs_rewrite(clue) -> bool:
+    """Return True when a clue should be rewritten.
+
+    We rewrite based on quality score, not raw verify failure alone.
+    A clue can be semantically good yet still fail exact-match verification
+    because the local model prefers a synonym or a more common variant.
+    """
+    if not clue.definition or clue.definition.startswith("["):
+        return True
+
+    score = _extract_score(clue)
+    if score is None:
+        return True
+
+    return score < RATE_MIN_QUALITY
+
+
 def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
     theme = puzzle.title or "Rebus Românesc"
     passed, total = verify_puzzle(puzzle, client)
     rate_puzzle(puzzle, client)
 
     for round_index in range(1, rounds + 1):
-        # Collect rewrite candidates: verification failures + low-rated definitions
-        candidates = []
-        for clue in _all_clues(puzzle):
-            if clue.verified is False:
-                candidates.append(clue)
-            elif clue.verified is True:
-                score = _extract_score(clue)
-                if score is not None and score < RATE_MIN_QUALITY:
-                    candidates.append(clue)
+        # Rewrite only low-quality definitions. Verify failure alone is not enough:
+        # the local verifier often answers with a synonym despite a good clue.
+        candidates = [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
         if not candidates:
             break
 
         failed_count = sum(1 for c in candidates if c.verified is False)
-        low_rated_count = len(candidates) - failed_count
+        low_rated_count = sum(
+            1 for c in candidates
+            if c.verified is True and (_extract_score(c) or 0) < RATE_MIN_QUALITY
+        )
+        unrated_count = len(candidates) - failed_count - low_rated_count
         print(
             f"Rewrite round {round_index}: {len(candidates)} candidates "
-            f"({failed_count} failed, {low_rated_count} low-rated)"
+            f"({failed_count} failed, {low_rated_count} low-rated, {unrated_count} unrated)"
         )
 
         for clue in candidates:
@@ -402,10 +435,18 @@ def _write_text(path: Path, content: str) -> None:
         f.write(content)
 
 
-def run_batch(sizes: list[int], output_root: Path, words_path: Path, rewrite_rounds: int) -> list[dict]:
+def run_batch(
+    sizes: list[int],
+    output_root: Path,
+    words_path: Path,
+    rewrite_rounds: int,
+    run_dir: Path | None = None,
+) -> list[dict]:
     raw_words = _load_words(words_path)
     client = create_client()
-    run_dir = output_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+    if run_dir is None:
+        run_dir = output_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict] = []
 
     for index, size in enumerate(sizes, start=1):
@@ -477,18 +518,35 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    manifest = run_batch(
-        sizes=args.sizes,
-        output_root=Path(args.output_root),
-        words_path=Path(args.words),
-        rewrite_rounds=args.rewrite_rounds,
-    )
-    print("\nBatch complete:")
-    for item in manifest:
-        print(
-            f"  {item['title']} -> {item['puzzle_id']} "
-            f"(verify {item['verification_passed']}/{item['verification_total']})"
-        )
+    output_root = Path(args.output_root)
+    preview_run_dir = output_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+    preview_run_dir.mkdir(parents=True, exist_ok=True)
+    log_path = preview_run_dir / "run.log"
+
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        tee = TeeStream(original_stdout, log_file)
+        sys.stdout = tee
+        sys.stderr = tee
+        try:
+            print(f"Run log: {log_path}")
+            manifest = run_batch(
+                sizes=args.sizes,
+                output_root=output_root,
+                words_path=Path(args.words),
+                rewrite_rounds=args.rewrite_rounds,
+                run_dir=preview_run_dir,
+            )
+            print("\nBatch complete:")
+            for item in manifest:
+                print(
+                    f"  {item['title']} -> {item['puzzle_id']} "
+                    f"(verify {item['verification_passed']}/{item['verification_total']})"
+                )
+        finally:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
 
 
 if __name__ == "__main__":
