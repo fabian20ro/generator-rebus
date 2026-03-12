@@ -45,6 +45,7 @@ import {
 } from "./gamification/scoring";
 import { evaluateBadges } from "./gamification/badges";
 import { applySavedFontSize, initFontScaler } from "./components/font-scaler";
+import confetti from "canvas-confetti";
 
 // --- DOM elements ---
 const puzzleSelector = document.getElementById("puzzle-selector")!;
@@ -222,6 +223,10 @@ function handleCompletion(): void {
 
   completionDetails.innerHTML = html;
   completionModal.classList.remove("hidden");
+
+  // Confetti celebration
+  confetti({ particleCount: 80, spread: 70, origin: { x: 0.3, y: 0.6 } });
+  confetti({ particleCount: 80, spread: 70, origin: { x: 0.7, y: 0.6 } });
 }
 
 function formatTime(seconds: number): string {
