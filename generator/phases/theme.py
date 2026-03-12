@@ -1,10 +1,11 @@
 """Phase 4: Find a theme for the filled grid using LM Studio."""
 
 from __future__ import annotations
+
 import sys
-from openai import OpenAI
-from ..config import LMSTUDIO_BASE_URL
-from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
+
+from ..core.ai_clues import create_client
+from ..core.markdown_io import parse_markdown, write_with_definitions
 
 
 def _collect_words(puzzle) -> list[str]:
@@ -24,12 +25,81 @@ def _collect_words(puzzle) -> list[str]:
 
 
 THEME_SYSTEM_PROMPT = (
-    "Ești editor de rebusuri românești. "
+    "Ești editor de titluri pentru rebusuri românești. "
     "Primești o listă de cuvinte deja fixate într-o grilă. "
-    "Propui o temă doar dacă există o legătură semantică clară între mai multe cuvinte. "
-    "Dacă lista este eterogenă sau pare aleatoare, răspunzi exact: Rebus Românesc. "
-    "Răspunsul trebuie să fie o singură linie, 2-5 cuvinte, fără ghilimele, fără explicații, fără punct."
+    "Scrii un titlu scurt, natural și memorabil, 2-4 cuvinte, fără ghilimele, fără explicații, fără punct. "
+    "Dacă există o temă clară, folosești tema. "
+    "Dacă lista este eterogenă, inventezi un titlu neutru și elegant inspirat de registrul lexical. "
+    "Nu folosești cuvintele Rebus, Românesc, Puzzle, Titlu."
 )
+
+FALLBACK_TITLES = [
+    "Fir de Cuvinte",
+    "Sensuri Comune",
+    "Litere și Legături",
+    "Noduri de Sens",
+    "Semne Încrucișate",
+    "Trasee de Litere",
+    "Puncte Comune",
+    "Umbra Cuvintelor",
+]
+
+
+def _fallback_title(words: list[str]) -> str:
+    if not words:
+        return FALLBACK_TITLES[0]
+    seed = sum(sum(ord(ch) for ch in word) for word in words)
+    return FALLBACK_TITLES[seed % len(FALLBACK_TITLES)]
+
+
+def _sanitize_title(title: str, words: list[str]) -> str:
+    cleaned = " ".join(title.strip().strip('"').strip("'").split())
+    if not cleaned:
+        return _fallback_title(words)
+
+    blocked = {"rebus", "romanesc", "românesc", "puzzle", "titlu"}
+    lowered = cleaned.lower()
+    if any(token in lowered for token in blocked):
+        return _fallback_title(words)
+
+    parts = cleaned.split()
+    if len(parts) > 4:
+        cleaned = " ".join(parts[:4])
+    return cleaned
+
+
+def generate_title_from_words(words: list[str], client=None) -> str:
+    if not words:
+        return _fallback_title(words)
+
+    prompt = (
+        "Lista de cuvinte este:\n"
+        f"{', '.join(words)}\n\n"
+        "Dă un titlu scurt pentru rebus."
+    )
+
+    if client is None:
+        client = create_client()
+
+    try:
+        response = client.chat.completions.create(
+            model="default",
+            messages=[
+                {"role": "system", "content": THEME_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=50,
+        )
+        raw_title = response.choices[0].message.content or ""
+    except Exception:
+        raw_title = ""
+
+    return _sanitize_title(raw_title, words)
+
+
+def generate_title_for_puzzle(puzzle, client=None) -> str:
+    return generate_title_from_words(_collect_words(puzzle), client=client)
 
 
 def run(input_file: str, output_file: str, **kwargs) -> None:
@@ -45,30 +115,8 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
 
     print(f"Found {len(words)} words: {', '.join(words[:10])}...")
 
-    client = OpenAI(base_url=f"{LMSTUDIO_BASE_URL}/v1", api_key="not-needed")
-
-    prompt = (
-        "Lista de cuvinte este:\n"
-        f"{', '.join(words)}\n\n"
-        "Dacă observi un nucleu tematic real, dă tema. "
-        "Dacă nu, răspunde exact cu: Rebus Românesc"
-    )
-
-    print("Generating theme with LM Studio...")
-    try:
-        response = client.chat.completions.create(
-            model="default",
-            messages=[
-                {"role": "system", "content": THEME_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-            max_tokens=50,
-        )
-        theme = response.choices[0].message.content.strip().strip('"').strip("'")
-    except Exception as e:
-        print(f"Warning: LM Studio error: {e}")
-        theme = "Rebus Românesc"
+    print("Generating title with LM Studio...")
+    theme = generate_title_from_words(words)
 
     print(f"Theme: {theme}")
     puzzle.title = theme

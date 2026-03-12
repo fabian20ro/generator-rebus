@@ -12,8 +12,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .core.ai_clues import create_client, rewrite_definition, RATE_MIN_QUALITY
+from .core.ai_clues import (
+    RATE_MIN_GUESSABILITY,
+    RATE_MIN_SEMANTIC,
+    create_client,
+    rewrite_definition,
+)
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
+from .core.clue_rating import (
+    extract_feedback,
+    extract_guessability_score,
+    extract_semantic_score,
+    extract_wrong_guess,
+)
 from .core.markdown_io import (
     ClueEntry,
     parse_markdown,
@@ -28,6 +39,7 @@ from .core.constraint_solver import solve
 from .phases.activate import set_published
 from .phases.define import generate_definitions_for_puzzle
 from .phases.download import run as download_words
+from .phases.theme import generate_title_for_puzzle
 from .phases.upload import upload_puzzle
 from .phases.verify import verify_puzzle, rate_puzzle
 
@@ -66,6 +78,16 @@ class Candidate:
     report: QualityReport
     template: list[list[bool]]
     markdown: str
+
+
+@dataclass
+class PreparedPuzzle:
+    title: str
+    candidate: Candidate
+    puzzle: object
+    passed: int
+    total: int
+    blocking_words: list[str]
 
 
 def _easy_large_template(size: int) -> list[list[bool]] | None:
@@ -326,26 +348,12 @@ def _all_clues(puzzle) -> list[ClueEntry]:
     return puzzle.horizontal_clues + puzzle.vertical_clues
 
 
-def _extract_score(clue) -> int | None:
-    """Extract quality score from verify_note, if present."""
-    if clue.verify_note and "Scor:" in clue.verify_note:
-        try:
-            return int(clue.verify_note.split("Scor:")[1].split("/")[0].strip())
-        except (ValueError, IndexError):
-            pass
-    return None
+def _extract_semantic_score(clue) -> int | None:
+    return extract_semantic_score(clue.verify_note)
 
 
-def _extract_feedback(clue) -> str:
-    """Extract rating feedback from verify_note, if present."""
-    if not clue.verify_note:
-        return ""
-    parts = clue.verify_note.split(" | ")
-    # feedback is the last part after score, if it exists and isn't the score itself
-    for part in parts:
-        if not part.startswith("Scor:") and not part.startswith("AI a ghicit:"):
-            return part
-    return ""
+def _extract_guessability_score(clue) -> int | None:
+    return extract_guessability_score(clue.verify_note)
 
 
 def _needs_rewrite(clue) -> bool:
@@ -358,11 +366,19 @@ def _needs_rewrite(clue) -> bool:
     if not clue.definition or clue.definition.startswith("["):
         return True
 
-    score = _extract_score(clue)
-    if score is None:
+    semantic_score = _extract_semantic_score(clue)
+    guessability_score = _extract_guessability_score(clue)
+    if semantic_score is None or guessability_score is None:
         return True
 
-    return score < RATE_MIN_QUALITY
+    return (
+        semantic_score < RATE_MIN_SEMANTIC
+        or guessability_score < RATE_MIN_GUESSABILITY
+    )
+
+
+def _blocking_clues(puzzle) -> list[ClueEntry]:
+    return [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
 
 def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
@@ -381,7 +397,13 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
         failed_count = sum(1 for c in candidates if c.verified is False)
         low_rated_count = sum(
             1 for c in candidates
-            if c.verified is True and (_extract_score(c) or 0) < RATE_MIN_QUALITY
+            if (
+                c.verified is True
+                and (
+                    (_extract_semantic_score(c) or 0) < RATE_MIN_SEMANTIC
+                    or (_extract_guessability_score(c) or 0) < RATE_MIN_GUESSABILITY
+                )
+            )
         )
         unrated_count = len(candidates) - failed_count - low_rated_count
         print(
@@ -390,12 +412,8 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
         )
 
         for clue in candidates:
-            wrong_guess = ""
-            rating_feedback = ""
-            if clue.verify_note:
-                if "AI a ghicit:" in clue.verify_note:
-                    wrong_guess = clue.verify_note.split("AI a ghicit:")[1].split("|")[0].strip()
-                rating_feedback = _extract_feedback(clue)
+            wrong_guess = extract_wrong_guess(clue.verify_note)
+            rating_feedback = extract_feedback(clue.verify_note)
             try:
                 new_definition = rewrite_definition(
                     client,
@@ -421,6 +439,56 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
     return passed, total
 
 
+def _prepare_puzzle_for_publication(
+    index: int,
+    total_puzzles: int,
+    size: int,
+    raw_words: list[dict],
+    client,
+    rewrite_rounds: int,
+    preparation_attempts: int,
+) -> PreparedPuzzle:
+    for attempt_index in range(1, preparation_attempts + 1):
+        if attempt_index > 1:
+            print(
+                f"Retrying puzzle {index}/{total_puzzles} ({size}x{size}), "
+                f"attempt {attempt_index}/{preparation_attempts}..."
+            )
+
+        provisional_title = f"Puzzle {index}"
+        candidate = _best_candidate(size, provisional_title, raw_words)
+        puzzle = parse_markdown(candidate.markdown)
+        title = generate_title_for_puzzle(puzzle, client=client)
+        puzzle.title = title
+        print(f"Title: {title}")
+        generate_definitions_for_puzzle(puzzle, client)
+        passed, total = _rewrite_failed_clues(puzzle, client, rewrite_rounds)
+        blockers = _blocking_clues(puzzle)
+        if not blockers:
+            return PreparedPuzzle(
+                title=title,
+                candidate=candidate,
+                puzzle=puzzle,
+                passed=passed,
+                total=total,
+                blocking_words=[],
+            )
+
+        print(
+            "Rejected puzzle after quality gate: "
+            + ", ".join(clue.word_normalized for clue in blockers[:10])
+        )
+
+    return PreparedPuzzle(
+        title=title,
+        candidate=candidate,
+        puzzle=puzzle,
+        passed=passed,
+        total=total,
+        blocking_words=[clue.word_normalized for clue in blockers],
+    )
+
+
 def _clear_verification_state(puzzle):
     clean = copy.deepcopy(puzzle)
     for clue in _all_clues(clean):
@@ -440,6 +508,7 @@ def run_batch(
     output_root: Path,
     words_path: Path,
     rewrite_rounds: int,
+    preparation_attempts: int,
     run_dir: Path | None = None,
 ) -> list[dict]:
     raw_words = _load_words(words_path)
@@ -450,25 +519,34 @@ def run_batch(
     manifest: list[dict] = []
 
     for index, size in enumerate(sizes, start=1):
-        title = f"Rebus Românesc {size}x{size} #{index}"
         puzzle_dir = run_dir / f"{index:02d}_{size}x{size}"
-        print(f"\n=== Puzzle {index}/{len(sizes)}: {title} ===")
+        print(f"\n=== Puzzle {index}/{len(sizes)}: {size}x{size} ===")
 
-        candidate = _best_candidate(size, title, raw_words)
+        prepared = _prepare_puzzle_for_publication(
+            index=index,
+            total_puzzles=len(sizes),
+            size=size,
+            raw_words=raw_words,
+            client=client,
+            rewrite_rounds=rewrite_rounds,
+            preparation_attempts=preparation_attempts,
+        )
+        if prepared.blocking_words:
+            raise RuntimeError(
+                f"Could not prepare a publishable {size}x{size} puzzle. "
+                f"Still blocked by: {', '.join(prepared.blocking_words[:12])}"
+            )
+
         template_path = puzzle_dir / "template.md"
         filled_path = puzzle_dir / "filled.md"
-        _write_text(template_path, write_grid_template(size, candidate.template))
-        _write_text(filled_path, candidate.markdown)
+        _write_text(template_path, write_grid_template(size, prepared.candidate.template))
+        _write_text(filled_path, write_with_definitions(prepared.puzzle))
 
-        puzzle = parse_markdown(candidate.markdown)
-        generate_definitions_for_puzzle(puzzle, client)
-        passed, total = _rewrite_failed_clues(puzzle, client, rewrite_rounds)
-
-        defs_puzzle = _clear_verification_state(puzzle)
+        defs_puzzle = _clear_verification_state(prepared.puzzle)
         defs_path = puzzle_dir / "defs.md"
         verified_path = puzzle_dir / "verified.md"
         _write_text(defs_path, write_with_definitions(defs_puzzle))
-        _write_text(verified_path, write_with_definitions(puzzle))
+        _write_text(verified_path, write_with_definitions(prepared.puzzle))
 
         puzzle_id = upload_puzzle(defs_puzzle)
         set_published(puzzle_id, True)
@@ -476,12 +554,12 @@ def run_batch(
         manifest.append({
             "index": index,
             "size": size,
-            "title": title,
+            "title": prepared.title,
             "puzzle_id": puzzle_id,
-            "score": candidate.score,
-            "quality": candidate.report.to_dict(),
-            "verification_passed": passed,
-            "verification_total": total,
+            "score": prepared.candidate.score,
+            "quality": prepared.candidate.report.to_dict(),
+            "verification_passed": prepared.passed,
+            "verification_total": prepared.total,
             "output_dir": str(puzzle_dir),
             "template_path": str(template_path),
         })
@@ -516,6 +594,12 @@ def main() -> None:
         default=2,
         help="Automatic define/verify rewrite rounds for failed clues",
     )
+    parser.add_argument(
+        "--preparation-attempts",
+        type=int,
+        default=3,
+        help="How many candidate puzzles to try before giving up on a size",
+    )
     args = parser.parse_args()
 
     output_root = Path(args.output_root)
@@ -536,6 +620,7 @@ def main() -> None:
                 output_root=output_root,
                 words_path=Path(args.words),
                 rewrite_rounds=args.rewrite_rounds,
+                preparation_attempts=args.preparation_attempts,
                 run_dir=preview_run_dir,
             )
             print("\nBatch complete:")

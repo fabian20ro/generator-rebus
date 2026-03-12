@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from dataclasses import dataclass
 
 from openai import OpenAI
 
@@ -55,15 +56,27 @@ VERIFY_SYSTEM_PROMPT = (
 
 RATE_SYSTEM_PROMPT = (
     "Evaluezi o definiție de rebus pe scara 1-10.\n"
-    "Criterii de evaluare:\n"
-    "- dacă include răspunsul sau o derivată clară: scor 1\n"
-    "- dacă duce spre alt răspuns: scor mic\n"
-    "- dacă e precisă și scurtă: scor mare\n"
-    "- dacă e banală dar corectă: scor mediu\n"
-    "Răspunzi STRICT JSON: {\"score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
+    "Întorci două scoruri distincte:\n"
+    "- semantic_score: cât de corectă și onestă este definiția pentru răspunsul dat\n"
+    "- guessability_score: cât de probabil este ca un rezolvitor să dea exact răspunsul cerut, de exact lungimea indicată, nu un sinonim mai comun\n"
+    "Criterii:\n"
+    "- dacă include răspunsul sau o derivată clară: semantic_score 1\n"
+    "- dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic\n"
+    "- dacă e precisă și scurtă: scoruri mari\n"
+    "- dacă e banală dar corectă: semantic mediu, guessability mediu sau mic\n"
+    "Răspunzi STRICT JSON: "
+    "{\"semantic_score\": <1-10>, \"guessability_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
 )
 
-RATE_MIN_QUALITY = 7
+RATE_MIN_SEMANTIC = 7
+RATE_MIN_GUESSABILITY = 6
+
+
+@dataclass(frozen=True)
+class DefinitionRating:
+    semantic_score: int
+    guessability_score: int
+    feedback: str
 
 
 def create_client() -> OpenAI:
@@ -85,6 +98,14 @@ def _definition_mentions_answer(answer: str, definition: str) -> bool:
     normalized_definition = normalize(definition).lower()
     pattern = rf"\b{re.escape(answer.lower())}\b"
     return re.search(pattern, normalized_definition) is not None
+
+
+def _clamp_score(value: int | str | None, default: int = 5) -> int:
+    try:
+        score = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        score = default
+    return max(1, min(10, score))
 
 
 def generate_definition(
@@ -191,10 +212,11 @@ def rewrite_definition(
     return previous_definition
 
 
-def verify_definition(client: OpenAI, definition: str) -> str:
+def verify_definition(client: OpenAI, definition: str, answer_length: int) -> str:
     """Ask AI to guess the word from a clue definition."""
     prompt = (
         f"Definiție: {definition}\n"
+        f"Lungime răspuns: {answer_length}\n"
         "Răspuns:"
     )
 
@@ -218,15 +240,17 @@ def rate_definition(
     word: str,
     original: str,
     definition: str,
-) -> tuple[int, str]:
-    """Rate a definition's quality. Returns (score 1-10, feedback)."""
+    answer_length: int,
+) -> DefinitionRating:
+    """Rate a definition's semantic quality and guessability."""
     display_word = original if original else word.lower()
     prompt = (
         f"Cuvânt-răspuns: {display_word}\n"
         f"Formă normalizată: {word}\n"
+        f"Lungime răspuns: {answer_length}\n"
         f"Definiție: {definition}\n\n"
-        "Evaluează calitatea definiției. Răspunde STRICT cu JSON: "
-        '{\"score\": <1-10>, \"feedback\": \"<motiv scurt>\"}'
+        "Evaluează separat corectitudinea semantică și ghicibilitatea exactă. "
+        "Răspunde STRICT cu JSON."
     )
 
     try:
@@ -244,11 +268,13 @@ def rate_definition(
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:
             data = json.loads(match.group())
-            score = int(data.get("score", 5))
-            score = max(1, min(10, score))
             feedback = str(data.get("feedback", ""))
-            return score, feedback
+            return DefinitionRating(
+                semantic_score=_clamp_score(data.get("semantic_score")),
+                guessability_score=_clamp_score(data.get("guessability_score")),
+                feedback=feedback,
+            )
     except Exception:
         pass
 
-    return 5, ""
+    return DefinitionRating(semantic_score=5, guessability_score=5, feedback="")
