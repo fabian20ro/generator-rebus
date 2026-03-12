@@ -94,7 +94,7 @@
 }
 
 .clue-section h3 {
-  font-size: 1rem;
+  font-size: calc(var(--clue-font-size, 0.9rem) + 0.1rem);
   margin-bottom: 0.5rem;
   padding-bottom: 0.25rem;
   border-bottom: 2px solid var(--accent);
@@ -107,7 +107,7 @@
 
 .clue-item {
   padding: 0.4rem 0.5rem;
-  font-size: 0.9rem;
+  font-size: var(--clue-font-size, 0.9rem);
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.1s;
@@ -126,4 +126,40 @@
 .clue-item--complete {
   text-decoration: line-through;
   color: #999;
+}
+
+/* Font scaler controls */
+.font-scaler {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.font-scaler__btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: var(--card-bg);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  transition: background 0.1s;
+}
+
+.font-scaler__btn:hover {
+  background: var(--accent-light);
+}
+
+.font-scaler__label {
+  font-size: 0.75rem;
+  color: #666;
+  min-width: 2.5rem;
+  text-align: center;
 }

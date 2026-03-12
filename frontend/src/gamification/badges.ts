@@ -5,7 +5,7 @@
  * Extensible: add new badge definitions to BADGE_DEFINITIONS.
  */
 
-import type { PlayerData } from "./storage";
+import { STARTING_POINTS, type PlayerData } from "./storage";
 
 export interface Badge {
   id: string;
@@ -162,8 +162,8 @@ export function evaluateBadges(data: PlayerData): EarnedBadge[] {
         break;
 
       case "hacker":
-        // Points higher than theoretically possible from puzzles solved
-        if (count > 0 && data.totalPoints > count * 500 * 2.5) {
+        // Points higher than starting + max theoretically earnable from puzzles
+        if (count > 0 && data.totalPoints > STARTING_POINTS + count * 500 * 2.5) {
           isEarned = true;
           earnedAt = new Date().toISOString();
         }

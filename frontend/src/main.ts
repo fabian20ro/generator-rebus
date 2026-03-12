@@ -44,6 +44,7 @@ import {
   hintWordCost,
 } from "./gamification/scoring";
 import { evaluateBadges } from "./gamification/badges";
+import { applySavedFontSize, initFontScaler } from "./components/font-scaler";
 
 // --- DOM elements ---
 const puzzleSelector = document.getElementById("puzzle-selector")!;
@@ -374,5 +375,7 @@ btnCloseModal.addEventListener("click", () => {
 });
 
 // --- Init ---
+applySavedFontSize();
+initFontScaler(document.querySelector(".clues-container")!);
 updatePointsDisplay();
 showPuzzleList();

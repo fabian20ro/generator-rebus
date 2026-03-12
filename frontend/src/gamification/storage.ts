@@ -5,6 +5,9 @@
 
 const STORAGE_KEY = "rebus_player_data";
 
+/** Starting points for new players. Configurable. */
+export const STARTING_POINTS = 500;
+
 export interface PuzzleRecord {
   puzzleId: string;
   completedAt: string; // ISO date
@@ -24,7 +27,7 @@ export interface PlayerData {
 
 function defaultPlayerData(): PlayerData {
   return {
-    totalPoints: 0,
+    totalPoints: STARTING_POINTS,
     puzzlesSolved: [],
     createdAt: new Date().toISOString(),
   };
