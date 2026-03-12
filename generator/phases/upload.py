@@ -27,6 +27,10 @@ def _grid_to_json(grid: list[list[str]]) -> tuple[str, str]:
     return json.dumps(template), json.dumps(solution)
 
 
+def _clean_definition(definition: str) -> str:
+    return definition.split("→", 1)[0].strip()
+
+
 def _extract_individual_clues(clues: list[ClueEntry], direction: str,
                               grid: list[list[str]]) -> list[dict]:
     """Extract individual clue records for database insertion."""
@@ -90,17 +94,11 @@ def _find_word_positions(grid: list[list[str]], direction: str) -> list[tuple[in
     return words
 
 
-def run(input_file: str, output_file: str, **kwargs) -> None:
-    """Upload a puzzle to Supabase."""
-    force = kwargs.get("force", False)
-
+def upload_puzzle(puzzle, force: bool = False) -> str:
+    """Upload a parsed puzzle object and return the puzzle ID."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
         sys.exit(1)
-
-    print(f"Reading puzzle from {input_file}...")
-    with open(input_file, "r", encoding="utf-8") as f:
-        puzzle = parse_markdown(f.read())
 
     if not puzzle.grid:
         print("Error: no grid found in puzzle")
@@ -142,7 +140,7 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
                     "word_normalized": clue.word_normalized,
                     "word_original": clue.word_original or clue.word_normalized.lower(),
                     "clue_number": clue_number,
-                    "definition": clue.definition or "",
+                    "definition": _clean_definition(clue.definition or ""),
                 })
                 clue_number += 1
                 h_pos_idx += 1
@@ -162,7 +160,7 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
                     "word_normalized": clue.word_normalized,
                     "word_original": clue.word_original or clue.word_normalized.lower(),
                     "clue_number": v_clue_number,
-                    "definition": clue.definition or "",
+                    "definition": _clean_definition(clue.definition or ""),
                 })
                 v_clue_number += 1
                 v_pos_idx += 1
@@ -196,3 +194,15 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
 
     print(f"Uploaded! Puzzle ID: {puzzle_id}")
     print(f"Run 'python rebus.py activate {puzzle_id}' to publish it.")
+    return puzzle_id
+
+
+def run(input_file: str, output_file: str, **kwargs) -> None:
+    """Upload a puzzle to Supabase."""
+    force = kwargs.get("force", False)
+
+    print(f"Reading puzzle from {input_file}...")
+    with open(input_file, "r", encoding="utf-8") as f:
+        puzzle = parse_markdown(f.read())
+
+    upload_puzzle(puzzle, force=force)
