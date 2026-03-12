@@ -6,33 +6,51 @@
   <title>Rebus Românesc</title>
   <link rel="stylesheet" href="/src/styles/main.css">
   <link rel="stylesheet" href="/src/styles/grid.css">
+  <link rel="stylesheet" href="/src/styles/gamification.css">
   <link rel="stylesheet" href="/src/styles/responsive.css">
 </head>
 <body>
   <div id="app">
     <header>
-      <h1>Rebus Românesc</h1>
+      <div class="header-row">
+        <h1>Rebus Românesc</h1>
+        <div class="header-points" id="header-points" title="Punctele tale"></div>
+      </div>
       <p id="puzzle-title" class="subtitle"></p>
+      <nav class="nav-tabs" id="nav-tabs">
+        <button class="nav-tab nav-tab--active" data-tab="puzzles">Rebusuri</button>
+        <button class="nav-tab" data-tab="stats">Profil</button>
+      </nav>
     </header>
 
     <main>
-      <!-- Puzzle selector (shown when no puzzle is loaded) -->
+      <!-- Puzzle selector -->
       <div id="puzzle-selector" class="panel">
-        <h2>Alege un rebus</h2>
         <div id="puzzle-list" class="puzzle-list">
           <p class="loading">Se încarcă...</p>
         </div>
       </div>
 
-      <!-- Puzzle view (shown when a puzzle is loaded) -->
+      <!-- Stats / Profile panel -->
+      <div id="stats-panel" class="panel hidden"></div>
+
+      <!-- Puzzle view -->
       <div id="puzzle-view" class="puzzle-view hidden">
         <div class="puzzle-layout">
           <div class="grid-container">
+            <!-- Active definition bar -->
+            <div id="definition-bar" class="definition-bar definition-bar--empty"></div>
             <div id="grid" class="grid"></div>
             <div class="toolbar">
-              <button id="btn-check" class="btn" title="Verifică răspunsurile">Verifică</button>
-              <button id="btn-hint-letter" class="btn" title="Arată litera selectată">Arată litera</button>
-              <button id="btn-hint-word" class="btn" title="Arată cuvântul selectat">Arată cuvântul</button>
+              <button id="btn-check" class="btn btn-tool" title="Verifică răspunsurile">Verifică</button>
+              <button id="btn-hint-letter" class="btn btn-hint" title="Arată litera selectată">
+                <span class="btn-hint__label">Literă</span>
+                <span class="btn-hint__cost" id="hint-letter-cost"></span>
+              </button>
+              <button id="btn-hint-word" class="btn btn-hint" title="Arată cuvântul selectat">
+                <span class="btn-hint__label">Cuvânt</span>
+                <span class="btn-hint__cost" id="hint-word-cost"></span>
+              </button>
               <button id="btn-back" class="btn btn-secondary">Înapoi</button>
             </div>
           </div>
@@ -53,10 +71,13 @@
       <div id="completion-modal" class="modal hidden">
         <div class="modal-content">
           <h2>Felicitări!</h2>
-          <p>Ai rezolvat rebusul!</p>
+          <div id="completion-details"></div>
           <button id="btn-close-modal" class="btn">OK</button>
         </div>
       </div>
+
+      <!-- Toast notifications -->
+      <div id="toast-container" class="toast-container"></div>
     </main>
   </div>
 

@@ -1,29 +1,58 @@
 /**
- * Hint system: reveal letters, check answers.
+ * Hint system: reveal letters/words, check answers.
+ * Hints cost points from the gamification system.
  */
 
 import type { GridState } from "./grid-renderer";
 import { findActiveClue } from "./grid-renderer";
+import { hintLetterCost, hintWordCost } from "../gamification/scoring";
+import { getPoints, spendPoints } from "../gamification/storage";
 
-export function revealLetter(state: GridState): boolean {
-  if (!state.solution) return false;
-  if (state.activeRow < 0 || state.activeCol < 0) return false;
-  if (!state.template[state.activeRow][state.activeCol]) return false;
+export interface HintResult {
+  success: boolean;
+  reason?: "no_solution" | "no_selection" | "not_enough_points";
+  cost?: number;
+}
+
+export function revealLetter(
+  state: GridState,
+  difficulty: number
+): HintResult {
+  if (!state.solution) return { success: false, reason: "no_solution" };
+  if (state.activeRow < 0 || state.activeCol < 0)
+    return { success: false, reason: "no_selection" };
+  if (!state.template[state.activeRow][state.activeCol])
+    return { success: false, reason: "no_selection" };
+
+  const cost = hintLetterCost(difficulty);
+  if (getPoints() < cost) {
+    return { success: false, reason: "not_enough_points", cost };
+  }
 
   const answer = state.solution[state.activeRow][state.activeCol];
   if (answer) {
+    spendPoints(cost);
     state.cells[state.activeRow][state.activeCol] = answer;
-    return true;
+    return { success: true, cost };
   }
-  return false;
+  return { success: false, reason: "no_selection" };
 }
 
-export function revealWord(state: GridState): boolean {
-  if (!state.solution) return false;
+export function revealWord(
+  state: GridState,
+  difficulty: number
+): HintResult {
+  if (!state.solution) return { success: false, reason: "no_solution" };
 
   const clue = findActiveClue(state);
-  if (!clue) return false;
+  if (!clue) return { success: false, reason: "no_selection" };
 
+  const cost = hintWordCost(difficulty);
+  if (getPoints() < cost) {
+    return { success: false, reason: "not_enough_points", cost };
+  }
+
+  spendPoints(cost);
   for (let i = 0; i < clue.length; i++) {
     const r = clue.direction === "H" ? clue.start_row : clue.start_row + i;
     const c = clue.direction === "H" ? clue.start_col + i : clue.start_col;
@@ -32,7 +61,7 @@ export function revealWord(state: GridState): boolean {
       state.cells[r][c] = answer;
     }
   }
-  return true;
+  return { success: true, cost };
 }
 
 export function checkPuzzle(state: GridState): {
@@ -59,7 +88,6 @@ export function checkPuzzle(state: GridState): {
         correct++;
       } else {
         wrong++;
-        // Mark as wrong temporarily (will be cleared on next input)
         state.cells[r][c] = "!";
       }
     }
