@@ -374,6 +374,19 @@ btnCloseModal.addEventListener("click", () => {
   completionModal.classList.add("hidden");
 });
 
+// --- PWA: check for service worker updates every 3 minutes ---
+import { registerSW } from "virtual:pwa-register";
+
+registerSW({
+  onRegisteredSW(swUrl, registration) {
+    if (registration) {
+      setInterval(() => {
+        registration.update();
+      }, 3 * 60 * 1000);
+    }
+  },
+});
+
 // --- Init ---
 applySavedFontSize();
 initFontScaler(document.querySelector(".clues-container")!);
