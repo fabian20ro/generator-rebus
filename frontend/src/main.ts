@@ -1,6 +1,6 @@
 /**
  * Main application entry point.
- * Wires together all components: puzzle selector, grid, clues, hints.
+ * Wires together: puzzle selector, grid, clues, hints, gamification.
  */
 
 import {
@@ -29,8 +29,24 @@ import {
   checkPuzzle,
   isPuzzleComplete,
 } from "./components/hint-system";
+import { renderDefinitionBar } from "./components/definition-bar";
+import { renderStatsPanel } from "./components/stats-panel";
+import { showToast } from "./components/toast";
+import {
+  loadPlayerData,
+  recordPuzzleCompletion,
+  getPoints,
+  isPuzzleAlreadySolved,
+} from "./gamification/storage";
+import {
+  calculateScore,
+  hintLetterCost,
+  hintWordCost,
+} from "./gamification/scoring";
+import { evaluateBadges } from "./gamification/badges";
+import { applySavedFontSize, initFontScaler } from "./components/font-scaler";
 
-// DOM elements
+// --- DOM elements ---
 const puzzleSelector = document.getElementById("puzzle-selector")!;
 const puzzleList = document.getElementById("puzzle-list")!;
 const puzzleView = document.getElementById("puzzle-view")!;
@@ -44,10 +60,63 @@ const btnHintWord = document.getElementById("btn-hint-word")!;
 const btnBack = document.getElementById("btn-back")!;
 const completionModal = document.getElementById("completion-modal")!;
 const btnCloseModal = document.getElementById("btn-close-modal")!;
+const definitionBar = document.getElementById("definition-bar")!;
+const headerPoints = document.getElementById("header-points")!;
+const statsPanel = document.getElementById("stats-panel")!;
+const hintLetterCostEl = document.getElementById("hint-letter-cost")!;
+const hintWordCostEl = document.getElementById("hint-word-cost")!;
+const completionDetails = document.getElementById("completion-details")!;
+const navTabs = document.getElementById("nav-tabs")!;
 
+// --- State ---
 let gridState: GridState | null = null;
+let currentPuzzleId: string | null = null;
+let currentDifficulty = 1;
+let currentGridSize = 10;
+let puzzleStartTime = 0;
+let hintsUsedCount = 0;
 
-// --- Re-render the grid and clues ---
+// --- Points display ---
+function updatePointsDisplay(): void {
+  const pts = getPoints();
+  headerPoints.textContent = `${pts} pts`;
+}
+
+function updateHintCosts(): void {
+  hintLetterCostEl.textContent = `${hintLetterCost(currentDifficulty)} pts`;
+  hintWordCostEl.textContent = `${hintWordCost(currentDifficulty)} pts`;
+}
+
+// --- Navigation ---
+function showTab(tab: "puzzles" | "stats"): void {
+  navTabs.querySelectorAll(".nav-tab").forEach((btn) => {
+    btn.classList.toggle(
+      "nav-tab--active",
+      (btn as HTMLElement).dataset.tab === tab
+    );
+  });
+
+  puzzleView.classList.add("hidden");
+  puzzleTitle.textContent = "";
+
+  if (tab === "puzzles") {
+    puzzleSelector.classList.remove("hidden");
+    statsPanel.classList.add("hidden");
+    showPuzzleList();
+  } else {
+    puzzleSelector.classList.add("hidden");
+    statsPanel.classList.remove("hidden");
+    renderStatsPanel(statsPanel);
+  }
+}
+
+navTabs.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest("[data-tab]") as HTMLElement;
+  if (!btn) return;
+  showTab(btn.dataset.tab as "puzzles" | "stats");
+});
+
+// --- Re-render the grid, clues, and definition bar ---
 function refresh(): void {
   if (!gridState) return;
 
@@ -62,11 +131,9 @@ function refresh(): void {
     (row, col, value) => {
       handleCellInput(gridState!, row, col, value);
       refresh();
-      // Focus the next cell (cursor already advanced by handleCellInput)
       focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
-      // Check completion
       if (isPuzzleComplete(gridState!)) {
-        completionModal.classList.remove("hidden");
+        handleCompletion();
       }
     },
     (row, col, e) => {
@@ -85,6 +152,88 @@ function refresh(): void {
     refresh();
     focusCell(gridContainer, clue.start_row, clue.start_col);
   });
+
+  renderDefinitionBar(definitionBar, gridState);
+}
+
+// --- Completion handler ---
+function handleCompletion(): void {
+  if (!currentPuzzleId || !gridState) return;
+  if (isPuzzleAlreadySolved(currentPuzzleId)) {
+    completionDetails.innerHTML = "<p>Ai rezolvat deja acest rebus!</p>";
+    completionModal.classList.remove("hidden");
+    return;
+  }
+
+  const timeSeconds = Math.round((Date.now() - puzzleStartTime) / 1000);
+  const score = calculateScore({
+    difficulty: currentDifficulty,
+    gridSize: currentGridSize,
+    timeSeconds,
+    hintsUsed: hintsUsedCount,
+  });
+
+  // Get badges before recording
+  const badgesBefore = new Set(
+    evaluateBadges(loadPlayerData()).map((b) => b.id)
+  );
+
+  const record = {
+    puzzleId: currentPuzzleId,
+    completedAt: new Date().toISOString(),
+    timeSeconds,
+    difficulty: currentDifficulty,
+    gridSize: currentGridSize,
+    hintsUsed: hintsUsedCount,
+    pointsEarned: score.total,
+    pointsSpent: 0,
+  };
+
+  recordPuzzleCompletion(record);
+  updatePointsDisplay();
+
+  // Check for new badges
+  const badgesAfter = evaluateBadges(loadPlayerData());
+  const newBadges = badgesAfter.filter((b) => !badgesBefore.has(b.id));
+
+  // Build completion modal content
+  const timeStr = formatTime(timeSeconds);
+  let html = `
+    <div class="completion-score">
+      <span class="completion-score__total">+${score.total}</span>
+      <span class="completion-score__label">puncte</span>
+    </div>
+    <div class="completion-breakdown">
+      <span><em>Baz\u0103</em> <strong>+${score.base}</strong></span>
+      ${score.speedBonus > 0 ? `<span><em>Vitez\u0103</em> <strong>+${score.speedBonus}</strong></span>` : ""}
+      ${score.noHintBonus > 0 ? `<span><em>F\u0103r\u0103 indicii</em> <strong>+${score.noHintBonus}</strong></span>` : ""}
+    </div>
+    <p>Timp: ${timeStr} | Indicii: ${hintsUsedCount}</p>
+  `;
+
+  if (newBadges.length > 0) {
+    html += `<div class="completion-badges">`;
+    for (const b of newBadges) {
+      html += `<span class="completion-badge" title="${b.name}">${b.icon}</span>`;
+    }
+    html += `</div>`;
+    html += `<p><strong>Insigne noi!</strong></p>`;
+  }
+
+  completionDetails.innerHTML = html;
+  completionModal.classList.remove("hidden");
+}
+
+function formatTime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
 }
 
 // --- Load a puzzle ---
@@ -94,6 +243,11 @@ async function loadPuzzle(id: string): Promise<void> {
     const template: boolean[][] = JSON.parse(data.puzzle.grid_template);
 
     gridState = createGridState(data.puzzle.grid_size, template, data.clues);
+    currentPuzzleId = id;
+    currentDifficulty = data.puzzle.difficulty;
+    currentGridSize = data.puzzle.grid_size;
+    puzzleStartTime = Date.now();
+    hintsUsedCount = 0;
 
     // Load solution in background
     getSolution(id)
@@ -108,7 +262,11 @@ async function loadPuzzle(id: string): Promise<void> {
 
     puzzleTitle.textContent = data.puzzle.title || "Rebus";
     puzzleSelector.classList.add("hidden");
+    statsPanel.classList.add("hidden");
     puzzleView.classList.remove("hidden");
+    navTabs.classList.add("hidden");
+
+    updateHintCosts();
 
     // Focus the first letter cell
     for (let r = 0; r < gridState.size; r++) {
@@ -126,36 +284,38 @@ async function loadPuzzle(id: string): Promise<void> {
     refresh();
   } catch (err) {
     console.error("Failed to load puzzle:", err);
-    alert("Nu s-a putut încărca rebusul.");
+    showToast("Nu s-a putut \u00eenc\u0103rca rebusul.", "warning");
   }
 }
 
 // --- Show puzzle list ---
 async function showPuzzleList(): Promise<void> {
   gridState = null;
+  currentPuzzleId = null;
   puzzleView.classList.add("hidden");
+  statsPanel.classList.add("hidden");
   puzzleSelector.classList.remove("hidden");
   puzzleTitle.textContent = "";
+  navTabs.classList.remove("hidden");
 
   try {
     const puzzles = await listPuzzles();
     renderPuzzleList(puzzleList, puzzles, loadPuzzle);
   } catch (err) {
     console.error("Failed to load puzzle list:", err);
-    puzzleList.innerHTML = "<p>Nu s-au putut încărca rebus-urile. Verifică conexiunea.</p>";
+    puzzleList.innerHTML =
+      "<p>Nu s-au putut \u00eenc\u0103rca rebus-urile. Verific\u0103 conexiunea.</p>";
   }
 }
 
 // --- Button handlers ---
 btnCheck.addEventListener("click", () => {
   if (!gridState) return;
-  const { correct, wrong, empty } = checkPuzzle(gridState);
+  const { wrong, empty } = checkPuzzle(gridState);
   refresh();
   if (wrong === 0 && empty === 0) {
-    completionModal.classList.remove("hidden");
+    handleCompletion();
   } else {
-    // Wrong cells are temporarily marked with "!" — they'll show in red
-    // Clear the "!" marks after a delay
     setTimeout(() => {
       if (!gridState) return;
       for (let r = 0; r < gridState.size; r++) {
@@ -172,27 +332,63 @@ btnCheck.addEventListener("click", () => {
 
 btnHintLetter.addEventListener("click", () => {
   if (!gridState) return;
-  revealLetter(gridState);
-  refresh();
-  if (isPuzzleComplete(gridState)) {
-    completionModal.classList.remove("hidden");
+  const result = revealLetter(gridState, currentDifficulty);
+  if (result.success) {
+    hintsUsedCount++;
+    updatePointsDisplay();
+    refresh();
+    if (isPuzzleComplete(gridState)) {
+      handleCompletion();
+    }
+  } else if (result.reason === "not_enough_points") {
+    showToast(
+      `Nu ai suficiente puncte! Ai nevoie de ${result.cost} pts.`,
+      "warning"
+    );
   }
 });
 
 btnHintWord.addEventListener("click", () => {
   if (!gridState) return;
-  revealWord(gridState);
-  refresh();
-  if (isPuzzleComplete(gridState)) {
-    completionModal.classList.remove("hidden");
+  const result = revealWord(gridState, currentDifficulty);
+  if (result.success) {
+    hintsUsedCount++;
+    updatePointsDisplay();
+    refresh();
+    if (isPuzzleComplete(gridState)) {
+      handleCompletion();
+    }
+  } else if (result.reason === "not_enough_points") {
+    showToast(
+      `Nu ai suficiente puncte! Ai nevoie de ${result.cost} pts.`,
+      "warning"
+    );
   }
 });
 
-btnBack.addEventListener("click", showPuzzleList);
+btnBack.addEventListener("click", () => {
+  showTab("puzzles");
+});
 
 btnCloseModal.addEventListener("click", () => {
   completionModal.classList.add("hidden");
 });
 
+// --- PWA: check for service worker updates every 3 minutes ---
+import { registerSW } from "virtual:pwa-register";
+
+registerSW({
+  onRegisteredSW(swUrl, registration) {
+    if (registration) {
+      setInterval(() => {
+        registration.update();
+      }, 3 * 60 * 1000);
+    }
+  },
+});
+
 // --- Init ---
+applySavedFontSize();
+initFontScaler(document.querySelector(".clues-container")!);
+updatePointsDisplay();
 showPuzzleList();

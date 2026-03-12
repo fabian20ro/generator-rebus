@@ -1,0 +1,333 @@
+/* --- Definition bar above grid --- */
+.definition-bar {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card-bg);
+  border: 2px solid var(--black-cell);
+  border-bottom: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  transition: opacity 0.15s;
+}
+
+.definition-bar--empty {
+  opacity: 0.3;
+}
+
+.definition-bar__badge {
+  display: inline-block;
+  background: var(--black-cell);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.definition-bar__text {
+  font-style: italic;
+  color: var(--text);
+}
+
+/* --- Header points display --- */
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.header-points {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* --- Navigation tabs --- */
+.nav-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  margin-top: 0.75rem;
+  border-bottom: 2px solid var(--black-cell);
+}
+
+.nav-tab {
+  padding: 0.5rem 1.5rem;
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  font-family: "Georgia", "Times New Roman", serif;
+  font-weight: 600;
+  color: #999;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+}
+
+.nav-tab--active {
+  color: var(--text);
+  border-bottom-color: var(--black-cell);
+}
+
+/* --- Hint buttons with cost --- */
+.btn-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.4rem 0.75rem;
+  background: #6b7280;
+}
+
+.btn-hint:hover {
+  background: #4b5563;
+}
+
+.btn-hint__label {
+  font-size: 0.85rem;
+}
+
+.btn-hint__cost {
+  font-size: 0.65rem;
+  opacity: 0.8;
+}
+
+.btn-tool {
+  background: var(--accent);
+}
+
+/* --- Stats panel --- */
+.stats-header {
+  margin-bottom: 1.5rem;
+}
+
+.stats-summary {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-value {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* --- Badge grid --- */
+.badges-section {
+  margin-bottom: 1.5rem;
+}
+
+.badges-section h3 {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.badge-card {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 0.75rem;
+  text-align: center;
+  box-shadow: var(--shadow);
+  transition: transform 0.15s;
+}
+
+.badge-card--unlocked {
+  border: 2px solid var(--cell-active);
+}
+
+.badge-card--locked {
+  opacity: 0.4;
+  filter: grayscale(100%);
+  border: 2px solid transparent;
+}
+
+.badge-icon {
+  font-size: 1.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.badge-name {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.15rem;
+}
+
+.badge-desc {
+  font-size: 0.7rem;
+  color: #666;
+  line-height: 1.3;
+}
+
+/* --- History table --- */
+.history-section h3 {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.history-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.history-row {
+  display: flex;
+  gap: 1rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #eee;
+}
+
+.history-date {
+  flex: 0 0 5rem;
+  color: #666;
+}
+
+.history-time {
+  flex: 0 0 4rem;
+}
+
+.history-hints {
+  flex: 1;
+  color: #999;
+}
+
+.history-points {
+  font-weight: 600;
+  color: var(--accent);
+  text-align: right;
+}
+
+/* --- Completion modal enhancements --- */
+.completion-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.completion-score__total {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.completion-score__label {
+  font-size: 0.8rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.completion-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  text-align: left;
+  max-width: 200px;
+  margin: 0 auto 0.75rem;
+}
+
+.completion-breakdown span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.completion-badges {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+.completion-badge {
+  font-size: 1.5rem;
+  animation: badge-pop 0.4s ease-out;
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.3); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* --- Toast notifications --- */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--black-cell);
+  color: #fff;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  animation: toast-in 0.3s ease-out;
+  pointer-events: auto;
+}
+
+.toast--warning {
+  background: #b45309;
+}
+
+@keyframes toast-in {
+  from { transform: translateY(1rem); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
