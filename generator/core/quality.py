@@ -79,14 +79,28 @@ def score_words(words: list[str], metadata: dict[str, dict], size: int) -> Quali
     score += avg_length * 14.0
     score += friendly * 4.0
     score -= avg_rarity * 40.0
-    score -= two_letter * (34.0 if size == 7 else 22.0 if size == 10 else 14.0)
-    score -= three_letter * (12.0 if size == 7 else 8.0 if size == 10 else 5.0)
+    if size == 7:
+        two_letter_penalty = 34.0
+        three_letter_penalty = 12.0
+    elif size == 10:
+        two_letter_penalty = 22.0
+        three_letter_penalty = 8.0
+    elif size == 12:
+        two_letter_penalty = 18.0
+        three_letter_penalty = 6.0
+    else:
+        two_letter_penalty = 14.0
+        three_letter_penalty = 5.0
+    score -= two_letter * two_letter_penalty
+    score -= three_letter * three_letter_penalty
     score -= high_rarity * 18.0
     score -= uncommon * 10.0
     if size == 7:
         score -= max(0, two_letter - 2) * 18.0
     elif size == 10:
         score -= max(0, two_letter - 5) * 12.0
+    elif size == 12:
+        score -= max(0, two_letter - 8) * 10.0
     else:
         score -= max(0, two_letter - 9) * 8.0
 

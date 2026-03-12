@@ -16,20 +16,23 @@ def get_pattern(slot: Slot, grid: list[list[str | None]]) -> list[str | None]:
 
 
 def assign(slot: Slot, word: WordEntry, grid: list[list[str | None]],
-           assignment: dict[int, WordEntry], used_words: set[str]) -> None:
+           assignment: dict[int, WordEntry], used_words: set[str],
+           allow_reuse: bool = False) -> None:
     """Assign a word to a slot, updating grid and tracking structures."""
     assignment[slot.id] = word
-    used_words.add(word.normalized)
+    if not allow_reuse:
+        used_words.add(word.normalized)
     for i, (r, c) in enumerate(slot.cells):
         grid[r][c] = word.normalized[i]
 
 
 def unassign(slot: Slot, word: WordEntry, grid: list[list[str | None]],
              assignment: dict[int, WordEntry], used_words: set[str],
-             slots: list[Slot]) -> None:
+             slots: list[Slot], allow_reuse: bool = False) -> None:
     """Remove a word assignment, restoring the grid state."""
     del assignment[slot.id]
-    used_words.discard(word.normalized)
+    if not allow_reuse:
+        used_words.discard(word.normalized)
     for i, (r, c) in enumerate(slot.cells):
         # Only clear if no other assigned slot uses this cell
         other_uses = False
@@ -84,7 +87,8 @@ def select_mrv(slots: list[Slot], assignment: dict[int, WordEntry],
 def solve(slots: list[Slot], word_index: WordIndex,
           assignment: dict[int, WordEntry], used_words: set[str],
           grid: list[list[str | None]], max_backtracks: int = 50000,
-          _counter: list[int] | None = None) -> dict[int, WordEntry] | None:
+          _counter: list[int] | None = None,
+          allow_reuse: bool = False) -> dict[int, WordEntry] | None:
     """Solve the crossword using CSP backtracking with MRV and forward checking.
 
     Returns the assignment dict if successful, None if no solution found.
@@ -100,8 +104,10 @@ def solve(slots: list[Slot], word_index: WordIndex,
         return assignment  # all assigned
 
     pattern = get_pattern(slot, grid)
-    candidates = [w for w in word_index.find_matching(pattern)
-                  if w.normalized not in used_words]
+    candidates = [
+        w for w in word_index.find_matching(pattern)
+        if allow_reuse or w.normalized not in used_words
+    ]
     random.shuffle(candidates)
 
     for word in candidates:
@@ -109,14 +115,14 @@ def solve(slots: list[Slot], word_index: WordIndex,
         if _counter[0] > max_backtracks:
             return None
 
-        assign(slot, word, grid, assignment, used_words)
+        assign(slot, word, grid, assignment, used_words, allow_reuse=allow_reuse)
 
         if forward_check(slot, slots, word_index, grid, assignment, used_words):
             result = solve(slots, word_index, assignment, used_words, grid,
-                          max_backtracks, _counter)
+                          max_backtracks, _counter, allow_reuse=allow_reuse)
             if result is not None:
                 return result
 
-        unassign(slot, word, grid, assignment, used_words, slots)
+        unassign(slot, word, grid, assignment, used_words, slots, allow_reuse=allow_reuse)
 
     return None

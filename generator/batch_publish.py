@@ -13,7 +13,13 @@ from pathlib import Path
 
 from .core.ai_clues import create_client, rate_definition, rewrite_definition, RATE_MIN_QUALITY
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
-from .core.markdown_io import ClueEntry, parse_markdown, write_filled_grid, write_with_definitions
+from .core.markdown_io import (
+    ClueEntry,
+    parse_markdown,
+    write_filled_grid,
+    write_grid_template,
+    write_with_definitions,
+)
 from .core.quality import QualityReport, filter_word_records, score_words
 from .core.slot_extractor import Slot, extract_slots
 from .core.word_index import WordEntry, WordIndex
@@ -40,6 +46,7 @@ class SizeSettings:
 class Candidate:
     score: float
     report: QualityReport
+    template: list[list[bool]]
     markdown: str
 
 
@@ -47,13 +54,34 @@ def _easy_large_template(size: int) -> list[list[bool]] | None:
     if size != 15:
         return None
     patterns = [
-        "..#..#..#..#...",
-        "...#...#...#...",
+        "#..#..#..#..#..",
+        "..#..#..#..#..#",
+        "#...#...#...#..",
+        "..#...#...#...#",
     ]
-    pattern = random.choice(patterns)
     grid: list[list[bool]] = []
     for row_index in range(size):
         if row_index % 3 == 2:
+            pattern = patterns[(row_index // 3) % len(patterns)]
+            grid.append([ch == "." for ch in pattern])
+        else:
+            grid.append([True] * size)
+    return grid
+
+
+def _easy_medium_template(size: int) -> list[list[bool]] | None:
+    if size != 12:
+        return None
+    patterns = [
+        "..#..#..#..#",
+        "#..#...#..#.",
+        ".#..#..#...#",
+        "..#...#..#..",
+    ]
+    grid: list[list[bool]] = []
+    for row_index in range(size):
+        if row_index % 3 == 2:
+            pattern = patterns[(row_index // 3) % len(patterns)]
             grid.append([ch == "." for ch in pattern])
         else:
             grid.append([True] * size)
@@ -105,6 +133,16 @@ def _settings_for_size(size: int) -> SizeSettings:
             max_two_letter_slots=10,
             min_candidates_per_slot=18,
         )
+    if size == 12:
+        return SizeSettings(
+            max_rarity=4,
+            max_backtracks=180000,
+            target_blacks=28,
+            solved_candidates=3,
+            attempt_budget=60,
+            max_two_letter_slots=16,
+            min_candidates_per_slot=10,
+        )
     return SizeSettings(
         max_rarity=5,
         max_backtracks=350000,
@@ -135,7 +173,8 @@ def _slot_capacity_ok(slots: list[Slot], word_index: WordIndex, settings: SizeSe
     if sum(1 for slot in slots if slot.length == 2) > settings.max_two_letter_slots:
         return False
     for slot in slots:
-        if word_index.count_matching([None] * slot.length) < settings.min_candidates_per_slot:
+        required = 1 if slot.length >= 10 else settings.min_candidates_per_slot
+        if word_index.count_matching([None] * slot.length) < required:
             return False
     return True
 
@@ -185,6 +224,8 @@ def _generate_candidate(
     hardcoded_probability = 0.4 if size in (7, 10) else 0.05
     if size == 15 and random.random() < 0.7:
         template = _easy_large_template(size)
+    elif size == 12 and random.random() < 0.65:
+        template = _easy_medium_template(size)
     elif hardcoded_templates and random.random() < hardcoded_probability:
         template = parse_template(random.choice(hardcoded_templates))
     else:
@@ -209,14 +250,22 @@ def _generate_candidate(
     ]
     assignment: dict[int, WordEntry] = {}
     used_words: set[str] = set()
-    result = solve(slots, word_index, assignment, used_words, grid, settings.max_backtracks)
+    result = solve(
+        slots,
+        word_index,
+        assignment,
+        used_words,
+        grid,
+        settings.max_backtracks,
+        allow_reuse=size >= 15,
+    )
     if result is None:
         return None
 
     words = [result[slot.id].normalized for slot in slots]
     report = score_words(words, metadata, size)
     markdown = _render_filled_markdown(size, template, slots, result, title)
-    return Candidate(score=report.score, report=report, markdown=markdown)
+    return Candidate(score=report.score, report=report, template=template, markdown=markdown)
 
 
 def _best_candidate(size: int, title: str, raw_words: list[dict]) -> Candidate:
@@ -365,7 +414,9 @@ def run_batch(sizes: list[int], output_root: Path, words_path: Path, rewrite_rou
         print(f"\n=== Puzzle {index}/{len(sizes)}: {title} ===")
 
         candidate = _best_candidate(size, title, raw_words)
+        template_path = puzzle_dir / "template.md"
         filled_path = puzzle_dir / "filled.md"
+        _write_text(template_path, write_grid_template(size, candidate.template))
         _write_text(filled_path, candidate.markdown)
 
         puzzle = parse_markdown(candidate.markdown)
@@ -391,6 +442,7 @@ def run_batch(sizes: list[int], output_root: Path, words_path: Path, rewrite_rou
             "verification_passed": passed,
             "verification_total": total,
             "output_dir": str(puzzle_dir),
+            "template_path": str(template_path),
         })
         _write_text(run_dir / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
 
@@ -403,8 +455,8 @@ def main() -> None:
         "--sizes",
         type=int,
         nargs="+",
-        default=[7, 7, 10, 15, 15],
-        choices=[7, 10, 15],
+        default=[7, 7, 10, 12, 12],
+        choices=[7, 10, 12, 15],
         help="Puzzle sizes to generate in order",
     )
     parser.add_argument(

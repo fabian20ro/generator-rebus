@@ -44,7 +44,7 @@ def main():
     parser.add_argument("input_file", help="Input file path (use '-' for none)")
     parser.add_argument("output_file", nargs="?", default="-",
                         help="Output file path (use '-' for stdout/none)")
-    parser.add_argument("--size", type=int, default=10, choices=[7, 10, 15],
+    parser.add_argument("--size", type=int, default=10, choices=[7, 10, 12, 15],
                         help="Grid size (default: 10)")
     parser.add_argument("--words", type=str,
                         help="Path to words.json (for fill phase)")
