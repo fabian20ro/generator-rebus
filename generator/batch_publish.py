@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .core.ai_clues import create_client, rewrite_definition
+from .core.ai_clues import create_client, rate_definition, rewrite_definition, RATE_MIN_QUALITY
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
 from .core.markdown_io import ClueEntry, parse_markdown, write_filled_grid, write_with_definitions
 from .core.quality import QualityReport, filter_word_records, score_words
@@ -22,7 +22,7 @@ from .phases.activate import set_published
 from .phases.define import generate_definitions_for_puzzle
 from .phases.download import run as download_words
 from .phases.upload import upload_puzzle
-from .phases.verify import verify_puzzle
+from .phases.verify import verify_puzzle, rate_puzzle
 
 
 @dataclass
@@ -259,16 +259,61 @@ def _all_clues(puzzle) -> list[ClueEntry]:
     return puzzle.horizontal_clues + puzzle.vertical_clues
 
 
+def _extract_score(clue) -> int | None:
+    """Extract quality score from verify_note, if present."""
+    if clue.verify_note and "Scor:" in clue.verify_note:
+        try:
+            return int(clue.verify_note.split("Scor:")[1].split("/")[0].strip())
+        except (ValueError, IndexError):
+            pass
+    return None
+
+
+def _extract_feedback(clue) -> str:
+    """Extract rating feedback from verify_note, if present."""
+    if not clue.verify_note:
+        return ""
+    parts = clue.verify_note.split(" | ")
+    # feedback is the last part after score, if it exists and isn't the score itself
+    for part in parts:
+        if not part.startswith("Scor:") and not part.startswith("AI a ghicit:"):
+            return part
+    return ""
+
+
 def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
     theme = puzzle.title or "Rebus Românesc"
     passed, total = verify_puzzle(puzzle, client)
+    rate_puzzle(puzzle, client)
+
     for round_index in range(1, rounds + 1):
-        failed = [clue for clue in _all_clues(puzzle) if clue.verified is False]
-        if not failed:
+        # Collect rewrite candidates: verification failures + low-rated definitions
+        candidates = []
+        for clue in _all_clues(puzzle):
+            if clue.verified is False:
+                candidates.append(clue)
+            elif clue.verified is True:
+                score = _extract_score(clue)
+                if score is not None and score < RATE_MIN_QUALITY:
+                    candidates.append(clue)
+
+        if not candidates:
             break
-        print(f"Rewrite round {round_index}: {len(failed)} failed clues")
-        for clue in failed:
-            wrong_guess = clue.verify_note.removeprefix("AI a ghicit:").strip()
+
+        failed_count = sum(1 for c in candidates if c.verified is False)
+        low_rated_count = len(candidates) - failed_count
+        print(
+            f"Rewrite round {round_index}: {len(candidates)} candidates "
+            f"({failed_count} failed, {low_rated_count} low-rated)"
+        )
+
+        for clue in candidates:
+            wrong_guess = ""
+            rating_feedback = ""
+            if clue.verify_note:
+                if "AI a ghicit:" in clue.verify_note:
+                    wrong_guess = clue.verify_note.split("AI a ghicit:")[1].split("|")[0].strip()
+                rating_feedback = _extract_feedback(clue)
             try:
                 new_definition = rewrite_definition(
                     client,
@@ -277,6 +322,7 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
                     theme,
                     clue.definition,
                     wrong_guess,
+                    rating_feedback=rating_feedback,
                 )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
@@ -286,7 +332,10 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
                 clue.definition = new_definition
             clue.verified = None
             clue.verify_note = ""
+
         passed, total = verify_puzzle(puzzle, client)
+        rate_puzzle(puzzle, client)
+
     return passed, total
 
 
