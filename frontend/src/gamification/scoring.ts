@@ -61,6 +61,9 @@ export function calculateScore(ctx: ScoringContext): ScoreBreakdown {
   };
 }
 
+/** Cost of checking the puzzle */
+export const CHECK_COST = 5;
+
 /** Cost of a letter hint in points */
 export function hintLetterCost(difficulty: number): number {
   return 5 + difficulty * 5; // 10, 15, 20, 25, 30

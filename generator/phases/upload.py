@@ -5,7 +5,8 @@ import json
 import sys
 from supabase import create_client
 from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-from ..core.markdown_io import parse_markdown, ClueEntry
+from ..core.markdown_io import parse_markdown
+from ..core.slot_extractor import Slot, extract_slots
 
 
 def _grid_to_json(grid: list[list[str]]) -> tuple[str, str]:
@@ -31,67 +32,11 @@ def _clean_definition(definition: str) -> str:
     return definition.split("→", 1)[0].strip()
 
 
-def _extract_individual_clues(clues: list[ClueEntry], direction: str,
-                              grid: list[list[str]]) -> list[dict]:
-    """Extract individual clue records for database insertion."""
-    size = len(grid)
-    records = []
-    clue_number = 1
-
-    for clue in clues:
-        if not clue.definition:
-            continue
-
-        records.append({
-            "direction": direction,
-            "start_row": clue.start_row,
-            "start_col": clue.start_col,
-            "length": len(clue.word_normalized),
-            "word_normalized": clue.word_normalized,
-            "word_original": clue.word_original or clue.word_normalized.lower(),
-            "clue_number": clue_number,
-            "definition": clue.definition,
-        })
-        clue_number += 1
-
-    return records
-
-
-def _find_word_positions(grid: list[list[str]], direction: str) -> list[tuple[int, int, str]]:
-    """Find all word start positions and the words in the grid."""
-    size = len(grid)
-    words = []
-
-    if direction == "H":
-        for r in range(size):
-            word_start = None
-            current_word = ""
-            for c in range(size + 1):
-                if c < size and grid[r][c] != "#":
-                    if word_start is None:
-                        word_start = c
-                    current_word += grid[r][c]
-                else:
-                    if word_start is not None and len(current_word) >= 2:
-                        words.append((r, word_start, current_word))
-                    word_start = None
-                    current_word = ""
-    else:  # V
-        for c in range(size):
-            word_start = None
-            current_word = ""
-            for r in range(size + 1):
-                if r < size and grid[r][c] != "#":
-                    if word_start is None:
-                        word_start = r
-                    current_word += grid[r][c]
-                else:
-                    if word_start is not None and len(current_word) >= 2:
-                        words.append((word_start, c, current_word))
-                    word_start = None
-                    current_word = ""
-
-    return words
+def _slots_with_words(grid: list[list[str]]) -> list[tuple[Slot, str]]:
+    """Extract slots from the grid and read the word at each slot position."""
+    template = [[cell != "#" for cell in row] for row in grid]
+    slots = extract_slots(template)
+    return [(slot, "".join(grid[r][c] for r, c in slot.cells)) for slot in slots]
 
 
 def upload_puzzle(puzzle, force: bool = False) -> str:
@@ -119,8 +64,11 @@ def upload_puzzle(puzzle, force: bool = False) -> str:
     grid_template_json, grid_solution_json = _grid_to_json(puzzle.grid)
 
     # Find word positions in the grid for clue records
-    h_positions = _find_word_positions(puzzle.grid, "H")
-    v_positions = _find_word_positions(puzzle.grid, "V")
+    slots_with_words = _slots_with_words(puzzle.grid)
+    h_positions = [(s.start_row, s.start_col, word)
+                   for s, word in slots_with_words if s.direction == "H"]
+    v_positions = [(s.start_row, s.start_col, word)
+                   for s, word in slots_with_words if s.direction == "V"]
 
     # Build clue records with positions
     clue_records = []
