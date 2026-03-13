@@ -78,8 +78,22 @@ export function handleKeyDown(
       jumpToNextSlot(state, e.shiftKey);
       return true;
 
-    default:
+    default: {
+      // Replace existing letter: when a single letter key is pressed on a
+      // cell that already has content, the browser's maxLength=1 silently
+      // blocks the input event. Intercept here so overwrite + advance works.
+      if (
+        e.key.length === 1 &&
+        /^[A-Za-z]$/.test(e.key) &&
+        state.cells[row][col]
+      ) {
+        state.cells[row][col] = e.key.toUpperCase();
+        advanceCursor(state);
+        e.preventDefault();
+        return true;
+      }
       return false;
+    }
   }
 }
 

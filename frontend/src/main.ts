@@ -42,6 +42,7 @@ import {
   calculateScore,
   hintLetterCost,
   hintWordCost,
+  CHECK_COST,
 } from "./gamification/scoring";
 import { evaluateBadges } from "./gamification/badges";
 import { applySavedFontSize, initFontScaler } from "./components/font-scaler";
@@ -64,6 +65,7 @@ const btnCloseModal = document.getElementById("btn-close-modal")!;
 const definitionBar = document.getElementById("definition-bar")!;
 const headerPoints = document.getElementById("header-points")!;
 const statsPanel = document.getElementById("stats-panel")!;
+const checkCostEl = document.getElementById("check-cost")!;
 const hintLetterCostEl = document.getElementById("hint-letter-cost")!;
 const hintWordCostEl = document.getElementById("hint-word-cost")!;
 const completionDetails = document.getElementById("completion-details")!;
@@ -84,6 +86,7 @@ function updatePointsDisplay(): void {
 }
 
 function updateHintCosts(): void {
+  checkCostEl.textContent = `${CHECK_COST} pts`;
   hintLetterCostEl.textContent = `${hintLetterCost(currentDifficulty)} pts`;
   hintWordCostEl.textContent = `${hintWordCost(currentDifficulty)} pts`;
 }
@@ -316,9 +319,19 @@ async function showPuzzleList(): Promise<void> {
 // --- Button handlers ---
 btnCheck.addEventListener("click", () => {
   if (!gridState) return;
-  const { wrong, empty } = checkPuzzle(gridState);
+  const result = checkPuzzle(gridState);
+  if (!result.success) {
+    if (result.reason === "not_enough_points") {
+      showToast(
+        `Nu ai suficiente puncte! Ai nevoie de ${result.cost} pts.`,
+        "warning"
+      );
+    }
+    return;
+  }
+  updatePointsDisplay();
   refresh();
-  if (wrong === 0 && empty === 0) {
+  if (result.wrong === 0 && result.empty === 0) {
     handleCompletion();
   } else {
     setTimeout(() => {
