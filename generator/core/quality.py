@@ -6,6 +6,33 @@ from dataclasses import dataclass, asdict
 
 
 UNCOMMON_LETTERS = set("QWXYK")
+FOREIGN_SHORTLIST_BLOCKLIST = {
+    "AIR",
+    "BIG",
+    "CAT",
+    "DIG",
+    "DOG",
+    "GET",
+    "LAW",
+    "TEN",
+}
+
+
+def _is_toxic_short_loanword(word: dict) -> bool:
+    """Reject short foreign-looking entries that consistently poison Romanian clues.
+
+    The source list contains some short ASCII loanwords or English forms that may be
+    valid in a broad dictionary sense, but they destabilize a Romanian crossword run:
+    the model defines and verifies them in English, and players read them as English.
+    Keep this list intentionally small and evidence-driven.
+    """
+    normalized = word["normalized"]
+    original = word.get("original", "")
+
+    if normalized not in FOREIGN_SHORTLIST_BLOCKLIST:
+        return False
+
+    return original.isascii() and original.islower()
 
 
 @dataclass
@@ -46,6 +73,8 @@ def filter_word_records(
         if length == 3 and rarity is not None and rarity > min(max_rarity, 3):
             continue
         if any(ch in UNCOMMON_LETTERS for ch in normalized) and rarity is not None and rarity >= 4:
+            continue
+        if _is_toxic_short_loanword(word):
             continue
         filtered.append(word)
     return filtered

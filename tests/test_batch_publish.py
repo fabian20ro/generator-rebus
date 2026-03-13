@@ -6,6 +6,7 @@ from unittest.mock import patch
 from generator.batch_publish import (
     Candidate,
     PreparedPuzzle,
+    _merge_best_clue_variants,
     _needs_rewrite,
     run_batch,
 )
@@ -61,6 +62,38 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertTrue(_needs_rewrite(clue))
 
+    def test_merge_best_clue_variants_keeps_higher_scored_definition(self):
+        best = ClueEntry(
+            row_number=1,
+            word_normalized="AER",
+            word_original="",
+            definition="Gaz din atmosferă",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: AIR",
+                semantic_score=8,
+                guessability_score=4,
+                feedback="duce spre sinonim străin",
+            ),
+        )
+        current = ClueEntry(
+            row_number=1,
+            word_normalized="AER",
+            word_original="",
+            definition="Substanță gazoasă pe care o respirăm",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "",
+                semantic_score=9,
+                guessability_score=8,
+                feedback="clar și natural",
+            ),
+        )
+
+        merged = _merge_best_clue_variants([best], [current])
+
+        self.assertEqual("Substanță gazoasă pe care o respirăm", merged[0].definition)
+
     @patch("generator.batch_publish.upload_puzzle")
     @patch("generator.batch_publish._prepare_puzzle_for_publication")
     @patch("generator.batch_publish._load_words")
@@ -92,6 +125,7 @@ class BatchPublishTests(unittest.TestCase):
             puzzle=object(),
             passed=0,
             total=0,
+            definition_score=0.0,
             blocking_words=["TAC", "ATASARE"],
         )
 

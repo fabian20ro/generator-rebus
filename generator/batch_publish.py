@@ -87,6 +87,7 @@ class PreparedPuzzle:
     puzzle: object
     passed: int
     total: int
+    definition_score: float
     blocking_words: list[str]
 
 
@@ -381,10 +382,44 @@ def _blocking_clues(puzzle) -> list[ClueEntry]:
     return [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
 
+def _clue_eval(clue: ClueEntry) -> tuple[int, int, int]:
+    semantic_score = _extract_semantic_score(clue) or 0
+    guessability_score = _extract_guessability_score(clue) or 0
+    verified_score = 1 if clue.verified is True else 0
+    return (semantic_score + guessability_score, guessability_score, verified_score)
+
+
+def _puzzle_definition_score(puzzle) -> float:
+    clues = _all_clues(puzzle)
+    if not clues:
+        return 0.0
+    return sum(_clue_eval(clue)[0] for clue in clues) / len(clues)
+
+
+def _merge_best_clue_variants(best_clues: list[ClueEntry], current_clues: list[ClueEntry]) -> list[ClueEntry]:
+    merged: list[ClueEntry] = []
+    for best_clue, current_clue in zip(best_clues, current_clues):
+        chosen = current_clue if _clue_eval(current_clue) > _clue_eval(best_clue) else best_clue
+        merged.append(copy.deepcopy(chosen))
+    return merged
+
+
+def _restore_best_scored_clues(puzzle, best_snapshot) -> None:
+    puzzle.horizontal_clues = _merge_best_clue_variants(
+        best_snapshot.horizontal_clues,
+        puzzle.horizontal_clues,
+    )
+    puzzle.vertical_clues = _merge_best_clue_variants(
+        best_snapshot.vertical_clues,
+        puzzle.vertical_clues,
+    )
+
+
 def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
     theme = puzzle.title or "Rebus Românesc"
     passed, total = verify_puzzle(puzzle, client)
     rate_puzzle(puzzle, client)
+    best_snapshot = copy.deepcopy(puzzle)
 
     for round_index in range(1, rounds + 1):
         # Rewrite only low-quality definitions. Verify failure alone is not enough:
@@ -435,7 +470,12 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
 
         passed, total = verify_puzzle(puzzle, client)
         rate_puzzle(puzzle, client)
+        _restore_best_scored_clues(best_snapshot, puzzle)
+        best_snapshot = copy.deepcopy(puzzle)
 
+    _restore_best_scored_clues(best_snapshot, puzzle)
+    passed = sum(1 for clue in _all_clues(puzzle) if clue.verified)
+    total = len(_all_clues(puzzle))
     return passed, total
 
 
@@ -448,6 +488,9 @@ def _prepare_puzzle_for_publication(
     rewrite_rounds: int,
     preparation_attempts: int,
 ) -> PreparedPuzzle:
+    best_prepared: PreparedPuzzle | None = None
+    best_publishable: PreparedPuzzle | None = None
+
     for attempt_index in range(1, preparation_attempts + 1):
         if attempt_index > 1:
             print(
@@ -464,29 +507,34 @@ def _prepare_puzzle_for_publication(
         generate_definitions_for_puzzle(puzzle, client)
         passed, total = _rewrite_failed_clues(puzzle, client, rewrite_rounds)
         blockers = _blocking_clues(puzzle)
-        if not blockers:
-            return PreparedPuzzle(
-                title=title,
-                candidate=candidate,
-                puzzle=puzzle,
-                passed=passed,
-                total=total,
-                blocking_words=[],
+        prepared = PreparedPuzzle(
+            title=title,
+            candidate=candidate,
+            puzzle=copy.deepcopy(puzzle),
+            passed=passed,
+            total=total,
+            definition_score=_puzzle_definition_score(puzzle),
+            blocking_words=[clue.word_normalized for clue in blockers],
+        )
+        if best_prepared is None or prepared.definition_score > best_prepared.definition_score:
+            best_prepared = prepared
+        if not blockers and (
+            best_publishable is None
+            or prepared.definition_score > best_publishable.definition_score
+        ):
+            best_publishable = prepared
+
+        if blockers:
+            print(
+                "Rejected puzzle after quality gate: "
+                + ", ".join(clue.word_normalized for clue in blockers[:10])
             )
 
-        print(
-            "Rejected puzzle after quality gate: "
-            + ", ".join(clue.word_normalized for clue in blockers[:10])
-        )
-
-    return PreparedPuzzle(
-        title=title,
-        candidate=candidate,
-        puzzle=puzzle,
-        passed=passed,
-        total=total,
-        blocking_words=[clue.word_normalized for clue in blockers],
-    )
+    if best_publishable is not None:
+        return best_publishable
+    if best_prepared is None:
+        raise RuntimeError(f"Failed to prepare any {size}x{size} puzzle candidate")
+    return best_prepared
 
 
 def _clear_verification_state(puzzle):
