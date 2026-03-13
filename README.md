@@ -2,6 +2,27 @@
 
 Romanian rebus (crossword) generator. Pipeline CLI that creates puzzles from a Scrabble dictionary, generates definitions with a local LLM, and publishes them to a web frontend.
 
+## Current map
+
+- `generator/batch_publish.py`
+  Main batch runner. Generates, evaluates, rewrites, uploads, and activates puzzles.
+- `generator/core/pipeline_state.py`
+  Internal typed working state for clues and puzzles. This is the main in-memory model used by the modern batch pipeline.
+- `generator/core/selection_engine.py`
+  Centralized clue and puzzle comparison logic, including deterministic ranking and tie-break routing.
+- `generator/phases/define.py` and `generator/phases/verify.py`
+  LLM-facing phases for definition generation, verification, and rating.
+- `generator/core/quality.py`, `generator/core/constraint_solver.py`, `generator/core/grid_template.py`
+  Word filtering, candidate scoring, CSP fill logic, and template generation.
+- `frontend/`
+  Static client app that reads published puzzles from the worker API.
+- `worker/`
+  Cloudflare Worker that exposes puzzle endpoints to the frontend.
+- `tests/`
+  Unit coverage for clue prompts, selection behavior, quality filters, title generation, and verification.
+- `run_batch_loop.sh`
+  Local loop runner for repeated overnight batches (`7x7`, `10x10`, `12x12`).
+
 ```
 download → generate-grid → fill → theme → define → verify → upload → activate
    ↓           ↓            ↓       ↓        ↓         ↓        ↓         ↓
