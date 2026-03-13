@@ -11,6 +11,7 @@ from generator.batch_publish import (
     _generate_candidate,
     _merge_best_clue_variants,
     _needs_rewrite,
+    _preparation_attempts_for_size,
     _prepare_puzzle_for_publication,
     _template_fingerprint,
     run_batch,
@@ -150,6 +151,11 @@ class BatchPublishTests(unittest.TestCase):
         )
 
         self.assertFalse(_needs_rewrite(clue))
+
+    def test_large_sizes_get_more_preparation_attempts(self):
+        self.assertEqual(5, _preparation_attempts_for_size(7, 5))
+        self.assertEqual(50, _preparation_attempts_for_size(10, 5))
+        self.assertEqual(50, _preparation_attempts_for_size(12, 5))
 
     @patch("generator.batch_publish.choose_better_puzzle_variant")
     def test_prepared_puzzle_tiebreak_uses_llm_for_near_equal_scores(self, mock_tiebreak):

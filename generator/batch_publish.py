@@ -430,6 +430,12 @@ def _template_fingerprint(template: list[list[bool]]) -> str:
     return "|".join("".join("." if cell else "#" for cell in row) for row in template)
 
 
+def _preparation_attempts_for_size(size: int, requested_attempts: int) -> int:
+    if size in (10, 12):
+        return max(requested_attempts, 50)
+    return requested_attempts
+
+
 def _puzzle_definition_score(puzzle) -> float:
     clues = _all_clues(puzzle)
     if not clues:
@@ -621,12 +627,13 @@ def _prepare_puzzle_for_publication(
     seen_template_fingerprints: set[str] | None = None,
 ) -> PreparedPuzzle:
     best_prepared: PreparedPuzzle | None = None
+    effective_attempts = _preparation_attempts_for_size(size, preparation_attempts)
 
-    for attempt_index in range(1, preparation_attempts + 1):
+    for attempt_index in range(1, effective_attempts + 1):
         if attempt_index > 1:
             print(
                 f"Retrying puzzle {index}/{total_puzzles} ({size}x{size}), "
-                f"attempt {attempt_index}/{preparation_attempts}..."
+                f"attempt {attempt_index}/{effective_attempts}..."
             )
 
         provisional_title = f"Puzzle {index}"
