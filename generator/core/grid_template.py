@@ -11,6 +11,8 @@ from __future__ import annotations
 import random
 from collections import deque
 
+from .size_tuning import get_size_settings, uses_procedural_only
+
 # Templates: '#' = black square, '.' = letter cell
 # Each template is a list of strings (rows)
 
@@ -247,15 +249,17 @@ def validate_template(grid: list[list[bool]]) -> tuple[bool, str]:
 
 
 def generate_procedural_template(size: int, target_blacks: int | None = None,
-                                  max_attempts: int = 1000,
+                                  max_attempts: int | None = None,
                                   rng: random.Random | None = None) -> list[list[bool]] | None:
     """Generate a valid template procedurally by randomly placing black squares.
 
     Uses rejection sampling: place blacks one at a time, validate after each placement.
     """
+    settings = get_size_settings(size)
     if target_blacks is None:
-        # Reasonable defaults: ~12-18% black squares
-        target_blacks = {7: 6, 10: 12, 15: 25}.get(size, size)
+        target_blacks = settings.target_blacks
+    if max_attempts is None:
+        max_attempts = settings.template_attempts
     if rng is None:
         rng = random.Random()
 
@@ -353,11 +357,10 @@ def get_random_template(size: int, rng: random.Random | None = None) -> list[lis
 
     Tries hardcoded templates first, then falls back to procedural generation.
     """
-    # Try hardcoded templates
-    templates = ALL_TEMPLATES.get(size, [])
     if rng is None:
         rng = random.Random()
-    if templates:
+    templates = ALL_TEMPLATES.get(size, [])
+    if templates and not uses_procedural_only(size):
         candidates = list(templates)
         rng.shuffle(candidates)
         for template_strs in candidates:

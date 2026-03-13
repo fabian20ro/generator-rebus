@@ -29,6 +29,13 @@ from .core.markdown_io import (
     write_with_definitions,
 )
 from .core.quality import QualityReport, filter_word_records, score_words
+from .core.size_tuning import (
+    DEFAULT_BATCH_SIZES,
+    SUPPORTED_GRID_SIZES,
+    SizeSettings,
+    build_relaxed_variants,
+    get_min_preparation_attempts,
+)
 from .core.pipeline_state import (
     ClueCandidateVersion,
     ClueFailureReason,
@@ -69,17 +76,6 @@ class TeeStream:
     def flush(self):
         for stream in self.streams:
             stream.flush()
-
-
-@dataclass
-class SizeSettings:
-    max_rarity: int
-    max_backtracks: int
-    target_blacks: int
-    solved_candidates: int
-    attempt_budget: int
-    max_two_letter_slots: int
-    min_candidates_per_slot: int
 
 
 @dataclass
@@ -142,73 +138,6 @@ def _easy_medium_template(size: int) -> list[list[bool]] | None:
         else:
             grid.append([True] * size)
     return grid
-
-
-def _relaxed_variants(settings: SizeSettings) -> list[SizeSettings]:
-    return [
-        settings,
-        SizeSettings(
-            max_rarity=min(5, settings.max_rarity + 1),
-            max_backtracks=settings.max_backtracks * 2,
-            target_blacks=settings.target_blacks + 2,
-            solved_candidates=settings.solved_candidates,
-            attempt_budget=settings.attempt_budget + 20,
-            max_two_letter_slots=settings.max_two_letter_slots + 2,
-            min_candidates_per_slot=max(8, settings.min_candidates_per_slot - 4),
-        ),
-        SizeSettings(
-            max_rarity=5,
-            max_backtracks=settings.max_backtracks * 3,
-            target_blacks=settings.target_blacks + 4,
-            solved_candidates=max(3, settings.solved_candidates - 1),
-            attempt_budget=settings.attempt_budget + 35,
-            max_two_letter_slots=settings.max_two_letter_slots + 4,
-            min_candidates_per_slot=max(6, settings.min_candidates_per_slot - 8),
-        ),
-    ]
-
-
-def _settings_for_size(size: int) -> SizeSettings:
-    if size == 7:
-        return SizeSettings(
-            max_rarity=3,
-            max_backtracks=50000,
-            target_blacks=6,
-            solved_candidates=4,
-            attempt_budget=45,
-            max_two_letter_slots=4,
-            min_candidates_per_slot=16,
-        )
-    if size == 10:
-        return SizeSettings(
-            max_rarity=4,
-            max_backtracks=140000,
-            target_blacks=16,
-            solved_candidates=5,
-            attempt_budget=70,
-            max_two_letter_slots=10,
-            min_candidates_per_slot=18,
-        )
-    if size == 12:
-        return SizeSettings(
-            max_rarity=4,
-            max_backtracks=180000,
-            target_blacks=28,
-            solved_candidates=3,
-            attempt_budget=60,
-            max_two_letter_slots=16,
-            min_candidates_per_slot=10,
-        )
-    return SizeSettings(
-        max_rarity=5,
-        max_backtracks=350000,
-        target_blacks=60,
-        solved_candidates=1,
-        attempt_budget=40,
-        max_two_letter_slots=50,
-        min_candidates_per_slot=4,
-    )
-
 
 def _load_words(words_path: Path) -> list[dict]:
     if not words_path.exists():
@@ -279,28 +208,7 @@ def _generate_candidate(
 ) -> Candidate | None:
     if rng is None:
         rng = random.Random(0)
-    template = None
-    hardcoded_templates = ALL_TEMPLATES.get(size, [])
-    if size == 15 and rng.random() < 0.7:
-        template = _easy_large_template(size)
-    elif size == 12 and rng.random() < 0.65:
-        template = _easy_medium_template(size)
-    elif size != 7 and hardcoded_templates and rng.random() < 0.4:
-        template = parse_template(rng.choice(hardcoded_templates))
-    else:
-        blacks = rng.choice([
-            settings.target_blacks - 2,
-            settings.target_blacks - 1,
-            settings.target_blacks,
-            settings.target_blacks + 1,
-            settings.target_blacks + 2,
-        ])
-        template = generate_procedural_template(
-            size,
-            target_blacks=max(1, blacks),
-            max_attempts=300,
-            rng=rng,
-        )
+    template = _choose_template(size, settings, rng)
     if template is None:
         return None
     if seen_template_fingerprints is not None:
@@ -339,6 +247,43 @@ def _generate_candidate(
     return Candidate(score=report.score, report=report, template=template, markdown=markdown)
 
 
+def _easy_template_by_name(template_name: str | None, size: int) -> list[list[bool]] | None:
+    if template_name == "large":
+        return _easy_large_template(size)
+    if template_name == "medium":
+        return _easy_medium_template(size)
+    return None
+
+
+def _choose_template(size: int, settings: SizeSettings, rng: random.Random) -> list[list[bool]] | None:
+    if settings.easy_template and rng.random() < settings.easy_template_probability:
+        template = _easy_template_by_name(settings.easy_template, size)
+        if template is not None:
+            return template
+
+    hardcoded_templates = ALL_TEMPLATES.get(size, [])
+    if (
+        settings.template_policy != "procedural_only"
+        and hardcoded_templates
+        and rng.random() < settings.hardcoded_probability
+    ):
+        return parse_template(rng.choice(hardcoded_templates))
+
+    blacks = rng.choice([
+        settings.target_blacks - 2,
+        settings.target_blacks - 1,
+        settings.target_blacks,
+        settings.target_blacks + 1,
+        settings.target_blacks + 2,
+    ])
+    return generate_procedural_template(
+        size,
+        target_blacks=max(1, blacks),
+        max_attempts=settings.template_attempts,
+        rng=rng,
+    )
+
+
 def _best_candidate(
     size: int,
     title: str,
@@ -348,7 +293,7 @@ def _best_candidate(
 ) -> Candidate:
     best: Candidate | None = None
 
-    for variant_index, settings in enumerate(_relaxed_variants(_settings_for_size(size)), start=1):
+    for variant_index, settings in enumerate(build_relaxed_variants(size), start=1):
         word_index, metadata = _build_index(raw_words, size, settings)
         solved = 0
         print(
@@ -383,9 +328,8 @@ def _best_candidate(
             if solved >= settings.solved_candidates:
                 return best
 
-        if best is not None:
-            return best
-
+    if best is not None:
+        return best
     raise RuntimeError(f"Could not generate a valid filled grid for {size}x{size}")
 
 
@@ -459,9 +403,7 @@ def _template_fingerprint(template: list[list[bool]]) -> str:
 
 
 def _preparation_attempts_for_size(size: int, requested_attempts: int) -> int:
-    if size in (10, 12):
-        return max(requested_attempts, 50)
-    return requested_attempts
+    return max(requested_attempts, get_min_preparation_attempts(size))
 
 
 def _score_puzzle_state(puzzle: WorkingPuzzle, candidate_report: QualityReport | None = None) -> PuzzleAssessment:
@@ -878,14 +820,14 @@ def run_batch(
     return manifest
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate and publish a batch of rebus puzzles.")
     parser.add_argument(
         "--sizes",
         type=int,
         nargs="+",
-        default=[7, 7, 10, 12, 12],
-        choices=[7, 10, 12, 15],
+        default=list(DEFAULT_BATCH_SIZES),
+        choices=list(SUPPORTED_GRID_SIZES),
         help="Puzzle sizes to generate in order",
     )
     parser.add_argument(
@@ -916,6 +858,11 @@ def main() -> None:
         default=None,
         help="Optional RNG seed for reproducible batch generation",
     )
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
 
     output_root = Path(args.output_root)

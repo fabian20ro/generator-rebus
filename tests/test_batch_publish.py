@@ -2,12 +2,14 @@ import unittest
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from generator.batch_publish import (
     Candidate,
     PreparedPuzzle,
     SizeSettings,
+    _best_candidate,
     _better_prepared_puzzle,
     _generate_candidate,
     _merge_best_clue_variants,
@@ -16,11 +18,14 @@ from generator.batch_publish import (
     _prepare_puzzle_for_publication,
     _synthesize_failure_reason,
     _template_fingerprint,
+    build_parser as build_batch_parser,
     run_batch,
 )
 from generator.core.clue_rating import append_rating_to_note
 from generator.core.markdown_io import ClueEntry
 from generator.core.quality import QualityReport
+from generator.core.size_tuning import get_size_settings
+from generator.rebus import build_parser as build_rebus_parser
 
 
 class BatchPublishTests(unittest.TestCase):
@@ -160,9 +165,28 @@ class BatchPublishTests(unittest.TestCase):
         self.assertFalse(_needs_rewrite(clue))
 
     def test_large_sizes_get_more_preparation_attempts(self):
-        self.assertEqual(5, _preparation_attempts_for_size(7, 5))
-        self.assertEqual(50, _preparation_attempts_for_size(10, 5))
-        self.assertEqual(50, _preparation_attempts_for_size(12, 5))
+        self.assertEqual(8, _preparation_attempts_for_size(7, 5))
+        self.assertEqual(24, _preparation_attempts_for_size(10, 5))
+        self.assertEqual(40, _preparation_attempts_for_size(12, 5))
+
+    def test_batch_cli_accepts_all_supported_mid_sizes(self):
+        parser = build_batch_parser()
+        args = parser.parse_args(["--sizes", "8", "9", "11"])
+
+        self.assertEqual([8, 9, 11], args.sizes)
+
+    def test_rebus_cli_accepts_all_supported_mid_sizes(self):
+        parser = build_rebus_parser()
+        args = parser.parse_args(["generate-grid", "-", "out.md", "--size", "11"])
+
+        self.assertEqual(11, args.size)
+
+    def test_central_size_settings_cover_all_supported_overnight_sizes(self):
+        for size in (7, 8, 9, 10, 11, 12):
+            settings = get_size_settings(size)
+            self.assertGreater(settings.max_backtracks, 0)
+            self.assertGreater(settings.template_attempts, 0)
+            self.assertGreater(settings.min_preparation_attempts, 0)
 
     @patch("generator.batch_publish.choose_better_puzzle_variant")
     def test_prepared_puzzle_tiebreak_uses_llm_for_near_equal_scores(self, mock_tiebreak):
@@ -202,7 +226,7 @@ class BatchPublishTests(unittest.TestCase):
             [True, True, True, True, True, True, True],
             [True, True, True, False, True, True, True],
         ]
-        settings = SizeSettings(3, 50000, 6, 1, 1, 4, 16)
+        settings = SizeSettings(3, 50000, 6, 1, 1, 4, 16, template_attempts=777)
         slot = type("Slot", (), {
             "id": 1,
             "direction": "H",
@@ -240,6 +264,7 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertIsNotNone(candidate)
         mock_parse_template.assert_not_called()
+        self.assertEqual(777, mock_generate_template.call_args.kwargs["max_attempts"])
 
     @patch("generator.batch_publish.score_words")
     @patch("generator.batch_publish.solve")
@@ -297,6 +322,64 @@ class BatchPublishTests(unittest.TestCase):
         )
 
         self.assertIsNone(candidate)
+
+    @patch("generator.batch_publish._generate_candidate")
+    @patch("generator.batch_publish._build_index")
+    @patch("generator.batch_publish.build_relaxed_variants")
+    def test_best_candidate_continues_to_relaxed_variants_when_target_unmet(
+        self,
+        mock_variants,
+        mock_build_index,
+        mock_generate_candidate,
+    ):
+        settings_a = SizeSettings(3, 80_000, 6, 3, 2, 4, 16, template_attempts=500)
+        settings_b = SizeSettings(4, 160_000, 8, 1, 1, 6, 12, template_attempts=700)
+        mock_variants.return_value = [settings_a, settings_b]
+        mock_build_index.return_value = (object(), {})
+        candidate_a = Candidate(
+            score=10.0,
+            report=QualityReport(
+                score=10.0,
+                word_count=1,
+                average_length=3.0,
+                average_rarity=1.0,
+                two_letter_words=0,
+                three_letter_words=1,
+                high_rarity_words=0,
+                uncommon_letter_words=0,
+                friendly_words=1,
+            ),
+            template=[[True]],
+            markdown="# A\n",
+        )
+        candidate_b = Candidate(
+            score=25.0,
+            report=QualityReport(
+                score=25.0,
+                word_count=1,
+                average_length=4.0,
+                average_rarity=1.0,
+                two_letter_words=0,
+                three_letter_words=0,
+                high_rarity_words=0,
+                uncommon_letter_words=0,
+                friendly_words=1,
+            ),
+            template=[[True]],
+            markdown="# B\n",
+        )
+        mock_generate_candidate.side_effect = [candidate_a, None, candidate_b]
+
+        best = _best_candidate(
+            7,
+            "Test",
+            raw_words=[],
+            rng=SimpleNamespace(),
+            seen_template_fingerprints=set(),
+        )
+
+        self.assertEqual(25.0, best.score)
+        self.assertEqual(3, mock_generate_candidate.call_count)
 
     @patch("generator.batch_publish.generate_title_for_final_puzzle")
     @patch("generator.batch_publish._rewrite_failed_clues")

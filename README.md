@@ -6,6 +6,8 @@ Romanian rebus (crossword) generator. Pipeline CLI that creates puzzles from a S
 
 - `generator/batch_publish.py`
   Main batch runner. Generates, evaluates, rewrites, uploads, and activates puzzles.
+- `generator/core/size_tuning.py`
+  Single source of truth for size-specific generation/search settings (`7` through `12`, plus `15`).
 - `generator/core/pipeline_state.py`
   Internal typed working state for clues and puzzles. This is the main in-memory model used by the modern batch pipeline.
 - `generator/core/selection_engine.py`
@@ -21,7 +23,9 @@ Romanian rebus (crossword) generator. Pipeline CLI that creates puzzles from a S
 - `tests/`
   Unit coverage for clue prompts, selection behavior, quality filters, title generation, and verification.
 - `run_batch_loop.sh`
-  Local loop runner for repeated overnight batches (`7x7`, `10x10`, `12x12`).
+  Thin wrapper over the Python loop controller for repeated overnight batches (`7x7` through `12x12`).
+- `generator/loop_controller.py`
+  Size-resilient overnight controller that runs one size at a time and keeps going after per-size failures.
 
 ```
 download → generate-grid → fill → theme → define → verify → upload → activate
@@ -122,7 +126,7 @@ python -m generator activate <puzzle-id-from-step-7>
 
 | Flag | Default | Used by | Description |
 |------|---------|---------|-------------|
-| `--size` | `10` | `generate-grid` | Grid size: `7`, `10`, or `15` |
+| `--size` | `10` | `generate-grid` | Grid size: `7`, `8`, `9`, `10`, `11`, `12`, or `15` |
 | `--words` | (required) | `fill` | Path to `words.json` |
 | `--max-backtracks` | `50000` | `fill` | Solver gives up after this many backtracks |
 | `--max-rarity` | `5` | `fill` | Filter out words with rarity > N (1-5 scale) |

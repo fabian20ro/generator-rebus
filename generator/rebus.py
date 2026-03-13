@@ -30,8 +30,10 @@ Examples:
 import argparse
 import sys
 
+from .core.size_tuning import SUPPORTED_GRID_SIZES
 
-def main():
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Romanian Rebus Generator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -44,7 +46,7 @@ def main():
     parser.add_argument("input_file", help="Input file path (use '-' for none)")
     parser.add_argument("output_file", nargs="?", default="-",
                         help="Output file path (use '-' for stdout/none)")
-    parser.add_argument("--size", type=int, default=10, choices=[7, 10, 12, 15],
+    parser.add_argument("--size", type=int, default=10, choices=list(SUPPORTED_GRID_SIZES),
                         help="Grid size (default: 10)")
     parser.add_argument("--words", type=str,
                         help="Path to words.json (for fill phase)")
@@ -55,6 +57,11 @@ def main():
     parser.add_argument("--force", action="store_true",
                         help="Force upload even with unverified definitions")
 
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
 
     kwargs = {
