@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from openai import OpenAI
 
 from ..config import LMSTUDIO_BASE_URL
+from .clue_family import clue_uses_same_family
 from .diacritics import normalize
 
 
@@ -19,6 +20,7 @@ DEFINITION_SYSTEM_PROMPT = (
     "- Răspunzi cu o singură definiție scurtă.\n"
     "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
     "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
+    "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n"
     "- Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]\n"
     "- Preferi definiții precise, naturale, maxim 12 cuvinte.\n"
     "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.\n"
@@ -36,6 +38,7 @@ REWRITE_SYSTEM_PROMPT = (
     "- Răspunzi doar cu definiția finală.\n"
     "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
     "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
+    "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n"
     "- Fă definiția mai precisă decât cea veche.\n"
     "- Max 12 cuvinte.\n"
     "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]"
@@ -67,13 +70,35 @@ RATE_SYSTEM_PROMPT = (
     "- semantic_score: cât de corectă și onestă este definiția pentru răspunsul dat\n"
     "- guessability_score: cât de probabil este ca un rezolvitor să dea exact răspunsul cerut, de exact lungimea indicată, nu un sinonim mai comun\n"
     "Criterii:\n"
-    "- dacă include răspunsul sau o derivată clară: semantic_score 1\n"
+    "- dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici\n"
     "- dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic\n"
     "- dacă e precisă și scurtă: scoruri mari\n"
     "- dacă e banală dar corectă: semantic mediu, guessability mediu sau mic\n"
     "- feedback-ul este exclusiv în română, scurt și concret\n"
     "Răspunzi STRICT JSON: "
     "{\"semantic_score\": <1-10>, \"guessability_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
+)
+
+CLUE_TIEBREAKER_SYSTEM_PROMPT = (
+    "Compari două definiții de rebus românești pentru același răspuns.\n"
+    "Alegi varianta mai bună pentru un rebus românesc.\n"
+    "Criterii, în ordine:\n"
+    "- text exclusiv în română\n"
+    "- să nu folosească aceeași familie lexicală cu răspunsul\n"
+    "- să fie exactă pentru răspunsul intenționat\n"
+    "- să ducă mai probabil la răspunsul exact, nu la un sinonim\n"
+    "Răspunzi strict cu A sau B."
+)
+
+PUZZLE_TIEBREAKER_SYSTEM_PROMPT = (
+    "Compari două variante de rebus românesc aproape egale ca scor.\n"
+    "Alegi varianta mai bună pentru publicare.\n"
+    "Criterii:\n"
+    "- definiții mai naturale în română\n"
+    "- fără familie lexicală evidentă între răspuns și definiție\n"
+    "- vocabular mai prietenos, mai puțin obscur\n"
+    "- potențial mai bun de coeziune și titlu final\n"
+    "Răspunzi strict cu A sau B."
 )
 
 RATE_MIN_SEMANTIC = 7
@@ -146,6 +171,31 @@ def _definition_mentions_answer(answer: str, definition: str) -> bool:
     return re.search(pattern, normalized_definition) is not None
 
 
+def _definition_is_invalid(answer: str, definition: str) -> bool:
+    return _definition_mentions_answer(answer, definition) or clue_uses_same_family(answer, definition)
+
+
+def _same_family_feedback() -> str:
+    return "Definiția folosește aceeași familie lexicală ca răspunsul."
+
+
+def _guard_same_family_rating(word: str, definition: str, rating: DefinitionRating) -> DefinitionRating:
+    if not clue_uses_same_family(word, definition):
+        return rating
+    return DefinitionRating(
+        semantic_score=1,
+        guessability_score=1,
+        feedback=_same_family_feedback(),
+    )
+
+
+def _pick_tiebreak_winner(raw: str) -> str:
+    cleaned = _clean_response(raw).upper()
+    if cleaned.startswith("B"):
+        return "B"
+    return "A"
+
+
 def _clamp_score(value: int | str | None, default: int = 5) -> int:
     try:
         score = int(value if value is not None else default)
@@ -190,7 +240,7 @@ def generate_definition(
                 return definition
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
-            if _definition_mentions_answer(word, definition):
+            if _definition_is_invalid(word, definition):
                 continue
             if _contains_english_markers(definition):
                 continue
@@ -248,7 +298,7 @@ def rewrite_definition(
                 return definition
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
-            if _definition_mentions_answer(word, definition):
+            if _definition_is_invalid(word, definition):
                 continue
             if _contains_english_markers(definition):
                 continue
@@ -330,12 +380,71 @@ def rate_definition(
                 if _contains_english_markers(feedback):
                     prompt += "\nAtenție: feedback-ul anterior nu a fost în română. Refă-l exclusiv în română."
                     continue
-                return DefinitionRating(
+                rating = DefinitionRating(
                     semantic_score=_clamp_score(data.get("semantic_score")),
                     guessability_score=_clamp_score(data.get("guessability_score")),
                     feedback=feedback,
                 )
+                return _guard_same_family_rating(word, definition, rating)
         except Exception:
             pass
 
-    return DefinitionRating(semantic_score=5, guessability_score=5, feedback="")
+    return _guard_same_family_rating(
+        word,
+        definition,
+        DefinitionRating(semantic_score=5, guessability_score=5, feedback=""),
+    )
+
+
+def choose_better_clue_variant(
+    client: OpenAI,
+    word: str,
+    answer_length: int,
+    definition_a: str,
+    definition_b: str,
+) -> str:
+    prompt = (
+        f"Răspuns: {word}\n"
+        f"Lungime: {answer_length}\n"
+        f"Varianta A: {definition_a}\n"
+        f"Varianta B: {definition_b}\n\n"
+        "Alege varianta mai bună."
+    )
+    try:
+        response = client.chat.completions.create(
+            model="default",
+            messages=[
+                {"role": "system", "content": CLUE_TIEBREAKER_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            max_tokens=20,
+        )
+        return _pick_tiebreak_winner(response.choices[0].message.content or "")
+    except Exception:
+        return "A"
+
+
+def choose_better_puzzle_variant(
+    client: OpenAI,
+    summary_a: str,
+    summary_b: str,
+) -> str:
+    prompt = (
+        f"Varianta A:\n{summary_a}\n\n"
+        f"Varianta B:\n{summary_b}\n\n"
+        "Alege varianta mai bună."
+    )
+    try:
+        response = client.chat.completions.create(
+            model="default",
+            messages=[
+                {"role": "system", "content": PUZZLE_TIEBREAKER_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            max_tokens=20,
+        )
+        return _pick_tiebreak_winner(response.choices[0].message.content or "")
+    except Exception:
+        return "A"

@@ -24,12 +24,20 @@ def _collect_words(puzzle) -> list[str]:
     return sorted(words)
 
 
+def _collect_definitions(puzzle) -> list[str]:
+    definitions = []
+    for clue in puzzle.horizontal_clues + puzzle.vertical_clues:
+        if clue.definition and not clue.definition.startswith("["):
+            definitions.append(clue.definition.strip())
+    return definitions
+
+
 THEME_SYSTEM_PROMPT = (
     "Ești editor de titluri pentru rebusuri românești. "
-    "Primești o listă de cuvinte deja fixate într-o grilă. "
+    "Primești cuvintele și definițiile finale ale unui rebus. "
     "Scrii un titlu scurt, natural și memorabil, 2-4 cuvinte, fără ghilimele, fără explicații, fără punct. "
-    "Dacă există o temă clară, folosești tema. "
-    "Dacă lista este eterogenă, inventezi un titlu neutru și elegant inspirat de registrul lexical. "
+    "Dacă există o temă clară în definiții, folosești tema. "
+    "Dacă materialul este eterogen, inventezi un titlu neutru și elegant inspirat de tonul definițiilor. "
     "Nu folosești cuvintele Rebus, Românesc, Puzzle, Titlu."
 )
 
@@ -98,8 +106,53 @@ def generate_title_from_words(words: list[str], client=None) -> str:
     return _sanitize_title(raw_title, words)
 
 
+def generate_title_from_words_and_definitions(
+    words: list[str],
+    definitions: list[str],
+    client=None,
+) -> str:
+    if not words:
+        return _fallback_title(words)
+
+    prompt = (
+        "Cuvintele rebusului sunt:\n"
+        f"{', '.join(words)}\n\n"
+        "Definițiile finale sunt:\n"
+        + "\n".join(f"- {definition}" for definition in definitions[:20])
+        + "\n\n"
+        "Dă un titlu scurt pentru rebus."
+    )
+
+    if client is None:
+        client = create_client()
+
+    try:
+        response = client.chat.completions.create(
+            model="default",
+            messages=[
+                {"role": "system", "content": THEME_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=50,
+        )
+        raw_title = response.choices[0].message.content or ""
+    except Exception:
+        raw_title = ""
+
+    return _sanitize_title(raw_title, words)
+
+
 def generate_title_for_puzzle(puzzle, client=None) -> str:
     return generate_title_from_words(_collect_words(puzzle), client=client)
+
+
+def generate_title_for_final_puzzle(puzzle, client=None) -> str:
+    return generate_title_from_words_and_definitions(
+        _collect_words(puzzle),
+        _collect_definitions(puzzle),
+        client=client,
+    )
 
 
 def run(input_file: str, output_file: str, **kwargs) -> None:

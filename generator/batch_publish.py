@@ -15,6 +15,8 @@ from pathlib import Path
 from .core.ai_clues import (
     RATE_MIN_GUESSABILITY,
     RATE_MIN_SEMANTIC,
+    choose_better_clue_variant,
+    choose_better_puzzle_variant,
     create_client,
     rewrite_definition,
 )
@@ -39,7 +41,7 @@ from .core.constraint_solver import solve
 from .phases.activate import set_published
 from .phases.define import generate_definitions_for_puzzle
 from .phases.download import run as download_words
-from .phases.theme import generate_title_for_puzzle
+from .phases.theme import generate_title_for_final_puzzle
 from .phases.upload import upload_puzzle
 from .phases.verify import verify_puzzle, rate_puzzle
 
@@ -89,6 +91,10 @@ class PreparedPuzzle:
     total: int
     definition_score: float
     blocking_words: list[str]
+
+
+LOCKED_SCORE = 9
+PUZZLE_TIEBREAK_DELTA = 0.25
 
 
 def _easy_large_template(size: int) -> list[list[bool]] | None:
@@ -259,15 +265,15 @@ def _generate_candidate(
     word_index: WordIndex,
     metadata: dict[str, dict],
     title: str,
+    seen_template_fingerprints: set[str] | None = None,
 ) -> Candidate | None:
     template = None
     hardcoded_templates = ALL_TEMPLATES.get(size, [])
-    hardcoded_probability = 0.4 if size in (7, 10) else 0.05
     if size == 15 and random.random() < 0.7:
         template = _easy_large_template(size)
     elif size == 12 and random.random() < 0.65:
         template = _easy_medium_template(size)
-    elif hardcoded_templates and random.random() < hardcoded_probability:
+    elif size != 7 and hardcoded_templates and random.random() < 0.4:
         template = parse_template(random.choice(hardcoded_templates))
     else:
         blacks = random.choice([
@@ -280,6 +286,12 @@ def _generate_candidate(
         template = generate_procedural_template(size, target_blacks=max(1, blacks), max_attempts=300)
     if template is None:
         return None
+    if seen_template_fingerprints is not None:
+        fingerprint = _template_fingerprint(template)
+        if fingerprint in seen_template_fingerprints:
+            return None
+        if size == 7:
+            seen_template_fingerprints.add(fingerprint)
 
     slots = extract_slots(template)
     if not _slot_capacity_ok(slots, word_index, settings):
@@ -309,7 +321,12 @@ def _generate_candidate(
     return Candidate(score=report.score, report=report, template=template, markdown=markdown)
 
 
-def _best_candidate(size: int, title: str, raw_words: list[dict]) -> Candidate:
+def _best_candidate(
+    size: int,
+    title: str,
+    raw_words: list[dict],
+    seen_template_fingerprints: set[str] | None = None,
+) -> Candidate:
     best: Candidate | None = None
 
     for variant_index, settings in enumerate(_relaxed_variants(_settings_for_size(size)), start=1):
@@ -321,7 +338,14 @@ def _best_candidate(size: int, title: str, raw_words: list[dict]) -> Candidate:
             f"attempt budget: {settings.attempt_budget}, max_rarity: {settings.max_rarity})..."
         )
         for attempt in range(1, settings.attempt_budget + 1):
-            candidate = _generate_candidate(size, settings, word_index, metadata, title)
+            candidate = _generate_candidate(
+                size,
+                settings,
+                word_index,
+                metadata,
+                title,
+                seen_template_fingerprints=seen_template_fingerprints if size == 7 else None,
+            )
             if candidate is None:
                 print(f"  Attempt {attempt}: no solution")
                 if solved == 0 and attempt >= 25:
@@ -371,6 +395,8 @@ def _needs_rewrite(clue) -> bool:
     guessability_score = _extract_guessability_score(clue)
     if semantic_score is None or guessability_score is None:
         return True
+    if semantic_score >= LOCKED_SCORE and guessability_score >= LOCKED_SCORE:
+        return False
 
     return (
         semantic_score < RATE_MIN_SEMANTIC
@@ -389,6 +415,21 @@ def _clue_eval(clue: ClueEntry) -> tuple[int, int, int]:
     return (semantic_score + guessability_score, guessability_score, verified_score)
 
 
+def _is_locked_clue(clue: ClueEntry) -> bool:
+    semantic_score = _extract_semantic_score(clue)
+    guessability_score = _extract_guessability_score(clue)
+    return (
+        semantic_score is not None
+        and guessability_score is not None
+        and semantic_score >= LOCKED_SCORE
+        and guessability_score >= LOCKED_SCORE
+    )
+
+
+def _template_fingerprint(template: list[list[bool]]) -> str:
+    return "|".join("".join("." if cell else "#" for cell in row) for row in template)
+
+
 def _puzzle_definition_score(puzzle) -> float:
     clues = _all_clues(puzzle)
     if not clues:
@@ -396,27 +437,111 @@ def _puzzle_definition_score(puzzle) -> float:
     return sum(_clue_eval(clue)[0] for clue in clues) / len(clues)
 
 
-def _merge_best_clue_variants(best_clues: list[ClueEntry], current_clues: list[ClueEntry]) -> list[ClueEntry]:
+def _choose_best_clue(
+    best_clue: ClueEntry,
+    current_clue: ClueEntry,
+    client=None,
+) -> ClueEntry:
+    best_eval = _clue_eval(best_clue)
+    current_eval = _clue_eval(current_clue)
+    if current_eval > best_eval:
+        return copy.deepcopy(current_clue)
+    if best_eval > current_eval:
+        return copy.deepcopy(best_clue)
+    if client is not None and best_clue.definition and current_clue.definition:
+        winner = choose_better_clue_variant(
+            client,
+            best_clue.word_normalized,
+            len(best_clue.word_normalized),
+            best_clue.definition,
+            current_clue.definition,
+        )
+        print(
+            f"  Tie-break definiție {best_clue.word_normalized}: "
+            f"{winner} a câștigat"
+        )
+        return copy.deepcopy(current_clue if winner == "B" else best_clue)
+    return copy.deepcopy(best_clue)
+
+
+def _merge_best_clue_variants(
+    best_clues: list[ClueEntry],
+    current_clues: list[ClueEntry],
+    client=None,
+) -> list[ClueEntry]:
     merged: list[ClueEntry] = []
     for best_clue, current_clue in zip(best_clues, current_clues):
-        chosen = current_clue if _clue_eval(current_clue) > _clue_eval(best_clue) else best_clue
-        merged.append(copy.deepcopy(chosen))
+        chosen = _choose_best_clue(best_clue, current_clue, client=client)
+        if chosen.definition == best_clue.definition and current_clue.definition != best_clue.definition:
+            print(f"  Păstrez definiția mai bună pentru {best_clue.word_normalized}")
+        merged.append(chosen)
     return merged
 
 
-def _restore_best_scored_clues(puzzle, best_snapshot) -> None:
+def _restore_best_scored_clues(puzzle, best_snapshot, client=None) -> None:
     puzzle.horizontal_clues = _merge_best_clue_variants(
         best_snapshot.horizontal_clues,
         puzzle.horizontal_clues,
+        client=client,
     )
     puzzle.vertical_clues = _merge_best_clue_variants(
         best_snapshot.vertical_clues,
         puzzle.vertical_clues,
+        client=client,
     )
 
 
+def _puzzle_summary(prepared: PreparedPuzzle) -> str:
+    clues = _all_clues(prepared.puzzle)
+    preview = "\n".join(
+        f"- {clue.word_normalized}: {clue.definition}"
+        for clue in clues[:10]
+        if clue.definition
+    )
+    blockers = ", ".join(prepared.blocking_words[:8]) if prepared.blocking_words else "niciunul"
+    return (
+        f"Titlu: {prepared.title or '[fără titlu]'}\n"
+        f"Scor definiții: {prepared.definition_score:.2f}\n"
+        f"Blocaje: {blockers}\n"
+        f"Exemple:\n{preview}"
+    )
+
+
+def _is_publishable(prepared: PreparedPuzzle) -> bool:
+    return not prepared.blocking_words
+
+
+def _better_prepared_puzzle(
+    best: PreparedPuzzle | None,
+    candidate: PreparedPuzzle,
+    client=None,
+) -> PreparedPuzzle:
+    if best is None:
+        return candidate
+
+    best_publishable = _is_publishable(best)
+    candidate_publishable = _is_publishable(candidate)
+    if candidate_publishable != best_publishable:
+        return candidate if candidate_publishable else best
+
+    score_delta = candidate.definition_score - best.definition_score
+    if abs(score_delta) > PUZZLE_TIEBREAK_DELTA:
+        return candidate if score_delta > 0 else best
+
+    if client is not None:
+        winner = choose_better_puzzle_variant(
+            client,
+            _puzzle_summary(best),
+            _puzzle_summary(candidate),
+        )
+        print(f"Puzzle tie-break: {winner} a câștigat")
+        return candidate if winner == "B" else best
+
+    return candidate if score_delta > 0 else best
+
+
 def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
-    theme = puzzle.title or "Rebus Românesc"
+    theme = puzzle.title or "Puzzle intern"
     passed, total = verify_puzzle(puzzle, client)
     rate_puzzle(puzzle, client)
     best_snapshot = copy.deepcopy(puzzle)
@@ -447,6 +572,9 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
         )
 
         for clue in candidates:
+            if _is_locked_clue(clue):
+                print(f"  {clue.word_normalized}: blocat la {LOCKED_SCORE}/{LOCKED_SCORE}")
+                continue
             wrong_guess = extract_wrong_guess(clue.verify_note)
             rating_feedback = extract_feedback(clue.verify_note)
             try:
@@ -470,10 +598,13 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
 
         passed, total = verify_puzzle(puzzle, client)
         rate_puzzle(puzzle, client)
-        _restore_best_scored_clues(best_snapshot, puzzle)
+        _restore_best_scored_clues(best_snapshot, puzzle, client=client)
+        for clue in _all_clues(puzzle):
+            if _is_locked_clue(clue):
+                print(f"  {clue.word_normalized}: definiție blocată la 9/9")
         best_snapshot = copy.deepcopy(puzzle)
 
-    _restore_best_scored_clues(best_snapshot, puzzle)
+    _restore_best_scored_clues(best_snapshot, puzzle, client=client)
     passed = sum(1 for clue in _all_clues(puzzle) if clue.verified)
     total = len(_all_clues(puzzle))
     return passed, total
@@ -487,9 +618,9 @@ def _prepare_puzzle_for_publication(
     client,
     rewrite_rounds: int,
     preparation_attempts: int,
+    seen_template_fingerprints: set[str] | None = None,
 ) -> PreparedPuzzle:
     best_prepared: PreparedPuzzle | None = None
-    best_publishable: PreparedPuzzle | None = None
 
     for attempt_index in range(1, preparation_attempts + 1):
         if attempt_index > 1:
@@ -499,14 +630,20 @@ def _prepare_puzzle_for_publication(
             )
 
         provisional_title = f"Puzzle {index}"
-        candidate = _best_candidate(size, provisional_title, raw_words)
+        candidate = _best_candidate(
+            size,
+            provisional_title,
+            raw_words,
+            seen_template_fingerprints=seen_template_fingerprints,
+        )
         puzzle = parse_markdown(candidate.markdown)
-        title = generate_title_for_puzzle(puzzle, client=client)
-        puzzle.title = title
-        print(f"Title: {title}")
+        puzzle.title = ""
         generate_definitions_for_puzzle(puzzle, client)
         passed, total = _rewrite_failed_clues(puzzle, client, rewrite_rounds)
         blockers = _blocking_clues(puzzle)
+        title = generate_title_for_final_puzzle(puzzle, client=client)
+        puzzle.title = title
+        print(f"Titlu final: {title}")
         prepared = PreparedPuzzle(
             title=title,
             candidate=candidate,
@@ -516,13 +653,7 @@ def _prepare_puzzle_for_publication(
             definition_score=_puzzle_definition_score(puzzle),
             blocking_words=[clue.word_normalized for clue in blockers],
         )
-        if best_prepared is None or prepared.definition_score > best_prepared.definition_score:
-            best_prepared = prepared
-        if not blockers and (
-            best_publishable is None
-            or prepared.definition_score > best_publishable.definition_score
-        ):
-            best_publishable = prepared
+        best_prepared = _better_prepared_puzzle(best_prepared, prepared, client=client)
 
         if blockers:
             print(
@@ -530,8 +661,6 @@ def _prepare_puzzle_for_publication(
                 + ", ".join(clue.word_normalized for clue in blockers[:10])
             )
 
-    if best_publishable is not None:
-        return best_publishable
     if best_prepared is None:
         raise RuntimeError(f"Failed to prepare any {size}x{size} puzzle candidate")
     return best_prepared
@@ -565,6 +694,7 @@ def run_batch(
         run_dir = output_root / datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict] = []
+    seen_7x7_templates: set[str] = set()
 
     for index, size in enumerate(sizes, start=1):
         puzzle_dir = run_dir / f"{index:02d}_{size}x{size}"
@@ -578,6 +708,7 @@ def run_batch(
             client=client,
             rewrite_rounds=rewrite_rounds,
             preparation_attempts=preparation_attempts,
+            seen_template_fingerprints=seen_7x7_templates if size == 7 else None,
         )
         if prepared.blocking_words:
             raise RuntimeError(

@@ -83,6 +83,7 @@ def _rate_clues(clues: list[ClueEntry], client: OpenAI) -> None:
         symbol = "★" if semantic_ok and guessability_ok else "⚠"
         print(
             f"    {symbol} {clue.word_normalized}: "
+            f"„{clue.definition}” -> "
             f"semantic {semantic_score}/10, ghicibilitate {guessability_score}/10"
             f" — {feedback or 'fără feedback'}"
         )

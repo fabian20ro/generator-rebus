@@ -1,16 +1,22 @@
 import unittest
 from types import SimpleNamespace
 
-from generator.phases.theme import generate_title_from_words
+from generator.phases.theme import generate_title_from_words, generate_title_from_words_and_definitions
 
 
 class _FakeClient:
     def __init__(self, content):
+        self.last_user_content = ""
+
+        def _create(**kwargs):
+            self.last_user_content = kwargs["messages"][-1]["content"]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+            )
+
         self.chat = SimpleNamespace(
             completions=SimpleNamespace(
-                create=lambda **kwargs: SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-                )
+                create=_create
             )
         )
 
@@ -41,6 +47,19 @@ class ThemeTests(unittest.TestCase):
         )
 
         self.assertEqual(4, len(title.split()))
+
+    def test_final_title_generation_uses_definitions_context(self):
+        client = _FakeClient("Ecouri de Toamnă")
+
+        title = generate_title_from_words_and_definitions(
+            ["NATURA", "FRUNZA"],
+            ["Frunză uscată de toamnă", "Ce ține de lumea vie"],
+            client=client,
+        )
+
+        self.assertEqual("Ecouri de Toamnă", title)
+        self.assertIn("Definițiile finale sunt", client.last_user_content)
+        self.assertIn("Frunză uscată de toamnă", client.last_user_content)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import unittest
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -49,6 +50,25 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertEqual(2, rated_count)
         self.assertIn("Scor semantic: 8/10", puzzle.horizontal_clues[0].verify_note)
         self.assertIn("Scor ghicibilitate: 4/10", puzzle.vertical_clues[0].verify_note)
+
+    @patch("generator.phases.verify.rate_definition")
+    def test_rate_logging_includes_definition_text(self, mock_rate_definition):
+        mock_rate_definition.return_value = DefinitionRating(
+            semantic_score=9,
+            guessability_score=9,
+            feedback="clară",
+        )
+        puzzle = SimpleNamespace(
+            horizontal_clues=[
+                ClueEntry(1, "AUR", "", "Metal prețios galben", verify_note="", verified=True)
+            ],
+            vertical_clues=[],
+        )
+
+        with patch("sys.stdout", new=StringIO()) as captured:
+            rate_puzzle(puzzle, client=object())
+
+        self.assertIn("Metal prețios galben", captured.getvalue())
 
 
 if __name__ == "__main__":
