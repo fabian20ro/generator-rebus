@@ -74,6 +74,7 @@ RATE_SYSTEM_PROMPT = (
     "- dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic\n"
     "- dacă e precisă și scurtă: scoruri mari\n"
     "- dacă e banală dar corectă: semantic mediu, guessability mediu sau mic\n"
+    "- nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun\n"
     "- feedback-ul este exclusiv în română, scurt și concret\n"
     "Răspunzi STRICT JSON: "
     "{\"semantic_score\": <1-10>, \"guessability_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
@@ -134,6 +135,38 @@ ENGLISH_MARKERS = {
     "without",
     "word",
 }
+RARITY_MARKERS = {
+    "rar",
+    "rară",
+    "rare",
+    "raritate",
+    "neuzual",
+    "neobișnuit",
+    "neobisnuit",
+    "puțin",
+    "putin",
+    "comun",
+    "uzual",
+    "obisnuit",
+}
+AMBIGUITY_MARKERS = {
+    "alt",
+    "altul",
+    "ambig",
+    "ambigua",
+    "ambiguu",
+    "sinonim",
+    "uzual",
+    "vag",
+    "vagă",
+    "vaga",
+    "firesc",
+    "duce",
+    "răspuns",
+    "raspuns",
+    "familie",
+    "lexical",
+}
 
 
 @dataclass(frozen=True)
@@ -179,6 +212,17 @@ def _same_family_feedback() -> str:
     return "Definiția folosește aceeași familie lexicală ca răspunsul."
 
 
+def _tokens(text: str) -> set[str]:
+    return {token.lower() for token in re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț]+", normalize(text))}
+
+
+def _feedback_is_rarity_only(feedback: str) -> bool:
+    if not feedback:
+        return False
+    tokens = _tokens(feedback)
+    return bool(tokens & RARITY_MARKERS) and not bool(tokens & AMBIGUITY_MARKERS)
+
+
 def _guard_same_family_rating(word: str, definition: str, rating: DefinitionRating) -> DefinitionRating:
     if not clue_uses_same_family(word, definition):
         return rating
@@ -186,6 +230,18 @@ def _guard_same_family_rating(word: str, definition: str, rating: DefinitionRati
         semantic_score=1,
         guessability_score=1,
         feedback=_same_family_feedback(),
+    )
+
+
+def _guard_definition_centric_rating(rating: DefinitionRating) -> DefinitionRating:
+    if rating.semantic_score < 8:
+        return rating
+    if not _feedback_is_rarity_only(rating.feedback):
+        return rating
+    return DefinitionRating(
+        semantic_score=rating.semantic_score,
+        guessability_score=max(rating.guessability_score, RATE_MIN_GUESSABILITY),
+        feedback="Definiția trebuie judecată după exactitate, nu după raritatea răspunsului.",
     )
 
 
@@ -263,6 +319,8 @@ def rewrite_definition(
     wrong_guess: str,
     retries: int = 2,
     rating_feedback: str = "",
+    bad_example_definition: str = "",
+    bad_example_reason: str = "",
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
     display_word = original if original else word.lower()
@@ -272,11 +330,20 @@ def rewrite_definition(
     if rating_feedback:
         feedback_parts.append(f"Feedback calitate: {rating_feedback}")
     feedback_text = "\n".join(feedback_parts) if feedback_parts else "[niciun feedback]"
+    bad_example_text = ""
+    if bad_example_definition and bad_example_reason:
+        bad_example_text = (
+            "\nExemplu de definiție rea de evitat:\n"
+            f"- Definiție respinsă: {bad_example_definition}\n"
+            f"- Motiv: {bad_example_reason}\n"
+            "- Nu produce ceva similar cu această definiție respinsă.\n"
+        )
     prompt = (
         f"Răspuns corect: {display_word}\n"
         f"Formă normalizată: {word}\n"
         f"Definiția anterioară: {previous_definition}\n"
-        f"{feedback_text}\n\n"
+        f"{feedback_text}\n"
+        f"{bad_example_text}\n"
         "Rescrie definiția mai precis și mai scurt."
     )
 
@@ -385,15 +452,17 @@ def rate_definition(
                     guessability_score=_clamp_score(data.get("guessability_score")),
                     feedback=feedback,
                 )
-                return _guard_same_family_rating(word, definition, rating)
+                rating = _guard_same_family_rating(word, definition, rating)
+                return _guard_definition_centric_rating(rating)
         except Exception:
             pass
 
-    return _guard_same_family_rating(
+    rating = _guard_same_family_rating(
         word,
         definition,
         DefinitionRating(semantic_score=5, guessability_score=5, feedback=""),
     )
+    return _guard_definition_centric_rating(rating)
 
 
 def choose_better_clue_variant(

@@ -20,6 +20,7 @@ from .core.ai_clues import (
     create_client,
     rewrite_definition,
 )
+from .core.clue_family import clue_uses_same_family
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
 from .core.clue_rating import (
     extract_feedback,
@@ -415,6 +416,10 @@ def _clue_eval(clue: ClueEntry) -> tuple[int, int, int]:
     return (semantic_score + guessability_score, guessability_score, verified_score)
 
 
+def _compact_log_text(text: str) -> str:
+    return " ".join((text or "").split())
+
+
 def _is_locked_clue(clue: ClueEntry) -> bool:
     semantic_score = _extract_semantic_score(clue)
     guessability_score = _extract_guessability_score(clue)
@@ -462,11 +467,15 @@ def _choose_best_clue(
             best_clue.definition,
             current_clue.definition,
         )
+        chosen = current_clue if winner == "B" else best_clue
         print(
             f"  Tie-break definiție {best_clue.word_normalized}: "
-            f"{winner} a câștigat"
+            f"A='{_compact_log_text(best_clue.definition)}' | "
+            f"B='{_compact_log_text(current_clue.definition)}' | "
+            f"câștigă {winner} | "
+            f"aleasă='{_compact_log_text(chosen.definition)}'"
         )
-        return copy.deepcopy(current_clue if winner == "B" else best_clue)
+        return copy.deepcopy(chosen)
     return copy.deepcopy(best_clue)
 
 
@@ -540,10 +549,43 @@ def _better_prepared_puzzle(
             _puzzle_summary(best),
             _puzzle_summary(candidate),
         )
-        print(f"Puzzle tie-break: {winner} a câștigat")
-        return candidate if winner == "B" else best
+        chosen = candidate if winner == "B" else best
+        print(
+            "Puzzle tie-break: "
+            f"A='{_compact_log_text(_puzzle_summary(best))}' | "
+            f"B='{_compact_log_text(_puzzle_summary(candidate))}' | "
+            f"câștigă {winner} | "
+            f"ales='{_compact_log_text(_puzzle_summary(chosen))}'"
+        )
+        return chosen
 
     return candidate if score_delta > 0 else best
+
+
+def _synthesize_failure_reason(clue: ClueEntry) -> str:
+    if clue_uses_same_family(clue.word_normalized, clue.definition):
+        return "Folosește aceeași familie lexicală ca răspunsul."
+
+    wrong_guess = extract_wrong_guess(clue.verify_note)
+    if wrong_guess:
+        return f"Duce la alt răspuns: {wrong_guess}."
+
+    feedback = extract_feedback(clue.verify_note)
+    if feedback:
+        normalized_feedback = feedback.lower()
+        if "rar" in normalized_feedback or "comun" in normalized_feedback:
+            semantic_score = _extract_semantic_score(clue) or 0
+            if semantic_score >= 8:
+                return "Definiția trebuie făcută mai exactă, nu tratată ca defect doar pentru raritate."
+        return feedback
+
+    semantic_score = _extract_semantic_score(clue) or 0
+    guessability_score = _extract_guessability_score(clue) or 0
+    if semantic_score < RATE_MIN_SEMANTIC:
+        return "Definiția nu este suficient de exactă pentru răspunsul intenționat."
+    if guessability_score < RATE_MIN_GUESSABILITY:
+        return "Definiția este prea vagă sau duce spre alt răspuns mai comun."
+    return "Definiția trebuie făcută mai exactă."
 
 
 def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
@@ -583,6 +625,8 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
                 continue
             wrong_guess = extract_wrong_guess(clue.verify_note)
             rating_feedback = extract_feedback(clue.verify_note)
+            bad_example_definition = clue.definition if round_index >= 2 else ""
+            bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
             try:
                 new_definition = rewrite_definition(
                     client,
@@ -592,12 +636,18 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
                     clue.definition,
                     wrong_guess,
                     rating_feedback=rating_feedback,
+                    bad_example_definition=bad_example_definition,
+                    bad_example_reason=bad_example_reason,
                 )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
                 continue
             if new_definition and new_definition != clue.definition:
-                print(f"  {clue.word_normalized}: {clue.definition} -> {new_definition}")
+                print(
+                    f"  {clue.word_normalized}: "
+                    f"'{_compact_log_text(clue.definition)}' -> "
+                    f"'{_compact_log_text(new_definition)}'"
+                )
                 clue.definition = new_definition
             clue.verified = None
             clue.verify_note = ""

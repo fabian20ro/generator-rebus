@@ -1,4 +1,5 @@
 import unittest
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from generator.batch_publish import (
     _needs_rewrite,
     _preparation_attempts_for_size,
     _prepare_puzzle_for_publication,
+    _synthesize_failure_reason,
     _template_fingerprint,
     run_batch,
 )
@@ -130,10 +132,15 @@ class BatchPublishTests(unittest.TestCase):
             ),
         )
 
-        merged = _merge_best_clue_variants([best], [current], client=object())
+        with patch("sys.stdout", new=StringIO()) as captured:
+            merged = _merge_best_clue_variants([best], [current], client=object())
 
         self.assertEqual("Amestec gazos din atmosferă", merged[0].definition)
         mock_tiebreak.assert_called_once()
+        log_line = captured.getvalue()
+        self.assertIn("A='Gaz din jurul nostru'", log_line)
+        self.assertIn("B='Amestec gazos din atmosferă'", log_line)
+        self.assertIn("aleasă='Amestec gazos din atmosferă'", log_line)
 
     def test_nine_nine_clue_is_locked(self):
         clue = ClueEntry(
@@ -163,10 +170,13 @@ class BatchPublishTests(unittest.TestCase):
         best = _prepared_puzzle(title="A", definition_score=8.0, blocking_words=[])
         candidate = _prepared_puzzle(title="B", definition_score=8.2, blocking_words=[])
 
-        winner = _better_prepared_puzzle(best, candidate, client=object())
+        with patch("sys.stdout", new=StringIO()) as captured:
+            winner = _better_prepared_puzzle(best, candidate, client=object())
 
         self.assertEqual("B", winner.title)
         mock_tiebreak.assert_called_once()
+        self.assertIn("Puzzle tie-break:", captured.getvalue())
+        self.assertIn("câștigă B", captured.getvalue())
 
     @patch("generator.batch_publish.score_words")
     @patch("generator.batch_publish.solve")
@@ -351,6 +361,44 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertEqual("Substanță gazoasă din atmosferă", prepared.title)
         self.assertEqual("Substanță gazoasă din atmosferă", prepared.puzzle.title)
+
+    def test_failure_reason_prefers_wrong_guess(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="ARACI",
+            word_original="",
+            definition="Prezintă un fapt în mod clar și convingător.",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: EXPLICA",
+                semantic_score=8,
+                guessability_score=4,
+                feedback="Duce la alt răspuns mai comun.",
+            ),
+        )
+
+        reason = _synthesize_failure_reason(clue)
+
+        self.assertEqual("Duce la alt răspuns: EXPLICA.", reason)
+
+    def test_failure_reason_ignores_rarity_as_primary_defect(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="ARACI",
+            word_original="",
+            definition="Bețe de sprijin pentru viță",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "",
+                semantic_score=9,
+                guessability_score=5,
+                feedback="Răspunsul este rar și mai puțin comun.",
+            ),
+        )
+
+        reason = _synthesize_failure_reason(clue)
+
+        self.assertIn("exactă", reason)
 
     @patch("generator.batch_publish.upload_puzzle")
     @patch("generator.batch_publish._prepare_puzzle_for_publication")
