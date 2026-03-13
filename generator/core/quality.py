@@ -46,9 +46,55 @@ class QualityReport:
     high_rarity_words: int
     uncommon_letter_words: int
     friendly_words: int
+    average_definability: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class WordQualityProfile:
+    normalized: str
+    length: int
+    rarity_level: int | None
+    short_fragility: int
+    ambiguity_risk: int
+    family_leak_risk: int
+    foreign_risk: int
+    abbreviation_like: bool
+    definability_score: float
+
+
+def assess_word_quality(word: dict) -> WordQualityProfile:
+    normalized = word["normalized"]
+    length = len(normalized)
+    rarity = word.get("rarity_level")
+    original = word.get("original", "")
+    short_fragility = 4 if length <= 2 else 3 if length == 3 else 1 if length == 4 else 0
+    ambiguity_risk = 3 if length <= 3 else 2 if length == 4 else 1 if length <= 6 else 0
+    family_leak_risk = 2 if length >= 6 and normalized.endswith(("ARE", "IRE", "ATE", "ISM")) else 0
+    foreign_risk = 3 if _is_toxic_short_loanword(word) else 1 if original.isascii() and original.islower() else 0
+    abbreviation_like = length <= 3 and original.isascii() and original.islower()
+    rarity_penalty = (rarity or 0) * 0.35 if rarity is not None else 0.0
+    definability_score = (
+        10.0
+        - short_fragility
+        - ambiguity_risk
+        - family_leak_risk
+        - foreign_risk
+        - rarity_penalty
+    )
+    return WordQualityProfile(
+        normalized=normalized,
+        length=length,
+        rarity_level=rarity,
+        short_fragility=short_fragility,
+        ambiguity_risk=ambiguity_risk,
+        family_leak_risk=family_leak_risk,
+        foreign_risk=foreign_risk,
+        abbreviation_like=abbreviation_like,
+        definability_score=max(0.0, definability_score),
+    )
 
 
 def filter_word_records(
@@ -63,6 +109,7 @@ def filter_word_records(
         normalized = word["normalized"]
         rarity = word.get("rarity_level")
         length = len(normalized)
+        profile = assess_word_quality(word)
 
         if length < 2 or length > max_length:
             continue
@@ -75,6 +122,8 @@ def filter_word_records(
         if any(ch in UNCOMMON_LETTERS for ch in normalized) and rarity is not None and rarity >= 4:
             continue
         if _is_toxic_short_loanword(word):
+            continue
+        if profile.definability_score < 1.5:
             continue
         filtered.append(word)
     return filtered
@@ -103,10 +152,16 @@ def score_words(words: list[str], metadata: dict[str, dict], size: int) -> Quali
         for word in words
         if 4 <= len(word) <= 8 and (metadata.get(word, {}).get("rarity_level") or 3) <= 3
     )
+    definability_scores = [
+        assess_word_quality(metadata.get(word, {"normalized": word, "original": word.lower()})).definability_score
+        for word in words
+    ]
+    avg_definability = sum(definability_scores) / len(definability_scores) if definability_scores else 0.0
 
     score = 1000.0
     score += avg_length * 14.0
     score += friendly * 4.0
+    score += avg_definability * 9.0
     score -= avg_rarity * 40.0
     if size == 7:
         two_letter_penalty = 34.0
@@ -143,4 +198,5 @@ def score_words(words: list[str], metadata: dict[str, dict], size: int) -> Quali
         high_rarity_words=high_rarity,
         uncommon_letter_words=uncommon,
         friendly_words=friendly,
+        average_definability=avg_definability,
     )

@@ -223,6 +223,70 @@ def _feedback_is_rarity_only(feedback: str) -> bool:
     return bool(tokens & RARITY_MARKERS) and not bool(tokens & AMBIGUITY_MARKERS)
 
 
+def _build_generate_prompt(display_word: str, word: str, length: int) -> str:
+    return (
+        f"Cuvânt: {display_word}\n"
+        f"Formă normalizată: {word}\n"
+        f"Lungime: {length}\n\n"
+        "Scrie o definiție de rebus scurtă și exactă. "
+        "Răspunde doar cu definiția."
+    )
+
+
+def _build_rewrite_prompt(
+    display_word: str,
+    word: str,
+    previous_definition: str,
+    feedback_text: str,
+    bad_example_text: str,
+) -> str:
+    return (
+        f"Răspuns corect: {display_word}\n"
+        f"Formă normalizată: {word}\n"
+        f"Definiția anterioară: {previous_definition}\n"
+        f"{feedback_text}\n"
+        f"{bad_example_text}\n"
+        "Rescrie definiția mai precis și mai scurt."
+    )
+
+
+def _build_verify_prompt(definition: str, answer_length: int) -> str:
+    return (
+        f"Definiție: {definition}\n"
+        f"Lungime răspuns: {answer_length}\n"
+        "Răspuns:"
+    )
+
+
+def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int) -> str:
+    return (
+        f"Cuvânt-răspuns: {display_word}\n"
+        f"Formă normalizată: {word}\n"
+        f"Lungime răspuns: {answer_length}\n"
+        f"Definiție: {definition}\n\n"
+        "Evaluează separat corectitudinea semantică și ghicibilitatea exactă. "
+        "Răspunde STRICT cu JSON."
+    )
+
+
+def _build_clue_tiebreak_prompt(word: str, answer_length: int, definition_a: str, definition_b: str) -> str:
+    return (
+        f"Răspuns: {word}\n"
+        f"Lungime: {answer_length}\n"
+        f"Varianta A: {definition_a}\n"
+        f"Varianta B: {definition_b}\n\n"
+        "Alege varianta mai bună."
+    )
+
+
+def _build_puzzle_tiebreak_prompt(summary_a: str, summary_b: str) -> str:
+    return (
+        f"Varianta A:\n{summary_a}\n\n"
+        f"Varianta B:\n{summary_b}\n\n"
+        "Alege varianta mai bună."
+    )
+
+
 def _guard_same_family_rating(word: str, definition: str, rating: DefinitionRating) -> DefinitionRating:
     if not clue_uses_same_family(word, definition):
         return rating
@@ -270,13 +334,7 @@ def generate_definition(
     """Generate a single clue definition."""
     display_word = original if original else word.lower()
     length = len(word)
-    prompt = (
-        f"Cuvânt: {display_word}\n"
-        f"Formă normalizată: {word}\n"
-        f"Lungime: {length}\n\n"
-        "Scrie o definiție de rebus scurtă și exactă. "
-        "Răspunde doar cu definiția."
-    )
+    prompt = _build_generate_prompt(display_word, word, length)
 
     for attempt in range(retries):
         try:
@@ -338,14 +396,7 @@ def rewrite_definition(
             f"- Motiv: {bad_example_reason}\n"
             "- Nu produce ceva similar cu această definiție respinsă.\n"
         )
-    prompt = (
-        f"Răspuns corect: {display_word}\n"
-        f"Formă normalizată: {word}\n"
-        f"Definiția anterioară: {previous_definition}\n"
-        f"{feedback_text}\n"
-        f"{bad_example_text}\n"
-        "Rescrie definiția mai precis și mai scurt."
-    )
+    prompt = _build_rewrite_prompt(display_word, word, previous_definition, feedback_text, bad_example_text)
 
     for attempt in range(retries):
         try:
@@ -381,11 +432,7 @@ def rewrite_definition(
 
 def verify_definition(client: OpenAI, definition: str, answer_length: int) -> str:
     """Ask AI to guess the word from a clue definition."""
-    prompt = (
-        f"Definiție: {definition}\n"
-        f"Lungime răspuns: {answer_length}\n"
-        "Răspuns:"
-    )
+    prompt = _build_verify_prompt(definition, answer_length)
 
     last_guess = ""
     for attempt in range(2):
@@ -419,14 +466,7 @@ def rate_definition(
 ) -> DefinitionRating:
     """Rate a definition's semantic quality and guessability."""
     display_word = original if original else word.lower()
-    prompt = (
-        f"Cuvânt-răspuns: {display_word}\n"
-        f"Formă normalizată: {word}\n"
-        f"Lungime răspuns: {answer_length}\n"
-        f"Definiție: {definition}\n\n"
-        "Evaluează separat corectitudinea semantică și ghicibilitatea exactă. "
-        "Răspunde STRICT cu JSON."
-    )
+    prompt = _build_rate_prompt(display_word, word, definition, answer_length)
 
     for attempt in range(2):
         try:
@@ -472,13 +512,7 @@ def choose_better_clue_variant(
     definition_a: str,
     definition_b: str,
 ) -> str:
-    prompt = (
-        f"Răspuns: {word}\n"
-        f"Lungime: {answer_length}\n"
-        f"Varianta A: {definition_a}\n"
-        f"Varianta B: {definition_b}\n\n"
-        "Alege varianta mai bună."
-    )
+    prompt = _build_clue_tiebreak_prompt(word, answer_length, definition_a, definition_b)
     try:
         response = client.chat.completions.create(
             model="default",
@@ -499,11 +533,7 @@ def choose_better_puzzle_variant(
     summary_a: str,
     summary_b: str,
 ) -> str:
-    prompt = (
-        f"Varianta A:\n{summary_a}\n\n"
-        f"Varianta B:\n{summary_b}\n\n"
-        "Alege varianta mai bună."
-    )
+    prompt = _build_puzzle_tiebreak_prompt(summary_a, summary_b)
     try:
         response = client.chat.completions.create(
             model="default",

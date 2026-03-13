@@ -247,7 +247,8 @@ def validate_template(grid: list[list[bool]]) -> tuple[bool, str]:
 
 
 def generate_procedural_template(size: int, target_blacks: int | None = None,
-                                  max_attempts: int = 1000) -> list[list[bool]] | None:
+                                  max_attempts: int = 1000,
+                                  rng: random.Random | None = None) -> list[list[bool]] | None:
     """Generate a valid template procedurally by randomly placing black squares.
 
     Uses rejection sampling: place blacks one at a time, validate after each placement.
@@ -255,12 +256,14 @@ def generate_procedural_template(size: int, target_blacks: int | None = None,
     if target_blacks is None:
         # Reasonable defaults: ~12-18% black squares
         target_blacks = {7: 6, 10: 12, 15: 25}.get(size, size)
+    if rng is None:
+        rng = random.Random()
 
     for _ in range(max_attempts):
         grid = [[True] * size for _ in range(size)]
         blacks_placed = 0
         cells = [(r, c) for r in range(size) for c in range(size)]
-        random.shuffle(cells)
+        rng.shuffle(cells)
 
         for r, c in cells:
             if blacks_placed >= target_blacks:
@@ -345,16 +348,18 @@ def _creates_single_letter(grid: list[list[bool]], br: int, bc: int, size: int) 
     return False
 
 
-def get_random_template(size: int) -> list[list[bool]]:
+def get_random_template(size: int, rng: random.Random | None = None) -> list[list[bool]]:
     """Get a random validated template for the given grid size.
 
     Tries hardcoded templates first, then falls back to procedural generation.
     """
     # Try hardcoded templates
     templates = ALL_TEMPLATES.get(size, [])
+    if rng is None:
+        rng = random.Random()
     if templates:
         candidates = list(templates)
-        random.shuffle(candidates)
+        rng.shuffle(candidates)
         for template_strs in candidates:
             grid = parse_template(template_strs)
             valid, msg = validate_template(grid)
@@ -362,7 +367,7 @@ def get_random_template(size: int) -> list[list[bool]]:
                 return grid
 
     # Fall back to procedural generation
-    grid = generate_procedural_template(size)
+    grid = generate_procedural_template(size, rng=rng)
     if grid is not None:
         return grid
 

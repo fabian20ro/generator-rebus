@@ -48,16 +48,19 @@ def unassign(slot: Slot, word: WordEntry, grid: list[list[str | None]],
 
 def forward_check(slot: Slot, slots: list[Slot], word_index: WordIndex,
                   grid: list[list[str | None]], assignment: dict[int, WordEntry],
-                  used_words: set[str]) -> bool:
+                  used_words: set[str], allow_reuse: bool = False) -> bool:
     """Check that all unassigned intersecting slots still have valid candidates."""
     for ix in slot.intersections:
         if ix.other_slot_id in assignment:
             continue
         other_slot = slots[ix.other_slot_id]
         pattern = get_pattern(other_slot, grid)
-        count = word_index.count_matching(pattern)
-        # Subtract already-used words (approximate: count may include used words)
-        if count == 0:
+        candidates = word_index.find_matching(pattern)
+        available = [
+            candidate for candidate in candidates
+            if allow_reuse or candidate.normalized not in used_words
+        ]
+        if not available:
             return False
     return True
 
@@ -88,13 +91,16 @@ def solve(slots: list[Slot], word_index: WordIndex,
           assignment: dict[int, WordEntry], used_words: set[str],
           grid: list[list[str | None]], max_backtracks: int = 50000,
           _counter: list[int] | None = None,
-          allow_reuse: bool = False) -> dict[int, WordEntry] | None:
+          allow_reuse: bool = False,
+          rng: random.Random | None = None) -> dict[int, WordEntry] | None:
     """Solve the crossword using CSP backtracking with MRV and forward checking.
 
     Returns the assignment dict if successful, None if no solution found.
     """
     if _counter is None:
         _counter = [0]
+    if rng is None:
+        rng = random.Random()
 
     if len(assignment) == len(slots):
         return assignment
@@ -108,7 +114,7 @@ def solve(slots: list[Slot], word_index: WordIndex,
         w for w in word_index.find_matching(pattern)
         if allow_reuse or w.normalized not in used_words
     ]
-    random.shuffle(candidates)
+    rng.shuffle(candidates)
 
     for word in candidates:
         _counter[0] += 1
@@ -117,9 +123,9 @@ def solve(slots: list[Slot], word_index: WordIndex,
 
         assign(slot, word, grid, assignment, used_words, allow_reuse=allow_reuse)
 
-        if forward_check(slot, slots, word_index, grid, assignment, used_words):
+        if forward_check(slot, slots, word_index, grid, assignment, used_words, allow_reuse=allow_reuse):
             result = solve(slots, word_index, assignment, used_words, grid,
-                          max_backtracks, _counter, allow_reuse=allow_reuse)
+                          max_backtracks, _counter, allow_reuse=allow_reuse, rng=rng)
             if result is not None:
                 return result
 

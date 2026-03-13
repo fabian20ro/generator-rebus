@@ -8,7 +8,7 @@ import copy
 import json
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -20,14 +20,7 @@ from .core.ai_clues import (
     create_client,
     rewrite_definition,
 )
-from .core.clue_family import clue_uses_same_family
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
-from .core.clue_rating import (
-    extract_feedback,
-    extract_guessability_score,
-    extract_semantic_score,
-    extract_wrong_guess,
-)
 from .core.markdown_io import (
     ClueEntry,
     parse_markdown,
@@ -36,15 +29,29 @@ from .core.markdown_io import (
     write_with_definitions,
 )
 from .core.quality import QualityReport, filter_word_records, score_words
+from .core.pipeline_state import (
+    ClueCandidateVersion,
+    ClueFailureReason,
+    ClueScores,
+    PuzzleAssessment,
+    WorkingClue,
+    WorkingPuzzle,
+    all_working_clues,
+    puzzle_from_working_state,
+    set_current_definition,
+    working_clue_from_entry,
+    working_puzzle_from_puzzle,
+)
+from .core.selection_engine import choose_clue_version, choose_puzzle_assessment
 from .core.slot_extractor import Slot, extract_slots
 from .core.word_index import WordEntry, WordIndex
 from .core.constraint_solver import solve
 from .phases.activate import set_published
-from .phases.define import generate_definitions_for_puzzle
+from .phases.define import generate_definitions_for_puzzle, generate_definitions_for_state
 from .phases.download import run as download_words
 from .phases.theme import generate_title_for_final_puzzle
 from .phases.upload import upload_puzzle
-from .phases.verify import verify_puzzle, rate_puzzle
+from .phases.verify import rate_working_puzzle, verify_working_puzzle
 
 
 class TeeStream:
@@ -92,6 +99,7 @@ class PreparedPuzzle:
     total: int
     definition_score: float
     blocking_words: list[str]
+    assessment: PuzzleAssessment = field(default_factory=PuzzleAssessment)
 
 
 LOCKED_SCORE = 9
@@ -266,25 +274,33 @@ def _generate_candidate(
     word_index: WordIndex,
     metadata: dict[str, dict],
     title: str,
+    rng: random.Random | None = None,
     seen_template_fingerprints: set[str] | None = None,
 ) -> Candidate | None:
+    if rng is None:
+        rng = random.Random(0)
     template = None
     hardcoded_templates = ALL_TEMPLATES.get(size, [])
-    if size == 15 and random.random() < 0.7:
+    if size == 15 and rng.random() < 0.7:
         template = _easy_large_template(size)
-    elif size == 12 and random.random() < 0.65:
+    elif size == 12 and rng.random() < 0.65:
         template = _easy_medium_template(size)
-    elif size != 7 and hardcoded_templates and random.random() < 0.4:
-        template = parse_template(random.choice(hardcoded_templates))
+    elif size != 7 and hardcoded_templates and rng.random() < 0.4:
+        template = parse_template(rng.choice(hardcoded_templates))
     else:
-        blacks = random.choice([
+        blacks = rng.choice([
             settings.target_blacks - 2,
             settings.target_blacks - 1,
             settings.target_blacks,
             settings.target_blacks + 1,
             settings.target_blacks + 2,
         ])
-        template = generate_procedural_template(size, target_blacks=max(1, blacks), max_attempts=300)
+        template = generate_procedural_template(
+            size,
+            target_blacks=max(1, blacks),
+            max_attempts=300,
+            rng=rng,
+        )
     if template is None:
         return None
     if seen_template_fingerprints is not None:
@@ -312,6 +328,7 @@ def _generate_candidate(
         grid,
         settings.max_backtracks,
         allow_reuse=size >= 15,
+        rng=rng,
     )
     if result is None:
         return None
@@ -326,6 +343,7 @@ def _best_candidate(
     size: int,
     title: str,
     raw_words: list[dict],
+    rng: random.Random,
     seen_template_fingerprints: set[str] | None = None,
 ) -> Candidate:
     best: Candidate | None = None
@@ -345,6 +363,7 @@ def _best_candidate(
                 word_index,
                 metadata,
                 title,
+                rng,
                 seen_template_fingerprints=seen_template_fingerprints if size == 7 else None,
             )
             if candidate is None:
@@ -370,26 +389,36 @@ def _best_candidate(
     raise RuntimeError(f"Could not generate a valid filled grid for {size}x{size}")
 
 
-def _all_clues(puzzle) -> list[ClueEntry]:
-    return puzzle.horizontal_clues + puzzle.vertical_clues
+def _all_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
+    return all_working_clues(puzzle)
 
 
-def _extract_semantic_score(clue) -> int | None:
-    return extract_semantic_score(clue.verify_note)
+def _coerce_working_clue(clue: WorkingClue | ClueEntry) -> WorkingClue:
+    if isinstance(clue, WorkingClue):
+        return clue
+    return working_clue_from_entry(clue)
 
 
-def _extract_guessability_score(clue) -> int | None:
-    return extract_guessability_score(clue.verify_note)
+def _extract_semantic_score(clue: WorkingClue) -> int | None:
+    clue = _coerce_working_clue(clue)
+    return clue.active_version().assessment.scores.semantic_exactness
 
 
-def _needs_rewrite(clue) -> bool:
+def _extract_guessability_score(clue: WorkingClue) -> int | None:
+    clue = _coerce_working_clue(clue)
+    return clue.active_version().assessment.scores.answer_targeting
+
+
+def _needs_rewrite(clue: WorkingClue) -> bool:
+    clue = _coerce_working_clue(clue)
     """Return True when a clue should be rewritten.
 
     We rewrite based on quality score, not raw verify failure alone.
     A clue can be semantically good yet still fail exact-match verification
     because the local model prefers a synonym or a more common variant.
     """
-    if not clue.definition or clue.definition.startswith("["):
+    definition = clue.current.definition
+    if not definition or definition.startswith("["):
         return True
 
     semantic_score = _extract_semantic_score(clue)
@@ -405,14 +434,14 @@ def _needs_rewrite(clue) -> bool:
     )
 
 
-def _blocking_clues(puzzle) -> list[ClueEntry]:
+def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
     return [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
 
-def _clue_eval(clue: ClueEntry) -> tuple[int, int, int]:
+def _clue_eval(clue: WorkingClue) -> tuple[int, int, int]:
     semantic_score = _extract_semantic_score(clue) or 0
     guessability_score = _extract_guessability_score(clue) or 0
-    verified_score = 1 if clue.verified is True else 0
+    verified_score = 1 if clue.active_version().assessment.verified is True else 0
     return (semantic_score + guessability_score, guessability_score, verified_score)
 
 
@@ -420,15 +449,9 @@ def _compact_log_text(text: str) -> str:
     return " ".join((text or "").split())
 
 
-def _is_locked_clue(clue: ClueEntry) -> bool:
-    semantic_score = _extract_semantic_score(clue)
-    guessability_score = _extract_guessability_score(clue)
-    return (
-        semantic_score is not None
-        and guessability_score is not None
-        and semantic_score >= LOCKED_SCORE
-        and guessability_score >= LOCKED_SCORE
-    )
+def _is_locked_clue(clue: WorkingClue) -> bool:
+    clue = _coerce_working_clue(clue)
+    return clue.locked
 
 
 def _template_fingerprint(template: list[list[bool]]) -> str:
@@ -441,42 +464,61 @@ def _preparation_attempts_for_size(size: int, requested_attempts: int) -> int:
     return requested_attempts
 
 
-def _puzzle_definition_score(puzzle) -> float:
+def _score_puzzle_state(puzzle: WorkingPuzzle, candidate_report: QualityReport | None = None) -> PuzzleAssessment:
     clues = _all_clues(puzzle)
     if not clues:
-        return 0.0
-    return sum(_clue_eval(clue)[0] for clue in clues) / len(clues)
+        return PuzzleAssessment()
+    exact_scores = [clue.active_version().assessment.scores.semantic_exactness or 0 for clue in clues]
+    targeting_scores = [clue.active_version().assessment.scores.answer_targeting or 0 for clue in clues]
+    ambiguity_count = sum(
+        1 for clue in clues
+        if (clue.active_version().assessment.scores.ambiguity_risk or 0) >= (11 - RATE_MIN_GUESSABILITY)
+    )
+    short_word_burden = sum(1 for clue in clues if len(clue.word_normalized) <= 3)
+    rare_word_burden = candidate_report.high_rarity_words if candidate_report else 0
+    blocker_words = [clue.word_normalized for clue in clues if _needs_rewrite(clue)]
+    return PuzzleAssessment(
+        definition_score=sum(e + t for e, t in zip(exact_scores, targeting_scores)) / len(clues),
+        avg_exactness=sum(exact_scores) / len(exact_scores),
+        avg_targeting=sum(targeting_scores) / len(targeting_scores),
+        ambiguity_count=ambiguity_count,
+        short_word_burden=short_word_burden,
+        rare_word_burden=rare_word_burden,
+        blocker_words=blocker_words,
+    )
 
 
-def _choose_best_clue(
-    best_clue: ClueEntry,
-    current_clue: ClueEntry,
-    client=None,
-) -> ClueEntry:
-    best_eval = _clue_eval(best_clue)
-    current_eval = _clue_eval(current_clue)
-    if current_eval > best_eval:
-        return copy.deepcopy(current_clue)
-    if best_eval > current_eval:
-        return copy.deepcopy(best_clue)
-    if client is not None and best_clue.definition and current_clue.definition:
-        winner = choose_better_clue_variant(
-            client,
-            best_clue.word_normalized,
-            len(best_clue.word_normalized),
-            best_clue.definition,
-            current_clue.definition,
-        )
-        chosen = current_clue if winner == "B" else best_clue
-        print(
-            f"  Tie-break definiție {best_clue.word_normalized}: "
-            f"A='{_compact_log_text(best_clue.definition)}' | "
-            f"B='{_compact_log_text(current_clue.definition)}' | "
-            f"câștigă {winner} | "
-            f"aleasă='{_compact_log_text(chosen.definition)}'"
-        )
-        return copy.deepcopy(chosen)
-    return copy.deepcopy(best_clue)
+def _update_best_clue_version(clue: WorkingClue, client=None) -> None:
+    if clue.best is None:
+        clue.best = copy.deepcopy(clue.current)
+    elif clue.current.definition:
+        def _tiebreak(a_text: str, b_text: str) -> str:
+            if client is None:
+                return "A"
+            return choose_better_clue_variant(
+                client,
+                clue.word_normalized,
+                len(clue.word_normalized),
+                a_text,
+                b_text,
+            )
+
+        chosen, decision = choose_clue_version(clue.best, clue.current, tiebreaker=_tiebreak)
+        if decision.used_tiebreak:
+            print(
+                f"  Tie-break definiție {clue.word_normalized}: "
+                f"A='{_compact_log_text(decision.a_summary)}' | "
+                f"B='{_compact_log_text(decision.b_summary)}' | "
+                f"câștigă {decision.winner} | "
+                f"aleasă='{_compact_log_text(decision.winner_summary)}'"
+            )
+        elif decision.reason == "deterministic_rank" and chosen.definition == clue.best.definition and clue.current.definition != clue.best.definition:
+            print(f"  Păstrez definiția mai bună pentru {clue.word_normalized}")
+        clue.best = copy.deepcopy(chosen)
+
+    semantic_score = clue.best.assessment.scores.semantic_exactness or 0
+    targeting_score = clue.best.assessment.scores.answer_targeting or 0
+    clue.locked = semantic_score >= LOCKED_SCORE and targeting_score >= LOCKED_SCORE
 
 
 def _merge_best_clue_variants(
@@ -486,44 +528,63 @@ def _merge_best_clue_variants(
 ) -> list[ClueEntry]:
     merged: list[ClueEntry] = []
     for best_clue, current_clue in zip(best_clues, current_clues):
-        chosen = _choose_best_clue(best_clue, current_clue, client=client)
-        if chosen.definition == best_clue.definition and current_clue.definition != best_clue.definition:
-            print(f"  Păstrez definiția mai bună pentru {best_clue.word_normalized}")
-        merged.append(chosen)
+        best_working = _coerce_working_clue(best_clue)
+        current_working = _coerce_working_clue(current_clue)
+
+        def _tiebreak(a_text: str, b_text: str) -> str:
+            if client is None:
+                return "A"
+            return choose_better_clue_variant(
+                client,
+                best_working.word_normalized,
+                len(best_working.word_normalized),
+                a_text,
+                b_text,
+            )
+
+        chosen, _ = choose_clue_version(
+            best_working.active_version(),
+            current_working.active_version(),
+            tiebreaker=_tiebreak,
+        )
+        if client is not None:
+            print(
+                f"  Tie-break definiție {best_working.word_normalized}: "
+                f"A='{_compact_log_text(best_working.active_version().definition)}' | "
+                f"B='{_compact_log_text(current_working.active_version().definition)}' | "
+                f"aleasă='{_compact_log_text(chosen.definition)}'"
+            )
+        chosen_working = copy.deepcopy(best_working if chosen.definition == best_working.active_version().definition else current_working)
+        chosen_working.best = copy.deepcopy(chosen)
+        chosen_working.current = copy.deepcopy(chosen)
+        merged.append(puzzle_from_working_state(WorkingPuzzle("", 0, [], [chosen_working], [])).horizontal_clues[0])
     return merged
 
 
-def _restore_best_scored_clues(puzzle, best_snapshot, client=None) -> None:
-    puzzle.horizontal_clues = _merge_best_clue_variants(
-        best_snapshot.horizontal_clues,
-        puzzle.horizontal_clues,
-        client=client,
-    )
-    puzzle.vertical_clues = _merge_best_clue_variants(
-        best_snapshot.vertical_clues,
-        puzzle.vertical_clues,
-        client=client,
-    )
+def _restore_best_versions(puzzle: WorkingPuzzle) -> None:
+    for clue in _all_clues(puzzle):
+        if clue.best is not None:
+            clue.current = copy.deepcopy(clue.best)
 
 
 def _puzzle_summary(prepared: PreparedPuzzle) -> str:
     clues = _all_clues(prepared.puzzle)
     preview = "\n".join(
-        f"- {clue.word_normalized}: {clue.definition}"
+        f"- {clue.word_normalized}: {clue.active_version().definition}"
         for clue in clues[:10]
-        if clue.definition
+        if clue.active_version().definition
     )
-    blockers = ", ".join(prepared.blocking_words[:8]) if prepared.blocking_words else "niciunul"
+    blockers = ", ".join(prepared.assessment.blocker_words[:8]) if prepared.assessment.blocker_words else "niciunul"
     return (
         f"Titlu: {prepared.title or '[fără titlu]'}\n"
-        f"Scor definiții: {prepared.definition_score:.2f}\n"
+        f"Scor definiții: {prepared.assessment.definition_score:.2f}\n"
         f"Blocaje: {blockers}\n"
         f"Exemple:\n{preview}"
     )
 
 
 def _is_publishable(prepared: PreparedPuzzle) -> bool:
-    return not prepared.blocking_words
+    return not prepared.assessment.blocker_words
 
 
 def _better_prepared_puzzle(
@@ -539,48 +600,47 @@ def _better_prepared_puzzle(
     if candidate_publishable != best_publishable:
         return candidate if candidate_publishable else best
 
-    score_delta = candidate.definition_score - best.definition_score
+    score_delta = candidate.assessment.definition_score - best.assessment.definition_score
     if abs(score_delta) > PUZZLE_TIEBREAK_DELTA:
         return candidate if score_delta > 0 else best
 
-    if client is not None:
-        winner = choose_better_puzzle_variant(
-            client,
-            _puzzle_summary(best),
-            _puzzle_summary(candidate),
-        )
+    def _tiebreak(a_summary: str, b_summary: str) -> str:
+        if client is None:
+            return "A"
+        return choose_better_puzzle_variant(client, a_summary, b_summary)
+
+    winner, decision = choose_puzzle_assessment(best.assessment, candidate.assessment, tiebreaker=_tiebreak)
+    if decision.used_tiebreak:
         chosen = candidate if winner == "B" else best
         print(
             "Puzzle tie-break: "
-            f"A='{_compact_log_text(_puzzle_summary(best))}' | "
-            f"B='{_compact_log_text(_puzzle_summary(candidate))}' | "
-            f"câștigă {winner} | "
-            f"ales='{_compact_log_text(_puzzle_summary(chosen))}'"
+            f"A='{_compact_log_text(decision.a_summary)}' | "
+            f"B='{_compact_log_text(decision.b_summary)}' | "
+            f"câștigă {decision.winner} | "
+            f"ales='{_compact_log_text(decision.winner_summary)}'"
         )
         return chosen
 
     return candidate if score_delta > 0 else best
 
 
-def _synthesize_failure_reason(clue: ClueEntry) -> str:
-    if clue_uses_same_family(clue.word_normalized, clue.definition):
+def _synthesize_failure_reason(clue: WorkingClue) -> str:
+    clue = _coerce_working_clue(clue)
+    assessment = clue.current.assessment
+    if assessment.scores.family_leakage:
         return "Folosește aceeași familie lexicală ca răspunsul."
+    if assessment.wrong_guess:
+        return f"Duce la alt răspuns: {assessment.wrong_guess}."
+    if assessment.feedback:
+        normalized_feedback = assessment.feedback.lower()
+        if ("rar" in normalized_feedback or "comun" in normalized_feedback) and (assessment.scores.semantic_exactness or 0) >= 8:
+            return "Definiția trebuie făcută mai exactă, nu tratată ca defect doar pentru raritate."
+        return assessment.feedback
+    if assessment.failure_reason:
+        return assessment.failure_reason.message
 
-    wrong_guess = extract_wrong_guess(clue.verify_note)
-    if wrong_guess:
-        return f"Duce la alt răspuns: {wrong_guess}."
-
-    feedback = extract_feedback(clue.verify_note)
-    if feedback:
-        normalized_feedback = feedback.lower()
-        if "rar" in normalized_feedback or "comun" in normalized_feedback:
-            semantic_score = _extract_semantic_score(clue) or 0
-            if semantic_score >= 8:
-                return "Definiția trebuie făcută mai exactă, nu tratată ca defect doar pentru raritate."
-        return feedback
-
-    semantic_score = _extract_semantic_score(clue) or 0
-    guessability_score = _extract_guessability_score(clue) or 0
+    semantic_score = assessment.scores.semantic_exactness or 0
+    guessability_score = assessment.scores.answer_targeting or 0
     if semantic_score < RATE_MIN_SEMANTIC:
         return "Definiția nu este suficient de exactă pentru răspunsul intenționat."
     if guessability_score < RATE_MIN_GUESSABILITY:
@@ -588,25 +648,24 @@ def _synthesize_failure_reason(clue: ClueEntry) -> str:
     return "Definiția trebuie făcută mai exactă."
 
 
-def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
+def _rewrite_failed_clues(puzzle: WorkingPuzzle, client, rounds: int) -> tuple[int, int]:
     theme = puzzle.title or "Puzzle intern"
-    passed, total = verify_puzzle(puzzle, client)
-    rate_puzzle(puzzle, client)
-    best_snapshot = copy.deepcopy(puzzle)
+    passed, total = verify_working_puzzle(puzzle, client)
+    rate_working_puzzle(puzzle, client)
+    for clue in _all_clues(puzzle):
+        _update_best_clue_version(clue, client=client)
 
     for round_index in range(1, rounds + 1):
-        # Rewrite only low-quality definitions. Verify failure alone is not enough:
-        # the local verifier often answers with a synonym despite a good clue.
         candidates = [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
         if not candidates:
             break
 
-        failed_count = sum(1 for c in candidates if c.verified is False)
+        failed_count = sum(1 for c in candidates if c.current.assessment.verified is False)
         low_rated_count = sum(
             1 for c in candidates
             if (
-                c.verified is True
+                c.current.assessment.verified is True
                 and (
                     (_extract_semantic_score(c) or 0) < RATE_MIN_SEMANTIC
                     or (_extract_guessability_score(c) or 0) < RATE_MIN_GUESSABILITY
@@ -623,9 +682,9 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
             if _is_locked_clue(clue):
                 print(f"  {clue.word_normalized}: blocat la {LOCKED_SCORE}/{LOCKED_SCORE}")
                 continue
-            wrong_guess = extract_wrong_guess(clue.verify_note)
-            rating_feedback = extract_feedback(clue.verify_note)
-            bad_example_definition = clue.definition if round_index >= 2 else ""
+            wrong_guess = clue.current.assessment.wrong_guess
+            rating_feedback = clue.current.assessment.feedback
+            bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
             try:
                 new_definition = rewrite_definition(
@@ -633,7 +692,7 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
                     clue.word_normalized,
                     clue.word_original,
                     theme,
-                    clue.definition,
+                    clue.current.definition,
                     wrong_guess,
                     rating_feedback=rating_feedback,
                     bad_example_definition=bad_example_definition,
@@ -642,26 +701,23 @@ def _rewrite_failed_clues(puzzle, client, rounds: int) -> tuple[int, int]:
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
                 continue
-            if new_definition and new_definition != clue.definition:
+            if new_definition and new_definition != clue.current.definition:
                 print(
                     f"  {clue.word_normalized}: "
-                    f"'{_compact_log_text(clue.definition)}' -> "
+                    f"'{_compact_log_text(clue.current.definition)}' -> "
                     f"'{_compact_log_text(new_definition)}'"
                 )
-                clue.definition = new_definition
-            clue.verified = None
-            clue.verify_note = ""
+                set_current_definition(clue, new_definition, round_index=round_index, source="rewrite")
 
-        passed, total = verify_puzzle(puzzle, client)
-        rate_puzzle(puzzle, client)
-        _restore_best_scored_clues(best_snapshot, puzzle, client=client)
+        passed, total = verify_working_puzzle(puzzle, client)
+        rate_working_puzzle(puzzle, client)
         for clue in _all_clues(puzzle):
-            if _is_locked_clue(clue):
+            _update_best_clue_version(clue, client=client)
+            if clue.locked:
                 print(f"  {clue.word_normalized}: definiție blocată la 9/9")
-        best_snapshot = copy.deepcopy(puzzle)
 
-    _restore_best_scored_clues(best_snapshot, puzzle, client=client)
-    passed = sum(1 for clue in _all_clues(puzzle) if clue.verified)
+    _restore_best_versions(puzzle)
+    passed = sum(1 for clue in _all_clues(puzzle) if clue.current.assessment.verified)
     total = len(_all_clues(puzzle))
     return passed, total
 
@@ -687,28 +743,35 @@ def _prepare_puzzle_for_publication(
             )
 
         provisional_title = f"Puzzle {index}"
+        rng = getattr(client, "_batch_rng", random.Random(0))
         candidate = _best_candidate(
             size,
             provisional_title,
             raw_words,
+            rng=rng,
             seen_template_fingerprints=seen_template_fingerprints,
         )
         puzzle = parse_markdown(candidate.markdown)
         puzzle.title = ""
         generate_definitions_for_puzzle(puzzle, client)
-        passed, total = _rewrite_failed_clues(puzzle, client, rewrite_rounds)
-        blockers = _blocking_clues(puzzle)
-        title = generate_title_for_final_puzzle(puzzle, client=client)
-        puzzle.title = title
+        state = working_puzzle_from_puzzle(puzzle, split_compound=False)
+        passed, total = _rewrite_failed_clues(state, client, rewrite_rounds)
+        _restore_best_versions(state)
+        state.assessment = _score_puzzle_state(state, candidate.report)
+        blockers = _blocking_clues(state)
+        rendered_for_title = puzzle_from_working_state(state)
+        title = generate_title_for_final_puzzle(rendered_for_title, client=client)
+        state.title = title
         print(f"Titlu final: {title}")
         prepared = PreparedPuzzle(
             title=title,
             candidate=candidate,
-            puzzle=copy.deepcopy(puzzle),
+            puzzle=copy.deepcopy(state),
             passed=passed,
             total=total,
-            definition_score=_puzzle_definition_score(puzzle),
+            definition_score=state.assessment.definition_score,
             blocking_words=[clue.word_normalized for clue in blockers],
+            assessment=copy.deepcopy(state.assessment),
         )
         best_prepared = _better_prepared_puzzle(best_prepared, prepared, client=client)
 
@@ -723,11 +786,14 @@ def _prepare_puzzle_for_publication(
     return best_prepared
 
 
-def _clear_verification_state(puzzle):
+def _clear_verification_state(puzzle: WorkingPuzzle):
     clean = copy.deepcopy(puzzle)
     for clue in _all_clues(clean):
-        clue.verified = None
-        clue.verify_note = ""
+        version = clue.active_version()
+        version.assessment.verified = None
+        version.assessment.wrong_guess = ""
+        version.assessment.feedback = ""
+        version.assessment.failure_reason = None
     return clean
 
 
@@ -743,15 +809,20 @@ def run_batch(
     words_path: Path,
     rewrite_rounds: int,
     preparation_attempts: int,
+    seed: int | None = None,
     run_dir: Path | None = None,
 ) -> list[dict]:
     raw_words = _load_words(words_path)
     client = create_client()
+    rng_seed = seed if seed is not None else random.SystemRandom().randint(1, 10_000_000)
+    batch_rng = random.Random(rng_seed)
+    setattr(client, "_batch_rng", batch_rng)
     if run_dir is None:
         run_dir = output_root / datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict] = []
     seen_7x7_templates: set[str] = set()
+    print(f"Batch seed: {rng_seed}")
 
     for index, size in enumerate(sizes, start=1):
         puzzle_dir = run_dir / f"{index:02d}_{size}x{size}"
@@ -775,16 +846,17 @@ def run_batch(
 
         template_path = puzzle_dir / "template.md"
         filled_path = puzzle_dir / "filled.md"
+        rendered_puzzle = puzzle_from_working_state(prepared.puzzle)
         _write_text(template_path, write_grid_template(size, prepared.candidate.template))
-        _write_text(filled_path, write_with_definitions(prepared.puzzle))
+        _write_text(filled_path, write_with_definitions(rendered_puzzle))
 
         defs_puzzle = _clear_verification_state(prepared.puzzle)
         defs_path = puzzle_dir / "defs.md"
         verified_path = puzzle_dir / "verified.md"
-        _write_text(defs_path, write_with_definitions(defs_puzzle))
-        _write_text(verified_path, write_with_definitions(prepared.puzzle))
+        _write_text(defs_path, write_with_definitions(puzzle_from_working_state(defs_puzzle)))
+        _write_text(verified_path, write_with_definitions(rendered_puzzle))
 
-        puzzle_id = upload_puzzle(defs_puzzle)
+        puzzle_id = upload_puzzle(puzzle_from_working_state(defs_puzzle))
         set_published(puzzle_id, True)
 
         manifest.append({
@@ -798,6 +870,8 @@ def run_batch(
             "verification_total": prepared.total,
             "output_dir": str(puzzle_dir),
             "template_path": str(template_path),
+            "seed": rng_seed,
+            "template_fingerprint": _template_fingerprint(prepared.candidate.template),
         })
         _write_text(run_dir / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
 
@@ -836,6 +910,12 @@ def main() -> None:
         default=3,
         help="How many candidate puzzles to try before giving up on a size",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional RNG seed for reproducible batch generation",
+    )
     args = parser.parse_args()
 
     output_root = Path(args.output_root)
@@ -857,6 +937,7 @@ def main() -> None:
                 words_path=Path(args.words),
                 rewrite_rounds=args.rewrite_rounds,
                 preparation_attempts=args.preparation_attempts,
+                seed=args.seed,
                 run_dir=preview_run_dir,
             )
             print("\nBatch complete:")

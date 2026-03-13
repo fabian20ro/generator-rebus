@@ -4,6 +4,13 @@ from __future__ import annotations
 from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.ai_clues import create_client, generate_definition
+from ..core.pipeline_state import (
+    WorkingClue,
+    WorkingPuzzle,
+    puzzle_from_working_state,
+    set_current_definition,
+    working_puzzle_from_puzzle,
+)
 
 
 def _split_and_define(clues: list[ClueEntry], client: OpenAI,
@@ -45,16 +52,33 @@ def _split_and_define(clues: list[ClueEntry], client: OpenAI,
     return result
 
 
-def generate_definitions_for_puzzle(puzzle, client: OpenAI) -> None:
-    """Expand clues and generate definitions in-place for the whole puzzle."""
-    theme = puzzle.title or "Rebus Românesc"
+def generate_definitions_for_state(state: WorkingPuzzle, client: OpenAI) -> None:
+    theme = state.title or "Rebus Românesc"
     print(f"Theme: {theme}")
 
-    print("Generating horizontal definitions...")
-    puzzle.horizontal_clues = _split_and_define(puzzle.horizontal_clues, client, theme)
+    for label, clues in (("horizontal", state.horizontal_clues), ("vertical", state.vertical_clues)):
+        print(f"Generating {label} definitions...")
+        for clue in clues:
+            if clue.current.definition:
+                continue
+            print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'})...")
+            try:
+                definition = generate_definition(client, clue.word_normalized, clue.word_original, theme)
+            except Exception as e:
+                definition = f"[Definiție lipsă: {e}]"
+            print(f"    → {definition}")
+            set_current_definition(clue, definition, round_index=0, source="generate")
+            if clue.best is None:
+                clue.best = clue.current
 
-    print("Generating vertical definitions...")
-    puzzle.vertical_clues = _split_and_define(puzzle.vertical_clues, client, theme)
+
+def generate_definitions_for_puzzle(puzzle, client: OpenAI) -> None:
+    """Expand clues and generate definitions in-place for the whole puzzle."""
+    state = working_puzzle_from_puzzle(puzzle, split_compound=True)
+    generate_definitions_for_state(state, client)
+    rendered = puzzle_from_working_state(state)
+    puzzle.horizontal_clues = rendered.horizontal_clues
+    puzzle.vertical_clues = rendered.vertical_clues
 
 
 def run(input_file: str, output_file: str, **kwargs) -> None:
@@ -64,7 +88,9 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
         puzzle = parse_markdown(f.read())
 
     client = create_client()
-    generate_definitions_for_puzzle(puzzle, client)
+    state = working_puzzle_from_puzzle(puzzle, split_compound=True)
+    generate_definitions_for_state(state, client)
+    puzzle = puzzle_from_working_state(state)
 
     md = write_with_definitions(puzzle)
     with open(output_file, "w", encoding="utf-8") as f:

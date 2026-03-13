@@ -338,7 +338,7 @@ class BatchPublishTests(unittest.TestCase):
             puzzle_obj.horizontal_clues[0].definition = "Gaz din atmosferă"
 
         def _rewrite(puzzle_obj, client, rounds):
-            puzzle_obj.horizontal_clues[0].definition = "Substanță gazoasă din atmosferă"
+            puzzle_obj.horizontal_clues[0].current.definition = "Substanță gazoasă din atmosferă"
             return (1, 1)
 
         def _title_from_final(puzzle_obj, client=None):
