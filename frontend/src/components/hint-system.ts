@@ -5,7 +5,7 @@
 
 import type { GridState } from "./grid-renderer";
 import { findActiveClue } from "./grid-renderer";
-import { hintLetterCost, hintWordCost } from "../gamification/scoring";
+import { hintLetterCost, hintWordCost, CHECK_COST } from "../gamification/scoring";
 import { getPoints, spendPoints } from "../gamification/storage";
 
 export interface HintResult {
@@ -64,12 +64,24 @@ export function revealWord(
   return { success: true, cost };
 }
 
-export function checkPuzzle(state: GridState): {
+export interface CheckResult {
+  success: boolean;
+  reason?: "no_solution" | "not_enough_points";
+  cost?: number;
   correct: number;
   wrong: number;
   empty: number;
-} {
-  if (!state.solution) return { correct: 0, wrong: 0, empty: 0 };
+}
+
+export function checkPuzzle(state: GridState): CheckResult {
+  if (!state.solution)
+    return { success: false, reason: "no_solution", correct: 0, wrong: 0, empty: 0 };
+
+  if (getPoints() < CHECK_COST) {
+    return { success: false, reason: "not_enough_points", cost: CHECK_COST, correct: 0, wrong: 0, empty: 0 };
+  }
+
+  spendPoints(CHECK_COST);
 
   let correct = 0;
   let wrong = 0;
@@ -93,7 +105,7 @@ export function checkPuzzle(state: GridState): {
     }
   }
 
-  return { correct, wrong, empty };
+  return { success: true, cost: CHECK_COST, correct, wrong, empty };
 }
 
 export function isPuzzleComplete(state: GridState): boolean {
