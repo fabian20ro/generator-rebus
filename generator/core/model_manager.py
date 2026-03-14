@@ -16,7 +16,6 @@ class ModelConfig:
     model_id: str
     display_name: str
     context_length: int = 8192
-    gpu: str = "max"
 
 
 PRIMARY_MODEL = ModelConfig(
@@ -24,7 +23,7 @@ PRIMARY_MODEL = ModelConfig(
     display_name="gpt-oss-20b",
 )
 SECONDARY_MODEL = ModelConfig(
-    model_id="qwen/qwen3.5-27b",
+    model_id="qwen3.5-27b",
     display_name="qwen-3.5-27b",
 )
 
@@ -45,18 +44,6 @@ def _post_json(path: str, body: dict, timeout: float = 120.0) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _delete_json(path: str, body: dict, timeout: float = 30.0) -> dict:
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        _api_url(path),
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="DELETE",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
 def _get_json(path: str, timeout: float = 30.0) -> dict:
     req = urllib.request.Request(_api_url(path), method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -64,9 +51,14 @@ def _get_json(path: str, timeout: float = 30.0) -> dict:
 
 
 def get_loaded_models() -> list[str]:
+    """Return model IDs that have at least one loaded instance."""
     try:
         data = _get_json("/api/v1/models")
-        return [m.get("id", "") for m in data.get("data", [])]
+        return [
+            m["key"]
+            for m in data.get("models", [])
+            if m.get("loaded_instances")
+        ]
     except Exception:
         return []
 
@@ -76,7 +68,6 @@ def load_model(config: ModelConfig) -> None:
     _post_json("/api/v1/models/load", {
         "model": config.model_id,
         "context_length": config.context_length,
-        "gpu": config.gpu,
     })
     _wait_for_model(config.model_id)
     print(f"[{time.strftime('%H:%M:%S')}] Model loaded: {config.display_name}")
@@ -85,8 +76,8 @@ def load_model(config: ModelConfig) -> None:
 def unload_model(config: ModelConfig) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] Unloading model: {config.display_name}...")
     try:
-        _delete_json("/api/v1/models/unload", {
-            "identifier": config.model_id,
+        _post_json("/api/v1/models/unload", {
+            "instance_id": config.model_id,
         })
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
         print(f"  Model unload skipped ({config.display_name}): {e}")
