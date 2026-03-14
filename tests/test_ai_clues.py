@@ -191,22 +191,14 @@ class AiCluesTests(unittest.TestCase):
         self.assertNotEqual(result, previous)
         self.assertEqual(len(client.prompts), 0)
 
+    def test_generate_prompt_includes_forbidden_stems(self):
+        prompt = _build_generate_prompt("tibetan", "TIBETAN", 7)
+        self.assertIn("TIBET", prompt)
+        self.assertIn("interzise", prompt)
 
-    def test_preset_definitions_used_for_ou(self):
-        client = _RecordingClient([])
-
-        result = generate_definition(client, word="OU", original="ou", theme="")
-
-        self.assertIn(result, PRESET_DEFINITIONS["OU"])
-        self.assertEqual(len(client.prompts), 0)
-
-    def test_preset_definitions_used_for_urinare(self):
-        client = _RecordingClient([])
-
-        result = generate_definition(client, word="URINARE", original="urinare", theme="")
-
-        self.assertIn(result, PRESET_DEFINITIONS["URINARE"])
-        self.assertEqual(len(client.prompts), 0)
+    def test_generate_prompt_forbidden_for_short_word(self):
+        prompt = _build_generate_prompt("at", "AT", 2)
+        self.assertNotIn("interzise", prompt)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from openai import OpenAI
 
 from ..config import LMSTUDIO_BASE_URL
-from .clue_family import clue_uses_same_family
+from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
 from .quality import ENGLISH_HOMOGRAPH_HINTS, PRESET_DEFINITIONS
 
@@ -277,6 +277,14 @@ def _guard_english_meaning_rating(
     )
 
 
+def _family_exclusion_note(word: str) -> str:
+    """Build a prompt note listing forbidden word forms for family leakage prevention."""
+    stems = forbidden_definition_stems(word)
+    if not stems:
+        return ""
+    return f"\nCuvinte interzise în definiție: {', '.join(stems)}."
+
+
 def _build_generate_prompt(display_word: str, word: str, length: int) -> str:
     prompt = (
         f"Cuvânt: {display_word}\n"
@@ -292,6 +300,7 @@ def _build_generate_prompt(display_word: str, word: str, length: int) -> str:
             f"Sensul corect: {hint}. "
             f"NU defini ca și cum ar fi un cuvânt englezesc."
         )
+    prompt += _family_exclusion_note(word)
     return prompt
 
 
@@ -317,6 +326,7 @@ def _build_rewrite_prompt(
             f"Sensul corect: {hint}. "
             f"NU defini ca și cum ar fi un cuvânt englezesc."
         )
+    prompt += _family_exclusion_note(word)
     return prompt
 
 

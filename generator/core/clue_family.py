@@ -7,6 +7,16 @@ import re
 from .diacritics import normalize
 
 
+# Ordered longest-first so that e.g. "inter" matches before "in"
+ROMANIAN_PREFIXES = (
+    "contra",
+    "supra", "super", "inter", "trans", "ultra", "extra",
+    "anti", "auto", "post", "semi",
+    "pre", "des", "dez", "sub",
+    "ne", "re", "in", "im",
+)
+
+
 ROMANIAN_SUFFIXES = (
     "urilor",
     "iilor",
@@ -109,6 +119,14 @@ def _strip_suffixes(token: str) -> str:
     return stem
 
 
+def _strip_prefixes(token: str) -> str:
+    """Strip a single Romanian prefix if the remainder is >= 4 chars."""
+    for prefix in ROMANIAN_PREFIXES:
+        if token.startswith(prefix) and len(token) - len(prefix) >= 4:
+            return token[len(prefix):]
+    return token
+
+
 def _shared_root(answer_stem: str, token_stem: str) -> bool:
     if answer_stem == token_stem:
         return True
@@ -134,11 +152,53 @@ def clue_uses_same_family(answer: str, definition: str) -> bool:
     answer_token = answer_tokens[0]
     answer_stem = _strip_suffixes(answer_token)
 
+    answer_stems = {answer_stem}
+    answer_root = _strip_prefixes(answer_stem)
+    answer_has_prefix = answer_root != answer_stem
+    if answer_has_prefix:
+        answer_stems.add(answer_root)
+
     for token in _normalized_tokens(definition):
         if token == answer_token:
             return True
         token_stem = _strip_suffixes(token)
-        if _shared_root(answer_stem, token_stem):
-            return True
+        token_stems = {token_stem}
+        # Only strip prefixes from definition tokens when the answer
+        # itself has a prefix, to avoid false positives (e.g. SUBSTANTA
+        # vs DISTANTA both stripping to "stanta").
+        if answer_has_prefix:
+            token_root = _strip_prefixes(token_stem)
+            if token_root != token_stem:
+                token_stems.add(token_root)
+        for a in answer_stems:
+            for t in token_stems:
+                if _shared_root(a, t):
+                    return True
 
     return False
+
+
+def forbidden_definition_stems(answer: str) -> list[str]:
+    """Compute forbidden word forms for LLM prompts to avoid family leakage."""
+    tokens = _normalized_tokens(answer)
+    if not tokens:
+        return []
+    token = tokens[0]
+    stem = _strip_suffixes(token)
+    if len(stem) < 4:
+        return []
+
+    forms = {token.upper()}
+    if stem != token:
+        forms.add(stem.upper())
+
+    root = _strip_prefixes(stem)
+    if root != stem:
+        forms.add(root.upper())
+    else:
+        # Add shortest prefix of stem that _shared_root would catch
+        short_len = max(4, len(stem) - 2)
+        if short_len < len(stem):
+            forms.add(stem[:short_len].upper())
+
+    return sorted(forms)

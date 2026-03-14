@@ -49,16 +49,6 @@ PRESET_DEFINITIONS: dict[str, tuple[str, ...]] = {
         "Dorință neîmplinită, exprimată printr-un suspin.",
         "Exclamație de mirare sau surprindere.",
     ),
-    "OU": (
-        "Produs alimentar depus de găini, cu coajă subțire.",
-        "Celulă reproductivă la păsări, acoperită de o coajă dură.",
-        "Ingredient de bază în omletă, cu gălbenuș și albuș.",
-    ),
-    "URINARE": (
-        "Proces fiziologic de eliminare a lichidelor din organism.",
-        "Funcție a aparatului excretor, controlată de vezică.",
-        "Act fiziologic prin care rinichii evacuează lichide.",
-    ),
 }
 
 
