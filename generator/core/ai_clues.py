@@ -25,6 +25,7 @@ DEFINITION_SYSTEM_PROMPT = (
     "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
     "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
     "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n"
+    "- Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.\n"
     "- Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]\n"
     "- Preferi definiții precise, naturale, maxim 12 cuvinte.\n"
     "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.\n"
@@ -53,6 +54,7 @@ REWRITE_SYSTEM_PROMPT = (
     "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
     "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
     "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n"
+    "- Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.\n"
     "- Fă definiția mai precisă decât cea veche.\n"
     "- Max 12 cuvinte.\n"
     "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]"
@@ -282,7 +284,12 @@ def _family_exclusion_note(word: str) -> str:
     stems = forbidden_definition_stems(word)
     if not stems:
         return ""
-    return f"\nCuvinte interzise în definiție: {', '.join(stems)}."
+    joined = ", ".join(stems)
+    return (
+        f"\nATENȚIE — Cuvinte complet interzise în definiție: {joined}.\n"
+        "Orice cuvânt care conține aceste rădăcini este interzis.\n"
+        "Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul."
+    )
 
 
 def _build_generate_prompt(display_word: str, word: str, length: int) -> str:
@@ -405,6 +412,19 @@ def _clamp_score(value: int | str | None, default: int = 5) -> int:
     return max(1, min(10, score))
 
 
+def _validate_definition(word: str, definition: str) -> str | None:
+    """Return rejection reason, or None if acceptable."""
+    if len(definition) < 5:
+        return f"too short ({len(definition)} chars)"
+    if _definition_is_invalid(word, definition):
+        return "contains answer or family word"
+    if contains_english_markers(definition):
+        return "English markers detected"
+    if _definition_describes_english_meaning(word, definition):
+        return "English meaning"
+    return None
+
+
 def generate_definition(
     client: OpenAI,
     word: str,
@@ -432,21 +452,13 @@ def generate_definition(
                 max_tokens=160,
             )
             definition = _clean_response(response.choices[0].message.content)
-            if len(definition) < 5:
-                print(f"    [rejected {word}: too short ({len(definition)} chars)]")
-                continue
             if definition == "[NECLAR]":
                 return definition
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
-            if _definition_is_invalid(word, definition):
-                print(f"    [rejected {word}: contains answer or family word]")
-                continue
-            if contains_english_markers(definition):
-                print(f"    [rejected {word}: English markers detected]")
-                continue
-            if _definition_describes_english_meaning(word, definition):
-                print(f"    [rejected {word}: English meaning]")
+            rejection = _validate_definition(word, definition)
+            if rejection:
+                print(f"    [rejected {word}: {rejection}]")
                 continue
             return definition
         except Exception:
@@ -500,25 +512,17 @@ def rewrite_definition(
                     {"role": "system", "content": REWRITE_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
+                temperature=0.3,
                 max_tokens=220,
             )
             definition = _clean_response(response.choices[0].message.content)
-            if len(definition) < 5:
-                print(f"    [rewrite rejected {word}: too short ({len(definition)} chars)]")
-                continue
             if definition == "[NECLAR]":
                 return definition
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
-            if _definition_is_invalid(word, definition):
-                print(f"    [rewrite rejected {word}: contains answer or family word]")
-                continue
-            if contains_english_markers(definition):
-                print(f"    [rewrite rejected {word}: English markers detected]")
-                continue
-            if _definition_describes_english_meaning(word, definition):
-                print(f"    [rewrite rejected {word}: English meaning]")
+            rejection = _validate_definition(word, definition)
+            if rejection:
+                print(f"    [rewrite rejected {word}: {rejection}]")
                 continue
             return definition
         except Exception:

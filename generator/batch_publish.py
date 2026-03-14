@@ -19,6 +19,7 @@ from .core.ai_clues import (
     choose_better_clue_variant,
     choose_better_puzzle_variant,
     create_client,
+    generate_definition,
     rewrite_definition,
 )
 from .core.metrics import (
@@ -115,6 +116,7 @@ class PreparedPuzzle:
 LOCKED_SEMANTIC = 9
 LOCKED_GUESSABILITY = 8
 PUZZLE_TIEBREAK_DELTA = 0.25
+MAX_CONSECUTIVE_FAILURES = 5
 
 
 def _easy_large_template(size: int) -> list[list[bool]] | None:
@@ -653,6 +655,9 @@ def _rewrite_failed_clues(
     for clue in _all_clues(puzzle):
         _update_best_clue_version(clue, client=client)
 
+    consecutive_failures: dict[str, int] = {}
+    stuck_words: set[str] = set()
+
     for round_index in range(1, rounds + 1):
         current_scores = [
             _extract_guessability_score(c) or 0
@@ -664,6 +669,7 @@ def _rewrite_failed_clues(
         candidates = [
             clue for clue in _all_clues(puzzle)
             if _needs_rewrite(clue, min_guessability=round_min_guess)
+            and clue.word_normalized not in stuck_words
         ]
 
         if not candidates:
@@ -698,28 +704,39 @@ def _rewrite_failed_clues(
             bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
             try:
-                new_definition = rewrite_definition(
-                    client,
-                    clue.word_normalized,
-                    clue.word_original,
-                    theme,
-                    clue.current.definition,
-                    wrong_guess,
-                    rating_feedback=rating_feedback,
-                    bad_example_definition=bad_example_definition,
-                    bad_example_reason=bad_example_reason,
-                )
+                if clue.current.definition.startswith("["):
+                    new_definition = generate_definition(
+                        client, clue.word_normalized, clue.word_original, theme, retries=3,
+                    )
+                else:
+                    new_definition = rewrite_definition(
+                        client,
+                        clue.word_normalized,
+                        clue.word_original,
+                        theme,
+                        clue.current.definition,
+                        wrong_guess,
+                        rating_feedback=rating_feedback,
+                        bad_example_definition=bad_example_definition,
+                        bad_example_reason=bad_example_reason,
+                    )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
                 continue
             if new_definition and new_definition != clue.current.definition:
                 changed_words.add(clue.word_normalized)
+                consecutive_failures[clue.word_normalized] = 0
                 print(
                     f"  {clue.word_normalized}: "
                     f"'{_compact_log_text(clue.current.definition)}' -> "
                     f"'{_compact_log_text(new_definition)}'"
                 )
                 set_current_definition(clue, new_definition, round_index=round_index, source="rewrite")
+            else:
+                consecutive_failures[clue.word_normalized] = consecutive_failures.get(clue.word_normalized, 0) + 1
+                if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
+                    stuck_words.add(clue.word_normalized)
+                    print(f"  {clue.word_normalized}: marcată ca blocată după {consecutive_failures[clue.word_normalized]} încercări eșuate consecutive")
 
         skip_words = ({c.word_normalized for c in _all_clues(puzzle)} - changed_words) | preset_skip
         if multi_model:
