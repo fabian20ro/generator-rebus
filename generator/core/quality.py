@@ -17,6 +17,24 @@ FOREIGN_SHORTLIST_BLOCKLIST = {
     "TEN",
 }
 
+ENGLISH_HOMOGRAPH_HINTS: dict[str, str] = {
+    "AN": "unitate de timp egală cu 12 luni",
+    "OF": "interjecție de durere, suspin, regret",
+    "AT": "domeniul internet al Austriei (.at)",
+    "IN": "plantă textilă cu flori albastre",
+    "HAT": "hotărâre fermă, decizie",
+    "DARE": "actul de a da, oferire",
+    "FI": "infinitivul verbului a fi, a exista",
+    "VIS": "experiență mentală din somn",
+    "DAR": "cadou, dar și conjuncție adversativă",
+    "IDE": "pește de apă dulce din familia ciprinidelor",
+    "AS": "carte de joc cu cea mai mare valoare",
+    "PAL": "lovitură scurtă cu palma",
+    "POT": "recipient de gătit; a putea",
+    "CAN": "recipient metalic",
+    "FAR": "lumină puternică de semnalizare pe litoral",
+}
+
 
 def _is_toxic_short_loanword(word: dict) -> bool:
     """Reject short foreign-looking entries that consistently poison Romanian clues.
@@ -75,7 +93,10 @@ def assess_word_quality(word: dict) -> WordQualityProfile:
     family_leak_risk = 2 if length >= 6 and normalized.endswith(("ARE", "IRE", "ATE", "ISM")) else 0
     foreign_risk = 3 if _is_toxic_short_loanword(word) else 1 if original.isascii() and original.islower() else 0
     abbreviation_like = length <= 3 and original.isascii() and original.islower()
-    rarity_penalty = (rarity or 0) * 0.35 if rarity is not None else 0.0
+    rarity_value = rarity or 0
+    rarity_penalty = (
+        rarity_value * 0.5 if rarity_value <= 3 else rarity_value * 0.8
+    ) if rarity is not None else 0.0
     definability_score = (
         10.0
         - short_fragility
@@ -177,7 +198,7 @@ def score_words(words: list[str], metadata: dict[str, dict], size: int) -> Quali
         three_letter_penalty = 5.0
     score -= two_letter * two_letter_penalty
     score -= three_letter * three_letter_penalty
-    score -= high_rarity * 18.0
+    score -= high_rarity * 28.0
     score -= uncommon * 10.0
     if size == 7:
         score -= max(0, two_letter - 2) * 18.0

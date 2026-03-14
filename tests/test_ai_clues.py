@@ -4,6 +4,9 @@ from types import SimpleNamespace
 
 from generator.core.ai_clues import (
     DefinitionRating,
+    _clean_response,
+    _definition_describes_english_meaning,
+    _build_generate_prompt,
     rate_definition,
     rewrite_definition,
 )
@@ -81,8 +84,8 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(9, rating.semantic_score)
-        self.assertGreaterEqual(rating.guessability_score, 6)
-        self.assertIn("exactitate", rating.feedback)
+        self.assertEqual(4, rating.guessability_score)
+        self.assertTrue(rating.rarity_only_override)
 
     def test_rate_definition_keeps_legitimate_guessability_penalty(self):
         client = _RecordingClient([
@@ -103,6 +106,62 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertEqual(4, rating.guessability_score)
         self.assertIn("sinonim", rating.feedback)
+
+
+    def test_clean_response_strips_model_tokens(self):
+        self.assertEqual("ZI", _clean_response("<|channel|>ZI"))
+        self.assertEqual("", _clean_response("<|channel|>"))
+        self.assertEqual("AER", _clean_response("<|endoftext|>AER"))
+        self.assertEqual("CASA", _clean_response("CASA<|im_end|>"))
+
+    def test_clean_response_takes_first_line(self):
+        self.assertEqual("CASA", _clean_response("CASA\naltceva pe linia doi"))
+
+    def test_definition_describes_english_meaning_detects_engleza(self):
+        self.assertTrue(_definition_describes_english_meaning("AN", "Articol nehotărât în limba engleză"))
+
+    def test_definition_describes_english_meaning_detects_patterns(self):
+        self.assertTrue(_definition_describes_english_meaning("AN", "Articol nehotărât"))
+        self.assertTrue(_definition_describes_english_meaning("OF", "Prepoziție de posesie"))
+        self.assertTrue(_definition_describes_english_meaning("IN", "Prepoziție care indică poziția"))
+        self.assertTrue(_definition_describes_english_meaning("HAT", "O pălărie mare"))
+        self.assertTrue(_definition_describes_english_meaning("NAT", "Traducere a adreselor IP"))
+
+    def test_definition_describes_english_meaning_passes_romanian(self):
+        self.assertFalse(_definition_describes_english_meaning("AN", "Unitate de timp egală cu 12 luni"))
+        self.assertFalse(_definition_describes_english_meaning("OF", "Interjecție de durere"))
+        self.assertFalse(_definition_describes_english_meaning("IN", "Plantă textilă cu flori albastre"))
+        self.assertFalse(_definition_describes_english_meaning("CASA", "Locuință"))
+
+    def test_generate_prompt_includes_homograph_hint(self):
+        prompt = _build_generate_prompt("an", "AN", 2)
+        self.assertIn("ATENȚIE", prompt)
+        self.assertIn("unitate de timp", prompt)
+        self.assertIn("NU defini ca și cum ar fi un cuvânt englezesc", prompt)
+
+    def test_generate_prompt_no_hint_for_normal_word(self):
+        prompt = _build_generate_prompt("casă", "CASA", 4)
+        self.assertNotIn("ATENȚIE", prompt)
+
+    def test_rate_english_meaning_forces_low_scores(self):
+        client = _RecordingClient([
+            json.dumps({
+                "semantic_score": 10,
+                "guessability_score": 10,
+                "feedback": "Definiția este perfectă.",
+            })
+        ])
+
+        rating = rate_definition(
+            client,
+            word="AN",
+            original="an",
+            definition="Articol nehotărât în limba engleză",
+            answer_length=2,
+        )
+
+        self.assertEqual(1, rating.semantic_score)
+        self.assertEqual(1, rating.guessability_score)
 
 
 if __name__ == "__main__":

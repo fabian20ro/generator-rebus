@@ -8,6 +8,7 @@ import copy
 import json
 import random
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,18 @@ from .core.ai_clues import (
     choose_better_puzzle_variant,
     create_client,
     rewrite_definition,
+)
+from .core.metrics import (
+    BatchMetric,
+    PuzzleMetric,
+    WordMetric,
+    update_word_difficulty,
+    write_metrics,
+)
+from .core.model_manager import (
+    PRIMARY_MODEL,
+    SECONDARY_MODEL,
+    switch_model,
 )
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
 from .core.markdown_io import (
@@ -175,7 +188,7 @@ def _render_filled_markdown(
     for row in range(size):
         rendered_row = []
         for col in range(size):
-            rendered_row.append(None if not template[row][col] else None)
+            rendered_row.append(None)
         grid_out.append(rendered_row)
 
     h_words: list[list[str]] = [[] for _ in range(size)]
@@ -354,13 +367,13 @@ def _extract_guessability_score(clue: WorkingClue) -> int | None:
 
 
 def _needs_rewrite(clue: WorkingClue) -> bool:
-    clue = _coerce_working_clue(clue)
     """Return True when a clue should be rewritten.
 
     We rewrite based on quality score, not raw verify failure alone.
     A clue can be semantically good yet still fail exact-match verification
     because the local model prefers a synonym or a more common variant.
     """
+    clue = _coerce_working_clue(clue)
     definition = clue.current.definition
     if not definition or definition.startswith("["):
         return True
@@ -372,10 +385,14 @@ def _needs_rewrite(clue: WorkingClue) -> bool:
     if semantic_score >= LOCKED_SCORE and guessability_score >= LOCKED_SCORE:
         return False
 
-    return (
-        semantic_score < RATE_MIN_SEMANTIC
-        or guessability_score < RATE_MIN_GUESSABILITY
-    )
+    if semantic_score < RATE_MIN_SEMANTIC:
+        return True
+
+    rarity_override = clue.current.assessment.rarity_only_override
+    if rarity_override and semantic_score >= RATE_MIN_SEMANTIC:
+        return False
+
+    return guessability_score < RATE_MIN_GUESSABILITY
 
 
 def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
@@ -590,14 +607,28 @@ def _synthesize_failure_reason(clue: WorkingClue) -> str:
     return "Definiția trebuie făcută mai exactă."
 
 
-def _rewrite_failed_clues(puzzle: WorkingPuzzle, client, rounds: int) -> tuple[int, int]:
+def _rewrite_failed_clues(
+    puzzle: WorkingPuzzle,
+    client,
+    rounds: int,
+    multi_model: bool = False,
+) -> tuple[int, int]:
     theme = puzzle.title or "Puzzle intern"
     passed, total = verify_working_puzzle(puzzle, client)
     rate_working_puzzle(puzzle, client)
     for clue in _all_clues(puzzle):
         _update_best_clue_version(clue, client=client)
 
+    current_model = PRIMARY_MODEL
+
     for round_index in range(1, rounds + 1):
+        if multi_model:
+            next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
+            try:
+                switch_model(current_model, next_model)
+                current_model = next_model
+            except Exception as e:
+                print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
         candidates = [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
         if not candidates:
@@ -673,6 +704,7 @@ def _prepare_puzzle_for_publication(
     rewrite_rounds: int,
     preparation_attempts: int,
     seen_template_fingerprints: set[str] | None = None,
+    multi_model: bool = False,
 ) -> PreparedPuzzle:
     best_prepared: PreparedPuzzle | None = None
     effective_attempts = _preparation_attempts_for_size(size, preparation_attempts)
@@ -697,7 +729,7 @@ def _prepare_puzzle_for_publication(
         puzzle.title = ""
         generate_definitions_for_puzzle(puzzle, client)
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
-        passed, total = _rewrite_failed_clues(state, client, rewrite_rounds)
+        passed, total = _rewrite_failed_clues(state, client, rewrite_rounds, multi_model=multi_model)
         _restore_best_versions(state)
         state.assessment = _score_puzzle_state(state, candidate.report)
         blockers = _blocking_clues(state)
@@ -728,6 +760,25 @@ def _prepare_puzzle_for_publication(
     return best_prepared
 
 
+def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
+    metrics = []
+    for clue in _all_clues(puzzle):
+        version = clue.active_version()
+        semantic = version.assessment.scores.semantic_exactness
+        targeting = version.assessment.scores.answer_targeting
+        metrics.append(WordMetric(
+            word=clue.word_normalized,
+            length=len(clue.word_normalized),
+            definition_rounds=len(clue.history),
+            final_verified=version.assessment.verified is True,
+            semantic_score=semantic,
+            guessability_score=targeting,
+            was_blocker=_needs_rewrite(clue),
+            english_meaning_detected=False,
+        ))
+    return metrics
+
+
 def _clear_verification_state(puzzle: WorkingPuzzle):
     clean = copy.deepcopy(puzzle)
     for clue in _all_clues(clean):
@@ -753,6 +804,7 @@ def run_batch(
     preparation_attempts: int,
     seed: int | None = None,
     run_dir: Path | None = None,
+    multi_model: bool = False,
 ) -> list[dict]:
     raw_words = _load_words(words_path)
     client = create_client()
@@ -764,10 +816,16 @@ def run_batch(
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict] = []
     seen_7x7_templates: set[str] = set()
+    batch_start = time.monotonic()
+    all_word_metrics: list[WordMetric] = []
+    puzzle_metrics: list[PuzzleMetric] = []
     print(f"Batch seed: {rng_seed}")
+    if multi_model:
+        print(f"Multi-model mode: {PRIMARY_MODEL.display_name} + {SECONDARY_MODEL.display_name}")
 
     for index, size in enumerate(sizes, start=1):
         puzzle_dir = run_dir / f"{index:02d}_{size}x{size}"
+        puzzle_start = time.monotonic()
         print(f"\n=== Puzzle {index}/{len(sizes)}: {size}x{size} ===")
 
         prepared = _prepare_puzzle_for_publication(
@@ -779,12 +837,15 @@ def run_batch(
             rewrite_rounds=rewrite_rounds,
             preparation_attempts=preparation_attempts,
             seen_template_fingerprints=seen_7x7_templates if size == 7 else None,
+            multi_model=multi_model,
         )
         if prepared.blocking_words:
             raise RuntimeError(
                 f"Could not prepare a publishable {size}x{size} puzzle. "
                 f"Still blocked by: {', '.join(prepared.blocking_words[:12])}"
             )
+
+        puzzle_elapsed_ms = int((time.monotonic() - puzzle_start) * 1000)
 
         template_path = puzzle_dir / "template.md"
         filled_path = puzzle_dir / "filled.md"
@@ -801,6 +862,24 @@ def run_batch(
         puzzle_id = upload_puzzle(puzzle_from_working_state(defs_puzzle))
         set_published(puzzle_id, True)
 
+        word_metrics = _collect_word_metrics(prepared.puzzle)
+        all_word_metrics.extend(word_metrics)
+        clues = _all_clues(prepared.puzzle)
+        verified_count = sum(1 for c in clues if c.active_version().assessment.verified is True)
+        semantic_scores = [c.active_version().assessment.scores.semantic_exactness or 0 for c in clues]
+        guess_scores = [c.active_version().assessment.scores.answer_targeting or 0 for c in clues]
+        puzzle_metrics.append(PuzzleMetric(
+            size=size,
+            word_count=len(clues),
+            definition_first_pass_rate=prepared.passed / prepared.total if prepared.total else 0.0,
+            definition_final_pass_rate=verified_count / len(clues) if clues else 0.0,
+            avg_semantic=sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0.0,
+            avg_guessability=sum(guess_scores) / len(guess_scores) if guess_scores else 0.0,
+            blocker_count=len(prepared.blocking_words),
+            blocker_words=prepared.blocking_words,
+            total_elapsed_ms=puzzle_elapsed_ms,
+        ))
+
         manifest.append({
             "index": index,
             "size": size,
@@ -816,6 +895,22 @@ def run_batch(
             "template_fingerprint": _template_fingerprint(prepared.candidate.template),
         })
         _write_text(run_dir / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+
+    batch_elapsed_ms = int((time.monotonic() - batch_start) * 1000)
+    models_used = [PRIMARY_MODEL.display_name]
+    if multi_model:
+        models_used.append(SECONDARY_MODEL.display_name)
+    batch_metric = BatchMetric(
+        timestamp=datetime.now().isoformat(),
+        seed=rng_seed,
+        models_used=models_used,
+        puzzles=puzzle_metrics,
+        word_metrics=all_word_metrics,
+        total_elapsed_ms=batch_elapsed_ms,
+    )
+    write_metrics(batch_metric, run_dir / "metrics.json")
+    difficulty_path = words_path.parent / "word_difficulty.json"
+    update_word_difficulty(all_word_metrics, difficulty_path)
 
     return manifest
 
@@ -858,6 +953,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional RNG seed for reproducible batch generation",
     )
+    parser.add_argument(
+        "--multi-model",
+        action="store_true",
+        default=False,
+        help="Alternate between primary and secondary models for cross-validation",
+    )
     return parser
 
 
@@ -886,6 +987,7 @@ def main() -> None:
                 preparation_attempts=args.preparation_attempts,
                 seed=args.seed,
                 run_dir=preview_run_dir,
+                multi_model=args.multi_model,
             )
             print("\nBatch complete:")
             for item in manifest:

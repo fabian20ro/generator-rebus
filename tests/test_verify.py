@@ -3,15 +3,15 @@ from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from generator.core.ai_clues import DefinitionRating, _contains_english_markers
+from generator.core.ai_clues import DefinitionRating, contains_english_markers
 from generator.core.markdown_io import ClueEntry
 from generator.phases.verify import _verify_clues, rate_puzzle
 
 
 class VerifyPhaseTests(unittest.TestCase):
     def test_english_marker_detection(self):
-        self.assertTrue(_contains_english_markers("Precise and correct definition"))
-        self.assertFalse(_contains_english_markers("Definiție scurtă și exactă"))
+        self.assertTrue(contains_english_markers("Precise and correct definition"))
+        self.assertFalse(contains_english_markers("Definiție scurtă și exactă"))
 
     @patch("generator.phases.verify.verify_definition")
     def test_verify_passes_answer_length_to_model(self, mock_verify_definition):

@@ -23,6 +23,7 @@ from generator.batch_publish import (
 )
 from generator.core.clue_rating import append_rating_to_note
 from generator.core.markdown_io import ClueEntry
+from generator.core.pipeline_state import working_clue_from_entry
 from generator.core.quality import QualityReport
 from generator.core.size_tuning import get_size_settings
 from generator.rebus import build_parser as build_rebus_parser
@@ -74,6 +75,44 @@ class BatchPublishTests(unittest.TestCase):
         )
 
         self.assertTrue(_needs_rewrite(clue))
+
+    def test_rarity_only_override_prevents_rewrite(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="ARACI",
+            word_original="",
+            definition="Bete de sprijin pentru vita",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: PARI",
+                semantic_score=9,
+                guessability_score=4,
+                feedback="Răspunsul este rar.",
+            ),
+        )
+        working = working_clue_from_entry(clue)
+        working.current.assessment.rarity_only_override = True
+
+        self.assertFalse(_needs_rewrite(working))
+
+    def test_rarity_only_override_false_still_triggers_rewrite(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="ARACI",
+            word_original="",
+            definition="Bete de sprijin pentru vita",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: PARI",
+                semantic_score=9,
+                guessability_score=4,
+                feedback="Duce spre un sinonim mai uzual.",
+            ),
+        )
+        working = working_clue_from_entry(clue)
+        working.current.assessment.rarity_only_override = False
+
+        self.assertTrue(_needs_rewrite(working))
 
     def test_merge_best_clue_variants_keeps_higher_scored_definition(self):
         best = ClueEntry(
@@ -420,7 +459,7 @@ class BatchPublishTests(unittest.TestCase):
         def _fill_defs(puzzle_obj, client):
             puzzle_obj.horizontal_clues[0].definition = "Gaz din atmosferă"
 
-        def _rewrite(puzzle_obj, client, rounds):
+        def _rewrite(puzzle_obj, client, rounds, multi_model=False):
             puzzle_obj.horizontal_clues[0].current.definition = "Substanță gazoasă din atmosferă"
             return (1, 1)
 

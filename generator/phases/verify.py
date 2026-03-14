@@ -11,7 +11,7 @@ from ..core.ai_clues import (
     create_client,
     rate_definition,
     verify_definition,
-    _contains_english_markers,
+    contains_english_markers,
 )
 from ..core.pipeline_state import (
     ClueAssessment,
@@ -111,13 +111,15 @@ def _rate_clues(clues: list[WorkingClue], client: OpenAI) -> None:
         semantic_score = rating.semantic_score if rating else 5
         guessability_score = rating.guessability_score if rating else 5
         feedback = rating.feedback if rating else ""
+        rarity_override = rating.rarity_only_override if rating else False
         clue.current.assessment.feedback = feedback
+        clue.current.assessment.rarity_only_override = rarity_override
         clue.current.assessment.scores = ClueScores(
             semantic_exactness=semantic_score,
             answer_targeting=guessability_score,
             ambiguity_risk=11 - guessability_score,
             family_leakage=False,
-            language_integrity=1 if _contains_english_markers(definition) else 10,
+            language_integrity=1 if contains_english_markers(definition) else 10,
         )
         clue.current.assessment.failure_reason = _build_failure_reason(clue)
 

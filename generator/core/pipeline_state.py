@@ -36,6 +36,7 @@ class ClueAssessment:
     feedback: str = ""
     scores: ClueScores = field(default_factory=ClueScores)
     failure_reason: ClueFailureReason | None = None
+    rarity_only_override: bool = False
 
 
 @dataclass

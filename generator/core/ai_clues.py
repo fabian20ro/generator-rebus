@@ -12,10 +12,13 @@ from openai import OpenAI
 from ..config import LMSTUDIO_BASE_URL
 from .clue_family import clue_uses_same_family
 from .diacritics import normalize
+from .quality import ENGLISH_HOMOGRAPH_HINTS
 
 
 DEFINITION_SYSTEM_PROMPT = (
     "Ești autor de definiții de rebus în limba română.\n"
+    "IMPORTANT: Toate cuvintele sunt exclusiv în limba ROMÂNĂ. "
+    "Chiar dacă arată ca un cuvânt englezesc, definește-l DOAR cu sensul românesc.\n"
     "Reguli:\n"
     "- Răspunzi cu o singură definiție scurtă.\n"
     "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
@@ -25,15 +28,25 @@ DEFINITION_SYSTEM_PROMPT = (
     "- Preferi definiții precise, naturale, maxim 12 cuvinte.\n"
     "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.\n"
     "- Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].\n"
-    "Exemple:\n"
+    "Exemple corecte:\n"
     "OS -> Țesut dur al scheletului\n"
+    "AN -> Unitate de timp egală cu 12 luni\n"
+    "OF -> Interjecție care exprimă durere sau regret\n"
+    "IN -> Plantă textilă cu flori albastre\n"
     "AT -> Domeniul online al Austriei\n"
     "AI -> Formă a verbului a avea\n"
-    "CLOU -> Moment culminant"
+    "FAR -> Lumină de semnalizare pe coastă\n"
+    "CLOU -> Moment culminant\n"
+    "Contra-exemple (GREȘIT - sensuri englezești):\n"
+    "AN -> Articol nehotărât [GREȘIT]\n"
+    "OF -> Prepoziție de posesie [GREȘIT]\n"
+    "IN -> Prepoziție de loc [GREȘIT]\n"
+    "AT -> Prepoziție de loc [GREȘIT]"
 )
 
 REWRITE_SYSTEM_PROMPT = (
     "Ești editor de definiții de rebus în limba română.\n"
+    "IMPORTANT: Definește cuvintele DOAR cu sensul lor românesc, nu englezesc.\n"
     "Reguli:\n"
     "- Răspunzi doar cu definiția finală.\n"
     "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
@@ -53,6 +66,8 @@ VERIFY_SYSTEM_PROMPT = (
     "- Dacă definiția indică o abreviere, un simbol, un domeniu internet, o interjecție sau o formă gramaticală, răspunzi exact cu forma scurtă cerută.\n"
     "- Nu reformulezi definiția.\n"
     "- Nu răspunzi cu propoziții.\n"
+    "- Nu incluzi taguri, marcaje tehnice sau caractere speciale.\n"
+    "- Răspunsul conține doar litere românești.\n"
     "Exemple:\n"
     "Definiție: Domeniul online al Austriei\n"
     "Răspuns: AT\n"
@@ -156,7 +171,6 @@ AMBIGUITY_MARKERS = {
     "ambigua",
     "ambiguu",
     "sinonim",
-    "uzual",
     "vag",
     "vagă",
     "vaga",
@@ -174,6 +188,7 @@ class DefinitionRating:
     semantic_score: int
     guessability_score: int
     feedback: str
+    rarity_only_override: bool = False
 
 
 def create_client() -> OpenAI:
@@ -186,10 +201,14 @@ def create_client() -> OpenAI:
 
 
 def _clean_response(text: str | None) -> str:
-    return (text or "").strip().strip('"').strip("'")
+    text = (text or "").strip().strip('"').strip("'")
+    text = re.sub(r"<\|[^|]*\|>", "", text).strip()
+    if "\n" in text:
+        text = text.split("\n")[0].strip()
+    return text
 
 
-def _contains_english_markers(text: str | None) -> bool:
+def contains_english_markers(text: str | None) -> bool:
     if not text:
         return False
     tokens = {token.lower() for token in re.findall(r"[A-Za-z]+", text)}
@@ -223,14 +242,56 @@ def _feedback_is_rarity_only(feedback: str) -> bool:
     return bool(tokens & RARITY_MARKERS) and not bool(tokens & AMBIGUITY_MARKERS)
 
 
+_ENGLISH_MEANING_PATTERNS: dict[str, list[str]] = {
+    "AN": ["articol nehotărât", "articol nehotarat"],
+    "OF": ["prepoziție de posesie", "prepozitie de posesie", "indică posesia", "indica posesia"],
+    "IN": ["prepoziție de loc", "prepozitie de loc", "indică poziția", "indica pozitia", "prepoziție care indică"],
+    "AT": ["prepoziție care indică locul", "prepozitie care indica locul", "prepoziție de loc"],
+    "HAT": ["pălărie", "palarie"],
+    "NAT": ["network address", "traducere a adreselor", "adreselor ip"],
+    "IDE": ["dezvoltare software", "editor și compilator", "mediu de dezvoltare"],
+    "REF": ["referință", "referinta"],
+}
+
+
+def _definition_describes_english_meaning(word: str, definition: str) -> bool:
+    if not definition:
+        return False
+    lower_def = definition.lower()
+    if "engleză" in lower_def or "engleza" in lower_def or "english" in lower_def:
+        return True
+    patterns = _ENGLISH_MEANING_PATTERNS.get(word.upper(), [])
+    return any(pattern in lower_def for pattern in patterns)
+
+
+def _guard_english_meaning_rating(
+    word: str, definition: str, rating: DefinitionRating,
+) -> DefinitionRating:
+    if not _definition_describes_english_meaning(word, definition):
+        return rating
+    return DefinitionRating(
+        semantic_score=1,
+        guessability_score=1,
+        feedback="Definiția descrie sensul englezesc, nu cel românesc.",
+    )
+
+
 def _build_generate_prompt(display_word: str, word: str, length: int) -> str:
-    return (
+    prompt = (
         f"Cuvânt: {display_word}\n"
         f"Formă normalizată: {word}\n"
         f"Lungime: {length}\n\n"
         "Scrie o definiție de rebus scurtă și exactă. "
         "Răspunde doar cu definiția."
     )
+    hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
+    if hint:
+        prompt += (
+            f"\nATENȚIE: Cuvântul {word} este în limba ROMÂNĂ. "
+            f"Sensul corect: {hint}. "
+            f"NU defini ca și cum ar fi un cuvânt englezesc."
+        )
+    return prompt
 
 
 def _build_rewrite_prompt(
@@ -240,7 +301,7 @@ def _build_rewrite_prompt(
     feedback_text: str,
     bad_example_text: str,
 ) -> str:
-    return (
+    prompt = (
         f"Răspuns corect: {display_word}\n"
         f"Formă normalizată: {word}\n"
         f"Definiția anterioară: {previous_definition}\n"
@@ -248,6 +309,14 @@ def _build_rewrite_prompt(
         f"{bad_example_text}\n"
         "Rescrie definiția mai precis și mai scurt."
     )
+    hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
+    if hint:
+        prompt += (
+            f"\nATENȚIE: Cuvântul {word} este în limba ROMÂNĂ. "
+            f"Sensul corect: {hint}. "
+            f"NU defini ca și cum ar fi un cuvânt englezesc."
+        )
+    return prompt
 
 
 def _build_verify_prompt(definition: str, answer_length: int) -> str:
@@ -304,8 +373,9 @@ def _guard_definition_centric_rating(rating: DefinitionRating) -> DefinitionRati
         return rating
     return DefinitionRating(
         semantic_score=rating.semantic_score,
-        guessability_score=max(rating.guessability_score, RATE_MIN_GUESSABILITY),
-        feedback="Definiția trebuie judecată după exactitate, nu după raritatea răspunsului.",
+        guessability_score=rating.guessability_score,
+        feedback=rating.feedback,
+        rarity_only_override=True,
     )
 
 
@@ -356,7 +426,9 @@ def generate_definition(
                 definition = definition[:200].rsplit(" ", 1)[0]
             if _definition_is_invalid(word, definition):
                 continue
-            if _contains_english_markers(definition):
+            if contains_english_markers(definition):
+                continue
+            if _definition_describes_english_meaning(word, definition):
                 continue
             return definition
         except Exception:
@@ -418,7 +490,9 @@ def rewrite_definition(
                 definition = definition[:200].rsplit(" ", 1)[0]
             if _definition_is_invalid(word, definition):
                 continue
-            if _contains_english_markers(definition):
+            if contains_english_markers(definition):
+                continue
+            if _definition_describes_english_meaning(word, definition):
                 continue
             return definition
         except Exception:
@@ -450,7 +524,7 @@ def verify_definition(client: OpenAI, definition: str, answer_length: int) -> st
             guess = guess.split(":", 1)[1].strip()
         guess = guess.split()[0] if guess.split() else guess
         last_guess = guess
-        if not _contains_english_markers(guess):
+        if not contains_english_markers(guess):
             return guess
         prompt += "\nAtenție: răspunsul anterior nu a fost în română. Răspunde exclusiv în română."
 
@@ -484,7 +558,7 @@ def rate_definition(
             if match:
                 data = json.loads(match.group())
                 feedback = str(data.get("feedback", "")).strip()
-                if _contains_english_markers(feedback):
+                if contains_english_markers(feedback):
                     prompt += "\nAtenție: feedback-ul anterior nu a fost în română. Refă-l exclusiv în română."
                     continue
                 rating = DefinitionRating(
@@ -493,6 +567,7 @@ def rate_definition(
                     feedback=feedback,
                 )
                 rating = _guard_same_family_rating(word, definition, rating)
+                rating = _guard_english_meaning_rating(word, definition, rating)
                 return _guard_definition_centric_rating(rating)
         except Exception:
             pass
@@ -502,6 +577,7 @@ def rate_definition(
         definition,
         DefinitionRating(semantic_score=5, guessability_score=5, feedback=""),
     )
+    rating = _guard_english_meaning_rating(word, definition, rating)
     return _guard_definition_centric_rating(rating)
 
 
