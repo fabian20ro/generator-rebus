@@ -5,6 +5,8 @@ from __future__ import annotations
 
 SEMANTIC_LABEL = "Scor semantic:"
 GUESSABILITY_LABEL = "Scor ghicibilitate:"
+REBUS_LABEL = "Scor rebus:"
+CREATIVITY_LABEL = "Scor creativitate:"
 VERIFY_GUESS_LABEL = "AI a ghicit:"
 
 
@@ -14,12 +16,19 @@ def append_rating_to_note(
     semantic_score: int,
     guessability_score: int,
     feedback: str = "",
+    creativity_score: int | None = None,
+    rebus_score: int | None = None,
 ) -> str:
     parts = []
     if existing_note:
         parts.append(existing_note)
     parts.append(f"{SEMANTIC_LABEL} {semantic_score}/10")
-    parts.append(f"{GUESSABILITY_LABEL} {guessability_score}/10")
+    if rebus_score is not None:
+        parts.append(f"{REBUS_LABEL} {rebus_score}/10")
+    else:
+        parts.append(f"{GUESSABILITY_LABEL} {guessability_score}/10")
+    if creativity_score is not None:
+        parts.append(f"{CREATIVITY_LABEL} {creativity_score}/10")
     if feedback:
         parts.append(feedback.strip())
     return " | ".join(parts)
@@ -39,7 +48,22 @@ def extract_semantic_score(note: str) -> int | None:
 
 
 def extract_guessability_score(note: str) -> int | None:
+    """Extract guessability from old-format notes (backward compat)."""
+    score = _extract_labeled_score(note, GUESSABILITY_LABEL)
+    if score is not None:
+        return score
+    return _extract_labeled_score(note, REBUS_LABEL)
+
+
+def extract_rebus_score(note: str) -> int | None:
+    score = _extract_labeled_score(note, REBUS_LABEL)
+    if score is not None:
+        return score
     return _extract_labeled_score(note, GUESSABILITY_LABEL)
+
+
+def extract_creativity_score(note: str) -> int | None:
+    return _extract_labeled_score(note, CREATIVITY_LABEL)
 
 
 def extract_feedback(note: str) -> str:
@@ -50,6 +74,8 @@ def extract_feedback(note: str) -> str:
         if (
             not part.startswith(SEMANTIC_LABEL)
             and not part.startswith(GUESSABILITY_LABEL)
+            and not part.startswith(REBUS_LABEL)
+            and not part.startswith(CREATIVITY_LABEL)
             and not part.startswith(VERIFY_GUESS_LABEL)
         ):
             return part

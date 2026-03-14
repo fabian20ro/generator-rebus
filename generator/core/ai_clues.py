@@ -84,9 +84,13 @@ VERIFY_SYSTEM_PROMPT = (
 
 RATE_SYSTEM_PROMPT = (
     "Evaluezi o definiție de rebus pe scara 1-10.\n"
-    "Întorci două scoruri distincte:\n"
+    "Întorci trei scoruri distincte:\n"
     "- semantic_score: cât de corectă și onestă este definiția pentru răspunsul dat\n"
     "- guessability_score: cât de probabil este ca un rezolvitor să dea exact răspunsul cerut, de exact lungimea indicată, nu un sinonim mai comun\n"
+    "- creativity_score: cât de ingenios exploatează definiția un joc de domenii sau o "
+    "ambiguitate surprinzătoare — o definiție directă de dicționar primește 3-4, "
+    "o perifrază care face rezolvitorul să se gândească inițial la alt domeniu "
+    "primește 8-10 (ex: RIAL -> \"Se plătește la șah\" = surpriză domeniu)\n"
     "Criterii:\n"
     "- dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici\n"
     "- dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic\n"
@@ -95,7 +99,7 @@ RATE_SYSTEM_PROMPT = (
     "- nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun\n"
     "- feedback-ul este exclusiv în română, scurt și concret\n"
     "Răspunzi STRICT JSON: "
-    "{\"semantic_score\": <1-10>, \"guessability_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
+    "{\"semantic_score\": <1-10>, \"guessability_score\": <1-10>, \"creativity_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
 )
 
 CLUE_TIEBREAKER_SYSTEM_PROMPT = (
@@ -120,8 +124,10 @@ PUZZLE_TIEBREAKER_SYSTEM_PROMPT = (
     "Răspunzi strict cu A sau B."
 )
 
+WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
+
 RATE_MIN_SEMANTIC = 7
-RATE_MIN_GUESSABILITY = 5
+RATE_MIN_REBUS = 5
 ENGLISH_MARKERS = {
     "accurate",
     "accurately",
@@ -191,7 +197,12 @@ class DefinitionRating:
     semantic_score: int
     guessability_score: int
     feedback: str
+    creativity_score: int = 5
     rarity_only_override: bool = False
+
+
+def compute_rebus_score(guessability: int, creativity: int) -> int:
+    return round(0.75 * guessability + 0.25 * creativity)
 
 
 def create_client() -> OpenAI:
@@ -206,6 +217,12 @@ def create_client() -> OpenAI:
 def _clean_response(text: str | None) -> str:
     text = (text or "").strip().strip('"').strip("'")
     text = re.sub(r"<\|[^|]*\|>", "", text).strip()
+    text = re.sub(
+        r"^\*{0,2}(Definiție|Definitie|Răspuns|Raspuns):?\*{0,2}\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
     if "\n" in text:
         text = text.split("\n")[0].strip()
     return text
@@ -276,6 +293,7 @@ def _guard_english_meaning_rating(
         semantic_score=1,
         guessability_score=1,
         feedback="Definiția descrie sensul englezesc, nu cel românesc.",
+        creativity_score=1,
     )
 
 
@@ -292,12 +310,17 @@ def _family_exclusion_note(word: str) -> str:
     )
 
 
-def _build_generate_prompt(display_word: str, word: str, length: int) -> str:
+def _build_generate_prompt(display_word: str, word: str, length: int, word_type: str = "") -> str:
     prompt = (
         f"Cuvânt: {display_word}\n"
         f"Formă normalizată: {word}\n"
-        f"Lungime: {length}\n\n"
-        "Scrie o definiție de rebus scurtă și exactă. "
+        f"Lungime: {length}\n"
+    )
+    label = WORD_TYPE_LABELS.get(word_type)
+    if label:
+        prompt += f"Categorie gramaticală: {label}\n"
+    prompt += (
+        "\nScrie o definiție de rebus scurtă și exactă. "
         "Răspunde doar cu definiția."
     )
     hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
@@ -317,10 +340,17 @@ def _build_rewrite_prompt(
     previous_definition: str,
     feedback_text: str,
     bad_example_text: str,
+    word_type: str = "",
 ) -> str:
-    prompt = (
+    header = (
         f"Răspuns corect: {display_word}\n"
         f"Formă normalizată: {word}\n"
+    )
+    label = WORD_TYPE_LABELS.get(word_type)
+    if label:
+        header += f"Categorie gramaticală: {label}\n"
+    prompt = (
+        f"{header}"
         f"Definiția anterioară: {previous_definition}\n"
         f"{feedback_text}\n"
         f"{bad_example_text}\n"
@@ -345,13 +375,19 @@ def _build_verify_prompt(definition: str, answer_length: int) -> str:
     )
 
 
-def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int) -> str:
-    return (
+def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int, word_type: str = "") -> str:
+    header = (
         f"Cuvânt-răspuns: {display_word}\n"
         f"Formă normalizată: {word}\n"
         f"Lungime răspuns: {answer_length}\n"
+    )
+    label = WORD_TYPE_LABELS.get(word_type)
+    if label:
+        header += f"Categorie gramaticală: {label}\n"
+    return (
+        f"{header}"
         f"Definiție: {definition}\n\n"
-        "Evaluează separat corectitudinea semantică și ghicibilitatea exactă. "
+        "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. "
         "Răspunde STRICT cu JSON."
     )
 
@@ -381,6 +417,7 @@ def _guard_same_family_rating(word: str, definition: str, rating: DefinitionRati
         semantic_score=1,
         guessability_score=1,
         feedback=_same_family_feedback(),
+        creativity_score=1,
     )
 
 
@@ -393,6 +430,7 @@ def _guard_definition_centric_rating(rating: DefinitionRating) -> DefinitionRati
         semantic_score=rating.semantic_score,
         guessability_score=rating.guessability_score,
         feedback=rating.feedback,
+        creativity_score=rating.creativity_score,
         rarity_only_override=True,
     )
 
@@ -431,6 +469,7 @@ def generate_definition(
     original: str,
     theme: str,
     retries: int = 3,
+    word_type: str = "",
 ) -> str:
     """Generate a single clue definition."""
     preset = PRESET_DEFINITIONS.get(word.upper())
@@ -438,7 +477,7 @@ def generate_definition(
         return random.choice(preset)
     display_word = original if original else word.lower()
     length = len(word)
-    prompt = _build_generate_prompt(display_word, word, length)
+    prompt = _build_generate_prompt(display_word, word, length, word_type=word_type)
 
     for attempt in range(retries):
         try:
@@ -481,6 +520,7 @@ def rewrite_definition(
     rating_feedback: str = "",
     bad_example_definition: str = "",
     bad_example_reason: str = "",
+    word_type: str = "",
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
     preset = PRESET_DEFINITIONS.get(word.upper())
@@ -502,7 +542,9 @@ def rewrite_definition(
             f"- Motiv: {bad_example_reason}\n"
             "- Nu produce ceva similar cu această definiție respinsă.\n"
         )
-    prompt = _build_rewrite_prompt(display_word, word, previous_definition, feedback_text, bad_example_text)
+    prompt = _build_rewrite_prompt(
+        display_word, word, previous_definition, feedback_text, bad_example_text, word_type=word_type,
+    )
 
     for attempt in range(retries):
         try:
@@ -567,10 +609,11 @@ def rate_definition(
     original: str,
     definition: str,
     answer_length: int,
+    word_type: str = "",
 ) -> DefinitionRating:
     """Rate a definition's semantic quality and guessability."""
     display_word = original if original else word.lower()
-    prompt = _build_rate_prompt(display_word, word, definition, answer_length)
+    prompt = _build_rate_prompt(display_word, word, definition, answer_length, word_type=word_type)
 
     for attempt in range(2):
         try:
@@ -595,6 +638,7 @@ def rate_definition(
                     semantic_score=_clamp_score(data.get("semantic_score")),
                     guessability_score=_clamp_score(data.get("guessability_score")),
                     feedback=feedback,
+                    creativity_score=_clamp_score(data.get("creativity_score")),
                 )
                 rating = _guard_same_family_rating(word, definition, rating)
                 rating = _guard_english_meaning_rating(word, definition, rating)
@@ -605,7 +649,7 @@ def rate_definition(
     rating = _guard_same_family_rating(
         word,
         definition,
-        DefinitionRating(semantic_score=5, guessability_score=5, feedback=""),
+        DefinitionRating(semantic_score=5, guessability_score=5, feedback="", creativity_score=5),
     )
     rating = _guard_english_meaning_rating(word, definition, rating)
     return _guard_definition_centric_rating(rating)

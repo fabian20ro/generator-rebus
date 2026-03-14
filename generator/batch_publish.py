@@ -14,10 +14,11 @@ from datetime import datetime
 from pathlib import Path
 
 from .core.ai_clues import (
-    RATE_MIN_GUESSABILITY,
+    RATE_MIN_REBUS,
     RATE_MIN_SEMANTIC,
     choose_better_clue_variant,
     choose_better_puzzle_variant,
+    compute_rebus_score,
     create_client,
     generate_definition,
     rewrite_definition,
@@ -99,6 +100,7 @@ class Candidate:
     report: QualityReport
     template: list[list[bool]]
     markdown: str
+    metadata: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -114,7 +116,7 @@ class PreparedPuzzle:
 
 
 LOCKED_SEMANTIC = 9
-LOCKED_GUESSABILITY = 8
+LOCKED_REBUS = 8
 PUZZLE_TIEBREAK_DELTA = 0.25
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -155,6 +157,25 @@ def _easy_medium_template(size: int) -> list[list[bool]] | None:
         else:
             grid.append([True] * size)
     return grid
+
+def _easy_11_template(size: int) -> list[list[bool]] | None:
+    if size != 11:
+        return None
+    patterns = [
+        "#..#...#..#",
+        "...#...#...",
+        "#...#...#..",
+        "..#....#...",
+    ]
+    grid: list[list[bool]] = []
+    for row_index in range(size):
+        if row_index % 3 == 2:
+            pattern = patterns[(row_index // 3) % len(patterns)]
+            grid.append([ch == "." for ch in pattern])
+        else:
+            grid.append([True] * size)
+    return grid
+
 
 def _load_words(words_path: Path) -> list[dict]:
     if not words_path.exists():
@@ -261,7 +282,7 @@ def _generate_candidate(
     words = [result[slot.id].normalized for slot in slots]
     report = score_words(words, metadata, size)
     markdown = _render_filled_markdown(size, template, slots, result, title)
-    return Candidate(score=report.score, report=report, template=template, markdown=markdown)
+    return Candidate(score=report.score, report=report, template=template, markdown=markdown, metadata=metadata)
 
 
 def _easy_template_by_name(template_name: str | None, size: int) -> list[list[bool]] | None:
@@ -269,6 +290,8 @@ def _easy_template_by_name(template_name: str | None, size: int) -> list[list[bo
         return _easy_large_template(size)
     if template_name == "medium":
         return _easy_medium_template(size)
+    if template_name == "medium_11":
+        return _easy_11_template(size)
     return None
 
 
@@ -349,10 +372,6 @@ def _best_candidate(
     raise RuntimeError(f"Could not generate a valid filled grid for {size}x{size}")
 
 
-def _all_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
-    return all_working_clues(puzzle)
-
-
 def _coerce_working_clue(clue: WorkingClue | ClueEntry) -> WorkingClue:
     if isinstance(clue, WorkingClue):
         return clue
@@ -369,7 +388,12 @@ def _extract_guessability_score(clue: WorkingClue) -> int | None:
     return clue.active_version().assessment.scores.answer_targeting
 
 
-def _needs_rewrite(clue: WorkingClue, min_guessability: int = RATE_MIN_GUESSABILITY) -> bool:
+def _extract_rebus_score(clue: WorkingClue) -> int | None:
+    clue = _coerce_working_clue(clue)
+    return clue.active_version().assessment.scores.rebus_score
+
+
+def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     """Return True when a clue should be rewritten.
 
     We rewrite based on quality score, not raw verify failure alone.
@@ -384,10 +408,10 @@ def _needs_rewrite(clue: WorkingClue, min_guessability: int = RATE_MIN_GUESSABIL
         return True
 
     semantic_score = _extract_semantic_score(clue)
-    guessability_score = _extract_guessability_score(clue)
-    if semantic_score is None or guessability_score is None:
+    rebus_score = _extract_rebus_score(clue)
+    if semantic_score is None or rebus_score is None:
         return True
-    if semantic_score >= LOCKED_SEMANTIC and guessability_score >= LOCKED_GUESSABILITY:
+    if semantic_score >= LOCKED_SEMANTIC and rebus_score >= LOCKED_REBUS:
         return False
 
     if semantic_score < RATE_MIN_SEMANTIC:
@@ -397,12 +421,12 @@ def _needs_rewrite(clue: WorkingClue, min_guessability: int = RATE_MIN_GUESSABIL
     if rarity_override and semantic_score >= RATE_MIN_SEMANTIC:
         return False
 
-    return guessability_score < min_guessability
+    return rebus_score < min_rebus
 
 
 def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
     return [
-        clue for clue in _all_clues(puzzle)
+        clue for clue in all_working_clues(puzzle)
         if not clue.active_version().definition
         or clue.active_version().definition.startswith("[")
     ]
@@ -410,9 +434,9 @@ def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
 
 def _clue_eval(clue: WorkingClue) -> tuple[int, int, int]:
     semantic_score = _extract_semantic_score(clue) or 0
-    guessability_score = _extract_guessability_score(clue) or 0
+    rebus_score = _extract_rebus_score(clue) or 0
     verified_score = 1 if clue.active_version().assessment.verified is True else 0
-    return (semantic_score + guessability_score, guessability_score, verified_score)
+    return (semantic_score + rebus_score, rebus_score, verified_score)
 
 
 def _compact_log_text(text: str) -> str:
@@ -428,31 +452,47 @@ def _template_fingerprint(template: list[list[bool]]) -> str:
     return "|".join("".join("." if cell else "#" for cell in row) for row in template)
 
 
+def _inject_word_types(state: WorkingPuzzle, metadata: dict[str, dict]) -> None:
+    for clue in all_working_clues(state):
+        word_meta = metadata.get(clue.word_normalized, {})
+        clue.word_type = word_meta.get("word_type", "")
+
+
 def _preparation_attempts_for_size(size: int, requested_attempts: int) -> int:
     return max(requested_attempts, get_min_preparation_attempts(size))
 
 
 def _score_puzzle_state(puzzle: WorkingPuzzle, candidate_report: QualityReport | None = None) -> PuzzleAssessment:
-    clues = _all_clues(puzzle)
+    clues = all_working_clues(puzzle)
     if not clues:
         return PuzzleAssessment()
     exact_scores = [clue.active_version().assessment.scores.semantic_exactness or 0 for clue in clues]
+    rebus_scores = [clue.active_version().assessment.scores.rebus_score or 0 for clue in clues]
+    creativity_scores = [clue.active_version().assessment.scores.creativity or 0 for clue in clues]
     targeting_scores = [clue.active_version().assessment.scores.answer_targeting or 0 for clue in clues]
     ambiguity_count = sum(
         1 for clue in clues
-        if (clue.active_version().assessment.scores.ambiguity_risk or 0) >= (11 - RATE_MIN_GUESSABILITY)
+        if (clue.active_version().assessment.scores.ambiguity_risk or 0) >= (11 - RATE_MIN_REBUS)
     )
     short_word_burden = sum(1 for clue in clues if len(clue.word_normalized) <= 3)
     rare_word_burden = candidate_report.high_rarity_words if candidate_report else 0
     blocker_words = [clue.word_normalized for clue in clues if _needs_rewrite(clue)]
+    non_preset_rebus = [
+        clue.active_version().assessment.scores.rebus_score or 0
+        for clue in clues
+        if clue.word_normalized not in PRESET_DEFINITIONS
+    ]
     return PuzzleAssessment(
-        definition_score=sum(e + t for e, t in zip(exact_scores, targeting_scores)) / len(clues),
+        definition_score=sum(e + r for e, r in zip(exact_scores, rebus_scores)) / len(clues),
         avg_exactness=sum(exact_scores) / len(exact_scores),
         avg_targeting=sum(targeting_scores) / len(targeting_scores),
         ambiguity_count=ambiguity_count,
         short_word_burden=short_word_burden,
         rare_word_burden=rare_word_burden,
         blocker_words=blocker_words,
+        avg_creativity=sum(creativity_scores) / len(creativity_scores),
+        avg_rebus=sum(rebus_scores) / len(rebus_scores),
+        min_rebus=min(non_preset_rebus) if non_preset_rebus else 0,
     )
 
 
@@ -485,8 +525,8 @@ def _update_best_clue_version(clue: WorkingClue, client=None) -> None:
         clue.best = copy.deepcopy(chosen)
 
     semantic_score = clue.best.assessment.scores.semantic_exactness or 0
-    targeting_score = clue.best.assessment.scores.answer_targeting or 0
-    clue.locked = semantic_score >= LOCKED_SEMANTIC and targeting_score >= LOCKED_GUESSABILITY
+    rebus_score = clue.best.assessment.scores.rebus_score or 0
+    clue.locked = semantic_score >= LOCKED_SEMANTIC and rebus_score >= LOCKED_REBUS
 
 
 def _merge_best_clue_variants(
@@ -530,25 +570,9 @@ def _merge_best_clue_variants(
 
 
 def _restore_best_versions(puzzle: WorkingPuzzle) -> None:
-    for clue in _all_clues(puzzle):
+    for clue in all_working_clues(puzzle):
         if clue.best is not None:
             clue.current = copy.deepcopy(clue.best)
-
-
-def _puzzle_summary(prepared: PreparedPuzzle) -> str:
-    clues = _all_clues(prepared.puzzle)
-    preview = "\n".join(
-        f"- {clue.word_normalized}: {clue.active_version().definition}"
-        for clue in clues[:10]
-        if clue.active_version().definition
-    )
-    blockers = ", ".join(prepared.assessment.blocker_words[:8]) if prepared.assessment.blocker_words else "niciunul"
-    return (
-        f"Titlu: {prepared.title or '[fără titlu]'}\n"
-        f"Scor definiții: {prepared.assessment.definition_score:.2f}\n"
-        f"Blocaje: {blockers}\n"
-        f"Exemple:\n{preview}"
-    )
 
 
 def _compute_difficulty(report: QualityReport) -> int:
@@ -567,7 +591,7 @@ def _compute_difficulty(report: QualityReport) -> int:
 
 
 def _is_publishable(prepared: PreparedPuzzle) -> bool:
-    return not prepared.assessment.blocker_words
+    return not prepared.blocking_words
 
 
 def _better_prepared_puzzle(
@@ -623,10 +647,10 @@ def _synthesize_failure_reason(clue: WorkingClue) -> str:
         return assessment.failure_reason.message
 
     semantic_score = assessment.scores.semantic_exactness or 0
-    guessability_score = assessment.scores.answer_targeting or 0
+    rebus_score = assessment.scores.rebus_score or 0
     if semantic_score < RATE_MIN_SEMANTIC:
         return "Definiția nu este suficient de exactă pentru răspunsul intenționat."
-    if guessability_score < RATE_MIN_GUESSABILITY:
+    if rebus_score < RATE_MIN_REBUS:
         return "Definiția este prea vagă sau duce spre alt răspuns mai comun."
     return "Definiția trebuie făcută mai exactă."
 
@@ -649,10 +673,10 @@ def _rewrite_failed_clues(
         print(f"  Model activ (evaluare inițială): {current_model.display_name}")
     else:
         current_model = PRIMARY_MODEL
-    preset_skip = {c.word_normalized for c in _all_clues(puzzle) if c.word_normalized in PRESET_DEFINITIONS}
+    preset_skip = {c.word_normalized for c in all_working_clues(puzzle) if c.word_normalized in PRESET_DEFINITIONS}
     passed, total = verify_working_puzzle(puzzle, client, skip_words=preset_skip)
     rate_working_puzzle(puzzle, client, skip_words=preset_skip)
-    for clue in _all_clues(puzzle):
+    for clue in all_working_clues(puzzle):
         _update_best_clue_version(clue, client=client)
 
     consecutive_failures: dict[str, int] = {}
@@ -660,15 +684,15 @@ def _rewrite_failed_clues(
 
     for round_index in range(1, rounds + 1):
         current_scores = [
-            _extract_guessability_score(c) or 0
-            for c in _all_clues(puzzle)
+            _extract_rebus_score(c) or 0
+            for c in all_working_clues(puzzle)
             if c.word_normalized not in PRESET_DEFINITIONS
         ]
         current_min = min(current_scores) if current_scores else 0
-        round_min_guess = min(current_min + 1, RATE_MIN_GUESSABILITY)
+        round_min_rebus = current_min + 1
         candidates = [
-            clue for clue in _all_clues(puzzle)
-            if _needs_rewrite(clue, min_guessability=round_min_guess)
+            clue for clue in all_working_clues(puzzle)
+            if _needs_rewrite(clue, min_rebus=round_min_rebus)
             and clue.word_normalized not in stuck_words
         ]
 
@@ -684,7 +708,7 @@ def _rewrite_failed_clues(
                 c.current.assessment.verified is True
                 and (
                     (_extract_semantic_score(c) or 0) < RATE_MIN_SEMANTIC
-                    or (_extract_guessability_score(c) or 0) < RATE_MIN_GUESSABILITY
+                    or (_extract_rebus_score(c) or 0) < RATE_MIN_REBUS
                 )
             )
         )
@@ -697,7 +721,7 @@ def _rewrite_failed_clues(
         changed_words: set[str] = set()
         for clue in candidates:
             if _is_locked_clue(clue):
-                print(f"  {clue.word_normalized}: blocat la {LOCKED_SEMANTIC}/{LOCKED_GUESSABILITY}")
+                print(f"  {clue.word_normalized}: blocat la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
                 continue
             wrong_guess = clue.current.assessment.wrong_guess
             rating_feedback = clue.current.assessment.feedback
@@ -707,6 +731,7 @@ def _rewrite_failed_clues(
                 if clue.current.definition.startswith("["):
                     new_definition = generate_definition(
                         client, clue.word_normalized, clue.word_original, theme, retries=3,
+                        word_type=clue.word_type,
                     )
                 else:
                     new_definition = rewrite_definition(
@@ -719,6 +744,7 @@ def _rewrite_failed_clues(
                         rating_feedback=rating_feedback,
                         bad_example_definition=bad_example_definition,
                         bad_example_reason=bad_example_reason,
+                        word_type=clue.word_type,
                     )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
@@ -738,7 +764,7 @@ def _rewrite_failed_clues(
                     stuck_words.add(clue.word_normalized)
                     print(f"  {clue.word_normalized}: marcată ca blocată după {consecutive_failures[clue.word_normalized]} încercări eșuate consecutive")
 
-        skip_words = ({c.word_normalized for c in _all_clues(puzzle)} - changed_words) | preset_skip
+        skip_words = ({c.word_normalized for c in all_working_clues(puzzle)} - changed_words) | preset_skip
         if multi_model:
             next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
             try:
@@ -749,16 +775,16 @@ def _rewrite_failed_clues(
             print(f"  Model activ (evaluare): {current_model.display_name}")
         passed, total = verify_working_puzzle(puzzle, client, skip_words=skip_words)
         rate_working_puzzle(puzzle, client, skip_words=skip_words)
-        for clue in _all_clues(puzzle):
+        for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:
                 continue
             _update_best_clue_version(clue, client=client)
             if clue.locked:
-                print(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_GUESSABILITY}")
+                print(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
 
     _restore_best_versions(puzzle)
-    passed = sum(1 for clue in _all_clues(puzzle) if clue.current.assessment.verified)
-    total = len(_all_clues(puzzle))
+    passed = sum(1 for clue in all_working_clues(puzzle) if clue.current.assessment.verified)
+    total = len(all_working_clues(puzzle))
     return passed, total
 
 
@@ -796,8 +822,9 @@ def _prepare_puzzle_for_publication(
         puzzle.title = ""
         if multi_model:
             ensure_model_loaded(PRIMARY_MODEL)
-        generate_definitions_for_puzzle(puzzle, client)
+        generate_definitions_for_puzzle(puzzle, client, metadata=candidate.metadata)
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
+        _inject_word_types(state, candidate.metadata)
         passed, total = _rewrite_failed_clues(state, client, rewrite_rounds, multi_model=multi_model)
         _restore_best_versions(state)
         state.assessment = _score_puzzle_state(state, candidate.report)
@@ -823,6 +850,9 @@ def _prepare_puzzle_for_publication(
                 "Rejected puzzle after quality gate: "
                 + ", ".join(clue.word_normalized for clue in blockers[:10])
             )
+        elif _is_publishable(best_prepared):
+            print(f"  Puzzle publicabil la tentativa {attempt_index}/{effective_attempts}")
+            break
 
     if best_prepared is None:
         raise RuntimeError(f"Failed to prepare any {size}x{size} puzzle candidate")
@@ -831,10 +861,12 @@ def _prepare_puzzle_for_publication(
 
 def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
     metrics = []
-    for clue in _all_clues(puzzle):
+    for clue in all_working_clues(puzzle):
         version = clue.active_version()
         semantic = version.assessment.scores.semantic_exactness
         targeting = version.assessment.scores.answer_targeting
+        creativity = version.assessment.scores.creativity
+        rebus = version.assessment.scores.rebus_score
         metrics.append(WordMetric(
             word=clue.word_normalized,
             length=len(clue.word_normalized),
@@ -842,6 +874,8 @@ def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
             final_verified=version.assessment.verified is True,
             semantic_score=semantic,
             guessability_score=targeting,
+            creativity_score=creativity,
+            rebus_score=rebus,
             was_blocker=_needs_rewrite(clue),
             english_meaning_detected=False,
         ))
@@ -850,7 +884,7 @@ def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
 
 def _clear_verification_state(puzzle: WorkingPuzzle):
     clean = copy.deepcopy(puzzle)
-    for clue in _all_clues(clean):
+    for clue in all_working_clues(clean):
         version = clue.active_version()
         version.assessment.verified = None
         version.assessment.wrong_guess = ""
@@ -913,16 +947,16 @@ def run_batch(
             print("\n--- Detailed rejection report ---")
             blocking_set = set(prepared.blocking_words)
             try:
-                for clue in _all_clues(prepared.puzzle):
+                for clue in all_working_clues(prepared.puzzle):
                     if clue.word_normalized in blocking_set:
                         version = clue.active_version()
                         semantic = version.assessment.scores.semantic_exactness
-                        guessability = version.assessment.scores.answer_targeting
+                        rebus = version.assessment.scores.rebus_score
                         reason = _synthesize_failure_reason(clue)
                         print(
                             f"  {clue.word_normalized}: "
                             f"def='{_compact_log_text(version.definition)}' "
-                            f"semantic={semantic}/10 guessability={guessability}/10 "
+                            f"semantic={semantic}/10 rebus={rebus}/10 "
                             f"motiv: {reason}"
                         )
             except (AttributeError, TypeError):
@@ -930,7 +964,7 @@ def run_batch(
             print("--- End rejection report ---\n")
             raise RuntimeError(
                 f"Could not prepare a publishable {size}x{size} puzzle. "
-                f"Still blocked by: {', '.join(prepared.blocking_words[:12])}"
+                f"Missing definitions for: {', '.join(prepared.blocking_words[:12])}"
             )
 
         puzzle_elapsed_ms = int((time.monotonic() - puzzle_start) * 1000)
@@ -947,16 +981,16 @@ def run_batch(
         _write_text(defs_path, write_with_definitions(puzzle_from_working_state(defs_puzzle)))
         _write_text(verified_path, write_with_definitions(rendered_puzzle))
 
-        non_preset_scores = [
-            c.active_version().assessment.scores.answer_targeting or 0
-            for c in _all_clues(prepared.puzzle)
+        non_preset_rebus = [
+            c.active_version().assessment.scores.rebus_score or 0
+            for c in all_working_clues(prepared.puzzle)
             if c.word_normalized not in PRESET_DEFINITIONS
         ]
-        min_guess = min(non_preset_scores) if non_preset_scores else 10
+        min_rebus = min(non_preset_rebus) if non_preset_rebus else 10
         models_used_desc = [PRIMARY_MODEL.display_name]
         if multi_model:
             models_used_desc.append(SECONDARY_MODEL.display_name)
-        description = f"Ghicibilitate min: {min_guess}/10 | Modele: {', '.join(models_used_desc)}"
+        description = f"Scor rebus: {min_rebus}/10 | Modele: {', '.join(models_used_desc)}"
         difficulty = _compute_difficulty(prepared.candidate.report)
         puzzle_id = upload_puzzle(
             puzzle_from_working_state(defs_puzzle),
@@ -967,10 +1001,12 @@ def run_batch(
 
         word_metrics = _collect_word_metrics(prepared.puzzle)
         all_word_metrics.extend(word_metrics)
-        clues = _all_clues(prepared.puzzle)
+        clues = all_working_clues(prepared.puzzle)
         verified_count = sum(1 for c in clues if c.active_version().assessment.verified is True)
         semantic_scores = [c.active_version().assessment.scores.semantic_exactness or 0 for c in clues]
         guess_scores = [c.active_version().assessment.scores.answer_targeting or 0 for c in clues]
+        rebus_scores = [c.active_version().assessment.scores.rebus_score or 0 for c in clues]
+        creativity_scores = [c.active_version().assessment.scores.creativity or 0 for c in clues]
         puzzle_metrics.append(PuzzleMetric(
             size=size,
             word_count=len(clues),
@@ -978,6 +1014,9 @@ def run_batch(
             definition_final_pass_rate=verified_count / len(clues) if clues else 0.0,
             avg_semantic=sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0.0,
             avg_guessability=sum(guess_scores) / len(guess_scores) if guess_scores else 0.0,
+            avg_creativity=sum(creativity_scores) / len(creativity_scores) if creativity_scores else 0.0,
+            avg_rebus=sum(rebus_scores) / len(rebus_scores) if rebus_scores else 0.0,
+            min_rebus=min_rebus,
             blocker_count=len(prepared.blocking_words),
             blocker_words=prepared.blocking_words,
             total_elapsed_ms=puzzle_elapsed_ms,

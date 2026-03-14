@@ -7,6 +7,7 @@ from generator.core.ai_clues import (
     _clean_response,
     _definition_describes_english_meaning,
     _build_generate_prompt,
+    compute_rebus_score,
     generate_definition,
     rate_definition,
     rewrite_definition,
@@ -73,6 +74,7 @@ class AiCluesTests(unittest.TestCase):
             json.dumps({
                 "semantic_score": 9,
                 "guessability_score": 4,
+                "creativity_score": 6,
                 "feedback": "Răspunsul este rar și mai puțin comun.",
             })
         ])
@@ -94,6 +96,7 @@ class AiCluesTests(unittest.TestCase):
             json.dumps({
                 "semantic_score": 9,
                 "guessability_score": 4,
+                "creativity_score": 5,
                 "feedback": "Definiția duce la un sinonim mai uzual.",
             })
         ])
@@ -142,7 +145,7 @@ class AiCluesTests(unittest.TestCase):
         self.assertIn("NU defini ca și cum ar fi un cuvânt englezesc", prompt)
 
     def test_generate_prompt_no_hint_for_normal_word(self):
-        prompt = _build_generate_prompt("casă", "CASA", 4)
+        prompt = _build_generate_prompt("aer", "AER", 3)
         self.assertNotIn("ATENȚIE", prompt)
 
     def test_rate_english_meaning_forces_low_scores(self):
@@ -150,6 +153,7 @@ class AiCluesTests(unittest.TestCase):
             json.dumps({
                 "semantic_score": 10,
                 "guessability_score": 10,
+                "creativity_score": 10,
                 "feedback": "Definiția este perfectă.",
             })
         ])
@@ -199,6 +203,58 @@ class AiCluesTests(unittest.TestCase):
     def test_generate_prompt_forbidden_for_short_word(self):
         prompt = _build_generate_prompt("at", "AT", 2)
         self.assertNotIn("interzise", prompt)
+
+    def test_compute_rebus_score_formula(self):
+        self.assertEqual(7, compute_rebus_score(6, 10))
+        self.assertEqual(5, compute_rebus_score(5, 5))
+        self.assertEqual(8, compute_rebus_score(8, 8))
+
+    def test_rate_definition_returns_creativity_score(self):
+        client = _RecordingClient([
+            json.dumps({
+                "semantic_score": 8,
+                "guessability_score": 7,
+                "creativity_score": 9,
+                "feedback": "surpriză de domeniu",
+            })
+        ])
+
+        rating = rate_definition(
+            client,
+            word="RIAL",
+            original="rial",
+            definition="Se plătește la șah",
+            answer_length=4,
+        )
+
+        self.assertEqual(9, rating.creativity_score)
+        self.assertEqual(8, rating.semantic_score)
+        self.assertEqual(7, rating.guessability_score)
+
+
+    def test_generate_prompt_includes_word_type(self):
+        prompt = _build_generate_prompt("lovi", "LOVI", 4, word_type="V")
+        self.assertIn("Categorie gramaticală: verb", prompt)
+
+    def test_generate_prompt_no_word_type_for_empty(self):
+        prompt = _build_generate_prompt("casă", "CASA", 4, word_type="")
+        self.assertNotIn("Categorie gramaticală", prompt)
+
+    def test_generate_prompt_no_word_type_for_unknown(self):
+        prompt = _build_generate_prompt("casă", "CASA", 4, word_type="X")
+        self.assertNotIn("Categorie gramaticală", prompt)
+
+    def test_rewrite_prompt_includes_word_type(self):
+        from generator.core.ai_clues import _build_rewrite_prompt
+        prompt = _build_rewrite_prompt(
+            "lovi", "LOVI", "A atinge cu forță", "[niciun feedback]", "", word_type="V",
+        )
+        self.assertIn("Categorie gramaticală: verb", prompt)
+
+    def test_rate_prompt_includes_word_type(self):
+        from generator.core.ai_clues import _build_rate_prompt
+        prompt = _build_rate_prompt("casă", "CASA", "Locuință", 4, word_type="N")
+        self.assertIn("Categorie gramaticală: substantiv", prompt)
 
 
 if __name__ == "__main__":

@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 
 from .clue_rating import (
     append_rating_to_note,
+    extract_creativity_score,
     extract_feedback,
     extract_guessability_score,
+    extract_rebus_score,
     extract_semantic_score,
     extract_wrong_guess,
 )
@@ -21,6 +23,8 @@ class ClueScores:
     ambiguity_risk: int | None = None
     family_leakage: bool = False
     language_integrity: int | None = None
+    creativity: int | None = None
+    rebus_score: int | None = None
 
 
 @dataclass
@@ -58,6 +62,7 @@ class WorkingClue:
     best: ClueCandidateVersion | None = None
     history: list[ClueCandidateVersion] = field(default_factory=list)
     locked: bool = False
+    word_type: str = ""
 
     def active_version(self) -> ClueCandidateVersion:
         return self.best or self.current
@@ -72,6 +77,9 @@ class PuzzleAssessment:
     short_word_burden: int = 0
     rare_word_burden: int = 0
     blocker_words: list[str] = field(default_factory=list)
+    avg_creativity: float = 0.0
+    avg_rebus: float = 0.0
+    min_rebus: int = 0
 
 
 @dataclass
@@ -94,6 +102,8 @@ def _assessment_from_entry(entry: ClueEntry) -> ClueAssessment:
     targeting = extract_guessability_score(entry.verify_note)
     wrong_guess = extract_wrong_guess(entry.verify_note)
     feedback = extract_feedback(entry.verify_note)
+    creativity = extract_creativity_score(entry.verify_note)
+    rebus = extract_rebus_score(entry.verify_note)
     return ClueAssessment(
         verified=entry.verified,
         wrong_guess=wrong_guess,
@@ -104,6 +114,8 @@ def _assessment_from_entry(entry: ClueEntry) -> ClueAssessment:
             ambiguity_risk=(11 - targeting) if targeting is not None else None,
             family_leakage=False,
             language_integrity=10,
+            creativity=creativity,
+            rebus_score=rebus,
         ),
         failure_reason=None,
     )
@@ -132,6 +144,8 @@ def render_verify_note(assessment: ClueAssessment) -> str:
             semantic_score=assessment.scores.semantic_exactness,
             guessability_score=assessment.scores.answer_targeting,
             feedback=assessment.feedback,
+            creativity_score=assessment.scores.creativity,
+            rebus_score=assessment.scores.rebus_score,
         )
     elif assessment.feedback:
         note = assessment.feedback

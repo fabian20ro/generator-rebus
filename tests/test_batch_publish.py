@@ -7,11 +7,13 @@ from unittest.mock import patch
 
 from generator.batch_publish import (
     Candidate,
+    LOCKED_REBUS,
     PreparedPuzzle,
     SizeSettings,
     _best_candidate,
     _better_prepared_puzzle,
     _generate_candidate,
+    _is_publishable,
     _merge_best_clue_variants,
     _needs_rewrite,
     _preparation_attempts_for_size,
@@ -566,7 +568,7 @@ class BatchPublishTests(unittest.TestCase):
         )
         mock_parse_markdown.return_value = puzzle
 
-        def _fill_defs(puzzle_obj, client):
+        def _fill_defs(puzzle_obj, client, metadata=None):
             puzzle_obj.horizontal_clues[0].definition = "Gaz din atmosferă"
 
         def _rewrite(puzzle_obj, client, rounds, multi_model=False):
@@ -681,6 +683,103 @@ class BatchPublishTests(unittest.TestCase):
                 )
 
         mock_upload.assert_not_called()
+
+
+    def test_low_scores_but_definitions_present_is_publishable(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=4.0,
+            blocking_words=[],
+        )
+
+        self.assertTrue(_is_publishable(prepared))
+
+    def test_missing_definition_blocks_publication(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=4.0,
+            blocking_words=["AER"],
+        )
+
+        self.assertFalse(_is_publishable(prepared))
+
+    def test_nine_eight_clue_uses_locked_rebus(self):
+        self.assertEqual(8, LOCKED_REBUS)
+
+
+    def test_new_11x11_templates_are_valid(self):
+        from generator.core.grid_template import TEMPLATES_11x11, parse_template, validate_template
+        for i, t in enumerate(TEMPLATES_11x11):
+            grid = parse_template(t)
+            valid, msg = validate_template(grid)
+            self.assertTrue(valid, f"11x11 template {i} invalid: {msg}")
+
+    def test_new_12x12_templates_are_valid(self):
+        from generator.core.grid_template import TEMPLATES_12x12, parse_template, validate_template
+        for i, t in enumerate(TEMPLATES_12x12):
+            grid = parse_template(t)
+            valid, msg = validate_template(grid)
+            self.assertTrue(valid, f"12x12 template {i} invalid: {msg}")
+
+    def test_easy_11_template_is_valid(self):
+        from generator.batch_publish import _easy_11_template
+        from generator.core.grid_template import validate_template
+        grid = _easy_11_template(11)
+        self.assertIsNotNone(grid)
+        valid, msg = validate_template(grid)
+        self.assertTrue(valid, f"easy_11_template invalid: {msg}")
+
+    def test_easy_11_template_two_letter_slots_within_limit(self):
+        from generator.batch_publish import _easy_11_template
+        grid = _easy_11_template(11)
+        count = _count_two_letter_slots(grid)
+        self.assertLessEqual(count, 18)
+
+    def test_easy_template_by_name_medium_11(self):
+        from generator.batch_publish import _easy_template_by_name
+        grid = _easy_template_by_name("medium_11", 11)
+        self.assertIsNotNone(grid)
+
+    def test_size_11_settings_mixed_policy(self):
+        settings = get_size_settings(11)
+        self.assertEqual("mixed", settings.template_policy)
+        self.assertEqual(18, settings.max_two_letter_slots)
+        self.assertEqual("medium_11", settings.easy_template)
+
+    def test_size_12_max_two_letter_slots_increased(self):
+        settings = get_size_settings(12)
+        self.assertEqual(22, settings.max_two_letter_slots)
+
+    def test_working_clue_has_word_type_field(self):
+        from generator.core.pipeline_state import WorkingClue
+        clue = WorkingClue(row_number=1, word_normalized="LOVI", word_original="lovi")
+        self.assertEqual("", clue.word_type)
+        clue.word_type = "V"
+        self.assertEqual("V", clue.word_type)
+
+
+def _count_two_letter_slots(grid: list[list[bool]]) -> int:
+    rows, cols = len(grid), len(grid[0])
+    count = 0
+    for r in range(rows):
+        run = 0
+        for c in range(cols + 1):
+            if c < cols and grid[r][c]:
+                run += 1
+            else:
+                if run == 2:
+                    count += 1
+                run = 0
+    for c in range(cols):
+        run = 0
+        for r in range(rows + 1):
+            if r < rows and grid[r][c]:
+                run += 1
+            else:
+                if run == 2:
+                    count += 1
+                run = 0
+    return count
 
 
 def _prepared_puzzle(title: str, definition_score: float, blocking_words: list[str]) -> PreparedPuzzle:

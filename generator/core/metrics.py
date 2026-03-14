@@ -16,6 +16,8 @@ class WordMetric:
     final_verified: bool = False
     semantic_score: int | None = None
     guessability_score: int | None = None
+    creativity_score: int | None = None
+    rebus_score: int | None = None
     was_blocker: bool = False
     english_meaning_detected: bool = False
     model_generated: str = ""
@@ -35,6 +37,9 @@ class PuzzleMetric:
     definition_final_pass_rate: float = 0.0
     avg_semantic: float = 0.0
     avg_guessability: float = 0.0
+    avg_creativity: float = 0.0
+    avg_rebus: float = 0.0
+    min_rebus: int = 0
     blocker_count: int = 0
     blocker_words: list[str] = field(default_factory=list)
     model_switches: int = 0

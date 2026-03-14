@@ -63,7 +63,9 @@ def generate_definitions_for_state(state: WorkingPuzzle, client: OpenAI) -> None
                 continue
             print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'})...")
             try:
-                definition = generate_definition(client, clue.word_normalized, clue.word_original, theme)
+                definition = generate_definition(
+                    client, clue.word_normalized, clue.word_original, theme, word_type=clue.word_type,
+                )
             except Exception as e:
                 definition = f"[Definiție lipsă: {e}]"
             print(f"    → {definition}")
@@ -72,9 +74,16 @@ def generate_definitions_for_state(state: WorkingPuzzle, client: OpenAI) -> None
                 clue.best = clue.current
 
 
-def generate_definitions_for_puzzle(puzzle, client: OpenAI) -> None:
+def generate_definitions_for_puzzle(
+    puzzle, client: OpenAI, metadata: dict[str, dict] | None = None,
+) -> None:
     """Expand clues and generate definitions in-place for the whole puzzle."""
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
+    if metadata:
+        from ..core.pipeline_state import all_working_clues as _all_clues
+        for clue in _all_clues(state):
+            word_meta = metadata.get(clue.word_normalized, {})
+            clue.word_type = word_meta.get("word_type", "")
     generate_definitions_for_state(state, client)
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues

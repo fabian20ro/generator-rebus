@@ -33,8 +33,8 @@ class VerifyPhaseTests(unittest.TestCase):
     @patch("generator.phases.verify.rate_definition")
     def test_rate_puzzle_reports_two_averages(self, mock_rate_definition):
         mock_rate_definition.side_effect = [
-            DefinitionRating(semantic_score=8, guessability_score=6, feedback="bună"),
-            DefinitionRating(semantic_score=6, guessability_score=4, feedback="prea vagă"),
+            DefinitionRating(semantic_score=8, guessability_score=6, feedback="bună", creativity_score=7),
+            DefinitionRating(semantic_score=6, guessability_score=4, feedback="prea vagă", creativity_score=5),
         ]
         puzzle = SimpleNamespace(
             horizontal_clues=[
@@ -51,7 +51,7 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertEqual(5.0, avg_guessability)
         self.assertEqual(2, rated_count)
         self.assertIn("Scor semantic: 8/10", puzzle.horizontal_clues[0].verify_note)
-        self.assertIn("Scor ghicibilitate: 4/10", puzzle.vertical_clues[0].verify_note)
+        self.assertIn("Scor rebus:", puzzle.vertical_clues[0].verify_note)
 
     @patch("generator.phases.verify.rate_definition")
     def test_rate_logging_includes_definition_text(self, mock_rate_definition):
@@ -59,6 +59,7 @@ class VerifyPhaseTests(unittest.TestCase):
             semantic_score=9,
             guessability_score=9,
             feedback="clară",
+            creativity_score=8,
         )
         puzzle = SimpleNamespace(
             horizontal_clues=[
@@ -112,6 +113,7 @@ class VerifyPhaseTests(unittest.TestCase):
             semantic_score=7,
             guessability_score=6,
             feedback="medie",
+            creativity_score=5,
         )
         clue_skipped = working_clue_from_entry(ClueEntry(
             row_number=1,

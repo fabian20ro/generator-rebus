@@ -29,11 +29,11 @@ def clue_versions_equivalent(a: ClueCandidateVersion, b: ClueCandidateVersion) -
 def clue_rank(version: ClueCandidateVersion) -> tuple[int, int, int, int, int]:
     scores = version.assessment.scores
     semantic = scores.semantic_exactness or 0
-    targeting = scores.answer_targeting or 0
+    rebus = scores.rebus_score or 0
     verified = 1 if version.assessment.verified is True else 0
     language = scores.language_integrity or 0
     family_penalty = 0 if scores.family_leakage else 1
-    return (semantic + targeting, targeting, verified, language, family_penalty)
+    return (semantic + rebus, rebus, verified, language, family_penalty)
 
 
 def choose_clue_version(
@@ -77,7 +77,7 @@ def choose_clue_version(
 
 def puzzle_rank(assessment: PuzzleAssessment) -> tuple[int, float, float]:
     publishable = 1 if not assessment.blocker_words else 0
-    return (publishable, assessment.definition_score, assessment.avg_targeting)
+    return (publishable, assessment.definition_score, assessment.avg_rebus)
 
 
 def choose_puzzle_assessment(
@@ -88,11 +88,11 @@ def choose_puzzle_assessment(
 ) -> tuple[str, SelectionDecision]:
     a_summary = (
         f"score={a.definition_score:.2f}, blockers={len(a.blocker_words)}, "
-        f"targeting={a.avg_targeting:.2f}, ambiguity={a.ambiguity_count}"
+        f"rebus={a.avg_rebus:.2f}, ambiguity={a.ambiguity_count}"
     )
     b_summary = (
         f"score={b.definition_score:.2f}, blockers={len(b.blocker_words)}, "
-        f"targeting={b.avg_targeting:.2f}, ambiguity={b.ambiguity_count}"
+        f"rebus={b.avg_rebus:.2f}, ambiguity={b.ambiguity_count}"
     )
     a_rank = puzzle_rank(a)
     b_rank = puzzle_rank(b)

@@ -6,8 +6,9 @@ from openai import OpenAI
 
 from ..core.markdown_io import parse_markdown, write_with_definitions
 from ..core.ai_clues import (
-    RATE_MIN_GUESSABILITY,
+    RATE_MIN_REBUS,
     RATE_MIN_SEMANTIC,
+    compute_rebus_score,
     create_client,
     rate_definition,
     verify_definition,
@@ -35,7 +36,7 @@ def _build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
         return ClueFailureReason("wrong_guess", f"AI a ghicit: {assessment.wrong_guess}")
     if assessment.scores.semantic_exactness is not None and assessment.scores.semantic_exactness < RATE_MIN_SEMANTIC:
         return ClueFailureReason("low_semantic", "Definiția nu este suficient de exactă.")
-    if assessment.scores.answer_targeting is not None and assessment.scores.answer_targeting < RATE_MIN_GUESSABILITY:
+    if assessment.scores.rebus_score is not None and assessment.scores.rebus_score < RATE_MIN_REBUS:
         return ClueFailureReason("low_targeting", "Definiția duce spre alt răspuns sau este prea vagă.")
     if assessment.feedback:
         return ClueFailureReason("feedback", assessment.feedback)
@@ -67,6 +68,8 @@ def _verify_clues(
                     ambiguity_risk=10,
                     family_leakage=False,
                     language_integrity=10,
+                    creativity=1,
+                    rebus_score=1,
                 ),
             )
             result.append(clue)
@@ -117,14 +120,17 @@ def _rate_clues(
                 clue.word_original,
                 definition,
                 len(clue.word_normalized),
+                word_type=clue.word_type,
             )
         except Exception:
             rating = None
 
         semantic_score = rating.semantic_score if rating else 5
         guessability_score = rating.guessability_score if rating else 5
+        creativity_score = rating.creativity_score if rating else 5
         feedback = rating.feedback if rating else ""
         rarity_override = rating.rarity_only_override if rating else False
+        rebus = compute_rebus_score(guessability_score, creativity_score)
         clue.current.assessment.feedback = feedback
         clue.current.assessment.rarity_only_override = rarity_override
         clue.current.assessment.scores = ClueScores(
@@ -133,16 +139,18 @@ def _rate_clues(
             ambiguity_risk=11 - guessability_score,
             family_leakage=False,
             language_integrity=1 if contains_english_markers(definition) else 10,
+            creativity=creativity_score,
+            rebus_score=rebus,
         )
         clue.current.assessment.failure_reason = _build_failure_reason(clue)
 
         semantic_ok = semantic_score >= RATE_MIN_SEMANTIC
-        guessability_ok = guessability_score >= RATE_MIN_GUESSABILITY
-        symbol = "★" if semantic_ok and guessability_ok else "⚠"
+        rebus_ok = rebus >= RATE_MIN_REBUS
+        symbol = "★" if semantic_ok and rebus_ok else "⚠"
         print(
             f"    {symbol} {clue.word_normalized}: "
-            f"„{definition}” -> "
-            f"semantic {semantic_score}/10, ghicibilitate {guessability_score}/10"
+            f"'{definition}' -> "
+            f"semantic {semantic_score}/10, rebus {rebus}/10"
             f" — {feedback or 'fără feedback'}"
         )
 
@@ -230,6 +238,6 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     print(
         f"Verification: {passed}/{total} passed. "
         f"Avg semantic: {avg_semantic:.1f}/10. "
-        f"Avg guessability: {avg_guessability:.1f}/10. "
+        f"Avg rebus: {avg_guessability:.1f}/10. "
         f"({rated} rated). Saved to {output_file}"
     )
