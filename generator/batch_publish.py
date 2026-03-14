@@ -42,7 +42,7 @@ from .core.markdown_io import (
     write_grid_template,
     write_with_definitions,
 )
-from .core.quality import QualityReport, filter_word_records, score_words
+from .core.quality import PRESET_DEFINITIONS, QualityReport, filter_word_records, score_words
 from .core.size_tuning import (
     DEFAULT_BATCH_SIZES,
     SUPPORTED_GRID_SIZES,
@@ -340,8 +340,7 @@ def _best_candidate(
             )
             if best is None or candidate.score > best.score:
                 best = candidate
-            if solved >= settings.solved_candidates:
-                return best
+            return best
 
     if best is not None:
         return best
@@ -376,6 +375,8 @@ def _needs_rewrite(clue: WorkingClue, min_guessability: int = RATE_MIN_GUESSABIL
     because the local model prefers a synonym or a more common variant.
     """
     clue = _coerce_working_clue(clue)
+    if clue.word_normalized in PRESET_DEFINITIONS:
+        return False
     definition = clue.current.definition
     if not definition or definition.startswith("["):
         return True
@@ -646,14 +647,17 @@ def _rewrite_failed_clues(
         print(f"  Model activ (evaluare inițială): {current_model.display_name}")
     else:
         current_model = PRIMARY_MODEL
-    passed, total = verify_working_puzzle(puzzle, client)
-    rate_working_puzzle(puzzle, client)
+    preset_skip = {c.word_normalized for c in _all_clues(puzzle) if c.word_normalized in PRESET_DEFINITIONS}
+    passed, total = verify_working_puzzle(puzzle, client, skip_words=preset_skip)
+    rate_working_puzzle(puzzle, client, skip_words=preset_skip)
     for clue in _all_clues(puzzle):
         _update_best_clue_version(clue, client=client)
 
     for round_index in range(1, rounds + 1):
         current_scores = [
-            _extract_guessability_score(c) or 0 for c in _all_clues(puzzle)
+            _extract_guessability_score(c) or 0
+            for c in _all_clues(puzzle)
+            if c.word_normalized not in PRESET_DEFINITIONS
         ]
         current_min = min(current_scores) if current_scores else 0
         round_min_guess = min(current_min + 1, RATE_MIN_GUESSABILITY)
@@ -717,7 +721,7 @@ def _rewrite_failed_clues(
                 )
                 set_current_definition(clue, new_definition, round_index=round_index, source="rewrite")
 
-        skip_words = {c.word_normalized for c in _all_clues(puzzle)} - changed_words
+        skip_words = ({c.word_normalized for c in _all_clues(puzzle)} - changed_words) | preset_skip
         if multi_model:
             next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
             try:
@@ -926,10 +930,12 @@ def run_batch(
         _write_text(defs_path, write_with_definitions(puzzle_from_working_state(defs_puzzle)))
         _write_text(verified_path, write_with_definitions(rendered_puzzle))
 
-        min_guess = min(
-            (c.active_version().assessment.scores.answer_targeting or 0)
+        non_preset_scores = [
+            c.active_version().assessment.scores.answer_targeting or 0
             for c in _all_clues(prepared.puzzle)
-        )
+            if c.word_normalized not in PRESET_DEFINITIONS
+        ]
+        min_guess = min(non_preset_scores) if non_preset_scores else 10
         models_used_desc = [PRIMARY_MODEL.display_name]
         if multi_model:
             models_used_desc.append(SECONDARY_MODEL.display_name)

@@ -114,6 +114,35 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertTrue(_needs_rewrite(working))
 
+    def test_preset_word_never_needs_rewrite(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="FI",
+            word_original="fi",
+            definition="",
+            verified=None,
+            verify_note="",
+        )
+
+        self.assertFalse(_needs_rewrite(clue))
+
+    def test_preset_word_bypasses_even_with_low_scores(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="AT",
+            word_original="at",
+            definition="Monedă din Laos",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: HAT",
+                semantic_score=3,
+                guessability_score=2,
+                feedback="greșit",
+            ),
+        )
+
+        self.assertFalse(_needs_rewrite(clue))
+
     def test_merge_best_clue_variants_keeps_higher_scored_definition(self):
         best = ClueEntry(
             row_number=1,
@@ -422,15 +451,14 @@ class BatchPublishTests(unittest.TestCase):
     @patch("generator.batch_publish._generate_candidate")
     @patch("generator.batch_publish._build_index")
     @patch("generator.batch_publish.build_relaxed_variants")
-    def test_best_candidate_continues_to_relaxed_variants_when_target_unmet(
+    def test_best_candidate_returns_after_first_solved(
         self,
         mock_variants,
         mock_build_index,
         mock_generate_candidate,
     ):
         settings_a = SizeSettings(3, 80_000, 6, 3, 2, 4, 16, template_attempts=500)
-        settings_b = SizeSettings(4, 160_000, 8, 1, 1, 6, 12, template_attempts=700)
-        mock_variants.return_value = [settings_a, settings_b]
+        mock_variants.return_value = [settings_a]
         mock_build_index.return_value = (object(), {})
         candidate_a = Candidate(
             score=10.0,
@@ -448,6 +476,31 @@ class BatchPublishTests(unittest.TestCase):
             template=[[True]],
             markdown="# A\n",
         )
+        mock_generate_candidate.return_value = candidate_a
+
+        best = _best_candidate(
+            7,
+            "Test",
+            raw_words=[],
+            rng=SimpleNamespace(),
+            seen_template_fingerprints=set(),
+        )
+
+        self.assertEqual(10.0, best.score)
+        self.assertEqual(1, mock_generate_candidate.call_count)
+
+    @patch("generator.batch_publish._generate_candidate")
+    @patch("generator.batch_publish._build_index")
+    @patch("generator.batch_publish.build_relaxed_variants")
+    def test_best_candidate_skips_none_then_returns_first_solved(
+        self,
+        mock_variants,
+        mock_build_index,
+        mock_generate_candidate,
+    ):
+        settings_a = SizeSettings(3, 80_000, 6, 3, 2, 4, 16, template_attempts=500)
+        mock_variants.return_value = [settings_a]
+        mock_build_index.return_value = (object(), {})
         candidate_b = Candidate(
             score=25.0,
             report=QualityReport(
@@ -464,7 +517,7 @@ class BatchPublishTests(unittest.TestCase):
             template=[[True]],
             markdown="# B\n",
         )
-        mock_generate_candidate.side_effect = [candidate_a, None, candidate_b]
+        mock_generate_candidate.side_effect = [None, candidate_b]
 
         best = _best_candidate(
             7,
@@ -475,7 +528,7 @@ class BatchPublishTests(unittest.TestCase):
         )
 
         self.assertEqual(25.0, best.score)
-        self.assertEqual(3, mock_generate_candidate.call_count)
+        self.assertEqual(2, mock_generate_candidate.call_count)
 
     @patch("generator.batch_publish.generate_title_for_final_puzzle")
     @patch("generator.batch_publish._rewrite_failed_clues")
