@@ -7,9 +7,11 @@ from generator.core.ai_clues import (
     _clean_response,
     _definition_describes_english_meaning,
     _build_generate_prompt,
+    generate_definition,
     rate_definition,
     rewrite_definition,
 )
+from generator.core.quality import PRESET_DEFINITIONS
 
 
 class _RecordingClient:
@@ -162,6 +164,49 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertEqual(1, rating.semantic_score)
         self.assertEqual(1, rating.guessability_score)
+
+
+    def test_generate_definition_uses_preset(self):
+        client = _RecordingClient([])
+
+        result = generate_definition(client, word="AT", original="at", theme="")
+
+        self.assertIn(result, PRESET_DEFINITIONS["AT"])
+        self.assertEqual(len(client.prompts), 0)
+
+    def test_rewrite_definition_uses_preset(self):
+        client = _RecordingClient([])
+        previous = PRESET_DEFINITIONS["AT"][0]
+
+        result = rewrite_definition(
+            client,
+            word="AT",
+            original="at",
+            theme="",
+            previous_definition=previous,
+            wrong_guess="",
+        )
+
+        self.assertIn(result, PRESET_DEFINITIONS["AT"])
+        self.assertNotEqual(result, previous)
+        self.assertEqual(len(client.prompts), 0)
+
+
+    def test_preset_definitions_used_for_ou(self):
+        client = _RecordingClient([])
+
+        result = generate_definition(client, word="OU", original="ou", theme="")
+
+        self.assertIn(result, PRESET_DEFINITIONS["OU"])
+        self.assertEqual(len(client.prompts), 0)
+
+    def test_preset_definitions_used_for_urinare(self):
+        client = _RecordingClient([])
+
+        result = generate_definition(client, word="URINARE", original="urinare", theme="")
+
+        self.assertIn(result, PRESET_DEFINITIONS["URINARE"])
+        self.assertEqual(len(client.prompts), 0)
 
 
 if __name__ == "__main__":

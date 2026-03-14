@@ -14,6 +14,12 @@ class LoopControllerTests(unittest.TestCase):
 
         self.assertEqual(list(OVERNIGHT_LOOP_SIZES), args.sizes)
 
+    def test_loop_parser_defaults_to_ten_rewrite_rounds(self):
+        parser = build_parser()
+        args = parser.parse_args([])
+
+        self.assertEqual(10, args.rewrite_rounds)
+
     def test_build_batch_command_runs_one_size_at_a_time(self):
         command = build_batch_command(
             size=11,

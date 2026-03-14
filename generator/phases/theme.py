@@ -148,8 +148,10 @@ def generate_title_for_puzzle(puzzle, client=None) -> str:
 
 
 def generate_title_for_final_puzzle(puzzle, client=None) -> str:
+    all_words = _collect_words(puzzle)
+    longest_words = sorted(all_words, key=len, reverse=True)[:5]
     return generate_title_from_words_and_definitions(
-        _collect_words(puzzle),
+        longest_words,
         _collect_definitions(puzzle),
         client=client,
     )

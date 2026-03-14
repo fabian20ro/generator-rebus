@@ -203,6 +203,63 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertFalse(_needs_rewrite(clue))
 
+    def test_nine_eight_clue_is_locked(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="AER",
+            word_original="",
+            definition="Gaz din atmosferă",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "",
+                semantic_score=9,
+                guessability_score=8,
+                feedback="bună",
+            ),
+        )
+
+        self.assertFalse(_needs_rewrite(clue))
+
+    def test_eight_seven_clue_not_locked(self):
+        from generator.batch_publish import _update_best_clue_version
+        clue = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="AER",
+            word_original="",
+            definition="Gaz din atmosferă",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "",
+                semantic_score=8,
+                guessability_score=7,
+                feedback="duce spre sinonim",
+            ),
+        ))
+
+        _update_best_clue_version(clue)
+
+        self.assertFalse(clue.locked)
+
+    def test_nine_eight_clue_gets_locked_via_update(self):
+        from generator.batch_publish import _update_best_clue_version
+        clue = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="AER",
+            word_original="",
+            definition="Gaz din atmosferă",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "",
+                semantic_score=9,
+                guessability_score=8,
+                feedback="bună",
+            ),
+        ))
+
+        _update_best_clue_version(clue)
+
+        self.assertTrue(clue.locked)
+
     def test_large_sizes_get_more_preparation_attempts(self):
         self.assertEqual(8, _preparation_attempts_for_size(7, 5))
         self.assertEqual(24, _preparation_attempts_for_size(10, 5))

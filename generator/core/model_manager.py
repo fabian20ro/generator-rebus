@@ -90,6 +90,13 @@ def ensure_model_loaded(config: ModelConfig) -> None:
     if config.model_id in loaded:
         print(f"[{time.strftime('%H:%M:%S')}] Model already active: {config.display_name}")
         return
+    for other_id in loaded:
+        print(f"[{time.strftime('%H:%M:%S')}] Unloading unexpected model: {other_id}")
+        try:
+            _post_json("/api/v1/models/unload", {"instance_id": other_id})
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            print(f"  Unload skipped ({other_id}): {e}")
+        time.sleep(2)
     load_model(config)
 
 

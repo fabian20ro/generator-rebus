@@ -42,12 +42,19 @@ def _build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
     return None
 
 
-def _verify_clues(clues: list[WorkingClue], client: OpenAI) -> list[WorkingClue]:
+def _verify_clues(
+    clues: list[WorkingClue],
+    client: OpenAI,
+    skip_words: set[str] | None = None,
+) -> list[WorkingClue]:
     """Verify each clue by asking AI to guess the word."""
     result = []
     for clue in clues:
         if not isinstance(clue, WorkingClue):
             clue = working_clue_from_entry(clue)
+        if skip_words and clue.word_normalized in skip_words:
+            result.append(clue)
+            continue
         definition = clue.current.definition
         if not definition or definition.startswith("["):
             clue.current.assessment = ClueAssessment(
@@ -88,11 +95,17 @@ def _verify_clues(clues: list[WorkingClue], client: OpenAI) -> list[WorkingClue]
     return result
 
 
-def _rate_clues(clues: list[WorkingClue], client: OpenAI) -> None:
+def _rate_clues(
+    clues: list[WorkingClue],
+    client: OpenAI,
+    skip_words: set[str] | None = None,
+) -> None:
     """Rate each usable clue definition quality in-place."""
     for clue in clues:
         if not isinstance(clue, WorkingClue):
             clue = working_clue_from_entry(clue)
+        if skip_words and clue.word_normalized in skip_words:
+            continue
         definition = clue.current.definition
         if not definition or definition.startswith("["):
             continue
@@ -134,26 +147,34 @@ def _rate_clues(clues: list[WorkingClue], client: OpenAI) -> None:
         )
 
 
-def verify_working_puzzle(puzzle: WorkingPuzzle, client: OpenAI) -> tuple[int, int]:
+def verify_working_puzzle(
+    puzzle: WorkingPuzzle,
+    client: OpenAI,
+    skip_words: set[str] | None = None,
+) -> tuple[int, int]:
     """Verify all clue definitions in-place and return (passed, total)."""
     print("Verifying horizontal definitions...")
-    puzzle.horizontal_clues = _verify_clues(puzzle.horizontal_clues, client)
+    puzzle.horizontal_clues = _verify_clues(puzzle.horizontal_clues, client, skip_words=skip_words)
 
     print("Verifying vertical definitions...")
-    puzzle.vertical_clues = _verify_clues(puzzle.vertical_clues, client)
+    puzzle.vertical_clues = _verify_clues(puzzle.vertical_clues, client, skip_words=skip_words)
 
     total = len(puzzle.horizontal_clues) + len(puzzle.vertical_clues)
     passed = sum(1 for c in all_working_clues(puzzle) if c.current.assessment.verified)
     return passed, total
 
 
-def rate_working_puzzle(puzzle: WorkingPuzzle, client: OpenAI) -> tuple[float, float, int]:
+def rate_working_puzzle(
+    puzzle: WorkingPuzzle,
+    client: OpenAI,
+    skip_words: set[str] | None = None,
+) -> tuple[float, float, int]:
     """Rate all usable definitions in-place."""
     print("Rating horizontal definitions...")
-    _rate_clues(puzzle.horizontal_clues, client)
+    _rate_clues(puzzle.horizontal_clues, client, skip_words=skip_words)
 
     print("Rating vertical definitions...")
-    _rate_clues(puzzle.vertical_clues, client)
+    _rate_clues(puzzle.vertical_clues, client, skip_words=skip_words)
 
     semantic_scores = []
     guessability_scores = []

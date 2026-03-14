@@ -1,7 +1,11 @@
 import unittest
 from types import SimpleNamespace
 
-from generator.phases.theme import generate_title_from_words, generate_title_from_words_and_definitions
+from generator.phases.theme import (
+    generate_title_for_final_puzzle,
+    generate_title_from_words,
+    generate_title_from_words_and_definitions,
+)
 
 
 class _FakeClient:
@@ -60,6 +64,40 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual("Ecouri de Toamnă", title)
         self.assertIn("Definițiile finale sunt", client.last_user_content)
         self.assertIn("Frunză uscată de toamnă", client.last_user_content)
+
+    def test_final_title_uses_only_five_longest_words(self):
+        words = [
+            "EXTRAORDINAR",  # 12
+            "SPECTACOL",     # 9
+            "PLIMBARE",      # 8
+            "GALAXIE",       # 7
+            "TABLOU",        # 6
+            "VERDE",         # 5
+            "MUNTE",         # 5
+            "ARTA",          # 4
+            "FOC",           # 3
+            "ZI",            # 2
+        ]
+        clues = [
+            SimpleNamespace(word_normalized=w, definition=f"Definiția {w}")
+            for w in words
+        ]
+        puzzle = SimpleNamespace(
+            horizontal_clues=clues,
+            vertical_clues=[],
+        )
+        client = _FakeClient("Univers Creativ")
+
+        generate_title_for_final_puzzle(puzzle, client=client)
+
+        prompt = client.last_user_content
+        words_line = prompt.split("\n")[1]  # line after "Cuvintele rebusului sunt:"
+        expected = ["EXTRAORDINAR", "SPECTACOL", "PLIMBARE", "GALAXIE", "TABLOU"]
+        excluded = ["VERDE", "MUNTE", "ARTA", "FOC", "ZI"]
+        for word in expected:
+            self.assertIn(word, words_line)
+        for word in excluded:
+            self.assertNotIn(word, words_line)
 
 
 if __name__ == "__main__":

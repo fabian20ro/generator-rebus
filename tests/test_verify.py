@@ -4,8 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from generator.core.ai_clues import DefinitionRating, contains_english_markers
+from generator.core.clue_rating import append_rating_to_note
 from generator.core.markdown_io import ClueEntry
-from generator.phases.verify import _verify_clues, rate_puzzle
+from generator.core.pipeline_state import working_clue_from_entry
+from generator.phases.verify import _rate_clues, _verify_clues, rate_puzzle
 
 
 class VerifyPhaseTests(unittest.TestCase):
@@ -69,6 +71,79 @@ class VerifyPhaseTests(unittest.TestCase):
             rate_puzzle(puzzle, client=object())
 
         self.assertIn("Metal prețios galben", captured.getvalue())
+
+
+    @patch("generator.phases.verify.verify_definition")
+    def test_verify_skips_words_in_skip_set(self, mock_verify_definition):
+        mock_verify_definition.return_value = "NOR"
+        clue_skipped = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="AUR",
+            word_original="",
+            definition="Metal prețios galben",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "",
+                semantic_score=9,
+                guessability_score=8,
+                feedback="bună",
+            ),
+        ))
+        clue_evaluated = ClueEntry(
+            row_number=2,
+            word_normalized="NOR",
+            word_original="",
+            definition="Masă albă pe cer",
+        )
+
+        result = _verify_clues(
+            [clue_skipped, clue_evaluated],
+            client=object(),
+            skip_words={"AUR"},
+        )
+
+        mock_verify_definition.assert_called_once()
+        self.assertTrue(result[0].current.assessment.verified)
+        self.assertTrue(result[1].current.assessment.verified)
+
+    @patch("generator.phases.verify.rate_definition")
+    def test_rate_skips_words_in_skip_set(self, mock_rate_definition):
+        mock_rate_definition.return_value = DefinitionRating(
+            semantic_score=7,
+            guessability_score=6,
+            feedback="medie",
+        )
+        clue_skipped = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="AUR",
+            word_original="",
+            definition="Metal prețios galben",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "",
+                semantic_score=9,
+                guessability_score=8,
+                feedback="bună",
+            ),
+        ))
+        clue_evaluated = working_clue_from_entry(ClueEntry(
+            row_number=2,
+            word_normalized="NOR",
+            word_original="",
+            definition="Masă albă pe cer",
+        ))
+
+        _rate_clues(
+            [clue_skipped, clue_evaluated],
+            client=object(),
+            skip_words={"AUR"},
+        )
+
+        mock_rate_definition.assert_called_once()
+        self.assertEqual(9, clue_skipped.current.assessment.scores.semantic_exactness)
+        self.assertEqual(8, clue_skipped.current.assessment.scores.answer_targeting)
+        self.assertEqual(7, clue_evaluated.current.assessment.scores.semantic_exactness)
+        self.assertEqual(6, clue_evaluated.current.assessment.scores.answer_targeting)
 
 
 if __name__ == "__main__":

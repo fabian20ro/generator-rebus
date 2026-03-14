@@ -8,6 +8,7 @@ from generator.core.model_manager import (
     SECONDARY_MODEL,
     ensure_model_loaded,
     get_loaded_models,
+    _post_json,
 )
 
 
@@ -50,6 +51,24 @@ class ModelManagerTests(unittest.TestCase):
 
         ensure_model_loaded(PRIMARY_MODEL)
 
+        mock_load.assert_called_once_with(PRIMARY_MODEL)
+
+
+    @patch("generator.core.model_manager.time.sleep")
+    @patch("generator.core.model_manager.load_model")
+    @patch("generator.core.model_manager._post_json")
+    @patch("generator.core.model_manager.get_loaded_models")
+    def test_ensure_model_loaded_unloads_foreign_models(
+        self, mock_get, mock_post, mock_load, mock_sleep,
+    ):
+        foreign_id = "some-other/model"
+        mock_get.return_value = [foreign_id]
+
+        ensure_model_loaded(PRIMARY_MODEL)
+
+        mock_post.assert_called_once_with(
+            "/api/v1/models/unload", {"instance_id": foreign_id},
+        )
         mock_load.assert_called_once_with(PRIMARY_MODEL)
 
 

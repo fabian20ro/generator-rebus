@@ -20,7 +20,7 @@ FOREIGN_SHORTLIST_BLOCKLIST = {
 ENGLISH_HOMOGRAPH_HINTS: dict[str, str] = {
     "AN": "unitate de timp egală cu 12 luni",
     "OF": "interjecție de durere, suspin, regret",
-    "AT": "domeniul internet al Austriei (.at)",
+    "AT": "monedă subdivizionară din Laos sau sufix chimic",
     "IN": "plantă textilă cu flori albastre",
     "HAT": "hotărâre fermă, decizie",
     "DARE": "actul de a da, oferire",
@@ -33,6 +33,32 @@ ENGLISH_HOMOGRAPH_HINTS: dict[str, str] = {
     "POT": "recipient de gătit; a putea",
     "CAN": "recipient metalic",
     "FAR": "lumină puternică de semnalizare pe litoral",
+}
+
+
+PRESET_DEFINITIONS: dict[str, tuple[str, ...]] = {
+    "AT": (
+        "Monedă divizionară în Laos, valorând a suta parte dintr-un kip.",
+        "Element de compunere cu semnificația «sare», «ester».",
+        "Element chimic radioactiv sintetic din grupul halogenilor.",
+    ),
+    "OF": (
+        "Interjecție care exprimă durere sau regret.",
+        "Exclamație de amărăciune și deznădejde.",
+        "Suspin, exprimare a unei suferințe interioare.",
+        "Dorință neîmplinită, exprimată printr-un suspin.",
+        "Exclamație de mirare sau surprindere.",
+    ),
+    "OU": (
+        "Produs alimentar depus de găini, cu coajă subțire.",
+        "Celulă reproductivă la păsări, acoperită de o coajă dură.",
+        "Ingredient de bază în omletă, cu gălbenuș și albuș.",
+    ),
+    "URINARE": (
+        "Proces fiziologic de eliminare a lichidelor din organism.",
+        "Funcție a aparatului excretor, controlată de vezică.",
+        "Act fiziologic prin care rinichii evacuează lichide.",
+    ),
 }
 
 

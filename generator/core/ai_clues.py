@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from openai import OpenAI
 from ..config import LMSTUDIO_BASE_URL
 from .clue_family import clue_uses_same_family
 from .diacritics import normalize
-from .quality import ENGLISH_HOMOGRAPH_HINTS
+from .quality import ENGLISH_HOMOGRAPH_HINTS, PRESET_DEFINITIONS
 
 
 DEFINITION_SYSTEM_PROMPT = (
@@ -402,6 +403,9 @@ def generate_definition(
     retries: int = 3,
 ) -> str:
     """Generate a single clue definition."""
+    preset = PRESET_DEFINITIONS.get(word.upper())
+    if preset:
+        return random.choice(preset)
     display_word = original if original else word.lower()
     length = len(word)
     prompt = _build_generate_prompt(display_word, word, length)
@@ -419,16 +423,20 @@ def generate_definition(
             )
             definition = _clean_response(response.choices[0].message.content)
             if len(definition) < 5:
+                print(f"    [rejected {word}: too short ({len(definition)} chars)]")
                 continue
             if definition == "[NECLAR]":
                 return definition
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
             if _definition_is_invalid(word, definition):
+                print(f"    [rejected {word}: contains answer or family word]")
                 continue
             if contains_english_markers(definition):
+                print(f"    [rejected {word}: English markers detected]")
                 continue
             if _definition_describes_english_meaning(word, definition):
+                print(f"    [rejected {word}: English meaning]")
                 continue
             return definition
         except Exception:
@@ -453,6 +461,10 @@ def rewrite_definition(
     bad_example_reason: str = "",
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
+    preset = PRESET_DEFINITIONS.get(word.upper())
+    if preset:
+        alternatives = [d for d in preset if d != previous_definition]
+        return random.choice(alternatives) if alternatives else preset[0]
     display_word = original if original else word.lower()
     feedback_parts = []
     if wrong_guess:
@@ -483,16 +495,20 @@ def rewrite_definition(
             )
             definition = _clean_response(response.choices[0].message.content)
             if len(definition) < 5:
+                print(f"    [rewrite rejected {word}: too short ({len(definition)} chars)]")
                 continue
             if definition == "[NECLAR]":
                 return definition
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
             if _definition_is_invalid(word, definition):
+                print(f"    [rewrite rejected {word}: contains answer or family word]")
                 continue
             if contains_english_markers(definition):
+                print(f"    [rewrite rejected {word}: English markers detected]")
                 continue
             if _definition_describes_english_meaning(word, definition):
+                print(f"    [rewrite rejected {word}: English meaning]")
                 continue
             return definition
         except Exception:

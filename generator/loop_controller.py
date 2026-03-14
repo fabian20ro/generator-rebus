@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--words", default="generator/output/words.json")
     parser.add_argument("--output-root", default="generator/output/batch")
-    parser.add_argument("--rewrite-rounds", type=int, default=4)
+    parser.add_argument("--rewrite-rounds", type=int, default=10)
     parser.add_argument("--preparation-attempts", type=int, default=5)
     parser.add_argument("--sleep-seconds", type=int, default=2)
     parser.add_argument("--log-path", default="generator/output/loop_runner.log")

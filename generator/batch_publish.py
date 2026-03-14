@@ -112,7 +112,8 @@ class PreparedPuzzle:
     assessment: PuzzleAssessment = field(default_factory=PuzzleAssessment)
 
 
-LOCKED_SCORE = 9
+LOCKED_SEMANTIC = 9
+LOCKED_GUESSABILITY = 8
 PUZZLE_TIEBREAK_DELTA = 0.25
 
 
@@ -383,7 +384,7 @@ def _needs_rewrite(clue: WorkingClue) -> bool:
     guessability_score = _extract_guessability_score(clue)
     if semantic_score is None or guessability_score is None:
         return True
-    if semantic_score >= LOCKED_SCORE and guessability_score >= LOCKED_SCORE:
+    if semantic_score >= LOCKED_SEMANTIC and guessability_score >= LOCKED_GUESSABILITY:
         return False
 
     if semantic_score < RATE_MIN_SEMANTIC:
@@ -478,7 +479,7 @@ def _update_best_clue_version(clue: WorkingClue, client=None) -> None:
 
     semantic_score = clue.best.assessment.scores.semantic_exactness or 0
     targeting_score = clue.best.assessment.scores.answer_targeting or 0
-    clue.locked = semantic_score >= LOCKED_SCORE and targeting_score >= LOCKED_SCORE
+    clue.locked = semantic_score >= LOCKED_SEMANTIC and targeting_score >= LOCKED_GUESSABILITY
 
 
 def _merge_best_clue_variants(
@@ -617,27 +618,28 @@ def _rewrite_failed_clues(
     theme = puzzle.title or "Puzzle intern"
     if multi_model:
         ensure_model_loaded(PRIMARY_MODEL)
-        print(f"  Model activ (verificare inițială): {PRIMARY_MODEL.display_name}")
-    current_model = PRIMARY_MODEL
+        current_model = PRIMARY_MODEL
+        try:
+            switch_model(PRIMARY_MODEL, SECONDARY_MODEL)
+            current_model = SECONDARY_MODEL
+        except Exception as e:
+            print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
+        print(f"  Model activ (evaluare inițială): {current_model.display_name}")
+    else:
+        current_model = PRIMARY_MODEL
     passed, total = verify_working_puzzle(puzzle, client)
     rate_working_puzzle(puzzle, client)
     for clue in _all_clues(puzzle):
         _update_best_clue_version(clue, client=client)
 
     for round_index in range(1, rounds + 1):
-        if multi_model:
-            next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
-            try:
-                switch_model(current_model, next_model)
-                current_model = next_model
-            except Exception as e:
-                print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
-            print(f"  Model activ: {current_model.display_name}")
         candidates = [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
         if not candidates:
             break
 
+        if multi_model:
+            print(f"  Model activ (rescriere): {current_model.display_name}")
         failed_count = sum(1 for c in candidates if c.current.assessment.verified is False)
         low_rated_count = sum(
             1 for c in candidates
@@ -655,9 +657,10 @@ def _rewrite_failed_clues(
             f"({failed_count} failed, {low_rated_count} low-rated, {unrated_count} unrated)"
         )
 
+        changed_words: set[str] = set()
         for clue in candidates:
             if _is_locked_clue(clue):
-                print(f"  {clue.word_normalized}: blocat la {LOCKED_SCORE}/{LOCKED_SCORE}")
+                print(f"  {clue.word_normalized}: blocat la {LOCKED_SEMANTIC}/{LOCKED_GUESSABILITY}")
                 continue
             wrong_guess = clue.current.assessment.wrong_guess
             rating_feedback = clue.current.assessment.feedback
@@ -679,6 +682,7 @@ def _rewrite_failed_clues(
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
                 continue
             if new_definition and new_definition != clue.current.definition:
+                changed_words.add(clue.word_normalized)
                 print(
                     f"  {clue.word_normalized}: "
                     f"'{_compact_log_text(clue.current.definition)}' -> "
@@ -686,12 +690,23 @@ def _rewrite_failed_clues(
                 )
                 set_current_definition(clue, new_definition, round_index=round_index, source="rewrite")
 
-        passed, total = verify_working_puzzle(puzzle, client)
-        rate_working_puzzle(puzzle, client)
+        skip_words = {c.word_normalized for c in _all_clues(puzzle)} - changed_words
+        if multi_model:
+            next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
+            try:
+                switch_model(current_model, next_model)
+                current_model = next_model
+            except Exception as e:
+                print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
+            print(f"  Model activ (evaluare): {current_model.display_name}")
+        passed, total = verify_working_puzzle(puzzle, client, skip_words=skip_words)
+        rate_working_puzzle(puzzle, client, skip_words=skip_words)
         for clue in _all_clues(puzzle):
+            if clue.word_normalized not in changed_words:
+                continue
             _update_best_clue_version(clue, client=client)
             if clue.locked:
-                print(f"  {clue.word_normalized}: definiție blocată la 9/9")
+                print(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_GUESSABILITY}")
 
     _restore_best_versions(puzzle)
     passed = sum(1 for clue in _all_clues(puzzle) if clue.current.assessment.verified)
@@ -731,6 +746,8 @@ def _prepare_puzzle_for_publication(
         )
         puzzle = parse_markdown(candidate.markdown)
         puzzle.title = ""
+        if multi_model:
+            ensure_model_loaded(PRIMARY_MODEL)
         generate_definitions_for_puzzle(puzzle, client)
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
         passed, total = _rewrite_failed_clues(state, client, rewrite_rounds, multi_model=multi_model)
@@ -845,6 +862,24 @@ def run_batch(
             multi_model=multi_model,
         )
         if prepared.blocking_words:
+            print("\n--- Detailed rejection report ---")
+            blocking_set = set(prepared.blocking_words)
+            try:
+                for clue in _all_clues(prepared.puzzle):
+                    if clue.word_normalized in blocking_set:
+                        version = clue.active_version()
+                        semantic = version.assessment.scores.semantic_exactness
+                        guessability = version.assessment.scores.answer_targeting
+                        reason = _synthesize_failure_reason(clue)
+                        print(
+                            f"  {clue.word_normalized}: "
+                            f"def='{_compact_log_text(version.definition)}' "
+                            f"semantic={semantic}/10 guessability={guessability}/10 "
+                            f"motiv: {reason}"
+                        )
+            except (AttributeError, TypeError):
+                print(f"  Blocked words: {', '.join(prepared.blocking_words[:12])}")
+            print("--- End rejection report ---\n")
             raise RuntimeError(
                 f"Could not prepare a publishable {size}x{size} puzzle. "
                 f"Still blocked by: {', '.join(prepared.blocking_words[:12])}"

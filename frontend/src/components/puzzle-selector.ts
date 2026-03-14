@@ -26,7 +26,9 @@ export function renderPuzzleList(
       card.classList.add("puzzle-card--solved");
     }
 
-    const date = new Date(puzzle.created_at).toLocaleDateString("ro-RO");
+    const d = new Date(puzzle.created_at);
+    const date = d.toLocaleDateString("ro-RO") + " " +
+      d.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
     const stars = "\u2605".repeat(puzzle.difficulty) +
       "\u2606".repeat(5 - puzzle.difficulty);
 
