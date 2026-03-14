@@ -56,6 +56,13 @@ PRESET_DEFINITIONS: dict[str, tuple[str, ...]] = {
         "Dorință neîmplinită, exprimată printr-un suspin.",
         "Exclamație de mirare sau surprindere.",
     ),
+    "OU": (
+        "Denumire populară a rotulei.",
+        "Al lui Columb — soluție surprinzător de simplă la o problemă aparent imposibilă.",
+        "Celulă rezultată din fecundarea unui ovul de către un spermatozoid.",
+        "A fi «ca» acesta înseamnă a fi foarte fragil.",
+        "Os proeminent la baza gambei, denumit popular «___ piciorului».",
+    ),
 }
 
 
