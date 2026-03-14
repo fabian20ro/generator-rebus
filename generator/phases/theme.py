@@ -44,12 +44,12 @@ THEME_SYSTEM_PROMPT = (
 FALLBACK_TITLES = [
     "Fir de Cuvinte",
     "Sensuri Comune",
-    "Litere și Legături",
     "Noduri de Sens",
     "Semne Încrucișate",
-    "Trasee de Litere",
     "Puncte Comune",
     "Umbra Cuvintelor",
+    "Joc de Cuvinte",
+    "Căi Încrucișate",
 ]
 
 
@@ -149,7 +149,7 @@ def generate_title_for_puzzle(puzzle, client=None) -> str:
 
 def generate_title_for_final_puzzle(puzzle, client=None) -> str:
     all_words = _collect_words(puzzle)
-    longest_words = sorted(all_words, key=len, reverse=True)[:5]
+    longest_words = sorted(all_words, key=len, reverse=True)[:4]
     return generate_title_from_words_and_definitions(
         longest_words,
         _collect_definitions(puzzle),

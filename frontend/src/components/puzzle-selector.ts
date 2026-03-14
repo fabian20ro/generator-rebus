@@ -31,13 +31,16 @@ export function renderPuzzleList(
       d.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
     const stars = "\u2605".repeat(puzzle.difficulty) +
       "\u2606".repeat(5 - puzzle.difficulty);
+    const difficultyLabel = [
+      "", "Ușor", "Simplu", "Mediu", "Dificil", "Expert",
+    ][puzzle.difficulty] ?? "";
 
     card.innerHTML = `
+      <span class="puzzle-card__size">${puzzle.grid_size}x${puzzle.grid_size}</span>
       <h3>${solved ? "\u2713 " : ""}${puzzle.title || "Rebus"}</h3>
       <p class="puzzle-card__theme">${puzzle.theme || ""}</p>
       <div class="puzzle-card__meta">
-        <span>${puzzle.grid_size}x${puzzle.grid_size}</span>
-        <span>${stars}</span>
+        <span title="${difficultyLabel}">${stars}</span>
         <span>${date}</span>
       </div>
     `;

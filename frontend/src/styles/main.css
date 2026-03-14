@@ -88,12 +88,22 @@ header h1 {
 }
 
 .puzzle-card {
+  position: relative;
   background: var(--card-bg);
   border-radius: 10px;
   padding: 1.25rem;
   box-shadow: var(--shadow);
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.puzzle-card__size {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  font-size: 0.75rem;
+  color: #999;
+  font-family: monospace;
 }
 
 .puzzle-card:hover {
