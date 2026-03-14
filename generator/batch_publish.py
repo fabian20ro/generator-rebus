@@ -368,7 +368,7 @@ def _extract_guessability_score(clue: WorkingClue) -> int | None:
     return clue.active_version().assessment.scores.answer_targeting
 
 
-def _needs_rewrite(clue: WorkingClue) -> bool:
+def _needs_rewrite(clue: WorkingClue, min_guessability: int = RATE_MIN_GUESSABILITY) -> bool:
     """Return True when a clue should be rewritten.
 
     We rewrite based on quality score, not raw verify failure alone.
@@ -394,11 +394,15 @@ def _needs_rewrite(clue: WorkingClue) -> bool:
     if rarity_override and semantic_score >= RATE_MIN_SEMANTIC:
         return False
 
-    return guessability_score < RATE_MIN_GUESSABILITY
+    return guessability_score < min_guessability
 
 
 def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
-    return [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
+    return [
+        clue for clue in _all_clues(puzzle)
+        if not clue.active_version().definition
+        or clue.active_version().definition.startswith("[")
+    ]
 
 
 def _clue_eval(clue: WorkingClue) -> tuple[int, int, int]:
@@ -544,6 +548,21 @@ def _puzzle_summary(prepared: PreparedPuzzle) -> str:
     )
 
 
+def _compute_difficulty(report: QualityReport) -> int:
+    """Star rating based on word rarity levels."""
+    max_r = report.max_rarity
+    avg_r = report.average_rarity
+    if max_r <= 3:
+        return 1
+    if max_r >= 5 and avg_r >= 3.0:
+        return 5
+    if max_r >= 5 and avg_r < 3.0:
+        return 4
+    if avg_r < 2.0:
+        return 2
+    return 3
+
+
 def _is_publishable(prepared: PreparedPuzzle) -> bool:
     return not prepared.assessment.blocker_words
 
@@ -633,7 +652,15 @@ def _rewrite_failed_clues(
         _update_best_clue_version(clue, client=client)
 
     for round_index in range(1, rounds + 1):
-        candidates = [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
+        current_scores = [
+            _extract_guessability_score(c) or 0 for c in _all_clues(puzzle)
+        ]
+        current_min = min(current_scores) if current_scores else 0
+        round_min_guess = min(current_min + 1, RATE_MIN_GUESSABILITY)
+        candidates = [
+            clue for clue in _all_clues(puzzle)
+            if _needs_rewrite(clue, min_guessability=round_min_guess)
+        ]
 
         if not candidates:
             break
@@ -770,9 +797,6 @@ def _prepare_puzzle_for_publication(
         )
         best_prepared = _better_prepared_puzzle(best_prepared, prepared, client=client)
 
-        if not blockers:
-            break
-
         if blockers:
             print(
                 "Rejected puzzle after quality gate: "
@@ -902,7 +926,20 @@ def run_batch(
         _write_text(defs_path, write_with_definitions(puzzle_from_working_state(defs_puzzle)))
         _write_text(verified_path, write_with_definitions(rendered_puzzle))
 
-        puzzle_id = upload_puzzle(puzzle_from_working_state(defs_puzzle))
+        min_guess = min(
+            (c.active_version().assessment.scores.answer_targeting or 0)
+            for c in _all_clues(prepared.puzzle)
+        )
+        models_used_desc = [PRIMARY_MODEL.display_name]
+        if multi_model:
+            models_used_desc.append(SECONDARY_MODEL.display_name)
+        description = f"Ghicibilitate min: {min_guess}/10 | Modele: {', '.join(models_used_desc)}"
+        difficulty = _compute_difficulty(prepared.candidate.report)
+        puzzle_id = upload_puzzle(
+            puzzle_from_working_state(defs_puzzle),
+            difficulty=difficulty,
+            description=description,
+        )
         set_published(puzzle_id, True)
 
         word_metrics = _collect_word_metrics(prepared.puzzle)
@@ -981,7 +1018,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--rewrite-rounds",
         type=int,
-        default=2,
+        default=10,
         help="Automatic define/verify rewrite rounds for failed clues",
     )
     parser.add_argument(

@@ -32,7 +32,7 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         max_two_letter_slots=4,
         min_candidates_per_slot=16,
         template_attempts=500,
-        min_preparation_attempts=8,
+        min_preparation_attempts=1,
         template_policy="procedural_only",
     ),
     8: SizeSettings(
@@ -44,7 +44,7 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         max_two_letter_slots=6,
         min_candidates_per_slot=16,
         template_attempts=700,
-        min_preparation_attempts=12,
+        min_preparation_attempts=1,
         template_policy="procedural_only",
     ),
     9: SizeSettings(

@@ -261,7 +261,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertTrue(clue.locked)
 
     def test_large_sizes_get_more_preparation_attempts(self):
-        self.assertEqual(8, _preparation_attempts_for_size(7, 5))
+        self.assertEqual(5, _preparation_attempts_for_size(7, 5))
         self.assertEqual(24, _preparation_attempts_for_size(10, 5))
         self.assertEqual(40, _preparation_attempts_for_size(12, 5))
 

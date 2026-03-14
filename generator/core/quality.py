@@ -42,6 +42,13 @@ PRESET_DEFINITIONS: dict[str, tuple[str, ...]] = {
         "Element de compunere cu semnificația «sare», «ester».",
         "Element chimic radioactiv sintetic din grupul halogenilor.",
     ),
+    "FI": (
+        "Forma de infinitiv a verbului a exista.",
+        "Verb auxiliar folosit la formarea diatezei pasive.",
+        "A avea ființă, a exista.",
+        "A se afla, a se găsi într-un anumit loc.",
+        "A avea loc, a se întâmpla.",
+    ),
     "OF": (
         "Interjecție care exprimă durere sau regret.",
         "Exclamație de amărăciune și deznădejde.",
@@ -80,6 +87,7 @@ class QualityReport:
     high_rarity_words: int
     uncommon_letter_words: int
     friendly_words: int
+    max_rarity: int = 1
     average_definability: float = 0.0
 
     def to_dict(self) -> dict:
@@ -225,6 +233,8 @@ def score_words(words: list[str], metadata: dict[str, dict], size: int) -> Quali
     else:
         score -= max(0, two_letter - 9) * 8.0
 
+    max_rarity_value = max(rarities) if rarities else 1
+
     return QualityReport(
         score=score,
         word_count=len(words),
@@ -235,5 +245,6 @@ def score_words(words: list[str], metadata: dict[str, dict], size: int) -> Quali
         high_rarity_words=high_rarity,
         uncommon_letter_words=uncommon,
         friendly_words=friendly,
+        max_rarity=max_rarity_value,
         average_definability=avg_definability,
     )
