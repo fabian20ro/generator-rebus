@@ -18,7 +18,7 @@ Key files:
 
 ## Two-Model Architecture
 
-The pipeline alternates between gpt-oss-20b and qwen-3.5-27b to break self-reinforcing hallucinations:
+The pipeline alternates between gpt-oss-20b and eurollm-22b to break self-reinforcing hallucinations:
 - Round 0: Model A generates definitions
 - Round 1: Model B verifies + rates + rewrites failures
 - Round 2: Model A verifies + rates + rewrites remaining

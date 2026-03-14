@@ -23,8 +23,8 @@ PRIMARY_MODEL = ModelConfig(
     display_name="gpt-oss-20b",
 )
 SECONDARY_MODEL = ModelConfig(
-    model_id="qwen3.5-27b",
-    display_name="qwen-3.5-27b",
+    model_id="eurollm-22b-instruct-2512-mlx-nvfp4",
+    display_name="eurollm-22b",
 )
 
 
