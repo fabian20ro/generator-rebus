@@ -615,12 +615,14 @@ def _rewrite_failed_clues(
     multi_model: bool = False,
 ) -> tuple[int, int]:
     theme = puzzle.title or "Puzzle intern"
+    if multi_model:
+        ensure_model_loaded(PRIMARY_MODEL)
+        print(f"  Model activ (verificare inițială): {PRIMARY_MODEL.display_name}")
+    current_model = PRIMARY_MODEL
     passed, total = verify_working_puzzle(puzzle, client)
     rate_working_puzzle(puzzle, client)
     for clue in _all_clues(puzzle):
         _update_best_clue_version(clue, client=client)
-
-    current_model = PRIMARY_MODEL
 
     for round_index in range(1, rounds + 1):
         if multi_model:

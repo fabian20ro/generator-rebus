@@ -78,7 +78,8 @@ def unload_model(config: ModelConfig) -> None:
         })
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
         print(f"  Model unload skipped ({config.display_name}): {e}")
-    print(f"[{time.strftime('%H:%M:%S')}] Model unloaded: {config.display_name}")
+    else:
+        print(f"[{time.strftime('%H:%M:%S')}] Model unloaded: {config.display_name}")
 
 
 def ensure_model_loaded(config: ModelConfig) -> None:
