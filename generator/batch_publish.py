@@ -961,7 +961,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--multi-model",
         action="store_true",
-        default=False,
+        default=True,
         help="Alternate between primary and secondary models for cross-validation",
     )
     return parser

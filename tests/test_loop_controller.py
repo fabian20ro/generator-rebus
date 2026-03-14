@@ -52,9 +52,9 @@ class LoopControllerTests(unittest.TestCase):
 
         self.assertNotIn("--multi-model", command)
 
-    def test_loop_parser_accepts_multi_model_flag(self):
+    def test_loop_parser_defaults_to_multi_model_enabled(self):
         parser = build_parser()
-        args = parser.parse_args(["--multi-model"])
+        args = parser.parse_args([])
 
         self.assertTrue(args.multi_model)
 
