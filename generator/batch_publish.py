@@ -31,6 +31,7 @@ from .core.metrics import (
 from .core.model_manager import (
     PRIMARY_MODEL,
     SECONDARY_MODEL,
+    ensure_model_loaded,
     switch_model,
 )
 from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
@@ -629,6 +630,7 @@ def _rewrite_failed_clues(
                 current_model = next_model
             except Exception as e:
                 print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
+            print(f"  Model activ: {current_model.display_name}")
         candidates = [clue for clue in _all_clues(puzzle) if _needs_rewrite(clue)]
 
         if not candidates:
@@ -822,6 +824,7 @@ def run_batch(
     print(f"Batch seed: {rng_seed}")
     if multi_model:
         print(f"Multi-model mode: {PRIMARY_MODEL.display_name} + {SECONDARY_MODEL.display_name}")
+        ensure_model_loaded(PRIMARY_MODEL)
 
     for index, size in enumerate(sizes, start=1):
         puzzle_dir = run_dir / f"{index:02d}_{size}x{size}"

@@ -60,29 +60,37 @@ def get_loaded_models() -> list[str]:
 
 
 def load_model(config: ModelConfig) -> None:
-    print(f"Loading model: {config.display_name} ({config.model_id})...")
+    print(f"[{time.strftime('%H:%M:%S')}] Loading model: {config.display_name} ({config.model_id})...")
     _post_json("/api/v1/models/load", {
         "model": config.model_id,
         "context_length": config.context_length,
         "gpu_offload": config.gpu_offload,
     })
     _wait_for_model(config.model_id)
-    print(f"Model loaded: {config.display_name}")
+    print(f"[{time.strftime('%H:%M:%S')}] Model loaded: {config.display_name}")
 
 
 def unload_model(config: ModelConfig) -> None:
-    print(f"Unloading model: {config.display_name}...")
+    print(f"[{time.strftime('%H:%M:%S')}] Unloading model: {config.display_name}...")
     try:
         _post_json("/api/v1/models/unload", {
             "instance_id": config.model_id,
         })
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
         print(f"  Model unload skipped ({config.display_name}): {e}")
-    print(f"Model unloaded: {config.display_name}")
+    print(f"[{time.strftime('%H:%M:%S')}] Model unloaded: {config.display_name}")
+
+
+def ensure_model_loaded(config: ModelConfig) -> None:
+    loaded = get_loaded_models()
+    if config.model_id in loaded:
+        print(f"[{time.strftime('%H:%M:%S')}] Model already active: {config.display_name}")
+        return
+    load_model(config)
 
 
 def switch_model(from_model: ModelConfig, to_model: ModelConfig) -> None:
-    print(f"Switching model: {from_model.display_name} -> {to_model.display_name}")
+    print(f"[{time.strftime('%H:%M:%S')}] Switching model: {from_model.display_name} -> {to_model.display_name}")
     unload_model(from_model)
     time.sleep(2)
     load_model(to_model)

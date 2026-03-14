@@ -27,6 +27,37 @@ class LoopControllerTests(unittest.TestCase):
         self.assertIn("--sizes", command)
         self.assertEqual("11", command[command.index("--sizes") + 1])
 
+    def test_build_batch_command_includes_multi_model_flag(self):
+        command = build_batch_command(
+            size=10,
+            words="generator/output/words.json",
+            output_root="generator/output/batch",
+            rewrite_rounds=4,
+            preparation_attempts=5,
+            seed=42,
+            multi_model=True,
+        )
+
+        self.assertIn("--multi-model", command)
+
+    def test_build_batch_command_excludes_multi_model_by_default(self):
+        command = build_batch_command(
+            size=10,
+            words="generator/output/words.json",
+            output_root="generator/output/batch",
+            rewrite_rounds=4,
+            preparation_attempts=5,
+            seed=42,
+        )
+
+        self.assertNotIn("--multi-model", command)
+
+    def test_loop_parser_accepts_multi_model_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["--multi-model"])
+
+        self.assertTrue(args.multi_model)
+
     @patch("generator.loop_controller.run_size")
     def test_run_cycle_continues_after_failure(self, mock_run_size):
         mock_run_size.side_effect = [

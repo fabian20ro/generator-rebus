@@ -6,6 +6,7 @@ from generator.core.model_manager import (
     ModelConfig,
     PRIMARY_MODEL,
     SECONDARY_MODEL,
+    ensure_model_loaded,
     get_loaded_models,
 )
 
@@ -32,6 +33,24 @@ class ModelManagerTests(unittest.TestCase):
         with patch("generator.core.model_manager._get_json", side_effect=Exception("offline")):
             result = get_loaded_models()
             self.assertEqual(result, [])
+
+    @patch("generator.core.model_manager.load_model")
+    @patch("generator.core.model_manager.get_loaded_models")
+    def test_ensure_model_loaded_skips_when_already_loaded(self, mock_get, mock_load):
+        mock_get.return_value = [PRIMARY_MODEL.model_id]
+
+        ensure_model_loaded(PRIMARY_MODEL)
+
+        mock_load.assert_not_called()
+
+    @patch("generator.core.model_manager.load_model")
+    @patch("generator.core.model_manager.get_loaded_models")
+    def test_ensure_model_loaded_loads_when_missing(self, mock_get, mock_load):
+        mock_get.return_value = []
+
+        ensure_model_loaded(PRIMARY_MODEL)
+
+        mock_load.assert_called_once_with(PRIMARY_MODEL)
 
 
 if __name__ == "__main__":

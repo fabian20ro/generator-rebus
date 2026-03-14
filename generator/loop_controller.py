@@ -37,8 +37,9 @@ def build_batch_command(
     rewrite_rounds: int,
     preparation_attempts: int,
     seed: int,
+    multi_model: bool = False,
 ) -> list[str]:
-    return [
+    cmd = [
         sys.executable,
         "-m",
         "generator.batch_publish",
@@ -55,6 +56,9 @@ def build_batch_command(
         "--seed",
         str(seed),
     ]
+    if multi_model:
+        cmd.append("--multi-model")
+    return cmd
 
 
 def run_size(
@@ -67,6 +71,7 @@ def run_size(
     log_path: Path,
     cwd: Path,
     env: dict[str, str] | None = None,
+    multi_model: bool = False,
 ) -> LoopRunResult:
     seed = random.SystemRandom().randint(1, 10_000_000)
     command = build_batch_command(
@@ -76,6 +81,7 @@ def run_size(
         rewrite_rounds=rewrite_rounds,
         preparation_attempts=preparation_attempts,
         seed=seed,
+        multi_model=multi_model,
     )
     with open(log_path, "a", encoding="utf-8") as log_file:
         log_file.write(
@@ -115,6 +121,7 @@ def run_cycle(
     log_path: Path,
     cwd: Path,
     env: dict[str, str] | None = None,
+    multi_model: bool = False,
 ) -> list[LoopRunResult]:
     results: list[LoopRunResult] = []
     for size in sizes:
@@ -128,6 +135,7 @@ def run_cycle(
                 log_path=log_path,
                 cwd=cwd,
                 env=env,
+                multi_model=multi_model,
             )
         )
     return results
@@ -148,6 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preparation-attempts", type=int, default=5)
     parser.add_argument("--sleep-seconds", type=int, default=2)
     parser.add_argument("--log-path", default="generator/output/loop_runner.log")
+    parser.add_argument(
+        "--multi-model",
+        action="store_true",
+        default=False,
+        help="Alternate between primary and secondary models for cross-validation",
+    )
     return parser
 
 
@@ -175,6 +189,7 @@ def main() -> None:
             log_path=log_path,
             cwd=cwd,
             env=os.environ.copy(),
+            multi_model=args.multi_model,
         )
         time.sleep(args.sleep_seconds)
 
