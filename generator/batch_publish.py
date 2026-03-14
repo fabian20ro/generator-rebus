@@ -770,6 +770,9 @@ def _prepare_puzzle_for_publication(
         )
         best_prepared = _better_prepared_puzzle(best_prepared, prepared, client=client)
 
+        if not blockers:
+            break
+
         if blockers:
             print(
                 "Rejected puzzle after quality gate: "
