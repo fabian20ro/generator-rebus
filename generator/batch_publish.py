@@ -36,7 +36,7 @@ from .core.model_manager import (
     ensure_model_loaded,
     switch_model,
 )
-from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template
+from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template, validate_template
 from .core.markdown_io import (
     ClueEntry,
     parse_markdown,
@@ -143,38 +143,42 @@ def _easy_large_template(size: int) -> list[list[bool]] | None:
 def _easy_medium_template(size: int) -> list[list[bool]] | None:
     if size != 12:
         return None
-    patterns = [
-        "..#..#..#..#",
-        "#..#...#..#.",
-        ".#..#..#...#",
-        "..#...#..#..",
+    # 20 blacks with fw=4, modelled on mirrored hardcoded template.
+    rows = [
+        "#......#...#",
+        "............",
+        "...#....#...",
+        "......#.....",
+        ".......#...#",
+        "#....#..#...",
+        "....#....#..",
+        "...#........",
+        "..#....#....",
+        "......#.....",
+        "............",
+        "#...#......#",
     ]
-    grid: list[list[bool]] = []
-    for row_index in range(size):
-        if row_index % 3 == 2:
-            pattern = patterns[(row_index // 3) % len(patterns)]
-            grid.append([ch == "." for ch in pattern])
-        else:
-            grid.append([True] * size)
-    return grid
+    return [[ch == "." for ch in row] for row in rows]
+
 
 def _easy_11_template(size: int) -> list[list[bool]] | None:
     if size != 11:
         return None
-    patterns = [
-        "#..#...#..#",
+    # 13 blacks, staggered to keep full-width slots ≤5 and two-letter slots low.
+    rows = [
+        "...#......#",
+        "...........",
+        "#.....#....",
+        "...........",
         "...#...#...",
-        "#...#...#..",
-        "..#....#...",
+        "#..........",
+        "......#....",
+        "..#........",
+        "....#...#..",
+        "...........",
+        "#....#.....",
     ]
-    grid: list[list[bool]] = []
-    for row_index in range(size):
-        if row_index % 3 == 2:
-            pattern = patterns[(row_index // 3) % len(patterns)]
-            grid.append([ch == "." for ch in pattern])
-        else:
-            grid.append([True] * size)
-    return grid
+    return [[ch == "." for ch in row] for row in rows]
 
 
 def _load_words(words_path: Path) -> list[dict]:
@@ -249,6 +253,9 @@ def _generate_candidate(
     template = _choose_template(size, settings, rng)
     if template is None:
         return None
+    valid, _reason = validate_template(template)
+    if not valid:
+        return None
     if seen_template_fingerprints is not None:
         fingerprint = _template_fingerprint(template)
         if fingerprint in seen_template_fingerprints:
@@ -259,6 +266,10 @@ def _generate_candidate(
     slots = extract_slots(template)
     if not _slot_capacity_ok(slots, word_index, settings):
         return None
+    if settings.max_full_width_slots is not None:
+        full_width = sum(1 for s in slots if s.length == size)
+        if full_width > settings.max_full_width_slots:
+            return None
 
     grid: list[list[str | None]] = [
         [None if template[row][col] else "#" for col in range(size)]

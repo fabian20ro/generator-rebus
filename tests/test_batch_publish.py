@@ -335,8 +335,10 @@ class BatchPublishTests(unittest.TestCase):
     @patch("generator.batch_publish.extract_slots")
     @patch("generator.batch_publish.generate_procedural_template")
     @patch("generator.batch_publish.parse_template")
+    @patch("generator.batch_publish.validate_template", return_value=(True, ""))
     def test_generate_candidate_for_seven_uses_procedural_templates_only(
         self,
+        mock_validate,
         mock_parse_template,
         mock_generate_template,
         mock_extract_slots,
@@ -729,11 +731,35 @@ class BatchPublishTests(unittest.TestCase):
         valid, msg = validate_template(grid)
         self.assertTrue(valid, f"easy_11_template invalid: {msg}")
 
+    def test_easy_11_template_has_few_full_width_slots(self):
+        from generator.batch_publish import _easy_11_template
+        from generator.core.slot_extractor import extract_slots
+        grid = _easy_11_template(11)
+        slots = extract_slots(grid)
+        full_width = sum(1 for s in slots if s.length == 11)
+        self.assertLessEqual(full_width, 5, f"easy_11 has {full_width} full-width slots")
+
     def test_easy_11_template_two_letter_slots_within_limit(self):
         from generator.batch_publish import _easy_11_template
         grid = _easy_11_template(11)
         count = _count_two_letter_slots(grid)
         self.assertLessEqual(count, 18)
+
+    def test_easy_medium_template_is_valid(self):
+        from generator.batch_publish import _easy_medium_template
+        from generator.core.grid_template import validate_template
+        grid = _easy_medium_template(12)
+        self.assertIsNotNone(grid)
+        valid, msg = validate_template(grid)
+        self.assertTrue(valid, f"easy_medium_template invalid: {msg}")
+
+    def test_easy_medium_template_has_few_full_width_slots(self):
+        from generator.batch_publish import _easy_medium_template
+        from generator.core.slot_extractor import extract_slots
+        grid = _easy_medium_template(12)
+        slots = extract_slots(grid)
+        full_width = sum(1 for s in slots if s.length == 12)
+        self.assertLessEqual(full_width, 5, f"easy_medium has {full_width} full-width slots")
 
     def test_easy_template_by_name_medium_11(self):
         from generator.batch_publish import _easy_template_by_name
@@ -749,6 +775,18 @@ class BatchPublishTests(unittest.TestCase):
     def test_size_12_max_two_letter_slots_increased(self):
         settings = get_size_settings(12)
         self.assertEqual(22, settings.max_two_letter_slots)
+
+    def test_size_11_has_full_width_slot_limit(self):
+        settings = get_size_settings(11)
+        self.assertEqual(5, settings.max_full_width_slots)
+
+    def test_size_12_has_full_width_slot_limit(self):
+        settings = get_size_settings(12)
+        self.assertEqual(5, settings.max_full_width_slots)
+
+    def test_size_7_has_no_full_width_slot_limit(self):
+        settings = get_size_settings(7)
+        self.assertIsNone(settings.max_full_width_slots)
 
     def test_working_clue_has_word_type_field(self):
         from generator.core.pipeline_state import WorkingClue

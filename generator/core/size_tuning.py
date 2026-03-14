@@ -20,6 +20,7 @@ class SizeSettings:
     hardcoded_probability: float = 0.0
     easy_template: str | None = None
     easy_template_probability: float = 0.0
+    max_full_width_slots: int | None = None
 
 
 SIZE_SETTINGS: dict[int, SizeSettings] = {
@@ -74,8 +75,8 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
     ),
     11: SizeSettings(
         max_rarity=4,
-        max_backtracks=260_000,
-        target_blacks=21,
+        max_backtracks=400_000,
+        target_blacks=18,
         solved_candidates=4,
         attempt_budget=110,
         max_two_letter_slots=18,
@@ -83,14 +84,15 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         template_attempts=1_300,
         min_preparation_attempts=32,
         template_policy="mixed",
-        hardcoded_probability=0.4,
+        hardcoded_probability=0.6,
         easy_template="medium_11",
-        easy_template_probability=0.55,
+        easy_template_probability=0.50,
+        max_full_width_slots=5,
     ),
     12: SizeSettings(
         max_rarity=4,
-        max_backtracks=320_000,
-        target_blacks=28,
+        max_backtracks=500_000,
+        target_blacks=24,
         solved_candidates=4,
         attempt_budget=120,
         max_two_letter_slots=22,
@@ -98,9 +100,10 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         template_attempts=1_500,
         min_preparation_attempts=40,
         template_policy="mixed",
-        hardcoded_probability=0.4,
+        hardcoded_probability=0.55,
         easy_template="medium",
-        easy_template_probability=0.65,
+        easy_template_probability=0.55,
+        max_full_width_slots=5,
     ),
     15: SizeSettings(
         max_rarity=5,

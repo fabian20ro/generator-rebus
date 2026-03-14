@@ -17,22 +17,36 @@ def get_pattern(slot: Slot, grid: list[list[str | None]]) -> list[str | None]:
 
 def assign(slot: Slot, word: WordEntry, grid: list[list[str | None]],
            assignment: dict[int, WordEntry], used_words: set[str],
-           allow_reuse: bool = False) -> None:
+           allow_reuse: bool = False,
+           used_masks: dict[int, int] | None = None,
+           word_index: WordIndex | None = None) -> None:
     """Assign a word to a slot, updating grid and tracking structures."""
     assignment[slot.id] = word
     if not allow_reuse:
         used_words.add(word.normalized)
+        if used_masks is not None and word_index is not None:
+            length = len(word.normalized)
+            idx = word_index.word_to_index(word.normalized)
+            if idx is not None:
+                used_masks[length] = used_masks.get(length, 0) | (1 << idx)
     for i, (r, c) in enumerate(slot.cells):
         grid[r][c] = word.normalized[i]
 
 
 def unassign(slot: Slot, word: WordEntry, grid: list[list[str | None]],
              assignment: dict[int, WordEntry], used_words: set[str],
-             slots: list[Slot], allow_reuse: bool = False) -> None:
+             slots: list[Slot], allow_reuse: bool = False,
+             used_masks: dict[int, int] | None = None,
+             word_index: WordIndex | None = None) -> None:
     """Remove a word assignment, restoring the grid state."""
     del assignment[slot.id]
     if not allow_reuse:
         used_words.discard(word.normalized)
+        if used_masks is not None and word_index is not None:
+            length = len(word.normalized)
+            idx = word_index.word_to_index(word.normalized)
+            if idx is not None:
+                used_masks[length] = used_masks.get(length, 0) & ~(1 << idx)
     for i, (r, c) in enumerate(slot.cells):
         # Only clear if no other assigned slot uses this cell
         other_uses = False
@@ -48,41 +62,54 @@ def unassign(slot: Slot, word: WordEntry, grid: list[list[str | None]],
 
 def forward_check(slot: Slot, slots: list[Slot], word_index: WordIndex,
                   grid: list[list[str | None]], assignment: dict[int, WordEntry],
-                  used_words: set[str], allow_reuse: bool = False) -> bool:
+                  used_words: set[str], allow_reuse: bool = False,
+                  used_masks: dict[int, int] | None = None) -> bool:
     """Check that all unassigned intersecting slots still have valid candidates."""
     for ix in slot.intersections:
         if ix.other_slot_id in assignment:
             continue
         other_slot = slots[ix.other_slot_id]
         pattern = get_pattern(other_slot, grid)
-        candidates = word_index.find_matching(pattern)
-        available = [
-            candidate for candidate in candidates
-            if allow_reuse or candidate.normalized not in used_words
-        ]
-        if not available:
-            return False
+        if allow_reuse:
+            if not word_index.has_matching(pattern):
+                return False
+        elif used_masks is not None:
+            exclude = used_masks.get(other_slot.length, 0)
+            if not word_index.has_matching(pattern, exclude_mask=exclude):
+                return False
+        else:
+            candidates = word_index.find_matching(pattern)
+            if not any(c.normalized not in used_words for c in candidates):
+                return False
     return True
 
 
 def select_mrv(slots: list[Slot], assignment: dict[int, WordEntry],
                word_index: WordIndex, grid: list[list[str | None]],
                used_words: set[str]) -> Slot | None:
-    """Select the unassigned slot with the fewest matching candidates (MRV)."""
+    """Select the unassigned slot with the fewest matching candidates (MRV).
+
+    Ties are broken by degree (most unassigned intersections first),
+    then by length (longer slots first).
+    """
     best_slot = None
     best_count = float("inf")
+    best_degree = -1
 
     for slot in slots:
         if slot.id in assignment:
             continue
         pattern = get_pattern(slot, grid)
         count = word_index.count_matching(pattern)
-        # Prefer slots with fewer candidates (fail-first)
-        # Break ties by preferring longer slots (harder to fill later)
-        if count < best_count or (count == best_count and best_slot is not None
-                                   and slot.length > best_slot.length):
+        degree = sum(1 for ix in slot.intersections if ix.other_slot_id not in assignment)
+
+        if (count < best_count
+                or (count == best_count and degree > best_degree)
+                or (count == best_count and degree == best_degree
+                    and best_slot is not None and slot.length > best_slot.length)):
             best_count = count
             best_slot = slot
+            best_degree = degree
 
     return best_slot
 
@@ -92,7 +119,8 @@ def solve(slots: list[Slot], word_index: WordIndex,
           grid: list[list[str | None]], max_backtracks: int = 50000,
           _counter: list[int] | None = None,
           allow_reuse: bool = False,
-          rng: random.Random | None = None) -> dict[int, WordEntry] | None:
+          rng: random.Random | None = None,
+          _used_masks: dict[int, int] | None = None) -> dict[int, WordEntry] | None:
     """Solve the crossword using CSP backtracking with MRV and forward checking.
 
     Returns the assignment dict if successful, None if no solution found.
@@ -101,6 +129,8 @@ def solve(slots: list[Slot], word_index: WordIndex,
         _counter = [0]
     if rng is None:
         rng = random.Random()
+    if _used_masks is None and not allow_reuse:
+        _used_masks = {}
 
     if len(assignment) == len(slots):
         return assignment
@@ -121,14 +151,20 @@ def solve(slots: list[Slot], word_index: WordIndex,
         if _counter[0] > max_backtracks:
             return None
 
-        assign(slot, word, grid, assignment, used_words, allow_reuse=allow_reuse)
+        assign(slot, word, grid, assignment, used_words,
+               allow_reuse=allow_reuse, used_masks=_used_masks,
+               word_index=word_index)
 
-        if forward_check(slot, slots, word_index, grid, assignment, used_words, allow_reuse=allow_reuse):
+        if forward_check(slot, slots, word_index, grid, assignment, used_words,
+                         allow_reuse=allow_reuse, used_masks=_used_masks):
             result = solve(slots, word_index, assignment, used_words, grid,
-                          max_backtracks, _counter, allow_reuse=allow_reuse, rng=rng)
+                          max_backtracks, _counter, allow_reuse=allow_reuse,
+                          rng=rng, _used_masks=_used_masks)
             if result is not None:
                 return result
 
-        unassign(slot, word, grid, assignment, used_words, slots, allow_reuse=allow_reuse)
+        unassign(slot, word, grid, assignment, used_words, slots,
+                 allow_reuse=allow_reuse, used_masks=_used_masks,
+                 word_index=word_index)
 
     return None
