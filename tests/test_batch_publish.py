@@ -522,6 +522,7 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertIn("exactă", reason)
 
+    @patch("generator.batch_publish.ensure_model_loaded")
     @patch("generator.batch_publish.upload_puzzle")
     @patch("generator.batch_publish._prepare_puzzle_for_publication")
     @patch("generator.batch_publish._load_words")
@@ -530,6 +531,7 @@ class BatchPublishTests(unittest.TestCase):
         mock_load_words,
         mock_prepare,
         mock_upload,
+        mock_ensure_model,
     ):
         mock_load_words.return_value = []
         mock_prepare.return_value = PreparedPuzzle(

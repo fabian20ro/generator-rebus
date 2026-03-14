@@ -824,9 +824,9 @@ def run_batch(
     all_word_metrics: list[WordMetric] = []
     puzzle_metrics: list[PuzzleMetric] = []
     print(f"Batch seed: {rng_seed}")
+    ensure_model_loaded(PRIMARY_MODEL)
     if multi_model:
         print(f"Multi-model mode: {PRIMARY_MODEL.display_name} + {SECONDARY_MODEL.display_name}")
-        ensure_model_loaded(PRIMARY_MODEL)
 
     for index, size in enumerate(sizes, start=1):
         puzzle_dir = run_dir / f"{index:02d}_{size}x{size}"
