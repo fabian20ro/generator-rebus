@@ -163,11 +163,14 @@ def generate_incremental_template(
     size: int,
     solver_fn: Callable[[list[list[bool]]], bool],
     max_blacks: int | None = None,
+    min_solver_step: int | None = None,
     rng: random.Random | None = None,
 ) -> list[list[bool]] | None:
     """Build a grid incrementally: start empty, add one black square at a time until solvable.
 
     solver_fn(grid) should return True if the grid can be filled with words.
+    min_solver_step: skip solver calls before this step (early steps with too few blacks
+    produce unsolvable grids with full-width slots, wasting solver time).
     """
     if rng is None:
         rng = random.Random()
@@ -177,41 +180,43 @@ def generate_incremental_template(
 
     print(f"  Incremental template {size}x{size} (max {effective_max} blacks):")
 
-    if solver_fn(grid):
+    if (min_solver_step is None or 0 >= min_solver_step) and solver_fn(grid):
         _log_template(grid)
         return grid
 
-    for step in range(1, effective_max + 1):
-        candidates = []
-        for r in range(size):
-            for c in range(size):
-                if not grid[r][c]:
-                    continue
-                if not _black_spacing_ok(grid, r, c, size):
-                    continue
-                grid[r][c] = False
-                if _creates_single_letter(grid, r, c, size):
-                    grid[r][c] = True
-                    continue
-                if not _is_connected(grid):
-                    grid[r][c] = True
-                    continue
-                grid[r][c] = True
-                candidates.append((r, c))
+    all_cells = [(r, c) for r in range(size) for c in range(size)]
 
-        if not candidates:
+    for step in range(1, effective_max + 1):
+        # Lazy candidate evaluation: shuffle all cells, pick first valid one.
+        # Mathematically equivalent to building full list + shuffle + pick [0],
+        # but avoids expensive _is_connected BFS on cells we never use.
+        rng.shuffle(all_cells)
+        placed = False
+        for r, c in all_cells:
+            if not grid[r][c]:
+                continue
+            if not _black_spacing_ok(grid, r, c, size):
+                continue
+            grid[r][c] = False
+            if _creates_single_letter(grid, r, c, size):
+                grid[r][c] = True
+                continue
+            if not _is_connected(grid):
+                grid[r][c] = True
+                continue
+            # Valid placement found — keep it
+            placed = True
+            break
+
+        if not placed:
             print(f"  No valid placements at step {step}")
             return None
 
-        rng.shuffle(candidates)
-        r, c = candidates[0]
-        grid[r][c] = False
-
-        valid, _ = validate_template(grid)
-        if valid and solver_fn(grid):
-            print(f"  Incremental template done after {step} blacks")
-            _log_template(grid)
-            return grid
+        if min_solver_step is None or step >= min_solver_step:
+            if solver_fn(grid):
+                print(f"  Incremental template done after {step} blacks")
+                _log_template(grid)
+                return grid
 
     return None
 

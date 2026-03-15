@@ -110,6 +110,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", help="Filter puzzles by creation date (YYYY-MM-DD)")
     parser.add_argument("--puzzle-id", help="Retitle a specific puzzle by UUID")
     parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Retitle all puzzles in the database",
+    )
+    parser.add_argument(
         "--all-fallbacks",
         action="store_true",
         help="Retitle all puzzles with fallback titles",
@@ -132,8 +137,8 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    if not args.date and not args.puzzle_id and not args.all_fallbacks:
-        parser.error("Specify --date, --puzzle-id, or --all-fallbacks")
+    if not args.date and not args.puzzle_id and not args.all_fallbacks and not args.all:
+        parser.error("Specify --date, --puzzle-id, --all-fallbacks, or --all")
 
     if args.date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
         parser.error("--date must be in YYYY-MM-DD format")

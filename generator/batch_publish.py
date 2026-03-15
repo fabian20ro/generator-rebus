@@ -248,15 +248,25 @@ def _try_incremental_template(
     word_index: WordIndex,
 ) -> list[list[bool]] | None:
     """Build an incremental template once — expensive, so call once per variant."""
+    effective_max = settings.target_blacks + 4
+    probe_backtracks = settings.max_backtracks // 3
+
     def solver_fn(template):
         slots = extract_slots(template)
         if not _slot_capacity_ok(slots, word_index, settings):
             return False
+        if settings.max_full_width_slots is not None:
+            full_width = sum(1 for s in slots if s.length == size)
+            if full_width > settings.max_full_width_slots:
+                return False
         grid = [[None if t else "#" for t in row] for row in template]
-        return solve(slots, word_index, {}, set(), grid, settings.max_backtracks, rng=rng) is not None
+        return solve(slots, word_index, {}, set(), grid, probe_backtracks, rng=rng) is not None
+
+    min_solver_step = max(1, effective_max - 6)
 
     return generate_incremental_template(
-        size, solver_fn, max_blacks=settings.target_blacks + 4, rng=rng,
+        size, solver_fn, max_blacks=effective_max,
+        min_solver_step=min_solver_step, rng=rng,
     )
 
 

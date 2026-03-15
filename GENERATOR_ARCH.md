@@ -362,6 +362,27 @@ the number of solver calls while still covering the full range of black counts t
 any variant might produce. The ±2 randomization on procedural templates plus the +2/+4
 relaxed variants mean no variant ever needs more than `target_blacks + 4` blacks.
 
+### Why incremental template skips solver calls before `min_solver_step`
+
+Early steps (few blacks) produce grids with full-width slots that are impossible to fill.
+For 12×12 with `effective_max=24`, steps 1-17 are guaranteed to fail: the CSP solver
+exhausts its entire backtrack budget on each call. `min_solver_step = max(1, effective_max - 6)`
+limits solver calls to the last ~7 steps, eliminating ~16 wasted calls × 500K backtracks each.
+
+### Why incremental template uses `probe_backtracks` (1/3 of max)
+
+The incremental solver only probes solvability — it doesn't need to find optimal solutions.
+Templates requiring 300K+ backtracks produce poor word selections anyway. Using
+`max_backtracks // 3` (~166K for 12×12) as a fast solvability probe saves ~3× per call.
+The final solve in `_generate_candidate` uses the full backtrack budget.
+
+### Why incremental template uses lazy candidate evaluation
+
+The old code built a list of ALL valid cells (~100+), shuffled, and picked `[0]`. Since
+shuffling all cells upfront and taking the first valid cell gives the same uniform
+distribution, lazy evaluation skips expensive `_is_connected` BFS and `_creates_single_letter`
+scans on ~90% of cells that would never be selected.
+
 ### Why `_sanitize_title` rejects at 2+ matching puzzle words, not 1
 
 A title like "Sub Munte" (containing one puzzle word) can be evocative and thematic.

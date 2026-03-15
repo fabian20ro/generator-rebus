@@ -159,6 +159,7 @@ class IncrementalTemplateTests(unittest.TestCase):
         result = generate_incremental_template(
             5,
             solver_fn=solver_needs_blacks,
+            min_solver_step=1,
             rng=random.Random(42),
         )
         self.assertIsNotNone(result)
@@ -172,6 +173,42 @@ class IncrementalTemplateTests(unittest.TestCase):
             max_blacks=3,
         )
         self.assertIsNone(result)
+
+    def test_min_solver_step_skips_early_calls(self):
+        """Solver should not be called before min_solver_step."""
+        solver_calls_at_step = []
+
+        def tracking_solver(grid):
+            blacks = sum(1 for row in grid for cell in row if not cell)
+            solver_calls_at_step.append(blacks)
+            return blacks >= 4
+
+        import random
+        result = generate_incremental_template(
+            5,
+            solver_fn=tracking_solver,
+            min_solver_step=3,
+            max_blacks=6,
+            rng=random.Random(42),
+        )
+        self.assertIsNotNone(result)
+        # All solver calls should have been at step >= 3 (i.e. >= 3 blacks)
+        for blacks_count in solver_calls_at_step:
+            self.assertGreaterEqual(blacks_count, 3)
+
+    def test_lazy_candidate_picks_valid_cell(self):
+        """Lazy evaluation should still produce valid templates."""
+        import random
+        for seed in range(5):
+            result = generate_incremental_template(
+                6,
+                solver_fn=lambda g: sum(1 for row in g for cell in row if not cell) >= 3,
+                min_solver_step=1,
+                rng=random.Random(seed),
+            )
+            self.assertIsNotNone(result, f"Failed with seed {seed}")
+            valid, msg = validate_template(result)
+            self.assertTrue(valid, f"Seed {seed}: {msg}")
 
 
 class ProceduralTemplateTests(unittest.TestCase):
