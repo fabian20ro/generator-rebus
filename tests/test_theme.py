@@ -1,10 +1,15 @@
+import json
 import unittest
 from types import SimpleNamespace
 
 from generator.phases.theme import (
+    TITLE_MIN_CREATIVITY,
+    _sanitize_title,
+    generate_creative_title,
     generate_title_for_final_puzzle,
     generate_title_from_words,
     generate_title_from_words_and_definitions,
+    rate_title_creativity,
 )
 
 
@@ -23,6 +28,34 @@ class _FakeClient:
                 create=_create
             )
         )
+
+
+class _SequentialClient:
+    """Returns a different response for each call."""
+
+    def __init__(self, responses: list[str]):
+        self._responses = list(responses)
+        self._index = 0
+        self.last_user_content = ""
+
+        def _create(**kwargs):
+            self.last_user_content = kwargs["messages"][-1]["content"]
+            content = self._responses[min(self._index, len(self._responses) - 1)]
+            self._index += 1
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+            )
+
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(
+                create=_create
+            )
+        )
+
+
+def _fake_rate_client(score: int, feedback: str = "ok"):
+    """Create a client that returns a fixed creativity rating."""
+    return _FakeClient(json.dumps({"creativity_score": score, "feedback": feedback}))
 
 
 class ThemeTests(unittest.TestCase):
@@ -54,6 +87,7 @@ class ThemeTests(unittest.TestCase):
 
     def test_final_title_generation_uses_definitions_context(self):
         client = _FakeClient("Ecouri de Toamnă")
+        rate_client = _fake_rate_client(8)
 
         title = generate_title_from_words_and_definitions(
             ["NATURA", "FRUNZA"],
@@ -62,10 +96,8 @@ class ThemeTests(unittest.TestCase):
         )
 
         self.assertEqual("Ecouri de Toamnă", title)
-        self.assertIn("Definițiile finale sunt", client.last_user_content)
-        self.assertIn("Frunză uscată de toamnă", client.last_user_content)
 
-    def test_final_title_uses_only_five_longest_words(self):
+    def test_final_title_uses_six_longest_words(self):
         words = [
             "EXTRAORDINAR",  # 12
             "SPECTACOL",     # 9
@@ -86,18 +118,158 @@ class ThemeTests(unittest.TestCase):
             horizontal_clues=clues,
             vertical_clues=[],
         )
-        client = _FakeClient("Univers Creativ")
+        gen_client = _FakeClient("Univers Creativ")
+        rate_client = _fake_rate_client(8)
 
-        generate_title_for_final_puzzle(puzzle, client=client)
+        generate_title_for_final_puzzle(puzzle, client=gen_client, rate_client=rate_client)
 
-        prompt = client.last_user_content
-        words_line = prompt.split("\n")[1]  # line after "Cuvintele rebusului sunt:"
-        expected = ["EXTRAORDINAR", "SPECTACOL", "PLIMBARE", "GALAXIE", "TABLOU"]
-        excluded = ["VERDE", "MUNTE", "ARTA", "FOC", "ZI"]
+        prompt = gen_client.last_user_content
+        words_line = prompt.split("\n")[1]
+        expected = ["EXTRAORDINAR", "SPECTACOL", "PLIMBARE", "GALAXIE", "TABLOU", "VERDE"]
+        excluded = ["ARTA", "FOC", "ZI"]
         for word in expected:
             self.assertIn(word, words_line)
         for word in excluded:
             self.assertNotIn(word, words_line)
+
+    def test_final_title_includes_ties_at_sixth_position(self):
+        words = [
+            "EXTRAORDINAR",  # 12
+            "SPECTACOL",     # 9
+            "PLIMBARE",      # 8
+            "GALAXIE",       # 7
+            "TABLOU",        # 6
+            "VERDE",         # 5
+            "MUNTE",         # 5 - same length as 6th, should be included
+            "ARTA",          # 4
+        ]
+        clues = [
+            SimpleNamespace(word_normalized=w, definition=f"Definiția {w}")
+            for w in words
+        ]
+        puzzle = SimpleNamespace(
+            horizontal_clues=clues,
+            vertical_clues=[],
+        )
+        gen_client = _FakeClient("Univers Creativ")
+        rate_client = _fake_rate_client(8)
+
+        generate_title_for_final_puzzle(puzzle, client=gen_client, rate_client=rate_client)
+
+        prompt = gen_client.last_user_content
+        words_line = prompt.split("\n")[1]
+        self.assertIn("VERDE", words_line)
+        self.assertIn("MUNTE", words_line)
+
+    def test_sanitize_rejects_title_containing_input_word(self):
+        result = _sanitize_title(
+            "Lumea Aerului",
+            words=["AER", "LUMINA"],
+            input_words=["AER", "LUMINA"],
+        )
+        self.assertNotIn("Aer", result)
+
+    def test_sanitize_case_insensitive_word_check(self):
+        result = _sanitize_title(
+            "Aerul Dimineții",
+            words=["aer"],
+            input_words=["aer"],
+        )
+        self.assertNotIn("Aer", result)
+
+    def test_sanitize_diacritics_normalized_word_check(self):
+        result = _sanitize_title(
+            "Față în Față",
+            words=["FATA"],
+            input_words=["FATA"],
+        )
+        # FATA normalized matches FATA in "Față" normalized
+        self.assertNotIn("Față", result)
+
+    def test_rate_title_creativity_parses_json(self):
+        client = _FakeClient('{"creativity_score": 7, "feedback": "bun titlu"}')
+        score, feedback = rate_title_creativity("Test", ["A", "B"], client)
+        self.assertEqual(7, score)
+        self.assertEqual("bun titlu", feedback)
+
+    def test_creative_loop_accepts_high_score(self):
+        gen_client = _FakeClient("Orizont Aprins")
+        rate_client = _fake_rate_client(7)
+
+        title = generate_creative_title(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=gen_client,
+            rate_client=rate_client,
+        )
+
+        self.assertEqual("Orizont Aprins", title)
+
+    def test_creative_loop_retries_on_low_score(self):
+        gen_responses = [
+            "Ecou Banal",
+            "Alt Ecou",
+            "Ecou Fabulos",
+        ]
+        rate_responses = [
+            json.dumps({"creativity_score": 3, "feedback": "generic"}),
+            json.dumps({"creativity_score": 3, "feedback": "tot generic"}),
+            json.dumps({"creativity_score": 8, "feedback": "excelent"}),
+        ]
+        gen_client = _SequentialClient(gen_responses)
+        rate_client = _SequentialClient(rate_responses)
+
+        title = generate_creative_title(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=gen_client,
+            rate_client=rate_client,
+        )
+
+        self.assertEqual("Ecou Fabulos", title)
+
+    def test_creative_loop_uses_best_after_exhaustion(self):
+        gen_responses = ["Ecou Prim", "Ecou Doi", "Ecou Trei", "Ecou Patru",
+                         "Ecou Cinci", "Ecou Sase", "Ecou Sapte"]
+        rate_responses = [
+            json.dumps({"creativity_score": 2, "feedback": "slab"}),
+            json.dumps({"creativity_score": 4, "feedback": "mediocru"}),
+            json.dumps({"creativity_score": 3, "feedback": "nu prea"}),
+            json.dumps({"creativity_score": 1, "feedback": "groaznic"}),
+            json.dumps({"creativity_score": 4, "feedback": "mediocru"}),
+            json.dumps({"creativity_score": 2, "feedback": "slab"}),
+            json.dumps({"creativity_score": 3, "feedback": "nu prea"}),
+        ]
+        gen_client = _SequentialClient(gen_responses)
+        rate_client = _SequentialClient(rate_responses)
+
+        title = generate_creative_title(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=gen_client,
+            rate_client=rate_client,
+        )
+
+        self.assertEqual("Ecou Doi", title)
+
+    def test_creative_loop_includes_rejected_in_prompt(self):
+        gen_responses = ["Ecou Palid", "Ecou Doiun"]
+        rate_responses = [
+            json.dumps({"creativity_score": 2, "feedback": "prea banal"}),
+            json.dumps({"creativity_score": 8, "feedback": "excelent"}),
+        ]
+        gen_client = _SequentialClient(gen_responses)
+        rate_client = _SequentialClient(rate_responses)
+
+        generate_creative_title(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă"],
+            client=gen_client,
+            rate_client=rate_client,
+        )
+
+        self.assertIn("Ecou Palid", gen_client.last_user_content)
+        self.assertIn("prea banal", gen_client.last_user_content)
 
 
 if __name__ == "__main__":

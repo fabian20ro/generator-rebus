@@ -1,7 +1,7 @@
 """Phase 2: Generate a grid template with black squares."""
 
 from __future__ import annotations
-from ..core.grid_template import get_random_template, validate_template
+from ..core.grid_template import generate_procedural_template, validate_template
 from ..core.markdown_io import write_grid_template
 
 
@@ -10,7 +10,10 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     size = kwargs.get("size", 10)
 
     print(f"Generating {size}x{size} grid template...")
-    grid = get_random_template(size)
+    grid = generate_procedural_template(size)
+    if grid is None:
+        print(f"Error: could not generate a valid template for size {size}")
+        return
 
     valid, msg = validate_template(grid)
     if not valid:

@@ -8,6 +8,8 @@ from unittest.mock import patch
 from generator.batch_publish import (
     Candidate,
     LOCKED_REBUS,
+    MAX_REWRITE_ROUNDS,
+    PLATEAU_LOOKBACK,
     PreparedPuzzle,
     SizeSettings,
     _best_candidate,
@@ -20,6 +22,7 @@ from generator.batch_publish import (
     _prepare_puzzle_for_publication,
     _synthesize_failure_reason,
     _template_fingerprint,
+    _try_incremental_template,
     build_parser as build_batch_parser,
     run_batch,
 )
@@ -334,13 +337,11 @@ class BatchPublishTests(unittest.TestCase):
     @patch("generator.batch_publish._slot_capacity_ok")
     @patch("generator.batch_publish.extract_slots")
     @patch("generator.batch_publish.generate_procedural_template")
-    @patch("generator.batch_publish.parse_template")
     @patch("generator.batch_publish.validate_template", return_value=(True, ""))
-    def test_generate_candidate_for_seven_uses_procedural_templates_only(
+    def test_generate_candidate_uses_prebuilt_template(
         self,
         mock_validate,
-        mock_parse_template,
-        mock_generate_template,
+        mock_procedural,
         mock_extract_slots,
         mock_slot_ok,
         mock_solve,
@@ -366,7 +367,6 @@ class BatchPublishTests(unittest.TestCase):
         })()
         word = type("WordEntry", (), {"normalized": "AER", "original": "aer"})()
 
-        mock_generate_template.return_value = template
         mock_extract_slots.return_value = [slot]
         mock_slot_ok.return_value = True
         mock_solve.return_value = {1: word}
@@ -389,56 +389,19 @@ class BatchPublishTests(unittest.TestCase):
             metadata={"AER": {"rarity_level": 1}},
             title="Test",
             seen_template_fingerprints=set(),
+            template=template,
         )
 
         self.assertIsNotNone(candidate)
-        mock_parse_template.assert_not_called()
-        self.assertEqual(777, mock_generate_template.call_args.kwargs["max_attempts"])
+        mock_procedural.assert_not_called()
 
-    @patch("generator.batch_publish.score_words")
-    @patch("generator.batch_publish.solve")
-    @patch("generator.batch_publish._slot_capacity_ok")
-    @patch("generator.batch_publish.extract_slots")
-    @patch("generator.batch_publish.generate_procedural_template")
-    def test_duplicate_seven_template_fingerprint_is_rejected(
-        self,
-        mock_generate_template,
-        mock_extract_slots,
-        mock_slot_ok,
-        mock_solve,
-        mock_score_words,
-    ):
+    def test_duplicate_seven_template_fingerprint_is_rejected(self):
         template = [
             [True, True, True],
             [True, False, True],
             [True, True, True],
         ]
         settings = SizeSettings(3, 50000, 1, 1, 1, 4, 16)
-        slot = type("Slot", (), {
-            "id": 1,
-            "direction": "H",
-            "length": 3,
-            "start_row": 0,
-            "start_col": 0,
-            "cells": [(0, 0), (0, 1), (0, 2)],
-        })()
-        word = type("WordEntry", (), {"normalized": "AER", "original": "aer"})()
-
-        mock_generate_template.return_value = template
-        mock_extract_slots.return_value = [slot]
-        mock_slot_ok.return_value = True
-        mock_solve.return_value = {1: word}
-        mock_score_words.return_value = QualityReport(
-            score=10.0,
-            word_count=1,
-            average_length=3.0,
-            average_rarity=1.0,
-            two_letter_words=0,
-            three_letter_words=1,
-            high_rarity_words=0,
-            uncommon_letter_words=0,
-            friendly_words=1,
-        )
 
         seen = {_template_fingerprint(template)}
         candidate = _generate_candidate(
@@ -448,10 +411,12 @@ class BatchPublishTests(unittest.TestCase):
             metadata={"AER": {"rarity_level": 1}},
             title="Test",
             seen_template_fingerprints=seen,
+            template=template,
         )
 
         self.assertIsNone(candidate)
 
+    @patch("generator.batch_publish._try_incremental_template", return_value=None)
     @patch("generator.batch_publish._generate_candidate")
     @patch("generator.batch_publish._build_index")
     @patch("generator.batch_publish.build_relaxed_variants")
@@ -460,6 +425,7 @@ class BatchPublishTests(unittest.TestCase):
         mock_variants,
         mock_build_index,
         mock_generate_candidate,
+        mock_try_incr,
     ):
         settings_a = SizeSettings(3, 80_000, 6, 3, 2, 4, 16, template_attempts=500)
         mock_variants.return_value = [settings_a]
@@ -493,6 +459,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual(10.0, best.score)
         self.assertEqual(1, mock_generate_candidate.call_count)
 
+    @patch("generator.batch_publish._try_incremental_template", return_value=None)
     @patch("generator.batch_publish._generate_candidate")
     @patch("generator.batch_publish._build_index")
     @patch("generator.batch_publish.build_relaxed_variants")
@@ -501,6 +468,7 @@ class BatchPublishTests(unittest.TestCase):
         mock_variants,
         mock_build_index,
         mock_generate_candidate,
+        mock_try_incr,
     ):
         settings_a = SizeSettings(3, 80_000, 6, 3, 2, 4, 16, template_attempts=500)
         mock_variants.return_value = [settings_a]
@@ -533,6 +501,52 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertEqual(25.0, best.score)
         self.assertEqual(2, mock_generate_candidate.call_count)
+
+    @patch("generator.batch_publish.generate_incremental_template")
+    @patch("generator.batch_publish._generate_candidate")
+    @patch("generator.batch_publish._build_index")
+    @patch("generator.batch_publish.build_relaxed_variants")
+    def test_incremental_template_built_once_per_variant(
+        self,
+        mock_variants,
+        mock_build_index,
+        mock_generate_candidate,
+        mock_incr_template,
+    ):
+        template = [[True, True, True], [True, False, True], [True, True, True]]
+        settings = SizeSettings(3, 80_000, 6, 3, 2, 4, 16, template_attempts=500)
+        mock_variants.return_value = [settings]
+        mock_build_index.return_value = (object(), {})
+        mock_incr_template.return_value = template
+        candidate = Candidate(
+            score=10.0,
+            report=QualityReport(
+                score=10.0,
+                word_count=1,
+                average_length=3.0,
+                average_rarity=1.0,
+                two_letter_words=0,
+                three_letter_words=1,
+                high_rarity_words=0,
+                uncommon_letter_words=0,
+                friendly_words=1,
+            ),
+            template=template,
+            markdown="# T\n",
+        )
+        mock_generate_candidate.return_value = candidate
+
+        _best_candidate(
+            7,
+            "Test",
+            raw_words=[],
+            rng=SimpleNamespace(),
+            seen_template_fingerprints=set(),
+        )
+
+        mock_incr_template.assert_called_once()
+        call_kwargs = mock_generate_candidate.call_args
+        self.assertIs(template, call_kwargs.kwargs.get("template") or call_kwargs[1].get("template"))
 
     @patch("generator.batch_publish.generate_title_for_final_puzzle")
     @patch("generator.batch_publish._rewrite_failed_clues")
@@ -577,7 +591,7 @@ class BatchPublishTests(unittest.TestCase):
             puzzle_obj.horizontal_clues[0].current.definition = "Substanță gazoasă din atmosferă"
             return (1, 1)
 
-        def _title_from_final(puzzle_obj, client=None):
+        def _title_from_final(puzzle_obj, client=None, rate_client=None, multi_model=False, current_model=None):
             return puzzle_obj.horizontal_clues[0].definition
 
         mock_generate_definitions.side_effect = _fill_defs
@@ -708,69 +722,10 @@ class BatchPublishTests(unittest.TestCase):
     def test_nine_eight_clue_uses_locked_rebus(self):
         self.assertEqual(8, LOCKED_REBUS)
 
-
-    def test_new_11x11_templates_are_valid(self):
-        from generator.core.grid_template import TEMPLATES_11x11, parse_template, validate_template
-        for i, t in enumerate(TEMPLATES_11x11):
-            grid = parse_template(t)
-            valid, msg = validate_template(grid)
-            self.assertTrue(valid, f"11x11 template {i} invalid: {msg}")
-
-    def test_new_12x12_templates_are_valid(self):
-        from generator.core.grid_template import TEMPLATES_12x12, parse_template, validate_template
-        for i, t in enumerate(TEMPLATES_12x12):
-            grid = parse_template(t)
-            valid, msg = validate_template(grid)
-            self.assertTrue(valid, f"12x12 template {i} invalid: {msg}")
-
-    def test_easy_11_template_is_valid(self):
-        from generator.batch_publish import _easy_11_template
-        from generator.core.grid_template import validate_template
-        grid = _easy_11_template(11)
-        self.assertIsNotNone(grid)
-        valid, msg = validate_template(grid)
-        self.assertTrue(valid, f"easy_11_template invalid: {msg}")
-
-    def test_easy_11_template_has_few_full_width_slots(self):
-        from generator.batch_publish import _easy_11_template
-        from generator.core.slot_extractor import extract_slots
-        grid = _easy_11_template(11)
-        slots = extract_slots(grid)
-        full_width = sum(1 for s in slots if s.length == 11)
-        self.assertLessEqual(full_width, 5, f"easy_11 has {full_width} full-width slots")
-
-    def test_easy_11_template_two_letter_slots_within_limit(self):
-        from generator.batch_publish import _easy_11_template
-        grid = _easy_11_template(11)
-        count = _count_two_letter_slots(grid)
-        self.assertLessEqual(count, 18)
-
-    def test_easy_medium_template_is_valid(self):
-        from generator.batch_publish import _easy_medium_template
-        from generator.core.grid_template import validate_template
-        grid = _easy_medium_template(12)
-        self.assertIsNotNone(grid)
-        valid, msg = validate_template(grid)
-        self.assertTrue(valid, f"easy_medium_template invalid: {msg}")
-
-    def test_easy_medium_template_has_few_full_width_slots(self):
-        from generator.batch_publish import _easy_medium_template
-        from generator.core.slot_extractor import extract_slots
-        grid = _easy_medium_template(12)
-        slots = extract_slots(grid)
-        full_width = sum(1 for s in slots if s.length == 12)
-        self.assertLessEqual(full_width, 5, f"easy_medium has {full_width} full-width slots")
-
-    def test_easy_template_by_name_medium_11(self):
-        from generator.batch_publish import _easy_template_by_name
-        grid = _easy_template_by_name("medium_11", 11)
-        self.assertIsNotNone(grid)
-
-    def test_size_11_settings_mixed_policy(self):
+    def test_size_11_settings(self):
         settings = get_size_settings(11)
-        self.assertEqual("mixed", settings.template_policy)
         self.assertEqual(18, settings.max_two_letter_slots)
-        self.assertEqual("medium_11", settings.easy_template)
+        self.assertEqual(5, settings.max_full_width_slots)
 
     def test_size_12_max_two_letter_slots_increased(self):
         settings = get_size_settings(12)
@@ -794,6 +749,15 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual("", clue.word_type)
         clue.word_type = "V"
         self.assertEqual("V", clue.word_type)
+
+    def test_batch_cli_default_rewrite_rounds_is_30(self):
+        parser = build_batch_parser()
+        args = parser.parse_args([])
+        self.assertEqual(MAX_REWRITE_ROUNDS, args.rewrite_rounds)
+
+    def test_plateau_constants(self):
+        self.assertEqual(7, PLATEAU_LOOKBACK)
+        self.assertEqual(30, MAX_REWRITE_ROUNDS)
 
 
 def _count_two_letter_slots(grid: list[list[bool]]) -> int:

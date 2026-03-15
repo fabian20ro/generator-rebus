@@ -36,7 +36,8 @@ from .core.model_manager import (
     ensure_model_loaded,
     switch_model,
 )
-from .core.grid_template import ALL_TEMPLATES, generate_procedural_template, parse_template, validate_template
+from .core.grid_template import generate_incremental_template, generate_procedural_template, validate_template
+from .core.plateau import has_plateaued
 from .core.markdown_io import (
     ClueEntry,
     parse_markdown,
@@ -119,66 +120,8 @@ LOCKED_SEMANTIC = 9
 LOCKED_REBUS = 8
 PUZZLE_TIEBREAK_DELTA = 0.25
 MAX_CONSECUTIVE_FAILURES = 5
-
-
-def _easy_large_template(size: int) -> list[list[bool]] | None:
-    if size != 15:
-        return None
-    patterns = [
-        "#..#..#..#..#..",
-        "..#..#..#..#..#",
-        "#...#...#...#..",
-        "..#...#...#...#",
-    ]
-    grid: list[list[bool]] = []
-    for row_index in range(size):
-        if row_index % 3 == 2:
-            pattern = patterns[(row_index // 3) % len(patterns)]
-            grid.append([ch == "." for ch in pattern])
-        else:
-            grid.append([True] * size)
-    return grid
-
-
-def _easy_medium_template(size: int) -> list[list[bool]] | None:
-    if size != 12:
-        return None
-    # 20 blacks with fw=4, modelled on mirrored hardcoded template.
-    rows = [
-        "#......#...#",
-        "............",
-        "...#....#...",
-        "......#.....",
-        ".......#...#",
-        "#....#..#...",
-        "....#....#..",
-        "...#........",
-        "..#....#....",
-        "......#.....",
-        "............",
-        "#...#......#",
-    ]
-    return [[ch == "." for ch in row] for row in rows]
-
-
-def _easy_11_template(size: int) -> list[list[bool]] | None:
-    if size != 11:
-        return None
-    # 13 blacks, staggered to keep full-width slots ≤5 and two-letter slots low.
-    rows = [
-        "...#......#",
-        "...........",
-        "#.....#....",
-        "...........",
-        "...#...#...",
-        "#..........",
-        "......#....",
-        "..#........",
-        "....#...#..",
-        "...........",
-        "#....#.....",
-    ]
-    return [[ch == "." for ch in row] for row in rows]
+PLATEAU_LOOKBACK = 7
+MAX_REWRITE_ROUNDS = 30
 
 
 def _load_words(words_path: Path) -> list[dict]:
@@ -247,10 +190,12 @@ def _generate_candidate(
     title: str,
     rng: random.Random | None = None,
     seen_template_fingerprints: set[str] | None = None,
+    template: list[list[bool]] | None = None,
 ) -> Candidate | None:
     if rng is None:
         rng = random.Random(0)
-    template = _choose_template(size, settings, rng)
+    if template is None:
+        template = _choose_template(size, settings, rng)
     if template is None:
         return None
     valid, _reason = validate_template(template)
@@ -296,30 +241,29 @@ def _generate_candidate(
     return Candidate(score=report.score, report=report, template=template, markdown=markdown, metadata=metadata)
 
 
-def _easy_template_by_name(template_name: str | None, size: int) -> list[list[bool]] | None:
-    if template_name == "large":
-        return _easy_large_template(size)
-    if template_name == "medium":
-        return _easy_medium_template(size)
-    if template_name == "medium_11":
-        return _easy_11_template(size)
-    return None
+def _try_incremental_template(
+    size: int,
+    settings: SizeSettings,
+    rng: random.Random,
+    word_index: WordIndex,
+) -> list[list[bool]] | None:
+    """Build an incremental template once — expensive, so call once per variant."""
+    def solver_fn(template):
+        slots = extract_slots(template)
+        if not _slot_capacity_ok(slots, word_index, settings):
+            return False
+        grid = [[None if t else "#" for t in row] for row in template]
+        return solve(slots, word_index, {}, set(), grid, settings.max_backtracks, rng=rng) is not None
+
+    return generate_incremental_template(size, solver_fn, rng=rng)
 
 
-def _choose_template(size: int, settings: SizeSettings, rng: random.Random) -> list[list[bool]] | None:
-    if settings.easy_template and rng.random() < settings.easy_template_probability:
-        template = _easy_template_by_name(settings.easy_template, size)
-        if template is not None:
-            return template
-
-    hardcoded_templates = ALL_TEMPLATES.get(size, [])
-    if (
-        settings.template_policy != "procedural_only"
-        and hardcoded_templates
-        and rng.random() < settings.hardcoded_probability
-    ):
-        return parse_template(rng.choice(hardcoded_templates))
-
+def _choose_template(
+    size: int,
+    settings: SizeSettings,
+    rng: random.Random,
+) -> list[list[bool]] | None:
+    """Cheap procedural fallback — safe to call per attempt."""
     blacks = rng.choice([
         settings.target_blacks - 2,
         settings.target_blacks - 1,
@@ -346,6 +290,11 @@ def _best_candidate(
 
     for variant_index, settings in enumerate(build_relaxed_variants(size), start=1):
         word_index, metadata = _build_index(raw_words, size, settings)
+
+        incremental_template = _try_incremental_template(size, settings, rng, word_index)
+        if incremental_template is not None:
+            print(f"  Incremental template found for variant {variant_index}")
+
         solved = 0
         print(
             f"Selecting best {size}x{size} candidate "
@@ -361,6 +310,7 @@ def _best_candidate(
                 title,
                 rng,
                 seen_template_fingerprints=seen_template_fingerprints if size == 7 else None,
+                template=incremental_template,
             )
             if candidate is None:
                 print(f"  Attempt {attempt}: no solution")
@@ -692,6 +642,7 @@ def _rewrite_failed_clues(
 
     consecutive_failures: dict[str, int] = {}
     stuck_words: set[str] = set()
+    min_rebus_history: list[int] = []
 
     for round_index in range(1, rounds + 1):
         current_scores = [
@@ -700,6 +651,18 @@ def _rewrite_failed_clues(
             if c.word_normalized not in PRESET_DEFINITIONS
         ]
         current_min = min(current_scores) if current_scores else 0
+        min_rebus_history.append(current_min)
+
+        if has_plateaued(min_rebus_history, PLATEAU_LOOKBACK):
+            blockers = _blocking_clues(puzzle)
+            if blockers:
+                blocker_words = [c.word_normalized for c in blockers]
+                print(f"  Plateau after {round_index} rounds with undefinable words: "
+                      f"{', '.join(blocker_words)}")
+            else:
+                print(f"  Plateau after {round_index} rounds (min_rebus={current_min})")
+            break
+
         round_min_rebus = current_min + 1
         candidates = [
             clue for clue in all_working_clues(puzzle)
@@ -841,7 +804,12 @@ def _prepare_puzzle_for_publication(
         state.assessment = _score_puzzle_state(state, candidate.report)
         blockers = _blocking_clues(state)
         rendered_for_title = puzzle_from_working_state(state)
-        title = generate_title_for_final_puzzle(rendered_for_title, client=client)
+        title = generate_title_for_final_puzzle(
+            rendered_for_title,
+            client=client,
+            rate_client=client,
+            multi_model=multi_model,
+        )
         state.title = title
         print(f"Titlu final: {title}")
         prepared = PreparedPuzzle(
@@ -1091,7 +1059,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--rewrite-rounds",
         type=int,
-        default=10,
+        default=MAX_REWRITE_ROUNDS,
         help="Automatic define/verify rewrite rounds for failed clues",
     )
     parser.add_argument(

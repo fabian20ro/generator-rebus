@@ -2,286 +2,18 @@
 
 Templates define the placement of black squares (#) and letter cells (.).
 Constraints:
-- No two black squares are horizontally or vertically adjacent
+- On the same row or column, blacks must be >= 3 cells apart
 - No single-letter word slots (minimum length 2)
 - All letter cells form a single connected component
 """
 
 from __future__ import annotations
+
 import random
 from collections import deque
+from typing import Callable
 
-from .size_tuning import get_size_settings, uses_procedural_only
-
-# Templates: '#' = black square, '.' = letter cell
-# Each template is a list of strings (rows)
-
-TEMPLATES_7x7 = [
-    [
-        ". . . # . . .",
-        ". . . . . . .",
-        ". . . # . . .",
-        "# . . . . . #",
-        ". . . # . . .",
-        ". . . . . . .",
-        ". . . # . . .",
-    ],
-    [
-        ". . . . . . .",
-        ". . # . # . .",
-        ". . . . . . .",
-        ". # . . . # .",
-        ". . . . . . .",
-        ". . # . # . .",
-        ". . . . . . .",
-    ],
-    [
-        ". . . . # . .",
-        ". . . . . . .",
-        ". # . . . . .",
-        ". . . # . . .",
-        ". . . . . # .",
-        ". . . . . . .",
-        ". . # . . . .",
-    ],
-    [
-        ". . . . . . .",
-        "# . . # . . #",
-        ". . . . . . .",
-        ". . # . # . .",
-        ". . . . . . .",
-        "# . . # . . #",
-        ". . . . . . .",
-    ],
-    [
-        ". . # . . . .",
-        ". . . . # . .",
-        "# . . . . . .",
-        ". . . . . . .",
-        ". . . . . . #",
-        ". . # . . . .",
-        ". . . . # . .",
-    ],
-]
-
-TEMPLATES_10x10 = [
-    [
-        ". . . . # . . . . .",
-        ". . . . . . . . . .",
-        ". . # . . . # . . .",
-        ". . . . # . . . . .",
-        "# . . . . . . . . #",
-        "# . . . . . . . . #",
-        ". . . . # . . . . .",
-        ". . # . . . # . . .",
-        ". . . . . . . . . .",
-        ". . . . # . . . . .",
-    ],
-    [
-        ". . . . . # . . . .",
-        ". . # . . . . # . .",
-        ". . . . # . . . . .",
-        "# . . . . . # . . .",
-        ". . . # . . . . . .",
-        ". . . . . # . . . .",
-        ". . . # . . . . . #",
-        ". . . . # . . . . .",
-        ". . # . . . . # . .",
-        ". . . . # . . . . .",
-    ],
-    [
-        ". . . # . . . # . .",
-        ". . . . . . . . . .",
-        ". . . . . . . . . .",
-        "# . . . # . . . . #",
-        ". . . . . . # . . .",
-        ". . . # . . . . . .",
-        "# . . . . # . . . #",
-        ". . . . . . . . . .",
-        ". . . . . . . . . .",
-        ". . # . . . # . . .",
-    ],
-    [
-        ". . . . . . . . . .",
-        ". . . # . . . # . .",
-        ". # . . . # . . . .",
-        ". . . . . . . . . #",
-        ". . . # . . # . . .",
-        ". . # . . # . . . .",
-        "# . . . . . . . . .",
-        ". . . # . . . # . .",
-        ". . # . . . # . . .",
-        ". . . . . . . . . .",
-    ],
-    [
-        ". . . . # . . . . #",
-        ". . . . . . # . . .",
-        ". # . . . . . . . .",
-        ". . . # . . . . . .",
-        ". . . . . # . . . .",
-        ". . . . # . . . . .",
-        ". . . . . # . . . .",
-        ". . . . . . . . # .",
-        ". . . # . . . . . .",
-        "# . . . . # . . . .",
-    ],
-]
-
-TEMPLATES_11x11 = [
-    [
-        "# . . . . # . . . . #",
-        ". . . . . . . . . . .",
-        ". . . . . . . # . . .",
-        ". . . # . . . . . . .",
-        "# . . . # . . . # . .",
-        ". . . . . . . . . . #",
-        ". . . . . . # . . . .",
-        ". . . # . . . . . . .",
-        ". . . . . . . # . . .",
-        ". . . . . . . . . . .",
-        ". . . . # . . . . . #",
-    ],
-    [
-        ". . . # . . . . . . #",
-        ". . . . . . . . . . .",
-        ". . . . . . . . . . .",
-        "# . . . . . . # . . .",
-        ". . # . . . # . . . #",
-        ". . . . # . . . . . .",
-        ". . . . . # . . . . .",
-        "# . . . . . . # . . .",
-        ". . . . . . . . # . .",
-        ". . . . . . . . . . .",
-        ". . . # . . . . . . #",
-    ],
-    [
-        ". . . # . . # . . . #",
-        ". . . . . . . . . . .",
-        ". . . . . . . . . . .",
-        "# . . . # . . . . . .",
-        ". . . # . . . . . . #",
-        ". . . . . . . # . . .",
-        ". . . . . . # . . . .",
-        ". . . . . # . . . . #",
-        ". . . . . . . . . . .",
-        ". . . . . . . . . . .",
-        "# . . . . . # . . . #",
-    ],
-    [
-        ". . . # . . . # . . .",
-        ". . . . . . . . . . .",
-        ". . . . . . . . . . .",
-        "# . . . . . # . . . #",
-        ". . . # . . . . . . .",
-        ". . . . . # . . . . .",
-        ". . . . . . . # . . .",
-        "# . . . # . . . # . .",
-        ". . . . . . . . . . .",
-        ". . . . . . . . . . .",
-        "# . . # . . # . . . .",
-    ],
-]
-
-TEMPLATES_12x12 = [
-    [
-        ". . . # . . . # . . . #",
-        ". . . . . . . . . . . .",
-        "# . . . . . # . . . . .",
-        ". . . . . # . . . . . .",
-        ". . # . . . . # . . . #",
-        ". . . # . . . . . # . .",
-        "# . . . . . # . . . . .",
-        ". . . . . # . . . . . #",
-        ". . . . # . . . # . . .",
-        ". . . . . . . . . . . .",
-        ". . . . . . . . . . . .",
-        ". . # . . . . # . . . #",
-    ],
-    [
-        "# . . . . # . . . . . #",
-        ". . . . . . . . . . . .",
-        ". . . . . . . . # . . .",
-        ". . # . . . . # . . . .",
-        "# . . . # . . . . . . .",
-        ". . . # . . . . . # . .",
-        ". . . . . . # . . . . #",
-        "# . . . . # . . . . . .",
-        ". . . . # . . . # . . .",
-        ". . . . . . . . . # . .",
-        ". . . . . . . . . . . .",
-        ". . # . . . . # . . . #",
-    ],
-    [
-        "# . . . # . . . . . . #",
-        ". . . . . . . . . . . .",
-        ". . . # . . . . # . . .",
-        ". . . . . # . . . . . .",
-        "# . . . # . . . . . . .",
-        ". . . # . . # . . . . #",
-        ". . # . . . . # . . . .",
-        ". . . . . . . . # . . .",
-        ". . . . # . . . . # . .",
-        ". . . . . # . . . . . .",
-        ". . . . . . . . . . . .",
-        "# . . . . . . # . . . #",
-    ],
-]
-
-TEMPLATES_15x15 = [
-    [
-        ". . . . # . . . . . # . . . .",
-        ". . . . . . . . . . . . . . .",
-        ". . # . . . . # . . . . # . .",
-        ". . . . # . . . . # . . . . .",
-        "# . . . . . # . . . . . . . #",
-        ". . . . . . . . . . . . . . .",
-        ". . . # . . . . . # . . . . .",
-        ". . . . . # . . . . . # . . .",
-        ". . . . # . . . . . # . . . .",
-        ". . . . . . . . . . . . . . .",
-        "# . . . . . . # . . . . . . #",
-        ". . . . # . . . . # . . . . .",
-        ". . # . . . . # . . . . # . .",
-        ". . . . . . . . . . . . . . .",
-        ". . . . # . . . . . # . . . .",
-    ],
-    [
-        ". . . . . # . . . # . . . . .",
-        ". . . . . . . . . . . . . . .",
-        ". . # . . . . # . . . # . . .",
-        "# . . . . # . . . # . . . . #",
-        ". . . . . . . . . . . . . . .",
-        ". . . # . . . . . . . # . . .",
-        ". . . . . . # . . . . . . . .",
-        ". # . . . . . . . . . . . # .",
-        ". . . . . . . # . . . . . . .",
-        ". . . # . . . . . . . # . . .",
-        ". . . . . . . . . . . . . . .",
-        "# . . . . # . . . # . . . . #",
-        ". . # . . . . # . . . # . . .",
-        ". . . . . . . . . . . . . . .",
-        ". . . . . # . . . # . . . . .",
-    ],
-]
-
-ALL_TEMPLATES: dict[int, list[list[str]]] = {
-    7: TEMPLATES_7x7,
-    10: TEMPLATES_10x10,
-    11: TEMPLATES_11x11,
-    12: TEMPLATES_12x12,
-    15: TEMPLATES_15x15,
-}
-
-
-def parse_template(template: list[str]) -> list[list[bool]]:
-    """Parse a template into a 2D boolean grid. True = letter cell, False = black."""
-    grid = []
-    for row_str in template:
-        row = []
-        for ch in row_str.split():
-            row.append(ch == ".")
-        grid.append(row)
-    return grid
+from .size_tuning import get_size_settings
 
 
 def validate_template(grid: list[list[bool]]) -> tuple[bool, str]:
@@ -289,14 +21,19 @@ def validate_template(grid: list[list[bool]]) -> tuple[bool, str]:
     rows = len(grid)
     cols = len(grid[0]) if grid else 0
 
-    # Check no adjacent black squares
+    # Check same-row spacing: blacks must be >= 3 cells apart
     for r in range(rows):
-        for c in range(cols):
-            if not grid[r][c]:  # black square
-                if r + 1 < rows and not grid[r + 1][c]:
-                    return False, f"Adjacent black squares at ({r},{c}) and ({r+1},{c})"
-                if c + 1 < cols and not grid[r][c + 1]:
-                    return False, f"Adjacent black squares at ({r},{c}) and ({r},{c+1})"
+        black_cols = [c for c in range(cols) if not grid[r][c]]
+        for i in range(len(black_cols) - 1):
+            if black_cols[i + 1] - black_cols[i] < 3:
+                return False, f"Blacks too close on row {r}: cols {black_cols[i]},{black_cols[i+1]}"
+
+    # Check same-column spacing: blacks must be >= 3 cells apart
+    for c in range(cols):
+        black_rows = [r for r in range(rows) if not grid[r][c]]
+        for i in range(len(black_rows) - 1):
+            if black_rows[i + 1] - black_rows[i] < 3:
+                return False, f"Blacks too close on col {c}: rows {black_rows[i]},{black_rows[i+1]}"
 
     # Check no single-letter slots
     # Horizontal
@@ -321,6 +58,17 @@ def validate_template(grid: list[list[bool]]) -> tuple[bool, str]:
                 run = 0
 
     # Check connectivity
+    if not _is_connected(grid):
+        return False, "Not connected"
+
+    return True, "OK"
+
+
+def _is_connected(grid: list[list[bool]]) -> bool:
+    """Check that all letter cells form a single connected component."""
+    rows = len(grid)
+    cols = len(grid[0]) if grid else 0
+
     start = None
     letter_count = 0
     for r in range(rows):
@@ -331,7 +79,7 @@ def validate_template(grid: list[list[bool]]) -> tuple[bool, str]:
                     start = (r, c)
 
     if start is None:
-        return False, "No letter cells"
+        return False
 
     visited = set()
     queue = deque([start])
@@ -344,65 +92,17 @@ def validate_template(grid: list[list[bool]]) -> tuple[bool, str]:
                 visited.add((nr, nc))
                 queue.append((nr, nc))
 
-    if len(visited) != letter_count:
-        return False, f"Not connected: {len(visited)}/{letter_count} cells reachable"
-
-    return True, "OK"
+    return len(visited) == letter_count
 
 
-def generate_procedural_template(size: int, target_blacks: int | None = None,
-                                  max_attempts: int | None = None,
-                                  rng: random.Random | None = None) -> list[list[bool]] | None:
-    """Generate a valid template procedurally by randomly placing black squares.
-
-    Uses rejection sampling: place blacks one at a time, validate after each placement.
-    """
-    settings = get_size_settings(size)
-    if target_blacks is None:
-        target_blacks = settings.target_blacks
-    if max_attempts is None:
-        max_attempts = settings.template_attempts
-    if rng is None:
-        rng = random.Random()
-
-    for _ in range(max_attempts):
-        grid = [[True] * size for _ in range(size)]
-        blacks_placed = 0
-        cells = [(r, c) for r in range(size) for c in range(size)]
-        rng.shuffle(cells)
-
-        for r, c in cells:
-            if blacks_placed >= target_blacks:
-                break
-
-            # Try placing a black square
-            grid[r][c] = False
-
-            # Quick check: no adjacent black squares
-            ok = True
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < size and 0 <= nc < size and not grid[nr][nc]:
-                    ok = False
-                    break
-
-            if not ok:
-                grid[r][c] = True
-                continue
-
-            # Quick check: no single-letter runs created in this row/col
-            if _creates_single_letter(grid, r, c, size):
-                grid[r][c] = True
-                continue
-
-            blacks_placed += 1
-
-        # Final validation
-        valid, _ = validate_template(grid)
-        if valid:
-            return grid
-
-    return None
+def _black_spacing_ok(grid: list[list[bool]], r: int, c: int, size: int) -> bool:
+    """Fast per-cell check: no black within distance 1 or 2 on same row or column."""
+    for d in (-2, -1, 1, 2):
+        if 0 <= c + d < size and not grid[r][c + d]:
+            return False
+        if 0 <= r + d < size and not grid[r + d][c]:
+            return False
+    return True
 
 
 def _creates_single_letter(grid: list[list[bool]], br: int, bc: int, size: int) -> bool:
@@ -431,7 +131,6 @@ def _creates_single_letter(grid: list[list[bool]], br: int, bc: int, size: int) 
     for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
         nr, nc = br + dr, bc + dc
         if 0 <= nr < size and 0 <= nc < size and grid[nr][nc]:
-            # Check the run containing (nr, nc)
             if dc == 0:  # Check horizontal run of row nr
                 run = 0
                 for c2 in range(size + 1):
@@ -454,26 +153,108 @@ def _creates_single_letter(grid: list[list[bool]], br: int, bc: int, size: int) 
     return False
 
 
-def get_random_template(size: int, rng: random.Random | None = None) -> list[list[bool]]:
-    """Get a random validated template for the given grid size.
+def _log_template(grid: list[list[bool]]) -> None:
+    """Print a grid as #/. rows for debugging."""
+    for row in grid:
+        print("  " + " ".join("#" if not cell else "." for cell in row))
 
-    Tries hardcoded templates first, then falls back to procedural generation.
+
+def generate_incremental_template(
+    size: int,
+    solver_fn: Callable[[list[list[bool]]], bool],
+    max_blacks: int | None = None,
+    rng: random.Random | None = None,
+) -> list[list[bool]] | None:
+    """Build a grid incrementally: start empty, add one black square at a time until solvable.
+
+    solver_fn(grid) should return True if the grid can be filled with words.
     """
     if rng is None:
         rng = random.Random()
-    templates = ALL_TEMPLATES.get(size, [])
-    if templates and not uses_procedural_only(size):
-        candidates = list(templates)
-        rng.shuffle(candidates)
-        for template_strs in candidates:
-            grid = parse_template(template_strs)
-            valid, msg = validate_template(grid)
-            if valid:
-                return grid
 
-    # Fall back to procedural generation
-    grid = generate_procedural_template(size, rng=rng)
-    if grid is not None:
+    grid = [[True] * size for _ in range(size)]
+    effective_max = max_blacks if max_blacks is not None else 3 * size
+
+    print(f"  Incremental template {size}x{size} (max {effective_max} blacks):")
+    _log_template(grid)
+
+    if solver_fn(grid):
         return grid
 
-    raise RuntimeError(f"Could not generate a valid template for size {size}")
+    for step in range(1, effective_max + 1):
+        candidates = []
+        for r in range(size):
+            for c in range(size):
+                if not grid[r][c]:
+                    continue
+                if not _black_spacing_ok(grid, r, c, size):
+                    continue
+                grid[r][c] = False
+                if _creates_single_letter(grid, r, c, size):
+                    grid[r][c] = True
+                    continue
+                if not _is_connected(grid):
+                    grid[r][c] = True
+                    continue
+                grid[r][c] = True
+                candidates.append((r, c))
+
+        if not candidates:
+            print(f"  No valid placements at step {step}")
+            return None
+
+        rng.shuffle(candidates)
+        r, c = candidates[0]
+        grid[r][c] = False
+        print(f"  Step {step}: placed black at ({r},{c})")
+        _log_template(grid)
+
+        valid, _ = validate_template(grid)
+        if valid and solver_fn(grid):
+            return grid
+
+    return None
+
+
+def generate_procedural_template(size: int, target_blacks: int | None = None,
+                                  max_attempts: int | None = None,
+                                  rng: random.Random | None = None) -> list[list[bool]] | None:
+    """Generate a valid template procedurally by randomly placing black squares.
+
+    Uses rejection sampling: place blacks one at a time, validate after each placement.
+    """
+    settings = get_size_settings(size)
+    if target_blacks is None:
+        target_blacks = settings.target_blacks
+    if max_attempts is None:
+        max_attempts = settings.template_attempts
+    if rng is None:
+        rng = random.Random()
+
+    for _ in range(max_attempts):
+        grid = [[True] * size for _ in range(size)]
+        blacks_placed = 0
+        cells = [(r, c) for r in range(size) for c in range(size)]
+        rng.shuffle(cells)
+
+        for r, c in cells:
+            if blacks_placed >= target_blacks:
+                break
+
+            grid[r][c] = False
+
+            if not _black_spacing_ok(grid, r, c, size):
+                grid[r][c] = True
+                continue
+
+            if _creates_single_letter(grid, r, c, size):
+                grid[r][c] = True
+                continue
+
+            blacks_placed += 1
+
+        valid, _ = validate_template(grid)
+        if valid:
+            return grid
+
+    return None

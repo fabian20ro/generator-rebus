@@ -16,10 +16,6 @@ class SizeSettings:
     min_candidates_per_slot: int
     template_attempts: int = 300
     min_preparation_attempts: int = 1
-    template_policy: str = "procedural_only"
-    hardcoded_probability: float = 0.0
-    easy_template: str | None = None
-    easy_template_probability: float = 0.0
     max_full_width_slots: int | None = None
 
 
@@ -34,7 +30,6 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_candidates_per_slot=16,
         template_attempts=500,
         min_preparation_attempts=1,
-        template_policy="procedural_only",
     ),
     8: SizeSettings(
         max_rarity=3,
@@ -46,7 +41,6 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_candidates_per_slot=16,
         template_attempts=700,
         min_preparation_attempts=1,
-        template_policy="procedural_only",
     ),
     9: SizeSettings(
         max_rarity=4,
@@ -58,7 +52,6 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_candidates_per_slot=18,
         template_attempts=900,
         min_preparation_attempts=16,
-        template_policy="procedural_only",
     ),
     10: SizeSettings(
         max_rarity=4,
@@ -70,8 +63,6 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_candidates_per_slot=18,
         template_attempts=1_100,
         min_preparation_attempts=24,
-        template_policy="mixed",
-        hardcoded_probability=0.4,
     ),
     11: SizeSettings(
         max_rarity=4,
@@ -83,10 +74,6 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_candidates_per_slot=14,
         template_attempts=1_300,
         min_preparation_attempts=32,
-        template_policy="mixed",
-        hardcoded_probability=0.6,
-        easy_template="medium_11",
-        easy_template_probability=0.50,
         max_full_width_slots=5,
     ),
     12: SizeSettings(
@@ -99,10 +86,6 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_candidates_per_slot=10,
         template_attempts=1_500,
         min_preparation_attempts=40,
-        template_policy="mixed",
-        hardcoded_probability=0.55,
-        easy_template="medium",
-        easy_template_probability=0.55,
         max_full_width_slots=5,
     ),
     15: SizeSettings(
@@ -115,10 +98,6 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_candidates_per_slot=4,
         template_attempts=1_800,
         min_preparation_attempts=50,
-        template_policy="mixed",
-        hardcoded_probability=0.4,
-        easy_template="large",
-        easy_template_probability=0.7,
     ),
 }
 
@@ -137,10 +116,6 @@ def get_size_settings(size: int) -> SizeSettings:
 
 def get_min_preparation_attempts(size: int) -> int:
     return get_size_settings(size).min_preparation_attempts
-
-
-def uses_procedural_only(size: int) -> bool:
-    return get_size_settings(size).template_policy == "procedural_only"
 
 
 def build_relaxed_variants(size: int) -> list[SizeSettings]:
