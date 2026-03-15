@@ -8,7 +8,7 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["apple-touch-icon-180x180.png"],
       manifest: {
-        name: "Rebus Rom\u00e2nesc",
+        name: "Rebus",
         short_name: "Rebus",
         description: "Rebusuri rom\u00e2ne\u0219ti interactive",
         theme_color: "#2563eb",

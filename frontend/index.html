@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#2563eb">
   <meta name="description" content="Rebusuri românești interactive">
   <link rel="apple-touch-icon" href="/generator-rebus/apple-touch-icon-180x180.png">
-  <title>Rebus Românesc</title>
+  <title>Rebus</title>
   <link rel="stylesheet" href="/src/styles/main.css">
   <link rel="stylesheet" href="/src/styles/grid.css">
   <link rel="stylesheet" href="/src/styles/gamification.css">
@@ -16,8 +16,9 @@
   <div id="app">
     <header>
       <div class="header-row">
-        <h1>Rebus Românesc</h1>
+        <h1>Rebus</h1>
         <div class="header-points" id="header-points" title="Punctele tale"></div>
+        <button id="btn-back" class="btn-back hidden" title="Înapoi la lista de rebusuri">&lt;</button>
       </div>
       <p id="puzzle-title" class="subtitle"></p>
       <nav class="nav-tabs" id="nav-tabs">
@@ -39,7 +40,6 @@
 
       <!-- Puzzle view -->
       <div id="puzzle-view" class="puzzle-view hidden">
-        <button id="btn-back" class="btn-back" title="Înapoi la lista de rebusuri">←</button>
         <div class="puzzle-layout">
           <div class="grid-container">
             <!-- Active definition bar -->

@@ -53,6 +53,16 @@ export function handleKeyDown(
       e.preventDefault();
       return true;
 
+    case "Enter":
+      state.activeDirection = state.activeDirection === "H" ? "V" : "H";
+      e.preventDefault();
+      return true;
+
+    case "Delete":
+      state.cells[row][col] = null;
+      e.preventDefault();
+      return true;
+
     case "ArrowLeft":
       moveCursor(state, 0, -1);
       e.preventDefault();

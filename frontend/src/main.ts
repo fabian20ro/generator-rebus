@@ -124,6 +124,7 @@ function showTab(tab: "puzzles" | "stats"): void {
 
   puzzleView.classList.add("hidden");
   puzzleTitle.textContent = "";
+  btnBack.classList.add("hidden");
 
   if (tab === "puzzles") {
     puzzleSelector.classList.remove("hidden");
@@ -307,6 +308,7 @@ async function loadPuzzle(id: string): Promise<void> {
     statsPanel.classList.add("hidden");
     puzzleView.classList.remove("hidden");
     navTabs.classList.add("hidden");
+    btnBack.classList.remove("hidden");
 
     updateHintCosts();
 
@@ -339,6 +341,7 @@ async function showPuzzleList(): Promise<void> {
   puzzleSelector.classList.remove("hidden");
   puzzleTitle.textContent = "";
   navTabs.classList.remove("hidden");
+  btnBack.classList.add("hidden");
 
   try {
     const puzzles = await listPuzzles();
