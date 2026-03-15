@@ -38,6 +38,23 @@ def _fake_rate_client(score: int):
     )
 
 
+def _fake_rate_client_sequential(scores: list[int]):
+    """Create a fake rate client that returns scores in order per call."""
+    call_index = {"i": 0}
+
+    def _create(**kwargs):
+        score = scores[call_index["i"] % len(scores)]
+        call_index["i"] += 1
+        content = json.dumps({"creativity_score": score, "feedback": "ok"})
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+        )
+
+    return SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+    )
+
+
 class FetchPuzzlesTests(unittest.TestCase):
     def test_fetch_puzzles_by_date(self):
         mock_supabase = MagicMock()
@@ -137,6 +154,86 @@ class RetitlePuzzleTests(unittest.TestCase):
         puzzle_row = {"id": "abc", "title": "Sensuri Comune"}
         ai_client = _fake_ai_client("Orizont Verde")
         rate_client = _fake_rate_client(8)
+
+        changed = retitle_puzzle(
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+        )
+
+        self.assertTrue(changed)
+        mock_supabase.table.return_value.update.assert_called_once()
+
+
+class RetitleScoreComparisonTests(unittest.TestCase):
+    """Tests for the score-based quality gate in retitle_puzzle."""
+
+    def _make_supabase_mock(self):
+        mock_supabase = MagicMock()
+        clue_query = MagicMock()
+        mock_supabase.table.return_value.select.return_value = clue_query
+        clue_query.eq.return_value = clue_query
+        clue_query.execute.return_value = SimpleNamespace(
+            data=[
+                {"word_normalized": "MUNTE", "definition": "Formă de relief"},
+                {"word_normalized": "PADURE", "definition": "Arbori mulți"},
+            ]
+        )
+        update_chain = MagicMock()
+        mock_supabase.table.return_value.update.return_value = update_chain
+        update_chain.eq.return_value = update_chain
+        return mock_supabase
+
+    @patch("generator.retitle.generate_creative_title", return_value="Titlu Mediocru")
+    def test_skips_when_old_scores_higher(self, _mock_gen):
+        mock_supabase = self._make_supabase_mock()
+        puzzle_row = {"id": "abc", "title": "Titlu Excelent Unic"}
+        ai_client = _fake_ai_client("unused")
+        # old_score=8, new_score=4
+        rate_client = _fake_rate_client_sequential([8, 4])
+
+        changed = retitle_puzzle(
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+        )
+
+        self.assertFalse(changed)
+        mock_supabase.table.return_value.update.assert_not_called()
+
+    @patch("generator.retitle.generate_creative_title", return_value="Titlu Nou Superior")
+    def test_replaces_when_new_scores_higher(self, _mock_gen):
+        mock_supabase = self._make_supabase_mock()
+        puzzle_row = {"id": "abc", "title": "Titlu Vechi Slab"}
+        ai_client = _fake_ai_client("unused")
+        # old_score=3, new_score=9
+        rate_client = _fake_rate_client_sequential([3, 9])
+
+        changed = retitle_puzzle(
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+        )
+
+        self.assertTrue(changed)
+        mock_supabase.table.return_value.update.assert_called_once()
+
+    @patch("generator.retitle.generate_creative_title", return_value="Titlu Egal Nou")
+    def test_skips_when_scores_equal(self, _mock_gen):
+        mock_supabase = self._make_supabase_mock()
+        puzzle_row = {"id": "abc", "title": "Titlu Egal Vechi"}
+        ai_client = _fake_ai_client("unused")
+        # old_score=6, new_score=6 — ties go to existing title
+        rate_client = _fake_rate_client_sequential([6, 6])
+
+        changed = retitle_puzzle(
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+        )
+
+        self.assertFalse(changed)
+        mock_supabase.table.return_value.update.assert_not_called()
+
+    def test_always_replaces_fallback_title(self):
+        mock_supabase = self._make_supabase_mock()
+        # "Sensuri Comune" is in FALLBACK_TITLES — should bypass score check
+        puzzle_row = {"id": "abc", "title": "Sensuri Comune"}
+        ai_client = _fake_ai_client("Orice Titlu Nou")
+        # rate_client returns low score, but it shouldn't matter for fallbacks
+        rate_client = _fake_rate_client(1)
 
         changed = retitle_puzzle(
             mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False

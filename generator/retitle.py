@@ -13,6 +13,7 @@ from .core.ai_clues import create_client as create_ai_client
 from .phases.theme import (
     FALLBACK_TITLES,
     generate_creative_title,
+    rate_title_creativity,
 )
 
 
@@ -93,7 +94,23 @@ def retitle_puzzle(
         print(f'  [{puzzle_id}] "{old_title}" -> unchanged')
         return False
 
-    print(f'  [{puzzle_id}] "{old_title}" -> "{new_title}"')
+    is_fallback = old_title in FALLBACK_TITLES
+
+    if not is_fallback:
+        old_score, _ = rate_title_creativity(old_title, words, rate_client)
+        new_score, _ = rate_title_creativity(new_title, words, rate_client)
+        if new_score <= old_score:
+            print(
+                f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
+                f'-> "{new_title}" (score={new_score}) — skipped, not better'
+            )
+            return False
+        print(
+            f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
+            f'-> "{new_title}" (score={new_score})'
+        )
+    else:
+        print(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}"')
 
     if not dry_run:
         supabase.table("crossword_puzzles").update({"title": new_title}).eq(
