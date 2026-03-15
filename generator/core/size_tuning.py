@@ -67,7 +67,7 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
     11: SizeSettings(
         max_rarity=4,
         max_backtracks=400_000,
-        target_blacks=18,
+        target_blacks=16,
         solved_candidates=4,
         attempt_budget=110,
         max_two_letter_slots=18,
@@ -79,7 +79,7 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
     12: SizeSettings(
         max_rarity=4,
         max_backtracks=500_000,
-        target_blacks=24,
+        target_blacks=20,
         solved_candidates=4,
         attempt_budget=120,
         max_two_letter_slots=22,

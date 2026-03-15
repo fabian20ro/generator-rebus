@@ -176,9 +176,9 @@ def generate_incremental_template(
     effective_max = max_blacks if max_blacks is not None else 3 * size
 
     print(f"  Incremental template {size}x{size} (max {effective_max} blacks):")
-    _log_template(grid)
 
     if solver_fn(grid):
+        _log_template(grid)
         return grid
 
     for step in range(1, effective_max + 1):
@@ -206,11 +206,11 @@ def generate_incremental_template(
         rng.shuffle(candidates)
         r, c = candidates[0]
         grid[r][c] = False
-        print(f"  Step {step}: placed black at ({r},{c})")
-        _log_template(grid)
 
         valid, _ = validate_template(grid)
         if valid and solver_fn(grid):
+            print(f"  Incremental template done after {step} blacks")
+            _log_template(grid)
             return grid
 
     return None

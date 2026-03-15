@@ -110,6 +110,7 @@ CLUE_TIEBREAKER_SYSTEM_PROMPT = (
     "- să nu folosească aceeași familie lexicală cu răspunsul\n"
     "- să fie exactă pentru răspunsul intenționat\n"
     "- să ducă mai probabil la răspunsul exact, nu la un sinonim\n"
+    "- la calitate egală, preferă varianta mai scurtă\n"
     "Răspunzi strict cu A sau B."
 )
 

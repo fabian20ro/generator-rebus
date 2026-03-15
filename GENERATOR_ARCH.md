@@ -62,6 +62,8 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
          │
          │  effective_attempts = max(requested, min_preparation_attempts[size])
          │    # size 7→1, 8→1, 9→16, 10→24, 11→32, 12→40
+         │    # Why: larger grids have more template variance, so more attempts
+         │    # are needed to find one that produces good word quality
          │
          └─ for attempt in 1..effective_attempts:
               │
@@ -77,6 +79,8 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
               │    │    │
               │    │    │  ── Template generation ──
               │    │    │  Try incremental template (expensive, once per variant)
+              │    │    │    max_blacks = target_blacks + 4  # caps solver calls
+              │    │    │    logs only final grid, not per-step
               │    │    │  Fallback: procedural template per attempt
               │    │    │    target_blacks = setting ± rng.choice([-2,-1,0,+1,+2])
               │    │    │                                    # ← RANDOMNESS: black square count
@@ -347,6 +351,16 @@ from scratch. Rewrites are guided by specific feedback ("leads to wrong answer X
 "too vague") so the model has more context to be creative with. The slightly higher
 temperature gives rewrites room to escape the local minimum of the previous definition
 while the feedback constrains the search space.
+
+### Why incremental template `max_blacks` is capped at `target_blacks + 4`
+
+The incremental builder calls the full CSP solver after every black square placement.
+With the old default of `3 * size` (33 for 11×11, 36 for 12×12), it could attempt
+dozens of expensive solver calls before finding a solvable configuration or giving up.
+Capping at `target_blacks + 4` (the same ceiling as the most relaxed variant) limits
+the number of solver calls while still covering the full range of black counts that
+any variant might produce. The ±2 randomization on procedural templates plus the +2/+4
+relaxed variants mean no variant ever needs more than `target_blacks + 4` blacks.
 
 ### Why `_sanitize_title` rejects at 2+ matching puzzle words, not 1
 

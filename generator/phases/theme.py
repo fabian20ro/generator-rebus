@@ -50,6 +50,7 @@ THEME_SYSTEM_PROMPT = (
 TITLE_RATE_SYSTEM_PROMPT = (
     "Evaluezi creativitatea unui titlu de rebus românesc.\n"
     "Titlul trebuie să fie spiritual, creativ, poate chiar absurd.\n"
+    "Titlurile sunt trunchiate la 4 cuvinte — un titlu de 2-3 cuvinte care funcționează complet e mai bun decât unul trunchiat.\n"
     "Un titlu generic de dicționar primește 2-3.\n"
     "Un titlu care surprinde sau provoacă un zâmbet primește 7-10.\n"
     "Răspunzi STRICT JSON: {\"creativity_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
@@ -249,7 +250,7 @@ def generate_creative_title(
         score, feedback = rate_title_creativity(sanitized, words, rate_client)
         print(f"  Title round {round_idx}: \"{sanitized}\" -> creativity={score}/10 ({feedback})")
 
-        if score > best_score:
+        if score > best_score or (score == best_score and best_title and len(sanitized.split()) < len(best_title.split())):
             best_score = score
             best_title = sanitized
 

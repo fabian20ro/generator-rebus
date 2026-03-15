@@ -255,7 +255,9 @@ def _try_incremental_template(
         grid = [[None if t else "#" for t in row] for row in template]
         return solve(slots, word_index, {}, set(), grid, settings.max_backtracks, rng=rng) is not None
 
-    return generate_incremental_template(size, solver_fn, rng=rng)
+    return generate_incremental_template(
+        size, solver_fn, max_blacks=settings.target_blacks + 4, rng=rng,
+    )
 
 
 def _choose_template(
