@@ -82,24 +82,24 @@ FALLBACK_TITLES = [
 ]
 
 
-def _fallback_title(words: list[str]) -> str:
+def _fallback_title() -> str:
     return random.choice(FALLBACK_TITLES)
 
 
-def _sanitize_title(title: str, words: list[str], input_words: list[str] | None = None) -> str:
+def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
     cleaned = " ".join(title.strip().strip('"').strip("'").split())
     cleaned = cleaned.rstrip(".,;:!?…")
     if not cleaned:
-        return _fallback_title(words)
+        return _fallback_title()
 
     # Reject comma-separated word lists (2+ commas)
     if cleaned.count(",") >= 2:
-        return _fallback_title(words)
+        return _fallback_title()
 
     blocked = {"rebus", "romanesc", "românesc", "puzzle", "titlu"}
     title_tokens = set(cleaned.lower().split())
     if title_tokens & blocked:
-        return _fallback_title(words)
+        return _fallback_title()
 
     parts = cleaned.split()
     if len(parts) > 4:
@@ -114,9 +114,22 @@ def _sanitize_title(title: str, words: list[str], input_words: list[str] | None 
             if len(word) >= 4 and normalize(word) in title_upper
         )
         if match_count >= 2:
-            return _fallback_title(words)
+            return _fallback_title()
 
     return cleaned
+
+
+def _try_switch_model(current_model, multi_model: bool):
+    """Switch to the other model if multi_model is enabled. Returns new current_model."""
+    if not multi_model or current_model is None:
+        return current_model
+    from ..core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, switch_model
+    next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
+    try:
+        switch_model(current_model, next_model)
+        return next_model
+    except Exception:
+        return current_model
 
 
 def rate_title_creativity(title: str, words: list[str], client) -> tuple[int, str]:
@@ -145,6 +158,54 @@ def rate_title_creativity(title: str, words: list[str], client) -> tuple[int, st
         return 0, "api error"
 
 
+# ---------------------------------------------------------------------------
+# Level 1 — single LLM call
+# ---------------------------------------------------------------------------
+
+def _generate_single_title(
+    definitions: list[str],
+    client,
+    rejected_context: str = "",
+    temperature: float = 0.9,
+    words: list[str] | None = None,
+) -> str:
+    """Make one LLM call to generate a title. Returns raw string."""
+    if definitions:
+        prompt = (
+            "Definițiile din rebus sunt:\n"
+            + "\n".join(f"- {d}" for d in definitions[:15])
+            + "\n\nCe temă leagă aceste definiții? Dă un titlu creativ de 2-4 cuvinte."
+            + rejected_context
+        )
+    elif words:
+        prompt = (
+            "Lista de cuvinte este:\n"
+            + ", ".join(words[:15])
+            + "\n\nDă un titlu creativ de 2-4 cuvinte."
+            + rejected_context
+        )
+    else:
+        return ""
+
+    try:
+        response = client.chat.completions.create(
+            model="default",
+            messages=[
+                {"role": "system", "content": THEME_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
+            max_tokens=50,
+        )
+        return response.choices[0].message.content or ""
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Level 2 — retry loop with rating
+# ---------------------------------------------------------------------------
+
 def generate_creative_title(
     words: list[str],
     definitions: list[str],
@@ -155,7 +216,7 @@ def generate_creative_title(
 ) -> str:
     """Generate a creative title with quality evaluation loop."""
     if not words:
-        return _fallback_title(words)
+        return _fallback_title()
 
     if rate_client is None:
         rate_client = client
@@ -175,46 +236,15 @@ def generate_creative_title(
                 f"{rejected_lines}"
             )
 
-        prompt = (
-            "Definițiile din rebus sunt:\n"
-            + "\n".join(f"- {d}" for d in definitions[:15])
-            + "\n\n"
-            "Ce temă leagă aceste definiții? Dă un titlu creativ de 2-4 cuvinte."
-            + rejected_context
+        raw_title = _generate_single_title(
+            definitions, client, rejected_context, words=words,
         )
 
-        if multi_model and current_model is not None:
-            from ..core.model_manager import (
-                PRIMARY_MODEL,
-                SECONDARY_MODEL,
-                switch_model,
-            )
-
-        try:
-            response = client.chat.completions.create(
-                model="default",
-                messages=[
-                    {"role": "system", "content": THEME_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.9,
-                max_tokens=50,
-            )
-            raw_title = response.choices[0].message.content or ""
-        except Exception:
-            raw_title = ""
-
-        sanitized = _sanitize_title(raw_title, words, input_words=words)
+        sanitized = _sanitize_title(raw_title, input_words=words)
         if sanitized in [t for t, _ in rejected] or sanitized in FALLBACK_TITLES:
             continue
 
-        if multi_model and current_model is not None:
-            try:
-                next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
-                switch_model(current_model, next_model)
-                current_model = next_model
-            except Exception:
-                pass
+        current_model = _try_switch_model(current_model, multi_model)
 
         score, feedback = rate_title_creativity(sanitized, words, rate_client)
         print(f"  Title round {round_idx}: \"{sanitized}\" -> creativity={score}/10 ({feedback})")
@@ -224,97 +254,18 @@ def generate_creative_title(
             best_title = sanitized
 
         if score >= TITLE_MIN_CREATIVITY:
-            if multi_model and current_model is not None:
-                try:
-                    next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
-                    switch_model(current_model, next_model)
-                except Exception:
-                    pass
+            _try_switch_model(current_model, multi_model)
             return sanitized
 
         rejected.append((sanitized, feedback))
+        current_model = _try_switch_model(current_model, multi_model)
 
-        if multi_model and current_model is not None:
-            try:
-                next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
-                switch_model(current_model, next_model)
-                current_model = next_model
-            except Exception:
-                pass
-
-    return best_title if best_title is not None else _fallback_title(words)
+    return best_title if best_title is not None else _fallback_title()
 
 
-def generate_title_from_words(words: list[str], client=None) -> str:
-    if not words:
-        return _fallback_title(words)
-
-    prompt = (
-        "Lista de cuvinte este:\n"
-        f"{', '.join(words)}\n\n"
-        "Dă un titlu scurt pentru rebus."
-    )
-
-    if client is None:
-        client = create_client()
-
-    try:
-        response = client.chat.completions.create(
-            model="default",
-            messages=[
-                {"role": "system", "content": THEME_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-            max_tokens=50,
-        )
-        raw_title = response.choices[0].message.content or ""
-    except Exception:
-        raw_title = ""
-
-    return _sanitize_title(raw_title, words)
-
-
-def generate_title_from_words_and_definitions(
-    words: list[str],
-    definitions: list[str],
-    client=None,
-) -> str:
-    if not words:
-        return _fallback_title(words)
-
-    prompt = (
-        "Cuvintele rebusului sunt:\n"
-        f"{', '.join(words)}\n\n"
-        "Definițiile finale sunt:\n"
-        + "\n".join(f"- {definition}" for definition in definitions[:20])
-        + "\n\n"
-        "Dă un titlu scurt pentru rebus."
-    )
-
-    if client is None:
-        client = create_client()
-
-    try:
-        response = client.chat.completions.create(
-            model="default",
-            messages=[
-                {"role": "system", "content": THEME_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-            max_tokens=50,
-        )
-        raw_title = response.choices[0].message.content or ""
-    except Exception:
-        raw_title = ""
-
-    return _sanitize_title(raw_title, words)
-
-
-def generate_title_for_puzzle(puzzle, client=None) -> str:
-    return generate_title_from_words(_collect_words(puzzle), client=client)
-
+# ---------------------------------------------------------------------------
+# Level 3 — puzzle API
+# ---------------------------------------------------------------------------
 
 def generate_title_for_final_puzzle(
     puzzle,
@@ -352,8 +303,11 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
 
     print(f"Found {len(words)} words: {', '.join(words[:10])}...")
 
+    definitions = _collect_definitions(puzzle)
+    client = create_client()
+
     print("Generating title with LM Studio...")
-    theme = generate_title_from_words(words)
+    theme = generate_creative_title(words, definitions, client=client, rate_client=client)
 
     print(f"Theme: {theme}")
     puzzle.title = theme
