@@ -8,6 +8,7 @@
 
 ## Files for Context
 
+- [GENERATOR_ARCH.md](GENERATOR_ARCH.md) — **start here**: full pipeline pseudocode, randomness map, temperature table, quality gate thresholds, and rationale for non-obvious design choices. Read before proposing changes to the generation pipeline. Keep updated when pipeline logic changes.
 - [LESSONS_LEARNED.md](LESSONS_LEARNED.md) — known pitfalls, failure modes, and their solutions
 - [ITERATION_LOG.md](ITERATION_LOG.md) — recent changes, decisions, and outcomes
 
