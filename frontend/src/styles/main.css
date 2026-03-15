@@ -132,6 +132,14 @@ header h1 {
   color: var(--success);
 }
 
+.puzzle-card--in-progress {
+  border-left: 4px solid #f0ad4e;
+}
+
+.puzzle-card--in-progress h3 {
+  color: #d4900a;
+}
+
 .puzzle-card__meta {
   display: flex;
   gap: 1rem;

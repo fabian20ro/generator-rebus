@@ -4,6 +4,7 @@
 
 import type { PuzzleSummary } from "../db/puzzle-repository";
 import { isPuzzleAlreadySolved } from "../gamification/storage";
+import { hasProgress } from "../gamification/progress-storage";
 
 export function renderPuzzleList(
   container: HTMLElement,
@@ -22,8 +23,11 @@ export function renderPuzzleList(
     card.className = "puzzle-card";
 
     const solved = isPuzzleAlreadySolved(puzzle.id);
+    const inProgress = !solved && hasProgress(puzzle.id);
     if (solved) {
       card.classList.add("puzzle-card--solved");
+    } else if (inProgress) {
+      card.classList.add("puzzle-card--in-progress");
     }
 
     const d = new Date(puzzle.created_at);
@@ -37,7 +41,7 @@ export function renderPuzzleList(
 
     card.innerHTML = `
       <span class="puzzle-card__size">${puzzle.grid_size}x${puzzle.grid_size}</span>
-      <h3>${solved ? "\u2713 " : ""}${puzzle.title || "Rebus"}</h3>
+      <h3>${solved ? "\u2713 " : inProgress ? "\u25B6 " : ""}${puzzle.title || "Rebus"}</h3>
       <p class="puzzle-card__theme">${puzzle.theme || ""}</p>
       <div class="puzzle-card__meta">
         <span title="${difficultyLabel}">${stars}</span>

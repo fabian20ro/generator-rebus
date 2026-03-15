@@ -39,6 +39,11 @@ import {
   isPuzzleAlreadySolved,
 } from "./gamification/storage";
 import {
+  saveProgress,
+  loadProgress,
+  clearProgress,
+} from "./gamification/progress-storage";
+import {
   calculateScore,
   hintLetterCost,
   hintWordCost,
@@ -79,6 +84,22 @@ let currentGridSize = 10;
 let puzzleStartTime = 0;
 let hintsUsedCount = 0;
 
+// --- Progress persistence ---
+function saveCurrentProgress(): void {
+  if (!currentPuzzleId || !gridState) return;
+  if (isPuzzleAlreadySolved(currentPuzzleId)) return;
+  const elapsed = Math.round((Date.now() - puzzleStartTime) / 1000);
+  const cleanCells = gridState.cells.map((row) =>
+    row.map((cell) => (cell === "!" ? null : cell))
+  );
+  saveProgress(currentPuzzleId, {
+    cells: cleanCells,
+    hintsUsed: hintsUsedCount,
+    elapsedSeconds: elapsed,
+    savedAt: new Date().toISOString(),
+  });
+}
+
 // --- Points display ---
 function updatePointsDisplay(): void {
   const pts = getPoints();
@@ -93,6 +114,7 @@ function updateHintCosts(): void {
 
 // --- Navigation ---
 function showTab(tab: "puzzles" | "stats"): void {
+  saveCurrentProgress();
   navTabs.querySelectorAll(".nav-tab").forEach((btn) => {
     btn.classList.toggle(
       "nav-tab--active",
@@ -136,6 +158,7 @@ function refresh(): void {
       handleCellInput(gridState!, row, col, value);
       refresh();
       focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
+      saveCurrentProgress();
       if (isPuzzleComplete(gridState!)) {
         handleCompletion();
       }
@@ -145,6 +168,7 @@ function refresh(): void {
       if (handled) {
         refresh();
         focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
+        saveCurrentProgress();
       }
     }
   );
@@ -194,6 +218,7 @@ function handleCompletion(): void {
   };
 
   recordPuzzleCompletion(record);
+  clearProgress(currentPuzzleId);
   updatePointsDisplay();
 
   // Check for new badges
@@ -256,6 +281,15 @@ async function loadPuzzle(id: string): Promise<void> {
     currentGridSize = data.puzzle.grid_size;
     puzzleStartTime = Date.now();
     hintsUsedCount = 0;
+
+    // Restore saved progress if available
+    const saved = isPuzzleAlreadySolved(id) ? null : loadProgress(id);
+    if (saved && saved.cells.length === gridState.size &&
+        saved.cells.every((row) => row.length === gridState!.size)) {
+      gridState.cells = saved.cells;
+      hintsUsedCount = saved.hintsUsed;
+      puzzleStartTime = Date.now() - saved.elapsedSeconds * 1000;
+    }
 
     // Load solution in background
     getSolution(id)
@@ -344,6 +378,7 @@ btnCheck.addEventListener("click", () => {
         }
       }
       refresh();
+      saveCurrentProgress();
     }, 2000);
   }
 });
@@ -355,6 +390,7 @@ btnHintLetter.addEventListener("click", () => {
     hintsUsedCount++;
     updatePointsDisplay();
     refresh();
+    saveCurrentProgress();
     if (isPuzzleComplete(gridState)) {
       handleCompletion();
     }
@@ -373,6 +409,7 @@ btnHintWord.addEventListener("click", () => {
     hintsUsedCount++;
     updatePointsDisplay();
     refresh();
+    saveCurrentProgress();
     if (isPuzzleComplete(gridState)) {
       handleCompletion();
     }
@@ -385,6 +422,7 @@ btnHintWord.addEventListener("click", () => {
 });
 
 btnBack.addEventListener("click", () => {
+  saveCurrentProgress();
   showTab("puzzles");
 });
 
@@ -403,6 +441,14 @@ registerSW({
       }, 3 * 60 * 1000);
     }
   },
+});
+
+// --- Save progress on browser close ---
+window.addEventListener("beforeunload", () => saveCurrentProgress());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    saveCurrentProgress();
+  }
 });
 
 // --- Init ---
