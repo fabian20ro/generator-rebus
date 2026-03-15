@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from generator.phases.theme import (
+    FALLBACK_TITLES,
     TITLE_MIN_CREATIVITY,
     _sanitize_title,
     generate_creative_title,
@@ -97,18 +98,12 @@ class ThemeTests(unittest.TestCase):
 
         self.assertEqual("Ecouri de Toamnă", title)
 
-    def test_final_title_uses_six_longest_words(self):
+    def test_final_title_prompt_uses_definitions(self):
         words = [
-            "EXTRAORDINAR",  # 12
-            "SPECTACOL",     # 9
-            "PLIMBARE",      # 8
-            "GALAXIE",       # 7
-            "TABLOU",        # 6
-            "VERDE",         # 5
-            "MUNTE",         # 5
-            "ARTA",          # 4
-            "FOC",           # 3
-            "ZI",            # 2
+            "EXTRAORDINAR",
+            "SPECTACOL",
+            "MUNTE",
+            "FOC",
         ]
         clues = [
             SimpleNamespace(word_normalized=w, definition=f"Definiția {w}")
@@ -124,24 +119,22 @@ class ThemeTests(unittest.TestCase):
         generate_title_for_final_puzzle(puzzle, client=gen_client, rate_client=rate_client)
 
         prompt = gen_client.last_user_content
-        words_line = prompt.split("\n")[1]
-        expected = ["EXTRAORDINAR", "SPECTACOL", "PLIMBARE", "GALAXIE", "TABLOU", "VERDE"]
-        excluded = ["ARTA", "FOC", "ZI"]
-        for word in expected:
-            self.assertIn(word, words_line)
-        for word in excluded:
-            self.assertNotIn(word, words_line)
+        # Prompt should contain definitions, not raw word list
+        self.assertIn("Definiția EXTRAORDINAR", prompt)
+        self.assertIn("Definiția MUNTE", prompt)
+        # Words should NOT appear as a comma-separated list
+        self.assertNotIn("EXTRAORDINAR, SPECTACOL", prompt)
 
-    def test_final_title_includes_ties_at_sixth_position(self):
+    def test_final_title_passes_all_words(self):
         words = [
-            "EXTRAORDINAR",  # 12
-            "SPECTACOL",     # 9
-            "PLIMBARE",      # 8
-            "GALAXIE",       # 7
-            "TABLOU",        # 6
-            "VERDE",         # 5
-            "MUNTE",         # 5 - same length as 6th, should be included
-            "ARTA",          # 4
+            "EXTRAORDINAR",
+            "SPECTACOL",
+            "PLIMBARE",
+            "GALAXIE",
+            "TABLOU",
+            "VERDE",
+            "MUNTE",
+            "ARTA",
         ]
         clues = [
             SimpleNamespace(word_normalized=w, definition=f"Definiția {w}")
@@ -157,34 +150,35 @@ class ThemeTests(unittest.TestCase):
         generate_title_for_final_puzzle(puzzle, client=gen_client, rate_client=rate_client)
 
         prompt = gen_client.last_user_content
-        words_line = prompt.split("\n")[1]
-        self.assertIn("VERDE", words_line)
-        self.assertIn("MUNTE", words_line)
+        # All definitions should be in the prompt
+        for w in words:
+            self.assertIn(f"Definiția {w}", prompt)
 
-    def test_sanitize_rejects_title_containing_input_word(self):
+    def test_sanitize_rejects_title_containing_two_input_words(self):
         result = _sanitize_title(
-            "Lumea Aerului",
-            words=["AER", "LUMINA"],
-            input_words=["AER", "LUMINA"],
+            "Munte și Plimbare",
+            words=["MUNTE", "PLIMBARE"],
+            input_words=["MUNTE", "PLIMBARE"],
         )
-        self.assertNotIn("Aer", result)
+        self.assertIn(result, FALLBACK_TITLES)
 
     def test_sanitize_case_insensitive_word_check(self):
+        # Two 4+ char words both present → rejected
         result = _sanitize_title(
-            "Aerul Dimineții",
-            words=["aer"],
-            input_words=["aer"],
+            "Munte și Verde",
+            words=["munte", "verde"],
+            input_words=["munte", "verde"],
         )
-        self.assertNotIn("Aer", result)
+        self.assertIn(result, FALLBACK_TITLES)
 
     def test_sanitize_diacritics_normalized_word_check(self):
+        # Two diacritical words both match after normalization → rejected
         result = _sanitize_title(
-            "Față în Față",
-            words=["FATA"],
-            input_words=["FATA"],
+            "Față și Țară",
+            words=["FATA", "TARA"],
+            input_words=["FATA", "TARA"],
         )
-        # FATA normalized matches FATA in "Față" normalized
-        self.assertNotIn("Față", result)
+        self.assertIn(result, FALLBACK_TITLES)
 
     def test_rate_title_creativity_parses_json(self):
         client = _FakeClient('{"creativity_score": 7, "feedback": "bun titlu"}')
@@ -270,6 +264,65 @@ class ThemeTests(unittest.TestCase):
 
         self.assertIn("Ecou Palid", gen_client.last_user_content)
         self.assertIn("prea banal", gen_client.last_user_content)
+
+    def test_sanitize_strips_trailing_comma_after_truncation(self):
+        result = _sanitize_title(
+            "Alfa Beta Gama Delta Epsilon",
+            words=["X"],
+        )
+        # Truncated to 4 words, no trailing punctuation
+        self.assertEqual("Alfa Beta Gama Delta", result)
+        self.assertFalse(result.endswith(","))
+
+    def test_sanitize_strips_trailing_punctuation(self):
+        result = _sanitize_title(
+            "Suflet și Lumină,",
+            words=["X"],
+        )
+        self.assertEqual("Suflet și Lumină", result)
+
+    def test_sanitize_rejects_comma_separated_word_list(self):
+        result = _sanitize_title(
+            "Suflet, Tunet, Platină",
+            words=["SUFLET", "TUNET"],
+        )
+        self.assertIn(result, FALLBACK_TITLES)
+
+    def test_sanitize_allows_single_long_word_in_title(self):
+        result = _sanitize_title(
+            "Sub Munte",
+            words=["MUNTE"],
+            input_words=["MUNTE"],
+        )
+        self.assertEqual("Sub Munte", result)
+
+    def test_sanitize_rejects_two_long_words_in_title(self):
+        result = _sanitize_title(
+            "Munte și Aero",
+            words=["MUNTE", "AERO"],
+            input_words=["MUNTE", "AERO"],
+        )
+        self.assertIn(result, FALLBACK_TITLES)
+
+    def test_fallback_pool_minimum_size(self):
+        self.assertGreaterEqual(len(FALLBACK_TITLES), 20)
+
+    def test_creative_prompt_does_not_contain_raw_words(self):
+        gen_client = _FakeClient("Orizont Aprins")
+        rate_client = _fake_rate_client(7)
+
+        generate_creative_title(
+            ["MUNTE", "PADURE", "CASCADA"],
+            ["Formă de relief înaltă", "Arbori mulți la un loc", "Apă care cade"],
+            client=gen_client,
+            rate_client=rate_client,
+        )
+
+        prompt = gen_client.last_user_content
+        # Prompt should have definitions but NOT a comma-separated word list
+        self.assertIn("Formă de relief înaltă", prompt)
+        self.assertNotIn("MUNTE, PADURE, CASCADA", prompt)
+        self.assertNotIn("MUNTE", prompt)
 
 
 if __name__ == "__main__":

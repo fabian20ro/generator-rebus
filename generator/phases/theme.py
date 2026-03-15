@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import sys
 
 from ..core.ai_clues import create_client
@@ -35,12 +36,15 @@ def _collect_definitions(puzzle) -> list[str]:
 
 
 THEME_SYSTEM_PROMPT = (
-    "Ești editor de titluri pentru rebusuri românești. "
-    "Primești cuvintele și definițiile finale ale unui rebus. "
-    "Scrii un titlu scurt, spiritual, sigur creativ, poate chiar absurd, "
-    "2-4 cuvinte, fără ghilimele, fără explicații, fără punct. "
-    "Surprinde cititorul. Evită titlurile generice și banale. "
-    "Nu folosești cuvintele Rebus, Românesc, Puzzle, Titlu."
+    "Ești un editor creativ de titluri pentru rebusuri românești.\n"
+    "Regulile tale:\n"
+    "- Scrii UN SINGUR titlu de 2-4 cuvinte.\n"
+    "- Titlul trebuie să fie spiritual, surprinzător, poate absurd.\n"
+    "- NU enumera cuvinte din rebus separate prin virgulă.\n"
+    "- NU folosi cuvintele: Rebus, Românesc, Puzzle, Titlu.\n"
+    "- Gândește-te la o TEMĂ sau IDEE care leagă definițiile.\n"
+    "- Fără ghilimele, fără explicații, fără punct.\n"
+    "- Răspunde DOAR cu titlul, nimic altceva."
 )
 
 TITLE_RATE_SYSTEM_PROMPT = (
@@ -63,35 +67,54 @@ FALLBACK_TITLES = [
     "Umbra Cuvintelor",
     "Joc de Cuvinte",
     "Căi Încrucișate",
+    "Labirint de Idei",
+    "Prisme și Ecouri",
+    "Oglinzi Paralele",
+    "Răscruce de Gânduri",
+    "Spirale Ascunse",
+    "Între Rânduri",
+    "Carusel Lexical",
+    "Mozaic de Sensuri",
+    "Ferestre Deschise",
+    "Punți Nevăzute",
+    "Ecou de Litere",
+    "Orizont Fragmentat",
 ]
 
 
 def _fallback_title(words: list[str]) -> str:
-    if not words:
-        return FALLBACK_TITLES[0]
-    seed = sum(sum(ord(ch) for ch in word) for word in words)
-    return FALLBACK_TITLES[seed % len(FALLBACK_TITLES)]
+    return random.choice(FALLBACK_TITLES)
 
 
 def _sanitize_title(title: str, words: list[str], input_words: list[str] | None = None) -> str:
     cleaned = " ".join(title.strip().strip('"').strip("'").split())
+    cleaned = cleaned.rstrip(".,;:!?…")
     if not cleaned:
         return _fallback_title(words)
 
+    # Reject comma-separated word lists (2+ commas)
+    if cleaned.count(",") >= 2:
+        return _fallback_title(words)
+
     blocked = {"rebus", "romanesc", "românesc", "puzzle", "titlu"}
-    lowered = cleaned.lower()
-    if any(token in lowered for token in blocked):
+    title_tokens = set(cleaned.lower().split())
+    if title_tokens & blocked:
         return _fallback_title(words)
 
     parts = cleaned.split()
     if len(parts) > 4:
         cleaned = " ".join(parts[:4])
+        cleaned = cleaned.rstrip(".,;:!?…")
 
+    # Only reject if 2+ input words of length >= 4 appear in the title
     if input_words:
         title_upper = normalize(cleaned)
-        for word in input_words:
-            if normalize(word) in title_upper:
-                return _fallback_title(words)
+        match_count = sum(
+            1 for word in input_words
+            if len(word) >= 4 and normalize(word) in title_upper
+        )
+        if match_count >= 2:
+            return _fallback_title(words)
 
     return cleaned
 
@@ -153,12 +176,10 @@ def generate_creative_title(
             )
 
         prompt = (
-            "Cuvintele rebusului sunt:\n"
-            f"{', '.join(words)}\n\n"
-            "Definițiile finale sunt:\n"
-            + "\n".join(f"- {definition}" for definition in definitions[:20])
+            "Definițiile din rebus sunt:\n"
+            + "\n".join(f"- {d}" for d in definitions[:15])
             + "\n\n"
-            "Dă un titlu scurt pentru rebus."
+            "Ce temă leagă aceste definiții? Dă un titlu creativ de 2-4 cuvinte."
             + rejected_context
         )
 
@@ -176,7 +197,7 @@ def generate_creative_title(
                     {"role": "system", "content": THEME_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.7,
+                temperature=0.9,
                 max_tokens=50,
             )
             raw_title = response.choices[0].message.content or ""
@@ -303,19 +324,14 @@ def generate_title_for_final_puzzle(
     current_model=None,
 ) -> str:
     all_words = _collect_words(puzzle)
-    sorted_words = sorted(all_words, key=len, reverse=True)
-    if len(sorted_words) <= 6:
-        longest_words = sorted_words
-    else:
-        sixth_length = len(sorted_words[5])
-        longest_words = [w for w in sorted_words if len(w) >= sixth_length]
+    definitions = _collect_definitions(puzzle)
 
     if client is None:
         client = create_client()
 
     return generate_creative_title(
-        longest_words,
-        _collect_definitions(puzzle),
+        all_words,
+        definitions,
         client=client,
         rate_client=rate_client or client,
         multi_model=multi_model,
