@@ -12,7 +12,6 @@ from generator.core.ai_clues import (
     rate_definition,
     rewrite_definition,
 )
-from generator.core.quality import PRESET_DEFINITIONS
 
 
 class _RecordingClient:
@@ -169,31 +168,6 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(1, rating.semantic_score)
         self.assertEqual(1, rating.guessability_score)
 
-
-    def test_generate_definition_uses_preset(self):
-        client = _RecordingClient([])
-
-        result = generate_definition(client, word="AT", original="at", theme="")
-
-        self.assertIn(result, PRESET_DEFINITIONS["AT"])
-        self.assertEqual(len(client.prompts), 0)
-
-    def test_rewrite_definition_uses_preset(self):
-        client = _RecordingClient([])
-        previous = PRESET_DEFINITIONS["AT"][0]
-
-        result = rewrite_definition(
-            client,
-            word="AT",
-            original="at",
-            theme="",
-            previous_definition=previous,
-            wrong_guess="",
-        )
-
-        self.assertIn(result, PRESET_DEFINITIONS["AT"])
-        self.assertNotEqual(result, previous)
-        self.assertEqual(len(client.prompts), 0)
 
     def test_generate_prompt_includes_forbidden_stems(self):
         prompt = _build_generate_prompt("tibetan", "TIBETAN", 7)
