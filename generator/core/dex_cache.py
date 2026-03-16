@@ -25,7 +25,6 @@ Designed for easy embedding in other projects (propozitii-nostime, word-rarity).
 
 from __future__ import annotations
 
-import re
 import time
 import urllib.error
 import urllib.request
@@ -41,6 +40,7 @@ _USER_AGENT = (
 _CRAWL_DELAY = 2.0
 _MAX_RETRIES = 3
 _MAX_DEFS = 8
+_SB_BATCH_CHUNK_SIZE = 200
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +166,8 @@ def _sb_lookup_single(client, normalized: str) -> tuple[str | None, bool]:
 def _sb_lookup_batch(client, words: list[str]) -> dict[str, str | None]:
     """Batch query Supabase. Returns {normalized: html_or_None} for words found."""
     result: dict[str, str | None] = {}
-    for i in range(0, len(words), 200):
-        chunk = words[i:i + 200]
+    for i in range(0, len(words), _SB_BATCH_CHUNK_SIZE):
+        chunk = words[i:i + _SB_BATCH_CHUNK_SIZE]
         try:
             resp = (client.table("dex_definitions")
                     .select("word, html, status")
@@ -288,9 +288,6 @@ class DexProvider:
             # Remove found words from to_query
             to_query = [n for n in to_query if n not in sb_results]
 
-        found_count = sum(1 for v in self._memory.values() if v is not None)
-        total = len(normalized_map) + sum(1 for n in words if normalize(n) in self._memory and normalize(n) not in normalized_map)
-
         # L3: fetch missing from dexonline one-by-one
         if fetch_missing and to_query:
             print(f"  DEX: fetching {len(to_query)} words from dexonline.ro...")
@@ -316,6 +313,23 @@ class DexProvider:
         Useful for passing to functions that expect a plain dict.
         """
         return {k: v for k, v in self._memory.items() if v is not None}
+
+    @classmethod
+    def for_puzzle(cls, puzzle) -> DexProvider:
+        """Create a provider from env config and prefetch all puzzle words.
+
+        Accepts a WorkingPuzzle (lazy import to avoid circular deps).
+        Consolidates the repeated create-provider-and-prefetch pattern.
+        """
+        from ..core.pipeline_state import all_working_clues
+        dex = create_provider()
+        clues = list(all_working_clues(puzzle))
+        if clues:
+            dex.prefetch(
+                [c.word_normalized for c in clues],
+                originals={c.word_normalized: c.word_original for c in clues if c.word_original},
+            )
+        return dex
 
     # -- Internal ----------------------------------------------------------
 

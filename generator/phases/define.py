@@ -4,7 +4,7 @@ from __future__ import annotations
 from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.ai_clues import create_client, generate_definition
-from ..core.dex_cache import DexProvider, create_provider
+from ..core.dex_cache import DexProvider
 from ..core.pipeline_state import (
     WorkingClue,
     WorkingPuzzle,
@@ -83,19 +83,6 @@ def generate_definitions_for_state(
                 clue.best = clue.current
 
 
-def _load_dex_provider(state: WorkingPuzzle) -> DexProvider:
-    """Create a DexProvider and prefetch definitions for all puzzle words."""
-    from ..core.pipeline_state import all_working_clues as _all_clues
-    dex = create_provider()
-    words_needing_defs = [clue for clue in _all_clues(state) if not clue.current.definition]
-    if words_needing_defs:
-        dex.prefetch(
-            [c.word_normalized for c in words_needing_defs],
-            originals={c.word_normalized: c.word_original for c in words_needing_defs if c.word_original},
-        )
-    return dex
-
-
 def generate_definitions_for_puzzle(
     puzzle, client: OpenAI, metadata: dict[str, dict] | None = None,
 ) -> None:
@@ -106,7 +93,7 @@ def generate_definitions_for_puzzle(
         for clue in _all_clues(state):
             word_meta = metadata.get(clue.word_normalized, {})
             clue.word_type = word_meta.get("word_type", "")
-    dex = _load_dex_provider(state)
+    dex = DexProvider.for_puzzle(state)
     generate_definitions_for_state(state, client, dex=dex)
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
@@ -121,7 +108,7 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
 
     client = create_client()
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
-    dex = _load_dex_provider(state)
+    dex = DexProvider.for_puzzle(state)
     generate_definitions_for_state(state, client, dex=dex)
     puzzle = puzzle_from_working_state(state)
 

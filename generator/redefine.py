@@ -46,7 +46,7 @@ from .core.pipeline_state import (
     set_current_definition,
 )
 from .core.plateau import has_plateaued
-from .core.dex_cache import DexProvider, create_provider as _create_dex_provider
+from .core.dex_cache import DexProvider
 from .phases.verify import rate_working_puzzle, verify_working_puzzle
 
 REDEFINE_ROUNDS = 7
@@ -139,12 +139,7 @@ def rewrite_puzzle_definitions(
     theme = puzzle.title or "Puzzle rebus"
 
     # Load dex definitions for all words in puzzle
-    dex = _create_dex_provider()
-    _all_clues = all_working_clues(puzzle)
-    dex.prefetch(
-        [c.word_normalized for c in _all_clues],
-        originals={c.word_normalized: c.word_original for c in _all_clues if c.word_original},
-    )
+    dex = DexProvider.for_puzzle(puzzle)
 
     if multi_model:
         ensure_model_loaded(PRIMARY_MODEL)

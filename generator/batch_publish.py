@@ -71,7 +71,7 @@ from .core.slot_extractor import Slot, extract_slots
 from .core.word_index import WordEntry, WordIndex
 from .core.constraint_solver import solve
 from .phases.activate import set_published
-from .core.dex_cache import DexProvider, create_provider as _create_dex_provider
+from .core.dex_cache import DexProvider
 from .phases.define import generate_definitions_for_puzzle, generate_definitions_for_state
 from .phases.download import run as download_words
 from .phases.theme import generate_title_for_final_puzzle
@@ -812,12 +812,7 @@ def _prepare_puzzle_for_publication(
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
         _inject_word_types(state, candidate.metadata)
         # Load dex definitions for rewrite rounds
-        _dex = _create_dex_provider()
-        _all_clues = all_working_clues(state)
-        _dex.prefetch(
-            [c.word_normalized for c in _all_clues],
-            originals={c.word_normalized: c.word_original for c in _all_clues if c.word_original},
-        )
+        _dex = DexProvider.for_puzzle(state)
         passed, total = _rewrite_failed_clues(
             state, client, rewrite_rounds, multi_model=multi_model, dex=_dex,
         )
