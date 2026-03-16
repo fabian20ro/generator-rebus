@@ -12,4 +12,7 @@ Criterii:
 - dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare
 - nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun
 - feedback-ul este exclusiv în română, scurt și concret
-Răspunzi STRICT JSON: {"semantic_score": <1-10>, "guessability_score": <1-10>, "creativity_score": <1-10>, "feedback": "<motiv scurt>"}
+Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:
+
+Exemplu de răspuns corect:
+{"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}

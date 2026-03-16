@@ -48,3 +48,4 @@ See "Periodic Maintenance Protocol" section.
 | Planner | `.claude/agents/planner.md` | complex multi-step — plan before code |
 | UX Expert | `.claude/agents/ux-expert.md` | UI, interaction, a11y (frontend) |
 | Agent Creator | `.claude/agents/agent-creator.md` | new agent needed for recurring domain |
+| Prompt Engineer Expert | `.claude/agents/prompt-engineer-expert.md` | prompt optimization for definition pipeline (assessment-driven) |

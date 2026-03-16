@@ -235,9 +235,15 @@ def _build_rewrite_prompt(
     bad_example_text: str,
     word_type: str = "",
     dex_definitions: str = "",
+    failure_history: list[tuple[str, str]] | None = None,
 ) -> str:
     label = WORD_TYPE_LABELS.get(word_type)
     word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
+    history_text = ""
+    if failure_history:
+        recent = failure_history[-5:]
+        lines = [f"{i}. '{defn}' → ghicit: {guess}" for i, (defn, guess) in enumerate(recent, 1)]
+        history_text = "\nÎncercări anterioare eșuate:\n" + "\n".join(lines) + "\n"
     prompt = load_user_template("rewrite").format(
         display_word=display_word,
         word=word,
@@ -245,6 +251,7 @@ def _build_rewrite_prompt(
         previous_definition=previous_definition,
         feedback_text=feedback_text,
         bad_example_text=bad_example_text,
+        failure_history_text=history_text,
     )
     hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
     if hint:
@@ -416,6 +423,7 @@ def rewrite_definition(
     bad_example_reason: str = "",
     word_type: str = "",
     dex_definitions: str = "",
+    failure_history: list[tuple[str, str]] | None = None,
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
     display_word = original if original else word.lower()
@@ -436,6 +444,7 @@ def rewrite_definition(
     prompt = _build_rewrite_prompt(
         display_word, word, previous_definition, feedback_text, bad_example_text,
         word_type=word_type, dex_definitions=dex_definitions,
+        failure_history=failure_history,
     )
     system_prompt = load_system_prompt("rewrite")
     print(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
@@ -506,8 +515,12 @@ def rate_definition(
     answer_length: int,
     word_type: str = "",
     dex_definitions: str = "",
-) -> DefinitionRating:
-    """Rate a definition's semantic quality and guessability."""
+) -> DefinitionRating | None:
+    """Rate a definition's semantic quality and guessability.
+
+    Returns None when the model's response cannot be parsed as valid JSON,
+    signaling that the definition should be treated as unrated.
+    """
     display_word = original if original else word.lower()
     prompt = _build_rate_prompt(display_word, word, definition, answer_length, word_type=word_type, dex_definitions=dex_definitions)
     system_prompt = load_system_prompt("rate")
@@ -523,10 +536,13 @@ def rate_definition(
                 temperature=0.0,
                 max_tokens=260,
             )
-            raw = _clean_response(response.choices[0].message.content)
-            match = re.search(r"\{.*\}", raw, re.DOTALL)
+            raw = response.choices[0].message.content or ""
+            fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+            bare_match = re.search(r"\{.*\}", raw, re.DOTALL)
+            match = fence_match or bare_match
             if match:
-                data = json.loads(match.group())
+                json_str = match.group(1) if fence_match and match is fence_match else match.group()
+                data = json.loads(json_str)
                 feedback = str(data.get("feedback", "")).strip()
                 if contains_english_markers(feedback):
                     prompt += "\nAtenție: feedback-ul anterior nu a fost în română. Refă-l exclusiv în română."
@@ -543,13 +559,7 @@ def rate_definition(
         except Exception:
             pass
 
-    rating = _guard_same_family_rating(
-        word,
-        definition,
-        DefinitionRating(semantic_score=5, guessability_score=5, feedback="", creativity_score=5),
-    )
-    rating = _guard_english_meaning_rating(word, definition, rating)
-    return _guard_definition_centric_rating(rating)
+    return None
 
 
 def choose_better_clue_variant(

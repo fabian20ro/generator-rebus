@@ -129,11 +129,29 @@ def _rate_clues(
         except Exception:
             rating = None
 
-        semantic_score = rating.semantic_score if rating else 5
-        guessability_score = rating.guessability_score if rating else 5
-        creativity_score = rating.creativity_score if rating else 5
-        feedback = rating.feedback if rating else ""
-        rarity_override = rating.rarity_only_override if rating else False
+        if rating is None:
+            # Unrated — use None scores so the word enters the rewrite queue
+            clue.current.assessment.feedback = ""
+            clue.current.assessment.rarity_only_override = False
+            clue.current.assessment.scores = ClueScores(
+                semantic_exactness=None,
+                answer_targeting=None,
+                ambiguity_risk=None,
+                family_leakage=False,
+                language_integrity=10,
+                creativity=None,
+                rebus_score=None,
+            )
+            clue.current.assessment.failure_reason = ClueFailureReason(
+                "unrated", "Evaluarea nu a putut fi parsată (JSON invalid).",
+            )
+            print(f"    ⚠ {clue.word_normalized}: evaluare eșuată (JSON invalid)")
+            continue
+        semantic_score = rating.semantic_score
+        guessability_score = rating.guessability_score
+        creativity_score = rating.creativity_score
+        feedback = rating.feedback
+        rarity_override = rating.rarity_only_override
         rebus = compute_rebus_score(guessability_score, creativity_score)
         clue.current.assessment.feedback = feedback
         clue.current.assessment.rarity_only_override = rarity_override

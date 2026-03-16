@@ -608,6 +608,12 @@ def _rewrite_failed_clues(
             bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
             dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
+            # Build failure history from clue.history
+            failure_history: list[tuple[str, str]] = [
+                (v.definition, v.assessment.wrong_guess)
+                for v in clue.history
+                if v.assessment.wrong_guess and v.definition
+            ]
             try:
                 if clue.current.definition.startswith("["):
                     new_definition = generate_definition(
@@ -627,6 +633,7 @@ def _rewrite_failed_clues(
                         bad_example_reason=bad_example_reason,
                         word_type=clue.word_type,
                         dex_definitions=dex_defs,
+                        failure_history=failure_history or None,
                     )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
