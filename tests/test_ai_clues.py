@@ -230,6 +230,84 @@ class AiCluesTests(unittest.TestCase):
         prompt = _build_rate_prompt("casă", "CASA", "Locuință", 4, word_type="N")
         self.assertIn("Categorie gramaticală: substantiv", prompt)
 
+    def test_rate_definition_returns_none_on_unparseable_response(self):
+        """When JSON parsing fails, rate_definition returns None (not 5/5/5)."""
+        client = _RecordingClient([
+            "This is not JSON at all",
+            "Still not JSON",
+        ])
+
+        rating = rate_definition(
+            client,
+            word="CASA",
+            original="casă",
+            definition="Locuință",
+            answer_length=4,
+        )
+
+        self.assertIsNone(rating)
+
+    def test_rate_definition_extracts_json_from_markdown_fence(self):
+        """eurollm-22b wraps JSON in ```json ... ``` — must still parse."""
+        fenced_json = (
+            '```json\n'
+            '{"semantic_score": 9, "guessability_score": 8, '
+            '"creativity_score": 7, "feedback": "Corect"}\n'
+            '```'
+        )
+        client = _RecordingClient([fenced_json])
+
+        rating = rate_definition(
+            client,
+            word="CASA",
+            original="casă",
+            definition="Locuință",
+            answer_length=4,
+        )
+
+        self.assertIsNotNone(rating)
+        self.assertEqual(9, rating.semantic_score)
+        self.assertEqual(8, rating.guessability_score)
+        self.assertEqual(7, rating.creativity_score)
+
+    def test_rewrite_prompt_includes_failure_history(self):
+        """Failure history should appear as numbered list in the prompt."""
+        client = _RecordingClient(["Parte a conjugării verbale"])
+
+        rewrite_definition(
+            client,
+            word="AR",
+            original="ar",
+            theme="",
+            previous_definition="Verb auxiliar",
+            wrong_guess="DE",
+            failure_history=[
+                ("Condiționare", "DE"),
+                ("Auxiliar verbal", "AL"),
+                ("Verb auxiliar", "DE"),
+            ],
+        )
+
+        prompt = client.prompts[0]
+        self.assertIn("Încercări anterioare eșuate", prompt)
+        self.assertIn("'Condiționare' → ghicit: DE", prompt)
+        self.assertIn("'Auxiliar verbal' → ghicit: AL", prompt)
+
+    def test_rewrite_prompt_omits_history_when_none(self):
+        """No history section when failure_history is None."""
+        client = _RecordingClient(["Definiție mai bună"])
+
+        rewrite_definition(
+            client,
+            word="CASA",
+            original="casă",
+            theme="",
+            previous_definition="Locuință",
+            wrong_guess="",
+        )
+
+        self.assertNotIn("Încercări anterioare eșuate", client.prompts[0])
+
 
 if __name__ == "__main__":
     unittest.main()
