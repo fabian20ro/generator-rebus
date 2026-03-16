@@ -9,6 +9,7 @@ import sys
 from ..core.ai_clues import create_client
 from ..core.diacritics import normalize
 from ..core.markdown_io import parse_markdown, write_with_definitions
+from ..prompts.loader import load_system_prompt, load_user_template
 
 
 def _collect_words(puzzle) -> list[str]:
@@ -33,28 +34,6 @@ def _collect_definitions(puzzle) -> list[str]:
         if clue.definition and not clue.definition.startswith("["):
             definitions.append(clue.definition.strip())
     return definitions
-
-
-THEME_SYSTEM_PROMPT = (
-    "Ești un editor creativ de titluri pentru rebusuri românești.\n"
-    "Regulile tale:\n"
-    "- Scrii UN SINGUR titlu de 2-4 cuvinte.\n"
-    "- Titlul trebuie să fie spiritual, surprinzător, poate absurd.\n"
-    "- NU enumera cuvinte din rebus separate prin virgulă.\n"
-    "- NU folosi cuvintele: Rebus, Românesc, Puzzle, Titlu.\n"
-    "- Gândește-te la o TEMĂ sau IDEE care leagă definițiile.\n"
-    "- Fără ghilimele, fără explicații, fără punct.\n"
-    "- Răspunde DOAR cu titlul, nimic altceva."
-)
-
-TITLE_RATE_SYSTEM_PROMPT = (
-    "Evaluezi creativitatea unui titlu de rebus românesc.\n"
-    "Titlul trebuie să fie spiritual, creativ, poate chiar absurd.\n"
-    "Titlurile sunt trunchiate la 4 cuvinte — un titlu de 2-3 cuvinte care funcționează complet e mai bun decât unul trunchiat.\n"
-    "Un titlu generic de dicționar primește 2-3.\n"
-    "Un titlu care surprinde sau provoacă un zâmbet primește 7-10.\n"
-    "Răspunzi STRICT JSON: {\"creativity_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
-)
 
 TITLE_MIN_CREATIVITY = 5
 MAX_TITLE_ROUNDS = 7
@@ -135,16 +114,15 @@ def _try_switch_model(current_model, multi_model: bool):
 
 def rate_title_creativity(title: str, words: list[str], client) -> tuple[int, str]:
     """Rate title creativity. Returns (score, feedback)."""
-    prompt = (
-        f"Titlul: \"{title}\"\n"
-        f"Cuvintele rebusului: {', '.join(words[:10])}\n\n"
-        "Evaluează creativitatea titlului."
+    prompt = load_user_template("title_rate").format(
+        title=title,
+        words=", ".join(words[:10]),
     )
     try:
         response = client.chat.completions.create(
             model="default",
             messages=[
-                {"role": "system", "content": TITLE_RATE_SYSTEM_PROMPT},
+                {"role": "system", "content": load_system_prompt("title_rate")},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
@@ -172,27 +150,29 @@ def _generate_single_title(
 ) -> str:
     """Make one LLM call to generate a title. Returns raw string."""
     if definitions:
-        prompt = (
+        content_section = (
             "Definițiile din rebus sunt:\n"
             + "\n".join(f"- {d}" for d in definitions[:15])
-            + "\n\nCe temă leagă aceste definiții? Dă un titlu creativ de 2-4 cuvinte."
-            + rejected_context
+            + "\n\nCe temă leagă aceste definiții?"
         )
     elif words:
-        prompt = (
+        content_section = (
             "Lista de cuvinte este:\n"
             + ", ".join(words[:15])
-            + "\n\nDă un titlu creativ de 2-4 cuvinte."
-            + rejected_context
         )
     else:
         return ""
+
+    prompt = load_user_template("title_generate").format(
+        content_section=content_section,
+        rejected_context=rejected_context,
+    )
 
     try:
         response = client.chat.completions.create(
             model="default",
             messages=[
-                {"role": "system", "content": THEME_SYSTEM_PROMPT},
+                {"role": "system", "content": load_system_prompt("theme")},
                 {"role": "user", "content": prompt},
             ],
             temperature=temperature,
