@@ -182,8 +182,9 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         update_chain.eq.return_value = update_chain
         return mock_supabase
 
+    @patch("generator.retitle.ensure_model_loaded")
     @patch("generator.retitle.generate_creative_title", return_value="Titlu Mediocru")
-    def test_skips_when_old_scores_higher(self, _mock_gen):
+    def test_skips_when_old_scores_higher(self, _mock_gen, _mock_ensure):
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Excelent Unic"}
         ai_client = _fake_ai_client("unused")
@@ -197,8 +198,9 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertFalse(changed)
         mock_supabase.table.return_value.update.assert_not_called()
 
+    @patch("generator.retitle.ensure_model_loaded")
     @patch("generator.retitle.generate_creative_title", return_value="Titlu Nou Superior")
-    def test_replaces_when_new_scores_higher(self, _mock_gen):
+    def test_replaces_when_new_scores_higher(self, _mock_gen, _mock_ensure):
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Vechi Slab"}
         ai_client = _fake_ai_client("unused")
@@ -212,8 +214,9 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertTrue(changed)
         mock_supabase.table.return_value.update.assert_called_once()
 
+    @patch("generator.retitle.ensure_model_loaded")
     @patch("generator.retitle.generate_creative_title", return_value="Titlu Egal Nou")
-    def test_skips_when_scores_equal(self, _mock_gen):
+    def test_skips_when_scores_equal(self, _mock_gen, _mock_ensure):
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Egal Vechi"}
         ai_client = _fake_ai_client("unused")

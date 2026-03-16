@@ -10,6 +10,7 @@ from supabase import create_client as create_supabase_client
 
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from .core.ai_clues import create_client as create_ai_client
+from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
 from .phases.theme import (
     FALLBACK_TITLES,
     generate_creative_title,
@@ -97,6 +98,8 @@ def retitle_puzzle(
     is_fallback = old_title in FALLBACK_TITLES
 
     if not is_fallback:
+        if multi_model:
+            ensure_model_loaded(SECONDARY_MODEL)
         old_score, _ = rate_title_creativity(old_title, words, rate_client)
         new_score, _ = rate_title_creativity(new_title, words, rate_client)
         if new_score <= old_score:
@@ -111,6 +114,9 @@ def retitle_puzzle(
         )
     else:
         print(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}"')
+
+    if multi_model:
+        ensure_model_loaded(PRIMARY_MODEL)
 
     if not dry_run:
         supabase.table("crossword_puzzles").update({"title": new_title}).eq(
@@ -187,6 +193,11 @@ def main() -> None:
     else:
         print()
 
+    current_model = None
+    if multi_model:
+        ensure_model_loaded(PRIMARY_MODEL)
+        current_model = PRIMARY_MODEL
+
     updated = 0
     unchanged = 0
     failed = 0
@@ -200,6 +211,7 @@ def main() -> None:
                 rate_client,
                 dry_run=args.dry_run,
                 multi_model=multi_model,
+                current_model=current_model,
             )
             if changed:
                 updated += 1
