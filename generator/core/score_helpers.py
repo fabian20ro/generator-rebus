@@ -53,6 +53,12 @@ def _extract_rebus_score(clue: WorkingClue) -> int | None:
     return clue.active_version().assessment.scores.rebus_score
 
 
+def _is_preset_word(clue: WorkingClue) -> bool:
+    """Preset words (≤2 letters) are filler — never rewrite them."""
+    clue = _coerce_working_clue(clue)
+    return len(clue.word_normalized) <= 2
+
+
 def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     """Return True when a clue should be rewritten.
 
@@ -61,6 +67,8 @@ def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     because the local model prefers a synonym or a more common variant.
     """
     clue = _coerce_working_clue(clue)
+    if _is_preset_word(clue):
+        return False
     definition = clue.current.definition
     if not definition or definition.startswith("["):
         return True

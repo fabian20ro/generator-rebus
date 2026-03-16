@@ -110,7 +110,9 @@ class FetchCluesTests(unittest.TestCase):
 
 
 class RetitlePuzzleTests(unittest.TestCase):
-    def test_retitle_dry_run_skips_update(self):
+    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.generate_creative_title", return_value="Orizont Verde")
+    def test_retitle_dry_run_skips_update(self, _mock_gen, _mock_ensure):
         mock_supabase = MagicMock()
         # fetch_clues mock
         clue_query = MagicMock()
@@ -135,7 +137,9 @@ class RetitlePuzzleTests(unittest.TestCase):
         # update should NOT have been called
         mock_supabase.table.return_value.update.assert_not_called()
 
-    def test_retitle_updates_supabase(self):
+    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.generate_creative_title", return_value="Orizont Verde")
+    def test_retitle_updates_supabase(self, _mock_gen, _mock_ensure):
         mock_supabase = MagicMock()
         clue_query = MagicMock()
         mock_supabase.table.return_value.select.return_value = clue_query
@@ -230,7 +234,9 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertFalse(changed)
         mock_supabase.table.return_value.update.assert_not_called()
 
-    def test_always_replaces_fallback_title(self):
+    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.generate_creative_title", return_value="Orice Titlu Nou")
+    def test_always_replaces_fallback_title(self, _mock_gen, _mock_ensure):
         mock_supabase = self._make_supabase_mock()
         # "Sensuri Comune" is in FALLBACK_TITLES — should bypass score check
         puzzle_row = {"id": "abc", "title": "Sensuri Comune"}
