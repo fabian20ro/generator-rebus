@@ -36,36 +36,6 @@ ENGLISH_HOMOGRAPH_HINTS: dict[str, str] = {
 }
 
 
-PRESET_DEFINITIONS: dict[str, tuple[str, ...]] = {
-    "AT": (
-        "Monedă divizionară în Laos, valorând a suta parte dintr-un kip.",
-        "Element de compunere cu semnificația «sare», «ester».",
-        "Element chimic radioactiv sintetic din grupul halogenilor.",
-    ),
-    "FI": (
-        "Forma de infinitiv a verbului a exista.",
-        "Verb auxiliar folosit la formarea diatezei pasive.",
-        "A avea ființă, a exista.",
-        "A se afla, a se găsi într-un anumit loc.",
-        "A avea loc, a se întâmpla.",
-    ),
-    "OF": (
-        "Interjecție care exprimă durere sau regret.",
-        "Exclamație de amărăciune și deznădejde.",
-        "Suspin, exprimare a unei suferințe interioare.",
-        "Dorință neîmplinită, exprimată printr-un suspin.",
-        "Exclamație de mirare sau surprindere.",
-    ),
-    "OU": (
-        "Denumire populară a rotulei.",
-        "Al lui Columb — soluție surprinzător de simplă la o problemă aparent imposibilă.",
-        "Celulă rezultată din fecundarea unui ovul de către un spermatozoid.",
-        "A fi «ca» acesta înseamnă a fi foarte fragil.",
-        "Os proeminent la baza gambei, denumit popular «___ piciorului».",
-    ),
-}
-
-
 def _is_toxic_short_loanword(word: dict) -> bool:
     """Reject short foreign-looking entries that consistently poison Romanian clues.
 

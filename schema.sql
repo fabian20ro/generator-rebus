@@ -41,3 +41,19 @@ CREATE POLICY "Public read clues of published puzzles" ON crossword_clues
   FOR SELECT USING (
     puzzle_id IN (SELECT id FROM crossword_puzzles WHERE published = TRUE)
   );
+
+-- Dexonline definition cache (shared with propozitii-nostime)
+CREATE TABLE dex_definitions (
+  word TEXT PRIMARY KEY,
+  original TEXT NOT NULL,
+  html TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  fetched_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_dex_definitions_status ON dex_definitions(status);
+
+ALTER TABLE dex_definitions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read definitions" ON dex_definitions
+  FOR SELECT USING (true);

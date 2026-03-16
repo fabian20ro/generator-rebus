@@ -4,6 +4,7 @@ from __future__ import annotations
 from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.ai_clues import create_client, generate_definition
+from ..core.dex_cache import DexProvider
 from ..core.pipeline_state import (
     WorkingClue,
     WorkingPuzzle,
@@ -52,7 +53,9 @@ def _split_and_define(clues: list[ClueEntry], client: OpenAI,
     return result
 
 
-def generate_definitions_for_state(state: WorkingPuzzle, client: OpenAI) -> None:
+def generate_definitions_for_state(
+    state: WorkingPuzzle, client: OpenAI, dex: DexProvider | None = None,
+) -> None:
     theme = state.title or "Rebus Românesc"
     print(f"Theme: {theme}")
 
@@ -61,10 +64,16 @@ def generate_definitions_for_state(state: WorkingPuzzle, client: OpenAI) -> None
         for clue in clues:
             if clue.current.definition:
                 continue
-            print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'})...")
+            dex_defs = dex.get(clue.word_normalized, clue.word_original) if dex else None
+            dex_defs = dex_defs or ""
+            if dex_defs:
+                print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'}) [DEX context available]")
+            else:
+                print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'})...")
             try:
                 definition = generate_definition(
-                    client, clue.word_normalized, clue.word_original, theme, word_type=clue.word_type,
+                    client, clue.word_normalized, clue.word_original, theme,
+                    word_type=clue.word_type, dex_definitions=dex_defs,
                 )
             except Exception as e:
                 definition = f"[Definiție lipsă: {e}]"
@@ -84,7 +93,8 @@ def generate_definitions_for_puzzle(
         for clue in _all_clues(state):
             word_meta = metadata.get(clue.word_normalized, {})
             clue.word_type = word_meta.get("word_type", "")
-    generate_definitions_for_state(state, client)
+    dex = DexProvider.for_puzzle(state)
+    generate_definitions_for_state(state, client, dex=dex)
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues
@@ -98,7 +108,8 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
 
     client = create_client()
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
-    generate_definitions_for_state(state, client)
+    dex = DexProvider.for_puzzle(state)
+    generate_definitions_for_state(state, client, dex=dex)
     puzzle = puzzle_from_working_state(state)
 
     md = write_with_definitions(puzzle)

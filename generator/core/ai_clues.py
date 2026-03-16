@@ -14,7 +14,7 @@ from ..config import LMSTUDIO_BASE_URL
 from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
-from .quality import ENGLISH_HOMOGRAPH_HINTS, PRESET_DEFINITIONS
+from .quality import ENGLISH_HOMOGRAPH_HINTS
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
 
@@ -202,7 +202,7 @@ def _family_exclusion_note(word: str) -> str:
     )
 
 
-def _build_generate_prompt(display_word: str, word: str, length: int, word_type: str = "") -> str:
+def _build_generate_prompt(display_word: str, word: str, length: int, word_type: str = "", dex_definitions: str = "") -> str:
     prompt = load_user_template("generate").format(
         display_word=display_word,
         word=word,
@@ -218,6 +218,11 @@ def _build_generate_prompt(display_word: str, word: str, length: int, word_type:
             f"Sensul corect: {hint}. "
             f"NU defini ca și cum ar fi un cuvânt englezesc."
         )
+    if dex_definitions:
+        prompt += (
+            f"\nDefiniții DEX (referință):\n{dex_definitions}\n"
+            "Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus."
+        )
     prompt += _family_exclusion_note(word)
     return prompt
 
@@ -229,6 +234,7 @@ def _build_rewrite_prompt(
     feedback_text: str,
     bad_example_text: str,
     word_type: str = "",
+    dex_definitions: str = "",
 ) -> str:
     label = WORD_TYPE_LABELS.get(word_type)
     word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
@@ -246,6 +252,11 @@ def _build_rewrite_prompt(
             f"\nATENȚIE: Cuvântul {word} este în limba ROMÂNĂ. "
             f"Sensul corect: {hint}. "
             f"NU defini ca și cum ar fi un cuvânt englezesc."
+        )
+    if dex_definitions:
+        prompt += (
+            f"\nDefiniții DEX (referință):\n{dex_definitions}\n"
+            "Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus."
         )
     prompt += _family_exclusion_note(word)
     return prompt
@@ -346,14 +357,12 @@ def generate_definition(
     theme: str,
     retries: int = 3,
     word_type: str = "",
+    dex_definitions: str = "",
 ) -> str:
     """Generate a single clue definition."""
-    preset = PRESET_DEFINITIONS.get(word.upper())
-    if preset:
-        return random.choice(preset)
     display_word = original if original else word.lower()
     length = len(word)
-    prompt = _build_generate_prompt(display_word, word, length, word_type=word_type)
+    prompt = _build_generate_prompt(display_word, word, length, word_type=word_type, dex_definitions=dex_definitions)
 
     for attempt in range(retries):
         try:
@@ -397,12 +406,9 @@ def rewrite_definition(
     bad_example_definition: str = "",
     bad_example_reason: str = "",
     word_type: str = "",
+    dex_definitions: str = "",
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
-    preset = PRESET_DEFINITIONS.get(word.upper())
-    if preset:
-        alternatives = [d for d in preset if d != previous_definition]
-        return random.choice(alternatives) if alternatives else preset[0]
     display_word = original if original else word.lower()
     feedback_parts = []
     if wrong_guess:
@@ -419,7 +425,8 @@ def rewrite_definition(
             "- Nu produce ceva similar cu această definiție respinsă.\n"
         )
     prompt = _build_rewrite_prompt(
-        display_word, word, previous_definition, feedback_text, bad_example_text, word_type=word_type,
+        display_word, word, previous_definition, feedback_text, bad_example_text,
+        word_type=word_type, dex_definitions=dex_definitions,
     )
 
     for attempt in range(retries):

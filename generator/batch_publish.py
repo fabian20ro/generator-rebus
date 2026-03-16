@@ -45,7 +45,7 @@ from .core.markdown_io import (
     write_grid_template,
     write_with_definitions,
 )
-from .core.quality import PRESET_DEFINITIONS, QualityReport, filter_word_records, score_words
+from .core.quality import QualityReport, filter_word_records, score_words
 from .core.size_tuning import (
     DEFAULT_BATCH_SIZES,
     SUPPORTED_GRID_SIZES,
@@ -71,6 +71,7 @@ from .core.slot_extractor import Slot, extract_slots
 from .core.word_index import WordEntry, WordIndex
 from .core.constraint_solver import solve
 from .phases.activate import set_published
+from .core.dex_cache import DexProvider
 from .phases.define import generate_definitions_for_puzzle, generate_definitions_for_state
 from .phases.download import run as download_words
 from .phases.theme import generate_title_for_final_puzzle
@@ -374,8 +375,6 @@ def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     because the local model prefers a synonym or a more common variant.
     """
     clue = _coerce_working_clue(clue)
-    if clue.word_normalized in PRESET_DEFINITIONS:
-        return False
     definition = clue.current.definition
     if not definition or definition.startswith("["):
         return True
@@ -453,7 +452,6 @@ def _score_puzzle_state(puzzle: WorkingPuzzle, candidate_report: QualityReport |
     non_preset_rebus = [
         clue.active_version().assessment.scores.rebus_score or 0
         for clue in clues
-        if clue.word_normalized not in PRESET_DEFINITIONS
     ]
     return PuzzleAssessment(
         definition_score=sum(e + r for e, r in zip(exact_scores, rebus_scores)) / len(clues),
@@ -633,6 +631,7 @@ def _rewrite_failed_clues(
     client,
     rounds: int,
     multi_model: bool = False,
+    dex: DexProvider | None = None,
 ) -> tuple[int, int]:
     theme = puzzle.title or "Puzzle intern"
     if multi_model:
@@ -646,7 +645,7 @@ def _rewrite_failed_clues(
         print(f"  Model activ (evaluare inițială): {current_model.display_name}")
     else:
         current_model = PRIMARY_MODEL
-    preset_skip = {c.word_normalized for c in all_working_clues(puzzle) if c.word_normalized in PRESET_DEFINITIONS}
+    preset_skip: set[str] = set()
     passed, total = verify_working_puzzle(puzzle, client, skip_words=preset_skip)
     rate_working_puzzle(puzzle, client, skip_words=preset_skip)
     for clue in all_working_clues(puzzle):
@@ -660,7 +659,6 @@ def _rewrite_failed_clues(
         current_scores = [
             _extract_rebus_score(c) or 0
             for c in all_working_clues(puzzle)
-            if c.word_normalized not in PRESET_DEFINITIONS
         ]
         current_min = min(current_scores) if current_scores else 0
         min_rebus_history.append(current_min)
@@ -713,11 +711,12 @@ def _rewrite_failed_clues(
             rating_feedback = clue.current.assessment.feedback
             bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
+            dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
             try:
                 if clue.current.definition.startswith("["):
                     new_definition = generate_definition(
                         client, clue.word_normalized, clue.word_original, theme, retries=3,
-                        word_type=clue.word_type,
+                        word_type=clue.word_type, dex_definitions=dex_defs,
                     )
                 else:
                     new_definition = rewrite_definition(
@@ -731,6 +730,7 @@ def _rewrite_failed_clues(
                         bad_example_definition=bad_example_definition,
                         bad_example_reason=bad_example_reason,
                         word_type=clue.word_type,
+                        dex_definitions=dex_defs,
                     )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
@@ -811,7 +811,11 @@ def _prepare_puzzle_for_publication(
         generate_definitions_for_puzzle(puzzle, client, metadata=candidate.metadata)
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
         _inject_word_types(state, candidate.metadata)
-        passed, total = _rewrite_failed_clues(state, client, rewrite_rounds, multi_model=multi_model)
+        # Load dex definitions for rewrite rounds
+        _dex = DexProvider.for_puzzle(state)
+        passed, total = _rewrite_failed_clues(
+            state, client, rewrite_rounds, multi_model=multi_model, dex=_dex,
+        )
         _restore_best_versions(state)
         state.assessment = _score_puzzle_state(state, candidate.report)
         blockers = _blocking_clues(state)
@@ -975,7 +979,6 @@ def run_batch(
         non_preset_rebus = [
             c.active_version().assessment.scores.rebus_score or 0
             for c in all_working_clues(prepared.puzzle)
-            if c.word_normalized not in PRESET_DEFINITIONS
         ]
         min_rebus = min(non_preset_rebus) if non_preset_rebus else 10
         models_used_desc = [PRIMARY_MODEL.display_name]

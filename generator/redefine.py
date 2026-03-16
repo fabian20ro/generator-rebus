@@ -46,7 +46,7 @@ from .core.pipeline_state import (
     set_current_definition,
 )
 from .core.plateau import has_plateaued
-from .core.quality import PRESET_DEFINITIONS
+from .core.dex_cache import DexProvider
 from .phases.verify import rate_working_puzzle, verify_working_puzzle
 
 REDEFINE_ROUNDS = 7
@@ -138,6 +138,9 @@ def rewrite_puzzle_definitions(
     """
     theme = puzzle.title or "Puzzle rebus"
 
+    # Load dex definitions for all words in puzzle
+    dex = DexProvider.for_puzzle(puzzle)
+
     if multi_model:
         ensure_model_loaded(PRIMARY_MODEL)
         current_model = PRIMARY_MODEL
@@ -150,11 +153,7 @@ def rewrite_puzzle_definitions(
     else:
         current_model = PRIMARY_MODEL
 
-    preset_skip = {
-        c.word_normalized
-        for c in all_working_clues(puzzle)
-        if c.word_normalized in PRESET_DEFINITIONS
-    }
+    preset_skip: set[str] = set()
 
     verify_working_puzzle(puzzle, client, skip_words=preset_skip)
     rate_working_puzzle(puzzle, client, skip_words=preset_skip)
@@ -176,7 +175,6 @@ def rewrite_puzzle_definitions(
         current_scores = [
             _extract_rebus_score(c) or 0
             for c in all_working_clues(puzzle)
-            if c.word_normalized not in PRESET_DEFINITIONS
         ]
         current_min = min(current_scores) if current_scores else 0
         min_rebus_history.append(current_min)
@@ -208,11 +206,12 @@ def rewrite_puzzle_definitions(
             rating_feedback = clue.current.assessment.feedback
             bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
+            dex_defs = (dex.get(clue.word_normalized, clue.word_original) or "")
             try:
                 if clue.current.definition.startswith("["):
                     new_definition = generate_definition(
                         client, clue.word_normalized, clue.word_original, theme, retries=3,
-                        word_type=clue.word_type,
+                        word_type=clue.word_type, dex_definitions=dex_defs,
                     )
                 else:
                     new_definition = rewrite_definition(
@@ -226,6 +225,7 @@ def rewrite_puzzle_definitions(
                         bad_example_definition=bad_example_definition,
                         bad_example_reason=bad_example_reason,
                         word_type=clue.word_type,
+                        dex_definitions=dex_defs,
                     )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")
