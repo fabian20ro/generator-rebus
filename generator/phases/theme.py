@@ -124,10 +124,10 @@ def _try_switch_model(current_model, multi_model: bool):
     """Switch to the other model if multi_model is enabled. Returns new current_model."""
     if not multi_model or current_model is None:
         return current_model
-    from ..core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, switch_model
+    from ..core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
     next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
     try:
-        switch_model(current_model, next_model)
+        ensure_model_loaded(next_model)
         return next_model
     except Exception:
         return current_model

@@ -137,11 +137,25 @@ class TrySwitchModelTests(unittest.TestCase):
         result = _try_switch_model(None, multi_model=True)
         self.assertIsNone(result)
 
-    @patch("generator.core.model_manager.switch_model")
-    def test_returns_current_on_failure(self, mock_switch):
-        mock_switch.side_effect = RuntimeError("load failed")
+    @patch("generator.core.model_manager.ensure_model_loaded")
+    def test_returns_current_on_failure(self, mock_ensure):
+        mock_ensure.side_effect = RuntimeError("load failed")
         from generator.core.model_manager import PRIMARY_MODEL
         result = _try_switch_model(PRIMARY_MODEL, multi_model=True)
+        self.assertIs(PRIMARY_MODEL, result)
+
+    @patch("generator.core.model_manager.ensure_model_loaded")
+    def test_switches_to_secondary(self, mock_ensure):
+        from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
+        result = _try_switch_model(PRIMARY_MODEL, multi_model=True)
+        mock_ensure.assert_called_once_with(SECONDARY_MODEL)
+        self.assertIs(SECONDARY_MODEL, result)
+
+    @patch("generator.core.model_manager.ensure_model_loaded")
+    def test_switches_to_primary(self, mock_ensure):
+        from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
+        result = _try_switch_model(SECONDARY_MODEL, multi_model=True)
+        mock_ensure.assert_called_once_with(PRIMARY_MODEL)
         self.assertIs(PRIMARY_MODEL, result)
 
 

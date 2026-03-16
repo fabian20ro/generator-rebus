@@ -85,17 +85,39 @@ def unload_model(config: ModelConfig) -> None:
         print(f"[{time.strftime('%H:%M:%S')}] Model unloaded: {config.display_name}")
 
 
+def get_loaded_model_instances() -> dict[str, str]:
+    """Return {model_key: instance_id} for loaded models."""
+    try:
+        data = _get_json("/api/v1/models")
+    except Exception:
+        return {}
+    result = {}
+    for m in data.get("models", []):
+        instances = m.get("loaded_instances", [])
+        if not instances:
+            continue
+        first = instances[0]
+        if isinstance(first, dict):
+            inst_id = first.get("identifier") or first.get("id") or m["key"]
+        elif isinstance(first, str):
+            inst_id = first
+        else:
+            inst_id = m["key"]
+        result[m["key"]] = inst_id
+    return result
+
+
 def ensure_model_loaded(config: ModelConfig) -> None:
-    loaded = get_loaded_models()
-    if config.model_id in loaded:
+    instances = get_loaded_model_instances()
+    if config.model_id in instances:
         print(f"[{time.strftime('%H:%M:%S')}] Model already active: {config.display_name}")
         return
-    for other_id in loaded:
-        print(f"[{time.strftime('%H:%M:%S')}] Unloading unexpected model: {other_id}")
+    for model_key, inst_id in instances.items():
+        print(f"[{time.strftime('%H:%M:%S')}] Unloading model: {model_key} (instance: {inst_id})")
         try:
-            _post_json("/api/v1/models/unload", {"instance_id": other_id})
+            _post_json("/api/v1/models/unload", {"instance_id": inst_id})
         except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
-            print(f"  Unload skipped ({other_id}): {e}")
+            print(f"  Unload skipped ({model_key}): {e}")
         time.sleep(2)
     load_model(config)
 

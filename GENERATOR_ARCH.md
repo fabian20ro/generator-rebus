@@ -40,6 +40,36 @@ retitle.main(--date | --puzzle-id | --all-fallbacks)
             │  writes new title back to Supabase
 ```
 
+## Entry Point 3: Redefine Existing Puzzles
+
+```
+redefine.main(--date | --puzzle-id | --all | --dry-run | --rounds=7)
+  │
+  │  Fetch puzzle rows from Supabase
+  │  ai_client = create_client()
+  │  if multi_model: ensure_model_loaded(PRIMARY_MODEL)
+  │
+  └─ for each puzzle_row:
+       clues = fetch from crossword_clues
+       state = build WorkingPuzzle from DB rows
+       │
+       ├─ verify_working_puzzle(state, client)     # temp=0.0
+       ├─ rate_working_puzzle(state, client)        # temp=0.0
+       │
+       └─ for round in 1..7:                       # --rounds (default 7)
+            │  Select candidates: semantic < 7 or rebus < min+1
+            │  Skip preset and stuck words
+            │  Rewrite each candidate              # temp=0.3
+            │  if multi_model: switch model
+            │  Re-verify + re-rate changed clues
+            │  Update best versions
+            │  Plateau detection (lookback=7)
+            │
+            └─ Restore best versions
+               Compare old vs new per clue
+               Update crossword_clues.definition in Supabase (unless --dry-run)
+```
+
 ---
 
 ## Batch Publish Pipeline (one invocation)
@@ -297,6 +327,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
 | `PLATEAU_LOOKBACK` | 7 | batch_publish | Rounds without improvement → stop |
 | `MAX_CONSECUTIVE_FAILURES` | 5 | batch_publish | Same clue failing → mark stuck |
 | `PUZZLE_TIEBREAK_DELTA` | 0.25 | batch_publish | Score gap needed to skip LLM tiebreak |
+| `REDEFINE_ROUNDS` | 7 | redefine | Default rewrite rounds for definition improvement |
 
 ---
 
