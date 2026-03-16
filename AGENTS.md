@@ -1,22 +1,50 @@
-# AGENTS.md — Generator Rebus
+# AGENTS.md
 
-## Non-Discoverable Constraints
+work style: telegraph; noun-phrases ok; drop grammar; min tokens.
 
-- **Never blocklist Romanian words** — use softer alternatives (quality scoring, definability thresholds, rarity penalties). Blocklisting words is a slippery slope that makes the generator worse over time.
-- **Dev server**: LM Studio assumed running locally at `http://localhost:1234`.
-- **Two-model workflow**: gpt-oss-20b and eurollm-22b alternate across rewrite rounds. Models are loaded/unloaded via LM Studio REST API. Do not assume a single model.
+> bootstrap context only. discoverable from codebase → don't put here.
+> corrections + patterns → LESSONS_LEARNED.md.
 
-## Files for Context
+## Constraints
 
-- [GENERATOR_ARCH.md](GENERATOR_ARCH.md) — **start here**: full pipeline pseudocode, randomness map, temperature table, quality gate thresholds, and rationale for non-obvious design choices. Read before proposing changes to the generation pipeline. Keep updated when pipeline logic changes.
-- [LESSONS_LEARNED.md](LESSONS_LEARNED.md) — known pitfalls, failure modes, and their solutions
-- [ITERATION_LOG.md](ITERATION_LOG.md) — recent changes, decisions, and outcomes
+<!-- non-obvious, needed BEFORE exploring. keep minimal. -->
+- **never blocklist Romanian words** — softer alternatives (quality scoring, definability thresholds, rarity penalties). blocklisting = slippery slope.
+- **dev server**: LM Studio running locally `http://localhost:1234`.
+- **two-model workflow**: gpt-oss-20b + eurollm-22b alternate rewrite rounds. models loaded/unloaded via LM Studio REST API. never assume single model.
+
+## Legacy & Deprecated
+
+<!-- codebase parts that actively mislead. -->
+
+## Learning System
+
+Every session:
+1. start: read `LESSONS_LEARNED.md`
+2. during: note surprises
+3. end: append `ITERATION_LOG.md`
+4. reusable insight? → also add `LESSONS_LEARNED.md`
+5. same issue 2+ times in log? → promote to `LESSONS_LEARNED.md`
+6. surprise? → flag to developer (they decide: fix codebase / update LESSONS_LEARNED / adjust this file)
+
+| File | Purpose | Write When |
+|------|---------|------------|
+| `LESSONS_LEARNED.md` | curated wisdom + corrections | reusable insight gained |
+| `ITERATION_LOG.md` | raw session journal, append-only | every iteration |
+
+Rules: never delete from ITERATION_LOG. Obsolete lessons → Archive in LESSONS_LEARNED. Date-stamp YYYY-MM-DD. When in doubt: log it.
+
+### Periodic Maintenance
+Config files audited periodically via `SETUP_AI_AGENT_CONFIG.md`.
+See "Periodic Maintenance Protocol" section.
 
 ## Sub-Agents
 
-| Agent | Scope | When to Use |
-|-------|-------|-------------|
-| `romanian-crossword-expert` | Romanian linguistics, morphology, definition quality | Validating word families, prefix/suffix analysis, crossword conventions |
-| `architect` | System design, pipeline architecture | Structural changes, new pipeline phases, performance decisions |
-| `planner` | Implementation planning | Complex features, multi-file changes, refactoring |
-| `agent-creator` | Creating/updating agent definitions | New agents, rewriting agent files to follow structure |
+`.claude/agents/`. Invoke proactively.
+
+| Agent | File | When |
+|-------|------|------|
+| Romanian Crossword Expert | `.claude/agents/romanian-crossword-expert.md` | Romanian linguistics, morphology, definition quality |
+| Architect | `.claude/agents/architect.md` | system design, pipeline architecture, ADRs |
+| Planner | `.claude/agents/planner.md` | complex multi-step — plan before code |
+| UX Expert | `.claude/agents/ux-expert.md` | UI, interaction, a11y (frontend) |
+| Agent Creator | `.claude/agents/agent-creator.md` | new agent needed for recurring domain |
