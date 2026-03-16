@@ -33,6 +33,7 @@ export function revealLetter(
   if (answer) {
     spendPoints(cost);
     state.cells[state.activeRow][state.activeCol] = answer;
+    state.revealed[state.activeRow][state.activeCol] = true;
     return { success: true, cost };
   }
   return { success: false, reason: "no_selection" };
@@ -59,6 +60,7 @@ export function revealWord(
     const answer = state.solution[r][c];
     if (answer) {
       state.cells[r][c] = answer;
+      state.revealed[r][c] = true;
     }
   }
   return { success: true, cost };

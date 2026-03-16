@@ -31,6 +31,18 @@
   gap: 0;
 }
 
+.progress-counter {
+  font-size: 0.8rem;
+  color: #999;
+  text-align: center;
+  margin-bottom: 4px;
+  min-height: 1.2em;
+}
+
+.progress-counter:empty {
+  display: none;
+}
+
 .grid {
   display: grid;
   gap: 1px;
@@ -150,7 +162,17 @@
 
 .clue-item--complete {
   text-decoration: line-through;
-  color: #999;
+  color: #595959;
+}
+
+/* Pencil mode */
+.cell--pencil .cell__input {
+  color: #93c5fd;
+}
+
+.btn-pencil--active {
+  background: #2563eb;
+  color: white;
 }
 
 /* Font scaler controls */

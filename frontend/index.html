@@ -30,6 +30,7 @@
     <main>
       <!-- Puzzle selector -->
       <div id="puzzle-selector" class="panel">
+        <div id="difficulty-filter" class="difficulty-filter"></div>
         <div id="puzzle-list" class="puzzle-list">
           <p class="loading">Se încarcă...</p>
         </div>
@@ -43,8 +44,9 @@
         <div class="puzzle-layout">
           <div class="grid-container">
             <!-- Active definition bar -->
-            <div id="definition-bar" class="definition-bar definition-bar--empty"></div>
-            <div id="grid" class="grid"></div>
+            <div id="definition-bar" class="definition-bar definition-bar--empty" aria-live="polite"></div>
+            <span id="progress-counter" class="progress-counter"></span>
+            <div id="grid" class="grid" role="grid" aria-label="Grilă rebus"></div>
             <div class="toolbar">
               <button id="btn-check" class="btn btn-hint" title="Verifică răspunsurile">
                 <span class="btn-hint__label">Verifică</span>
@@ -58,17 +60,17 @@
                 <span class="btn-hint__label">Cuvânt</span>
                 <span class="btn-hint__cost" id="hint-word-cost"></span>
               </button>
-
+              <button id="btn-pencil" class="btn btn-pencil" title="Mod creion">✏️</button>
             </div>
           </div>
           <div class="clues-container">
             <div class="clue-section">
               <h3>Orizontal</h3>
-              <ol id="clues-horizontal" class="clue-list"></ol>
+              <ol id="clues-horizontal" class="clue-list" aria-label="Indicii orizontale"></ol>
             </div>
             <div class="clue-section">
               <h3>Vertical</h3>
-              <ol id="clues-vertical" class="clue-list"></ol>
+              <ol id="clues-vertical" class="clue-list" aria-label="Indicii verticale"></ol>
             </div>
           </div>
         </div>

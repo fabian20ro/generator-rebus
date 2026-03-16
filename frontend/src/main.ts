@@ -12,7 +12,8 @@ import {
 } from "./db/puzzle-repository";
 import {
   createGridState,
-  renderGrid,
+  createGrid,
+  updateGrid,
   focusCell,
   type GridState,
 } from "./components/grid-renderer";
@@ -22,7 +23,7 @@ import {
   handleCellInput,
   handleKeyDown,
 } from "./components/input-handler";
-import { renderPuzzleList } from "./components/puzzle-selector";
+import { renderPuzzleList, renderDifficultyFilter } from "./components/puzzle-selector";
 import {
   revealLetter,
   revealWord,
@@ -51,6 +52,10 @@ import {
 } from "./gamification/scoring";
 import { evaluateBadges } from "./gamification/badges";
 import { applySavedFontSize, initFontScaler } from "./components/font-scaler";
+import { formatTime } from "./utils/format-time";
+import { debounce } from "./utils/debounce";
+import { UndoStack } from "./utils/undo-stack";
+import { showTutorialIfNeeded } from "./components/tutorial";
 import confetti from "canvas-confetti";
 
 // --- DOM elements ---
@@ -59,6 +64,7 @@ const puzzleList = document.getElementById("puzzle-list")!;
 const puzzleView = document.getElementById("puzzle-view")!;
 const puzzleTitle = document.getElementById("puzzle-title")!;
 const gridContainer = document.getElementById("grid")!;
+const progressCounter = document.getElementById("progress-counter")!;
 const cluesH = document.getElementById("clues-horizontal")!;
 const cluesV = document.getElementById("clues-vertical")!;
 const btnCheck = document.getElementById("btn-check")!;
@@ -75,6 +81,7 @@ const hintLetterCostEl = document.getElementById("hint-letter-cost")!;
 const hintWordCostEl = document.getElementById("hint-word-cost")!;
 const completionDetails = document.getElementById("completion-details")!;
 const navTabs = document.getElementById("nav-tabs")!;
+const btnPencil = document.getElementById("btn-pencil")!;
 
 // --- State ---
 let gridState: GridState | null = null;
@@ -83,8 +90,18 @@ let currentDifficulty = 1;
 let currentGridSize = 10;
 let puzzleStartTime = 0;
 let hintsUsedCount = 0;
+let pencilMode = false;
+
+// --- Undo/Redo ---
+const cellHistory = new UndoStack<(string | null)[][]>(50);
+
+function deepCopyCells(cells: (string | null)[][]): (string | null)[][] {
+  return cells.map((row) => [...row]);
+}
 
 // --- Progress persistence ---
+const debouncedSaveProgress = debounce(() => saveCurrentProgress(), 500);
+
 function saveCurrentProgress(): void {
   if (!currentPuzzleId || !gridState) return;
   if (isPuzzleAlreadySolved(currentPuzzleId)) return;
@@ -94,6 +111,8 @@ function saveCurrentProgress(): void {
   );
   saveProgress(currentPuzzleId, {
     cells: cleanCells,
+    revealed: gridState.revealed,
+    pencilCells: gridState.pencilCells,
     hintsUsed: hintsUsedCount,
     elapsedSeconds: elapsed,
     savedAt: new Date().toISOString(),
@@ -143,46 +162,124 @@ navTabs.addEventListener("click", (e) => {
   showTab(btn.dataset.tab as "puzzles" | "stats");
 });
 
+// --- Grid callback helpers (defined once, always reference current gridState) ---
+function onGridCellClick(row: number, col: number): void {
+  handleCellClick(gridState!, row, col);
+  refresh();
+  focusCell(gridContainer, row, col);
+}
+
+function onGridCellInput(row: number, col: number, value: string): void {
+  cellHistory.push(deepCopyCells(gridState!.cells));
+  handleCellInput(gridState!, row, col, value);
+  if (value) {
+    gridState!.pencilCells[row][col] = pencilMode;
+  }
+  refresh();
+  focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
+  debouncedSaveProgress();
+  if (isPuzzleComplete(gridState!)) {
+    handleCompletion();
+  }
+}
+
+function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
+  // Undo/Redo shortcuts
+  if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+    e.preventDefault();
+    const prev = cellHistory.undo();
+    if (prev && gridState) {
+      gridState.cells = prev;
+      refresh();
+    }
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === "y") {
+    e.preventDefault();
+    const next = cellHistory.redo();
+    if (next && gridState) {
+      gridState.cells = next;
+      refresh();
+    }
+    return;
+  }
+
+  // Push undo state before letter keys, backspace, delete
+  const isMutating =
+    e.key === "Backspace" ||
+    e.key === "Delete" ||
+    (e.key.length === 1 && /^[A-Za-z]$/.test(e.key));
+  if (isMutating && gridState) {
+    cellHistory.push(deepCopyCells(gridState.cells));
+  }
+
+  const handled = handleKeyDown(gridState!, row, col, e);
+  if (handled) {
+    // Set pencil mode for letter key overwrites
+    if (
+      e.key.length === 1 &&
+      /^[A-Za-z]$/.test(e.key) &&
+      gridState
+    ) {
+      gridState.pencilCells[row][col] = pencilMode;
+    }
+    refresh();
+    focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
+    debouncedSaveProgress();
+  }
+}
+
+function onClueClick(clue: Clue): void {
+  gridState!.activeRow = clue.start_row;
+  gridState!.activeCol = clue.start_col;
+  gridState!.activeDirection = clue.direction;
+  refresh();
+  focusCell(gridContainer, clue.start_row, clue.start_col);
+}
+
+/** Whether createGrid has been called for the current puzzle. */
+let gridInitialised = false;
+
 // --- Re-render the grid, clues, and definition bar ---
 function refresh(): void {
   if (!gridState) return;
 
-  renderGrid(
-    gridContainer,
-    gridState,
-    (row, col) => {
-      handleCellClick(gridState!, row, col);
-      refresh();
-      focusCell(gridContainer, row, col);
-    },
-    (row, col, value) => {
-      handleCellInput(gridState!, row, col, value);
-      refresh();
-      focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
-      saveCurrentProgress();
-      if (isPuzzleComplete(gridState!)) {
-        handleCompletion();
-      }
-    },
-    (row, col, e) => {
-      const handled = handleKeyDown(gridState!, row, col, e);
-      if (handled) {
-        refresh();
-        focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
-        saveCurrentProgress();
-      }
-    }
-  );
+  if (!gridInitialised) {
+    createGrid(
+      gridContainer,
+      gridState,
+      onGridCellClick,
+      onGridCellInput,
+      onGridKeyDown
+    );
+    gridInitialised = true;
+  } else {
+    updateGrid(gridContainer, gridState);
+  }
 
-  renderClues(cluesH, cluesV, gridState, (clue: Clue) => {
-    gridState!.activeRow = clue.start_row;
-    gridState!.activeCol = clue.start_col;
-    gridState!.activeDirection = clue.direction;
-    refresh();
-    focusCell(gridContainer, clue.start_row, clue.start_col);
-  });
+  renderClues(cluesH, cluesV, gridState, onClueClick);
 
   renderDefinitionBar(definitionBar, gridState);
+
+  // Update progress counter
+  updateProgressCounter(gridState);
+}
+
+function updateProgressCounter(state: GridState): void {
+  let filled = 0;
+  let total = 0;
+  for (let r = 0; r < state.size; r++) {
+    for (let c = 0; c < state.size; c++) {
+      if (state.template[r][c]) {
+        total++;
+        const v = state.cells[r][c];
+        if (v !== null && v !== "#") {
+          filled++;
+        }
+      }
+    }
+  }
+  progressCounter.textContent = `${filled}/${total}`;
 }
 
 // --- Completion handler ---
@@ -258,50 +355,50 @@ function handleCompletion(): void {
   confetti({ particleCount: 80, spread: 70, origin: { x: 0.7, y: 0.6 } });
 }
 
-function formatTime(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}m ${s}s`;
-  }
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
-}
 
 // --- Load a puzzle ---
 async function loadPuzzle(id: string): Promise<void> {
   try {
-    const data: PuzzleDetail = await getPuzzle(id);
+    // Fetch puzzle and solution in parallel
+    const [puzzleResult, solutionResult] = await Promise.allSettled([
+      getPuzzle(id),
+      getSolution(id),
+    ]);
+
+    if (puzzleResult.status === "rejected") {
+      throw puzzleResult.reason;
+    }
+    const data: PuzzleDetail = puzzleResult.value;
     const template: boolean[][] = JSON.parse(data.puzzle.grid_template);
 
     gridState = createGridState(data.puzzle.grid_size, template, data.clues);
+    gridInitialised = false; // force createGrid on next refresh
+    cellHistory.clear();
     currentPuzzleId = id;
     currentDifficulty = data.puzzle.difficulty;
     currentGridSize = data.puzzle.grid_size;
     puzzleStartTime = Date.now();
     hintsUsedCount = 0;
 
+    // Attach solution if available (hints require it)
+    if (solutionResult.status === "fulfilled") {
+      gridState.solution = JSON.parse(solutionResult.value.solution);
+    }
+
     // Restore saved progress if available
     const saved = isPuzzleAlreadySolved(id) ? null : loadProgress(id);
     if (saved && saved.cells.length === gridState.size &&
         saved.cells.every((row) => row.length === gridState!.size)) {
       gridState.cells = saved.cells;
+      if (saved.revealed && saved.revealed.length === gridState.size) {
+        gridState.revealed = saved.revealed;
+      }
+      if (saved.pencilCells && saved.pencilCells.length === gridState.size) {
+        gridState.pencilCells = saved.pencilCells;
+      }
       hintsUsedCount = saved.hintsUsed;
       puzzleStartTime = Date.now() - saved.elapsedSeconds * 1000;
     }
-
-    // Load solution in background
-    getSolution(id)
-      .then((sol) => {
-        if (gridState) {
-          gridState.solution = JSON.parse(sol.solution);
-        }
-      })
-      .catch(() => {
-        // Solution not available — hints won't work
-      });
 
     puzzleTitle.textContent = data.puzzle.title || "Rebus";
     puzzleSelector.classList.add("hidden");
@@ -340,11 +437,17 @@ async function showPuzzleList(): Promise<void> {
   statsPanel.classList.add("hidden");
   puzzleSelector.classList.remove("hidden");
   puzzleTitle.textContent = "";
+  progressCounter.textContent = "";
   navTabs.classList.remove("hidden");
   btnBack.classList.add("hidden");
 
+  const difficultyFilterEl = document.getElementById("difficulty-filter")!;
+
   try {
     const puzzles = await listPuzzles();
+    renderDifficultyFilter(difficultyFilterEl, () => {
+      renderPuzzleList(puzzleList, puzzles, loadPuzzle);
+    });
     renderPuzzleList(puzzleList, puzzles, loadPuzzle);
   } catch (err) {
     console.error("Failed to load puzzle list:", err);
@@ -433,6 +536,11 @@ btnCloseModal.addEventListener("click", () => {
   completionModal.classList.add("hidden");
 });
 
+btnPencil.addEventListener("click", () => {
+  pencilMode = !pencilMode;
+  btnPencil.classList.toggle("btn-pencil--active", pencilMode);
+});
+
 // --- PWA: check for service worker updates every 3 minutes ---
 import { registerSW } from "virtual:pwa-register";
 
@@ -459,3 +567,4 @@ applySavedFontSize();
 initFontScaler(document.querySelector(".clues-container")!);
 updatePointsDisplay();
 showPuzzleList();
+showTutorialIfNeeded();

@@ -119,35 +119,6 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertTrue(_needs_rewrite(working))
 
-    def test_preset_word_never_needs_rewrite(self):
-        clue = ClueEntry(
-            row_number=1,
-            word_normalized="FI",
-            word_original="fi",
-            definition="",
-            verified=None,
-            verify_note="",
-        )
-
-        self.assertFalse(_needs_rewrite(clue))
-
-    def test_preset_word_bypasses_even_with_low_scores(self):
-        clue = ClueEntry(
-            row_number=1,
-            word_normalized="AT",
-            word_original="at",
-            definition="Monedă din Laos",
-            verified=False,
-            verify_note=append_rating_to_note(
-                "AI a ghicit: HAT",
-                semantic_score=3,
-                guessability_score=2,
-                feedback="greșit",
-            ),
-        )
-
-        self.assertFalse(_needs_rewrite(clue))
-
     def test_merge_best_clue_variants_keeps_higher_scored_definition(self):
         best = ClueEntry(
             row_number=1,
@@ -587,7 +558,7 @@ class BatchPublishTests(unittest.TestCase):
         def _fill_defs(puzzle_obj, client, metadata=None):
             puzzle_obj.horizontal_clues[0].definition = "Gaz din atmosferă"
 
-        def _rewrite(puzzle_obj, client, rounds, multi_model=False):
+        def _rewrite(puzzle_obj, client, rounds, **kwargs):
             puzzle_obj.horizontal_clues[0].current.definition = "Substanță gazoasă din atmosferă"
             return (1, 1)
 

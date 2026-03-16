@@ -130,25 +130,24 @@ export function evaluateBadges(data: PlayerData): EarnedBadge[] {
         }
         break;
 
-      // Milestones
+      // Milestones — data-driven to avoid repetitive cases
       case "solved_1":
-        if (count >= 1) { isEarned = true; earnedAt = solved[0].completedAt; }
-        break;
       case "solved_2":
-        if (count >= 2) { isEarned = true; earnedAt = solved[1].completedAt; }
-        break;
       case "solved_5":
-        if (count >= 5) { isEarned = true; earnedAt = solved[4].completedAt; }
-        break;
       case "solved_10":
-        if (count >= 10) { isEarned = true; earnedAt = solved[9].completedAt; }
-        break;
       case "solved_20":
-        if (count >= 20) { isEarned = true; earnedAt = solved[19].completedAt; }
+      case "solved_50": {
+        const MILESTONES: Record<string, number> = {
+          solved_1: 1, solved_2: 2, solved_5: 5,
+          solved_10: 10, solved_20: 20, solved_50: 50,
+        };
+        const target = MILESTONES[badge.id];
+        if (target && count >= target) {
+          isEarned = true;
+          earnedAt = solved[target - 1].completedAt;
+        }
         break;
-      case "solved_50":
-        if (count >= 50) { isEarned = true; earnedAt = solved[49].completedAt; }
-        break;
+      }
 
       // Special
       case "no_hints":

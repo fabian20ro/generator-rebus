@@ -5,6 +5,8 @@
 
 export interface PuzzleProgress {
   cells: (string | null)[][];
+  revealed?: boolean[][];
+  pencilCells?: boolean[][];
   hintsUsed: number;
   elapsedSeconds: number;
   savedAt: string;
