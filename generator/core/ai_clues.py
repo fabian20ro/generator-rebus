@@ -11,119 +11,10 @@ from dataclasses import dataclass
 from openai import OpenAI
 
 from ..config import LMSTUDIO_BASE_URL
+from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
 from .quality import ENGLISH_HOMOGRAPH_HINTS, PRESET_DEFINITIONS
-
-
-DEFINITION_SYSTEM_PROMPT = (
-    "Ești autor de definiții de rebus în limba română.\n"
-    "IMPORTANT: Toate cuvintele sunt exclusiv în limba ROMÂNĂ. "
-    "Chiar dacă arată ca un cuvânt englezesc, definește-l DOAR cu sensul românesc.\n"
-    "Reguli:\n"
-    "- Răspunzi cu o singură definiție scurtă.\n"
-    "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
-    "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
-    "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n"
-    "- Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.\n"
-    "- Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]\n"
-    "- Preferi definiții precise, naturale, maxim 12 cuvinte.\n"
-    "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.\n"
-    "- Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].\n"
-    "Exemple corecte:\n"
-    "OS -> Țesut dur al scheletului\n"
-    "AN -> Unitate de timp egală cu 12 luni\n"
-    "OF -> Interjecție care exprimă durere sau regret\n"
-    "IN -> Plantă textilă cu flori albastre\n"
-    "AT -> Domeniul online al Austriei\n"
-    "AI -> Formă a verbului a avea\n"
-    "FAR -> Lumină de semnalizare pe coastă\n"
-    "CLOU -> Moment culminant\n"
-    "Contra-exemple (GREȘIT - sensuri englezești):\n"
-    "AN -> Articol nehotărât [GREȘIT]\n"
-    "OF -> Prepoziție de posesie [GREȘIT]\n"
-    "IN -> Prepoziție de loc [GREȘIT]\n"
-    "AT -> Prepoziție de loc [GREȘIT]"
-)
-
-REWRITE_SYSTEM_PROMPT = (
-    "Ești editor de definiții de rebus în limba română.\n"
-    "IMPORTANT: Definește cuvintele DOAR cu sensul lor românesc, nu englezesc.\n"
-    "Reguli:\n"
-    "- Răspunzi doar cu definiția finală.\n"
-    "- Tot textul este exclusiv în română. Nu folosești engleză.\n"
-    "- Nu incluzi răspunsul și nici derivate evidente ale lui.\n"
-    "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n"
-    "- Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.\n"
-    "- Fă definiția mai precisă decât cea veche.\n"
-    "- Max 12 cuvinte.\n"
-    "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]"
-)
-
-VERIFY_SYSTEM_PROMPT = (
-    "Ești rezolvitor de rebusuri românești.\n"
-    "Reguli:\n"
-    "- Răspunzi cu un singur cuvânt, fără explicații.\n"
-    "- Gândești și răspunzi exclusiv în română.\n"
-    "- Dacă primul cuvânt care îți vine este în engleză, îl traduci mental și răspunzi în română.\n"
-    "- Dacă definiția indică o abreviere, un simbol, un domeniu internet, o interjecție sau o formă gramaticală, răspunzi exact cu forma scurtă cerută.\n"
-    "- Nu reformulezi definiția.\n"
-    "- Nu răspunzi cu propoziții.\n"
-    "- Nu incluzi taguri, marcaje tehnice sau caractere speciale.\n"
-    "- Răspunsul conține doar litere românești.\n"
-    "Exemple:\n"
-    "Definiție: Domeniul online al Austriei\n"
-    "Răspuns: AT\n"
-    "Definiție: Țesut dur al scheletului\n"
-    "Răspuns: OS\n"
-    "Definiție: Formă a verbului a avea\n"
-    "Răspuns: AI\n"
-    "Definiție: Substanță gazoasă pe care o respirăm\n"
-    "Răspuns: AER"
-)
-
-RATE_SYSTEM_PROMPT = (
-    "Evaluezi o definiție de rebus pe scara 1-10.\n"
-    "Întorci trei scoruri distincte:\n"
-    "- semantic_score: cât de corectă și onestă este definiția pentru răspunsul dat\n"
-    "- guessability_score: cât de probabil este ca un rezolvitor să dea exact răspunsul cerut, de exact lungimea indicată, nu un sinonim mai comun\n"
-    "- creativity_score: cât de ingenios exploatează definiția un joc de domenii sau o "
-    "ambiguitate surprinzătoare — o definiție directă de dicționar primește 3-4, "
-    "o perifrază care face rezolvitorul să se gândească inițial la alt domeniu "
-    "primește 8-10 (ex: RIAL -> \"Se plătește la șah\" = surpriză domeniu)\n"
-    "Criterii:\n"
-    "- dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici\n"
-    "- dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic\n"
-    "- dacă e precisă și scurtă: scoruri mari\n"
-    "- dacă e banală dar corectă: semantic mediu, guessability mediu sau mic\n"
-    "- nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun\n"
-    "- feedback-ul este exclusiv în română, scurt și concret\n"
-    "Răspunzi STRICT JSON: "
-    "{\"semantic_score\": <1-10>, \"guessability_score\": <1-10>, \"creativity_score\": <1-10>, \"feedback\": \"<motiv scurt>\"}"
-)
-
-CLUE_TIEBREAKER_SYSTEM_PROMPT = (
-    "Compari două definiții de rebus românești pentru același răspuns.\n"
-    "Alegi varianta mai bună pentru un rebus românesc.\n"
-    "Criterii, în ordine:\n"
-    "- text exclusiv în română\n"
-    "- să nu folosească aceeași familie lexicală cu răspunsul\n"
-    "- să fie exactă pentru răspunsul intenționat\n"
-    "- să ducă mai probabil la răspunsul exact, nu la un sinonim\n"
-    "- la calitate egală, preferă varianta mai scurtă\n"
-    "Răspunzi strict cu A sau B."
-)
-
-PUZZLE_TIEBREAKER_SYSTEM_PROMPT = (
-    "Compari două variante de rebus românesc aproape egale ca scor.\n"
-    "Alegi varianta mai bună pentru publicare.\n"
-    "Criterii:\n"
-    "- definiții mai naturale în română\n"
-    "- fără familie lexicală evidentă între răspuns și definiție\n"
-    "- vocabular mai prietenos, mai puțin obscur\n"
-    "- potențial mai bun de coeziune și titlu final\n"
-    "Răspunzi strict cu A sau B."
-)
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
 
@@ -312,18 +203,14 @@ def _family_exclusion_note(word: str) -> str:
 
 
 def _build_generate_prompt(display_word: str, word: str, length: int, word_type: str = "") -> str:
-    prompt = (
-        f"Cuvânt: {display_word}\n"
-        f"Formă normalizată: {word}\n"
-        f"Lungime: {length}\n"
+    prompt = load_user_template("generate").format(
+        display_word=display_word,
+        word=word,
+        length=length,
     )
     label = WORD_TYPE_LABELS.get(word_type)
     if label:
-        prompt += f"Categorie gramaticală: {label}\n"
-    prompt += (
-        "\nScrie o definiție de rebus scurtă și exactă. "
-        "Răspunde doar cu definiția."
-    )
+        prompt = prompt.replace(f"Lungime: {length}", f"Lungime: {length}\nCategorie gramaticală: {label}")
     hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
     if hint:
         prompt += (
@@ -343,19 +230,15 @@ def _build_rewrite_prompt(
     bad_example_text: str,
     word_type: str = "",
 ) -> str:
-    header = (
-        f"Răspuns corect: {display_word}\n"
-        f"Formă normalizată: {word}\n"
-    )
     label = WORD_TYPE_LABELS.get(word_type)
-    if label:
-        header += f"Categorie gramaticală: {label}\n"
-    prompt = (
-        f"{header}"
-        f"Definiția anterioară: {previous_definition}\n"
-        f"{feedback_text}\n"
-        f"{bad_example_text}\n"
-        "Rescrie definiția mai precis și mai scurt."
+    word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
+    prompt = load_user_template("rewrite").format(
+        display_word=display_word,
+        word=word,
+        word_type_line=word_type_line,
+        previous_definition=previous_definition,
+        feedback_text=feedback_text,
+        bad_example_text=bad_example_text,
     )
     hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
     if hint:
@@ -369,45 +252,37 @@ def _build_rewrite_prompt(
 
 
 def _build_verify_prompt(definition: str, answer_length: int) -> str:
-    return (
-        f"Definiție: {definition}\n"
-        f"Lungime răspuns: {answer_length}\n"
-        "Răspuns:"
+    return load_user_template("verify").format(
+        definition=definition,
+        answer_length=answer_length,
     )
 
 
 def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int, word_type: str = "") -> str:
-    header = (
-        f"Cuvânt-răspuns: {display_word}\n"
-        f"Formă normalizată: {word}\n"
-        f"Lungime răspuns: {answer_length}\n"
-    )
     label = WORD_TYPE_LABELS.get(word_type)
-    if label:
-        header += f"Categorie gramaticală: {label}\n"
-    return (
-        f"{header}"
-        f"Definiție: {definition}\n\n"
-        "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. "
-        "Răspunde STRICT cu JSON."
+    word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
+    return load_user_template("rate").format(
+        display_word=display_word,
+        word=word,
+        answer_length=answer_length,
+        word_type_line=word_type_line,
+        definition=definition,
     )
 
 
 def _build_clue_tiebreak_prompt(word: str, answer_length: int, definition_a: str, definition_b: str) -> str:
-    return (
-        f"Răspuns: {word}\n"
-        f"Lungime: {answer_length}\n"
-        f"Varianta A: {definition_a}\n"
-        f"Varianta B: {definition_b}\n\n"
-        "Alege varianta mai bună."
+    return load_user_template("clue_tiebreak").format(
+        word=word,
+        answer_length=answer_length,
+        definition_a=definition_a,
+        definition_b=definition_b,
     )
 
 
 def _build_puzzle_tiebreak_prompt(summary_a: str, summary_b: str) -> str:
-    return (
-        f"Varianta A:\n{summary_a}\n\n"
-        f"Varianta B:\n{summary_b}\n\n"
-        "Alege varianta mai bună."
+    return load_user_template("puzzle_tiebreak").format(
+        summary_a=summary_a,
+        summary_b=summary_b,
     )
 
 
@@ -485,7 +360,7 @@ def generate_definition(
             response = client.chat.completions.create(
                 model="default",
                 messages=[
-                    {"role": "system", "content": DEFINITION_SYSTEM_PROMPT},
+                    {"role": "system", "content": load_system_prompt("definition")},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
@@ -552,7 +427,7 @@ def rewrite_definition(
             response = client.chat.completions.create(
                 model="default",
                 messages=[
-                    {"role": "system", "content": REWRITE_SYSTEM_PROMPT},
+                    {"role": "system", "content": load_system_prompt("rewrite")},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
@@ -586,7 +461,7 @@ def verify_definition(client: OpenAI, definition: str, answer_length: int) -> st
         response = client.chat.completions.create(
             model="default",
             messages=[
-                {"role": "system", "content": VERIFY_SYSTEM_PROMPT},
+                {"role": "system", "content": load_system_prompt("verify")},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
@@ -621,7 +496,7 @@ def rate_definition(
             response = client.chat.completions.create(
                 model="default",
                 messages=[
-                    {"role": "system", "content": RATE_SYSTEM_PROMPT},
+                    {"role": "system", "content": load_system_prompt("rate")},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
@@ -668,7 +543,7 @@ def choose_better_clue_variant(
         response = client.chat.completions.create(
             model="default",
             messages=[
-                {"role": "system", "content": CLUE_TIEBREAKER_SYSTEM_PROMPT},
+                {"role": "system", "content": load_system_prompt("clue_tiebreaker")},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
@@ -689,7 +564,7 @@ def choose_better_puzzle_variant(
         response = client.chat.completions.create(
             model="default",
             messages=[
-                {"role": "system", "content": PUZZLE_TIEBREAKER_SYSTEM_PROMPT},
+                {"role": "system", "content": load_system_prompt("puzzle_tiebreaker")},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
