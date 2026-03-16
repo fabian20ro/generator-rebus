@@ -24,6 +24,8 @@ CREATE TABLE crossword_clues (
   word_original VARCHAR(50) NOT NULL,
   clue_number SMALLINT NOT NULL,
   definition TEXT NOT NULL,
+  verify_note TEXT NOT NULL DEFAULT '',
+  verified BOOLEAN NOT NULL DEFAULT FALSE,
   UNIQUE (puzzle_id, direction, start_row, start_col)
 );
 

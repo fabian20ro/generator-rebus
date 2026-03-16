@@ -9,7 +9,7 @@ import sys
 
 from supabase import create_client as create_supabase_client
 
-from .batch_publish import (
+from .core.score_helpers import (
     LOCKED_REBUS,
     LOCKED_SEMANTIC,
     MAX_CONSECUTIVE_FAILURES,

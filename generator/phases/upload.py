@@ -70,48 +70,50 @@ def upload_puzzle(puzzle, force: bool = False, *, difficulty: int = 3, descripti
     v_positions = [(s.start_row, s.start_col, word)
                    for s, word in slots_with_words if s.direction == "V"]
 
-    # Build clue records with positions
+    # Build coordinate lookup for matching clues to grid positions
+    h_slot_by_word: dict[str, list[tuple[int, int, str]]] = {}
+    for r, c, word in h_positions:
+        h_slot_by_word.setdefault(word, []).append((r, c, word))
+    v_slot_by_word: dict[str, list[tuple[int, int, str]]] = {}
+    for r, c, word in v_positions:
+        v_slot_by_word.setdefault(word, []).append((r, c, word))
+
+    # Match clues to grid positions by word, consuming from the list
     clue_records = []
     clue_number = 1
 
-    # Match horizontal clues to grid positions
-    h_pos_idx = 0
     for clue in puzzle.horizontal_clues:
-        if h_pos_idx < len(h_positions):
-            r, c, word = h_positions[h_pos_idx]
-            if word == clue.word_normalized:
-                clue_records.append({
-                    "direction": "H",
-                    "start_row": r,
-                    "start_col": c,
-                    "length": len(word),
-                    "word_normalized": clue.word_normalized,
-                    "word_original": clue.word_original or clue.word_normalized.lower(),
-                    "clue_number": clue_number,
-                    "definition": _clean_definition(clue.definition or ""),
-                })
-                clue_number += 1
-                h_pos_idx += 1
+        positions = h_slot_by_word.get(clue.word_normalized, [])
+        if positions:
+            r, c, word = positions.pop(0)
+            clue_records.append({
+                "direction": "H",
+                "start_row": r,
+                "start_col": c,
+                "length": len(word),
+                "word_normalized": clue.word_normalized,
+                "word_original": clue.word_original or clue.word_normalized.lower(),
+                "clue_number": clue_number,
+                "definition": _clean_definition(clue.definition or ""),
+            })
+            clue_number += 1
 
-    # Match vertical clues to grid positions
-    v_pos_idx = 0
     v_clue_number = 1
     for clue in puzzle.vertical_clues:
-        if v_pos_idx < len(v_positions):
-            r, c, word = v_positions[v_pos_idx]
-            if word == clue.word_normalized:
-                clue_records.append({
-                    "direction": "V",
-                    "start_row": r,
-                    "start_col": c,
-                    "length": len(word),
-                    "word_normalized": clue.word_normalized,
-                    "word_original": clue.word_original or clue.word_normalized.lower(),
-                    "clue_number": v_clue_number,
-                    "definition": _clean_definition(clue.definition or ""),
-                })
-                v_clue_number += 1
-                v_pos_idx += 1
+        positions = v_slot_by_word.get(clue.word_normalized, [])
+        if positions:
+            r, c, word = positions.pop(0)
+            clue_records.append({
+                "direction": "V",
+                "start_row": r,
+                "start_col": c,
+                "length": len(word),
+                "word_normalized": clue.word_normalized,
+                "word_original": clue.word_original or clue.word_normalized.lower(),
+                "clue_number": v_clue_number,
+                "definition": _clean_definition(clue.definition or ""),
+            })
+            v_clue_number += 1
 
     print(f"Uploading puzzle: {puzzle.title or 'Untitled'}")
     print(f"  Grid: {puzzle.size}x{puzzle.size}")
