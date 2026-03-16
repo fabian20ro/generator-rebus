@@ -1,0 +1,632 @@
+[
+  {
+    "word": "IDEA",
+    "display_word": "idea",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- A imagina, a concepe scheme, planuri etc. care urmează să fie aplicate.\n- A-și propune.",
+    "historical_pass_rate": 1.0,
+    "tier": "easy"
+  },
+  {
+    "word": "ARDE",
+    "display_word": "arde",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- (Despre foc) A fi aprins.\n- A da foc, a băga în foc.\n- A produce cuiva o rană prin foc.\n- A (se) consuma, a (se) distruge prin foc.\n- A strica o mâncare expunând-o prea mult la acțiunea focului.\n- A distruge printr-o reacție chimică.\n- A încinge, a încălzi (tare).\n- A expune acțiunii focului obiecte de lut, de ceramică etc. în procesul de fabricare, pentru a le îmbunătăți proprietățile.",
+    "historical_pass_rate": 1.0,
+    "tier": "easy"
+  },
+  {
+    "word": "IMAM",
+    "display_word": "imam",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- (În islamul sunnit) Recitator în cadrul rugăciunii colective.\n- Conducător spiritual al unei școli.\n- (În islamul șiit) Căpetenia comunității, fiind moștenitor al substanței divine, care-l face infailibil.",
+    "historical_pass_rate": 1.0,
+    "tier": "easy"
+  },
+  {
+    "word": "ALARMA",
+    "display_word": "alarma",
+    "length": 6,
+    "word_type": "",
+    "dex_definitions": "- A (se) neliniști, a (se) îngrijora.\n- A pune în stare de alertă, de pregătiri, a da alarma (la apropierea unei primejdii).\n- Anunțare a unei primejdii sau calamități care amenință populația; semnal prin care se anunță asemenea primejdii.\n- Semnal, chemare pentru a lua armele.\n- (În garnizoane, cantonamente, tabără) Semnal dat pentru strângerea trupei pe locul de adunare, cu echipamentul și muniția de război.\n- Neliniște, teamă, spaimă de care este cuprins cineva la apropierea unei primejdii.",
+    "historical_pass_rate": 1.0,
+    "tier": "easy"
+  },
+  {
+    "word": "CITI",
+    "display_word": "citi",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- A parcurge un text (pronunțând cuvintele sau nu) pentru a lua cunoștință de cele scrise.\n- A rosti un text cu voce tare pentru a comunica cuiva conținutul lui.\n- A descifra o partitură muzicală, urmărind cu ochii sunetele reprezentate și valorile lor (și a le reproduce cu vocea sau cu un instrument).\n- A interpreta indicațiile topografice ale unei hărți sau ale unui plan și a reconstitui după ele conformația terenului.\n- A înregistra, a desluși indicațiile date de un contor, de un barometru, de un indicator etc.\n- A descoperi, a sesiza gândul, sentimentele ascunse etc. ale cuiva din atitudinea sau din expresia figurii sale.\n- A învăța, a studia (parcurgând scrieri, izvoare etc.).\n- A se instrui, a se cultiva.",
+    "historical_pass_rate": 0.5714285714285714,
+    "tier": "medium"
+  },
+  {
+    "word": "ARTA",
+    "display_word": "artă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Activitate a omului care are drept scop producerea unor valori estetice și care folosește mijloace de exprimare cu caracter specific; totalitatea operelor (dintr-o epocă, dintr-o țară etc.) care aparțin acestei activități.\n- Formă a conștiinței sociale care oglindește realitatea în imagini artistice și care, ca și știința, are o mare forță de cunoaștere și de transformare a vieții sociale.\n- Îndemânare deosebită într-o activitate.\n- Îndeletnicire care cere multă îndemânare și anumite cunoștințe.\n- Ceartă, hărțuială, hărțuire, sfadă, încăierare.\n- Ciocnire între avangărzi sau între (mici) grupuri militare potrivnice.",
+    "historical_pass_rate": 0.42857142857142855,
+    "tier": "medium"
+  },
+  {
+    "word": "PACE",
+    "display_word": "pace",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Stare de bună înțelegere între popoare, situație în care nu există conflicte armate sau războaie între state, popoare, populații.\n- Acord al părților beligerante asupra încetării războiului, tratat de încheiere a unui conflict armat.\n- Liniște sufletească, stare de calm sufletesc; lipsă de zgomot și de mișcare.\n- Liniștea veșnică a omului după moarte, odihnă de veci.\n- (Adesea determinat prin «bună») Nici vorbă, nici gând; s-a terminat, s-a sfârșit.",
+    "historical_pass_rate": 0.3333333333333333,
+    "tier": "medium"
+  },
+  {
+    "word": "ESEU",
+    "display_word": "eseu",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Studiu de proporții restrânse asupra unor teme filozofice, literare sau științifice, compus cu mijloace originale, fără pretenția de a epuiza problema.\n- Probă, încercare.\n- Probă preliminară de mărci poștale pe hârtie și în culori diferite în vederea alegerii prototipului definitiv al întregului tiraj.\n- (La rugbi) Așezarea mingii la sol, dincolo de linia de but a adversarilor.",
+    "historical_pass_rate": 0.5,
+    "tier": "medium"
+  },
+  {
+    "word": "STAT",
+    "display_word": "stat",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Rămânere, zăbovire, ședere.\n- Înălțime a corpului omenesc.\n- Înfățișare.\n- Corp omenesc.\n- Situație.\n- Element secund de compunere savantă cu semnificația „stabilizator”, „care menține staționar”.\n- Listă, tabel, tabel, tablou.\n- Instituție suprastructurală, instrument principal de organizare politică și administrativă prin intermediul căruia se exercită funcționalitatea sistemului social și sunt reglementate relațiile dintre oameni; teritoriul și populația asupra cărora își exercită autoritatea această organizație.",
+    "historical_pass_rate": 0.5,
+    "tier": "medium"
+  },
+  {
+    "word": "TANC",
+    "display_word": "tanc",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Mașină de luptă blindată, înzestrată cu tunuri, mitraliere etc. instalate în turelă și în partea din față a vehiculului, cu roțile montate pe șenile, care poate străbate terenuri accidentate.\n- Rezervor din tablă sau din oțel folosit pentru depozitarea sau transportarea lichidelor; vehicul înzestrat cu un astfel de rezervor.\n- Vagonet metalic folosit în mine, cu capacitatea de o tonă.\n- Cutie de plastic de construcție specială, în care se developează filme fotografice.\n- Bețișor cu mai multe crestături, cu care se măsoară laptele la stână sau țuica în cazan.\n- Vârf ascuțit și înalt de stâncă.\n- Cuvânt care redă un zgomot ascuțit, metalic.\n- Băiețaș, copilaș, plod, puști.",
+    "historical_pass_rate": 0.75,
+    "tier": "medium"
+  },
+  {
+    "word": "ROSU",
+    "display_word": "roșu",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- De culoarea sângelui.\n- Cu roșu, în roșu.\n- Arămiu, roșcat, roșcovan.\n- De culoare rumenă aprinsă.\n- Îmbujorat la față.\n- Despre ochi: congestionat, injectat.\n- (Despre metale) Înroșit în foc.\n- Comunist.",
+    "historical_pass_rate": 0.25,
+    "tier": "hard"
+  },
+  {
+    "word": "ISCA",
+    "display_word": "isca",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- A se naște, a lua ființă, a se ivi, a se produce, a apărea (pe neașteptate, deodată).\n- A face să se nască, să se ivească, a scoate la iveală, a provoca (pe neașteptate).\n- Inventa, născoci.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "OPAC",
+    "display_word": "opac",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Prin care nu poate trece lumina, lipsit de transparență.\n- De nepătruns.\n- Care nu permite trecerea unei radiații electromagnetice sau corpusculare.\n- Lipsit de strălucire.\n- Cu orizont mărginit, îngust la minte.\n- Cui cu care se prinde vâsla de luntre.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "AMAR",
+    "display_word": "amar",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- (Despre alimente, băuturi etc.) Care are gustul fierii, pelinului, chininei; (despre gust) ca al fierii, pelinului, chininei.\n- Chinuit, chinuitor, dureros, necăjit, trist.\n- Din tot sufletul, foarte mult.\n- Care denotă amărăciune sufletească.\n- Cumplit, strașnic.\n- Răutăcios.\n- Chin, jale, necaz, suferință, tristețe.\n- (Cu valoare de interjecție) Vai!",
+    "historical_pass_rate": 0.25,
+    "tier": "hard"
+  },
+  {
+    "word": "ETUI",
+    "display_word": "etui",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Cutiuță sau toc din piele, stofă, carton, material plastic etc., în care se păstrează unele obiecte (mici și fragile) pentru a le proteja și care are forma adaptată acestor obiecte.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "ATAS",
+    "display_word": "ataș",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Anexă de metal prinsă lateral de o motocicletă, cu care se transportă obiecte sau persoane.\n- Piesă atașată la ceva.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "ARCA",
+    "display_word": "arcă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Corabie.\n- Îngrămădire eterogenă de oameni și de animale.\n- A (se) arcui.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "CLAS",
+    "display_word": "clas",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Grup (mare) de obiecte, de elemente, de ființe, de fenomene cu însușiri comune care satisfac un criteriu.\n- Ansamblu de elemente având anumite însușiri comune care satisfac o condiție sau un criteriu dat.\n- (De obicei cu determinarea „socială”) Ansamblu de persoane grupate după criterii economice, istorice și sociologice.\n- Mare grup social caracterizat prin locul pe care îl ocupă într-un anumit sistem de producție istoricește determinat, prin raportul în care se află față de mijloacele de producție, prin rolul pe care-l are în organizarea socială a muncii, prin felul în care participă la producția socială și prin cantitatea de care dispune din această producție.\n- Fiecare dintre diviziunile fundamentale ale regnului animal sau vegetal, mai mică decât încrengătura și mai mare decât ordinul.\n- Colectiv de elevi, de obicei de aceeași vârstă și cu aceeași pregătire, care învață împreună în cursul unui an școlar după aceeași programă de învățământ.\n- Unitate organizatorică în sistemul învățământului public, compusă dintr-un număr de elevi care au aceeași vârstă și o pregătire școlară egală.\n- Unitate organizatorică într-un institut de artă care cuprinde toți elevii unui profesor, indiferent în ce an de studii se află.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "LUNI",
+    "display_word": "luni",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Prima zi a săptămânii, care urmează după duminică.\n- În timpul zilei de luni.\n- Om îndrăzneț, cutezător, dar nesocotit.\n- Astru, satelit al Pământului, care se învârtește în jurul acestuia și pe care îl luminează în timpul nopții.\n- Astru satelit al Pământului, vizibil mai ales noaptea, când reflectă puternic pe Pământ lumina pe care o primește de la Soare.\n- Foarte curat.\n- Timp cât lumina acestui astru se vede pe cer (noaptea).\n- Satelit al unei planete.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "LASA",
+    "display_word": "lăsa",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- A da drumul unui lucru sau unei ființe ținute strâns.\n- A da drumul să cadă.\n- A pune, a depune ceva undeva.\n- A nu opri.\n- A aștepta (timpul necesar) înainte de a lua o hotărâre, de a începe sau a relua o activitate etc.\n- A accepta ca cineva sau ceva să rămână într-o anumită stare, într-o anumită situație, a nu interveni pentru a modifica, a schimba sau a întrerupe ceva.\n- A permite sau a contribui ca ceva să fie într-un anumit fel, să capete o anumită dezvoltare.\n- (Mai ales în construcții negative) A se da bătut.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "REGN",
+    "display_word": "regn",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Cea mai mare categorie sistematică în biologie; fiecare dintre cele trei diviziuni ale corpurilor din natură: animal, vegetal și mineral.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "MIEZ",
+    "display_word": "miez",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Partea cea mai dinăuntru, centrală a unui lucru, a unui spațiu etc.\n- Bucățică, fărâmă.\n- Partea din interior, comestibilă, a unei nuci.\n- Corp detașabil folosit în turnătoria de piese pentru obținerea golurilor de turnare.\n- Partea esențială, fondul unei probleme.\n- Semnificație (adâncă).\n- În legătură cu noțiuni temporale: mijloc, toi.\n- Mijlocul, jumătatea nopții.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "BURA",
+    "display_word": "bura",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- A astupa cu un material de buraj (argilă, nisip etc.) spațiul gol, neocupat de explozive, dintr-o gaură de mină sau dintr-o sondă de minare.\n- A îndesa balastul sub traversele unei linii de cale ferată.\n- A bloca alimentarea unei mașini electronice cu cartele perforate.\n- A ploua mărunt și des.\n- Care aparține burilor, privitor la buri.\n- Populație în Africa de Sud constituită din urmașii coloniștilor europeni, în special olandezi, stabiliți aici în secolul XVII.\n- Persoană care face parte din această populație.\n- Ploaie măruntă și deasă (însoțită de ceață).",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "UMIL",
+    "display_word": "umil",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Care are o atitudine modestă, de om simplu, sărac, fără pretenții; care are o atitudine supusă, ascultătoare, smerită.\n- Cu o înfățișare neîngrijită, urâtă.\n- Modest, neînsemnat, simplu.\n- Despre obiecte, locuri etc.: sărac, sărăcăcios.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "SACA",
+    "display_word": "saca",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Butoi așezat pe un suport cu două sau cu patru roți, cu care în trecut se transporta apa de la fântână sau de la râu.\n- Obiect confecționat din pânză, din hârtie rezistentă, din material plastic etc., folosit la păstrarea și la transportarea unor produse; conținutul unui astfel de obiect; obiectul împreună cu conținutul lui.\n- (Cu determinări introduse prin prepoziția „cu” sau „de” care arată felul) Cantitate mare.\n- Geantă mare de pânză, de piele etc. în care se pun lucrurile necesare pentru o călătorie.\n- Nimfă de furnică.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "SARE",
+    "display_word": "sare",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Substanță cristalină, sfărâmicioasă, solubilă în apă și cu gust specific, care constituie un condiment de bază în alimentație și este folosită în industria conservelor, în tăbăcărie, în industria chimică etc.; clorură de sodiu.\n- Duh, farmec, haz, spirit, umor.\n- Muncă silnică în saline.\n- Reprezentanții de frunte, de bază ai unei societăți sau ai unui grup social.\n- Substanță chimică formată de obicei prin reacția unui acid cu o bază.\n- Lichid volatil preparat din carbonat de amoniu și substanțe puternic mirositoare (fenol, camfor etc.), folosit, în trecut, pentru trezirea din leșin.\n- Om care umblă după femei.\n- A pune sau a presăra sare în alimente sau în mâncăruri, cu scopul de a le potrivi gustul sau pentru a le conserva.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "ESUA",
+    "display_word": "eșua",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- (Despre vapoare) A se așeza voit sau a se împotmoli în nisip sau într-un loc unde apa are o adâncime redusă.\n- A suferi un eșec, a da greș, a nu reuși, a nu izbuti.\n- A se împiedica (de un obstacol).",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "OALA",
+    "display_word": "oală",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Vas de lut ars, de metal, de porțelan etc., de obicei cu gura largă și cu înălțimea mai mare decât lărgimea, folosit în gospodărie pentru pregătirea, păstrarea etc. bucatelor.\n- Conținutul vasului descris mai sus.\n- Vas de formă apropiată cu cel descris mai sus, folosit în tehnică.\n- Vas, ghiveci, glastră de flori.\n- (Adesea cu determinarea „de noapte”) Vas întrebuințat (noaptea) pentru necesitățile fiziologice.\n- Olan, scoc, țiglă.\n- Vas metalic cu capac etanș prevăzut cu supapă de siguranță, folosit pentru fierberea (rapidă) a alimentelor sub presiunea aburului.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "RACI",
+    "display_word": "răci",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- A deveni sau a face să devină (mai) rece, a(-și) scădea, a(-și) micșora temperatura.\n- A pierde sau a face să piardă căldura vitală obișnuită (din cauza unei spaime, a unei emoții etc.).\n- (Despre timp) A deveni (mai) friguros, cu temperatura (mai) joasă.\n- A-și pierde însuflețirea, interesul (pentru cineva sau ceva); a deveni indiferent; a se înstrăina, a se îndepărta.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "TATA",
+    "display_word": "tată",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Bărbat care are copii; nume pe care i-l dau acestui bărbat copiii săi când i se adresează sau când vorbesc despre el ori pe care și-l dă el însuși când vorbește cu copiii săi.\n- Termen cu care se adresează cineva unui copil (sau unei persoane tinere străine) pentru a marca un raport de familiaritate și de simpatie.\n- (Uneori determinat prin „socru”) Nume dat de ginere sau de noră socrului.\n- Nume dat unui bărbat (mai în vârstă) în semn de respect sau de afecțiune.\n- (Pe lângă un nume de persoană) Nume dat unui bărbat considerat ca strămoș, ca fondator al unei dinastii, al unui neam etc.\n- Creatorul lumii.\n- Creator, fondator, făuritor.\n- Cel care întrupează cele mai înalte calități, care este deasupra altora, îi covârșește pe toți.",
+    "historical_pass_rate": 0.0,
+    "tier": "hard"
+  },
+  {
+    "word": "SEM",
+    "display_word": "sem",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Fiecare dintre trăsăturile semantice pertinente care intră în alcătuirea unui semem.\n- Unitate semantică minimă care permite definirea unui sens.",
+    "historical_pass_rate": 0.6666666666666666,
+    "tier": "short"
+  },
+  {
+    "word": "LOM",
+    "display_word": "lom",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Rangă specială de oțel, folosită la lucrările de așezare a șinelor de cale ferată.",
+    "historical_pass_rate": 0.0,
+    "tier": "short"
+  },
+  {
+    "word": "GRI",
+    "display_word": "gri",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Cenușiu.",
+    "historical_pass_rate": 1.0,
+    "tier": "short"
+  },
+  {
+    "word": "USA",
+    "display_word": "ușă",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Deschizătură de formă regulată lăsată în peretele unei clădiri, la un vehicul, la o mobilă, pentru a permite intrarea (și ieșirea); ansamblu format dintr-un cadru fix de care se prinde o tăblie mobilă de lemn sau de metal care închide sau deschide această deschizătură.\n- Tăblia din acest ansamblu.\n- Casă, locuință.\n- Numele unui dans popular, mai ales de pe valea Dunării, cu mișcare vioaie; melodia după care se execută acest dans.\n- Calificativ dat unui mod grosolan și necuviincios de exprimare și de comportare al cuiva.",
+    "historical_pass_rate": 0.15789473684210525,
+    "tier": "short"
+  },
+  {
+    "word": "PAS",
+    "display_word": "pas",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Drum, loc îngust și mai coborât, de-a lungul unei văi, între munți sau dealuri, prin care se trece dintr-o parte în alta.\n- Pasul Bran.\n- Șenal navigabil.\n- Pașaport.\n- Document personal cu valabilitate temporară dat persoanelor pe timpul escalei; permis de debarcare.\n- Cuvânt folosit de un jucător de cărți pentru a arăta că nu vrea sau nu poate să deschidă jocul, să participe la joc (în turul respectiv).\n- Substanță medicamentoasă antibiotică, cu aspect de pulbere albă, puțin solubilă în apă, folosită în tratamentul tuberculozei; acid paraaminosalicilic.\n- Fiecare dintre mișcările alternative pe care le fac picioarele în mers obișnuit.",
+    "historical_pass_rate": 1.0,
+    "tier": "short"
+  },
+  {
+    "word": "SOT",
+    "display_word": "soț",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Bărbat căsătorit considerat în raport cu soția lui.\n- Cele două persoane de sex opus unite prin căsătorie.\n- Nevastă, soție.\n- Asociat, colaborator, ortac, părtaș, tovarăș, însoțitor.\n- Obiect care, împreună cu altul (similar), formează o pereche.",
+    "historical_pass_rate": 0.8571428571428571,
+    "tier": "short"
+  },
+  {
+    "word": "NOI",
+    "display_word": "noi",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Luna în prima ei fază, când are forma unei seceri subțiri; lună-nouă.\n- La nominativ:\n- Ține locul numelui persoanei care vorbește, cu funcțiune de subiect.\n- Marchează o opoziție.\n- Urmează după predicat, cu valoare afectivă de întărire.\n- Este folosit în formule de introducere din actele oficiale.\n- În poezia populară, este folosit în locul acuzativului.\n- Desemnează pe cel care vorbește și persoana sau persoanele pe care acesta și le asociază în vorbire.",
+    "historical_pass_rate": 0.5,
+    "tier": "short"
+  },
+  {
+    "word": "BAC",
+    "display_word": "bac",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- (Examen de) bacalaureat.\n- Carte fără valoare (la jocul de maca).\n- Bacara.\n- Suma de (zece sau) douăzeci de puncte de pe cărțile cuiva, la jocul de (bacara sau) maca.\n- Element al sculelor și dispozitivelor de strângere (menghine, mandrine etc.) cu care se prind piesele în vederea prelucrării lor.\n- Piesă în care se fixează vârful bocancului legat de schiuri.\n- Fiecare dintre piesele de așchiere ale unei filiere.\n- Ambarcațiune cu fundul și capetele plate, folosită pentru traversarea râurilor sau lacurilor de la un mal la altul sau pentru serviciile auxiliare ale unei nave; pod umblător.",
+    "historical_pass_rate": 0.75,
+    "tier": "short"
+  },
+  {
+    "word": "UZ",
+    "display_word": "uz",
+    "length": 2,
+    "word_type": "",
+    "dex_definitions": "- Faptul sau posibilitatea de a folosi ceva.\n- Mod de folosire curentă a unui cuvânt.\n- Dreptul de a se folosi de un lucru care este proprietatea altuia.\n- Cutumă, datină, obicei, uzanță.\n- Modalitate, consfințită prin tradiție, de folosire curentă a unităților de limbă în vorbire.\n- Comportare, manieră.",
+    "historical_pass_rate": 0.06060606060606061,
+    "tier": "short"
+  },
+  {
+    "word": "URS",
+    "display_word": "urs",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Cu aluzie la animalul îmblânzit și dresat:\n- Epitet dat unui om greoi, ursuz, nesociabil, care fuge de lume, care trăiește retras.\n- Boț de mămăligă cu brânză la mijloc și prăjit pe jăratic.\n- Fiecare dintre grinzile longitudinale ale unui pod de lemn.\n- Fiecare dintre stâlpii care susțin talpa prispei la casele țărănești.\n- Crucea-pământului.\n- Brădișor.\n- Pedicuță, piedicuță, talpa-ursului.",
+    "historical_pass_rate": 1.0,
+    "tier": "short"
+  },
+  {
+    "word": "TUR",
+    "display_word": "tur",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Parte a pantalonilor care acoperă regiunea dorsală a corpului.\n- Partea dorsală a corpului omenesc.\n- Mișcare circulară a unui corp în jurul unui ax sau al unui punct fix, efectuată până la revenirea în punctul de plecare.\n- Privire de ansamblu asupra unei probleme.\n- Plimbare scurtă pe un anumit traseu.\n- Acțiune, inițiativă, întreprindere care cere efort, perseverență, îndemânare.\n- Parte dintr-o competiție sportivă organizată după anumite norme, constând dintr-un șir de etape, care reprezintă prima jumătate din totalul etapelor.\n- Întrecere sportivă, mai ales de ciclism, în cursul căreia se parcurge un circuit pe distanță lungă, cu scurte opriri.",
+    "historical_pass_rate": 0.0,
+    "tier": "short"
+  },
+  {
+    "word": "ROL",
+    "display_word": "rol",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Partitură scenică ce revine unui actor într-o piesă de teatru, unui cântăreț într-o operă etc. pentru interpretarea unui personaj.\n- Personaj interpretat de un actor într-o piesă, într-o operă etc.\n- Atribuție, sarcină care îi revine cuiva în cadrul unei acțiuni.\n- Totalitatea litigiilor care urmează a fi rezolvate într-o anumită zi de către un organ de jurisdicție.\n- Registru în care organele financiare țin evidența impozitelor pentru fiecare contribuabil în parte.\n- Listă nominală a echipajului unei nave, constituind unul dintre documentele principale fără de care nu se poate naviga legal.\n- Semnificație de ordin semantic sau lingvistic pe care o poate avea un cuvânt.\n- Rol de mare importanță.",
+    "historical_pass_rate": 0.25,
+    "tier": "short"
+  },
+  {
+    "word": "ZI",
+    "display_word": "zi",
+    "length": 2,
+    "word_type": "",
+    "dex_definitions": "- Interval de timp cuprins între răsăritul și apusul Soarelui; timpul cât Soarele rămâne deasupra orizontului.\n- Lumină solară; interval de timp de 24 de ore, corespunzător unei rotații a Pământului în jurul axei sale.\n- Lumina solară; (în sens mai larg) interval de timp de 24 de ore, dintre două miezuri de noapte consecutive.\n- Interval de timp între două culminații succesive ale unui astru.\n- Determină noțiunile „an”, „lună”, pentru a le sublinia durata, lungimea.\n- (Adesea urmat de o determinare în genitiv sau introdusă prin prepoziția „de”) Dată la care s-a petrecut sau urmează să se petreacă ceva.\n- În titulatura sărbătorilor sau a anumitor date fixe:\n- Cu determinări introduse prin prepoziția «de»:",
+    "historical_pass_rate": 0.9014084507042254,
+    "tier": "short"
+  },
+  {
+    "word": "VIS",
+    "display_word": "vis",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Stare a celui cuprins de gânduri și de amintiri plăcute.\n- Iluzie deșartă; aspirație irealizabilă.\n- Dorință arzătoare.\n- Atmosferă, imagine, frumusețe ireală.\n- Irealitate.\n- Element de compunere însemnând „adjunct”, „subordonat imediat”, care servește la formarea unor substantive-nume de grade, de funcții, de titluri sau de persoane care le poartă.",
+    "historical_pass_rate": 0.0,
+    "tier": "short"
+  },
+  {
+    "word": "POR",
+    "display_word": "por",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Mic orificiu pe suprafața pielii, reprezentând canalul excretor al glandelor sudoripare și sebacee.\n- Orificiu în membrana primară a celulelor vegetale, prin care se asigură schimbul de apă, de gaze și de substanțe nutritive.\n- Gol de dimensiuni mici în interiorul unui corp solid.\n- Ceartă, gâlceavă, vrajbă.\n- Element de compunere cu semnificația „îngroșare, calozitate”.\n- Element de compunere cu semnificația „por, orificiu, canal”.\n- Plantă erbacee din familia liliaceelor, cu frunze lungi și înguste și flori purpurii, dispuse în umbelă, răspîndită prin fînațuri și pe dealuri pietroase (Allium rotundum).\n- Plantă erbacee comestibilă cu gust de usturoi, având frunze lungi, liniate și flori roz sau roșii, dispuse în umbele.",
+    "historical_pass_rate": 0.25,
+    "tier": "short"
+  },
+  {
+    "word": "BAR",
+    "display_word": "bar",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Barem.\n- Local public în care consumatorii stau de obicei în picioare sau pe scaune înalte în fața unei tejghele.\n- Tejghea la care se servesc băuturi.\n- Dulap sau compartiment într-un dulap, în care se păstrează sticlele cu băuturi alcoolice (fine).\n- Local de noapte cu program muzical-distractiv.\n- (La unele jocuri de copii) Spațiu, loc de odihnă și de refugiu dinainte stabilit de jucători (la „ulii și porumbeii”, „leapșa” etc.).\n- Hotarul marcat de o linie pe pământ, de unde copiii aruncă pietre sau ichiuri.\n- Linia de fund la jocul de oină.",
+    "historical_pass_rate": 1.0,
+    "tier": "short"
+  },
+  {
+    "word": "CEP",
+    "display_word": "cep",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Dop de lemn, de formă tronconică, cu care se astupă gaura butoiului.\n- Dop având aceeași întrebuințare, prevăzut cu un robinet sistematic, pentru a înlesni extragerea lichidului dintr-un butoi.\n- Porțiune din tulpina unui portaltoi, care se lasă deasupra altoiului până la dezvoltarea acestuia, cu scopul de a-l proteja.\n- Nod din tulpina unui brad sau a unui molid, din care crește ramura.\n- Coardă de viță-de-vie, cu 1-3 ochi.\n- Fusul arborelui de lemn al unei mori țărănești de apă.\n- Proeminență prismatică sau cilindrică fasonată la capătul unei piese de lemn, cu care aceasta urmează a fi îmbucată în altă piesă.\n- Capătul filetat în exterior al unei țevi, care servește la îmbinare prin înșurubare.",
+    "historical_pass_rate": 0.0,
+    "tier": "short"
+  },
+  {
+    "word": "SAL",
+    "display_word": "sal",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Plută mare, formată prin alăturarea mai multor plute mici.\n- Element prim de compunere savantă cu semnificația „(referitor la) sare”, „salin”.\n- Țesătură din lână, mătase etc., de diverse forme și dimensiuni, împodobită cu desene, broderii sau franjuri, pe care femeile o poartă pe cap sau pe umeri.\n- Fular.\n- Stofă fină de lână, fabricată în Orient.",
+    "historical_pass_rate": 0.0,
+    "tier": "short"
+  },
+  {
+    "word": "RUG",
+    "display_word": "rug",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Tulpina (târâtoare) a unor plante.\n- Mur, strug.\n- Măceș, rujă, răsură.\n- Grămadă de lemne pe care se ardeau, în Antichitate, jertfele sau morții și, în Evul Mediu, condamnații la moarte.\n- Zmeur.",
+    "historical_pass_rate": 0.0,
+    "tier": "short"
+  },
+  {
+    "word": "TIR",
+    "display_word": "tir",
+    "length": 3,
+    "word_type": "",
+    "dex_definitions": "- Autocamion de mare tonaj pentru transportul internațional de mărfuri.\n- Ramură sportivă practicată cu arcul, arbaleta sau cu diferite tipuri și calibre de arme de foc sau cu aer comprimat, care cuprinde mai multe probe de tragere la țintă.\n- Felul în care o armă (de foc) trimite proiectilul spre țintă.\n- Tragere la țintă cu o armă de foc.\n- Tragere la țintă în procesul de instruire militară.",
+    "historical_pass_rate": 0.2222222222222222,
+    "tier": "short"
+  },
+  {
+    "word": "GAMA",
+    "display_word": "gamă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Succesiune melodică, ascendentă sau descendentă, care cuprinde toate sunetele unei scări muzicale, luând numele notei cu care începe.\n- Serie de tonuri și de culori dispuse într-o succesiune armonioasă.\n- Serie, grup, succesiune de obiecte, de fenomene, de situații care alcătuiesc un tot (armonios).\n- Scară de evaluare a unor valori sau rezultate.\n- Șir de mărimi scalare exprimând termenii unei serii în tehnică.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "TUTA",
+    "display_word": "tută",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Instrument în formă de cilindru, folosit pentru a prinde și scoate țevile rămase accidental în gaura unei sonde.\n- Vas din material refractar în care se topesc minereurile pentru analiza pe cale uscată.\n- Persoană care vorbește vrute și nevrute.\n- Prostănac, tont.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "ITIT",
+    "display_word": "ițit",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- A se ivi numai cu capul, a se arăta puțin, pentru un moment sau pe furiș.\n- A se uita la ceva pe furiș sau în fugă, a arunca o privire fugară și curioasă.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "ARATARE",
+    "display_word": "arătare",
+    "length": 7,
+    "word_type": "",
+    "dex_definitions": "- Determinare, indicare, precizare, stabilire.\n- Dovadă, mărturie.\n- Aspect, înfățișare.\n- Halucinație, vedenie.\n- Fantomă, monstru, nălucă, pocitanie, stafie.\n- Persoană foarte slabă.\n- A expune ceva intenționat privirilor cuiva; a da la iveală, a lăsa să se vadă.\n- A prezenta o caracteristică.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "PESO",
+    "display_word": "peso",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Unitate bănească principală în mai multe țări din America Latină.",
+    "historical_pass_rate": 0.3333333333333333,
+    "tier": "rare"
+  },
+  {
+    "word": "LACS",
+    "display_word": "lacs",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Specie de pești din mările nordice, înrudiți cu păstrăvii.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "AMIBA",
+    "display_word": "amibă",
+    "length": 5,
+    "word_type": "",
+    "dex_definitions": "",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "AFTA",
+    "display_word": "aftă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Bășicuță plină cu lichid opalescent, care apare pe mucoasa gurii sau a faringelui și care, prin spargere, lasă în loc o mică ulcerație.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "COLAPS",
+    "display_word": "colaps",
+    "length": 6,
+    "word_type": "",
+    "dex_definitions": "- Insuficiență circulatorie periferică, caracterizată prin pierderea oricărei forțe, scăderea bruscă a tensiunii arteriale, puls rapid și foarte slab, răcirea tegumentelor și a extremităților etc.\n- Prăbușire a pereților celulelor vegetale ca urmare a eliminării apei libere din golurile celulare.\n- Turtire a unui organ, în special a unui plămân în timpul pneumotoraxului.\n- Prăbușire a unei construcții.\n- Prăbușire (economică etc.).\n- Deformare, spargere a pereților.\n- Dezlipire internă care poate surveni în timpul uscării lemnului.",
+    "historical_pass_rate": 0.25,
+    "tier": "rare"
+  },
+  {
+    "word": "UTER",
+    "display_word": "uter",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Organ cavitar musculos care face parte din aparatul genital feminin, în care se dezvoltă embrionul și fătul la animalele superioare.\n- Organ cavitar între vagin și trompe, în care se dezvoltă embrionul.\n- Element de compunere cu semnificația „uter”.",
+    "historical_pass_rate": 1.0,
+    "tier": "rare"
+  },
+  {
+    "word": "OAGA",
+    "display_word": "oagă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Vâlcea.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "IDOL",
+    "display_word": "idol",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Divinitate păgână.\n- Chip, figură, statuie reprezentând o asemenea divinitate și constituind, în religiile politeiste, obiecte de cult religios.\n- Nume dat unei ființe rele care inspiră spaimă.\n- Ființă sau lucru care reprezintă obiectul unui cult sau al unei mari iubiri.",
+    "historical_pass_rate": 0.3333333333333333,
+    "tier": "rare"
+  },
+  {
+    "word": "BULA",
+    "display_word": "bulă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Bășică de aer sau de gaz aflată în masa unui lichid sau a unui solid.\n- Sferă, glob (mic) de metal, de sticlă etc.\n- Pecete de aur, de argint sau de plumb, care se atașa unui act pentru a-l autentifica.\n- Act care purta o astfel de pecete.\n- Act emanat de la un suveran.\n- (La romani) Medalion rotund de aur purtat la gât de copiii din familiile senatoriale sau ecvestre.\n- Colecție circumscrisă de serozitate întâlnită la nivelul pielii.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "ATIPI",
+    "display_word": "ațipi",
+    "length": 5,
+    "word_type": "",
+    "dex_definitions": "- A începe să doarmă, a fi cuprins de un somn ușor (și scurt).",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "TRANSPARENTA",
+    "display_word": "transparență",
+    "length": 12,
+    "word_type": "",
+    "dex_definitions": "- Proprietate a unor corpuri sau a unor medii de a fi transparente.\n- Mod de lucru, principiu al unor conducători sau organe conducătoare de a face cunoscută public, în permanență, întreaga lor activitate.",
+    "historical_pass_rate": 1.0,
+    "tier": "rare"
+  },
+  {
+    "word": "TALA",
+    "display_word": "tală",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Adunătură gălăgioasă de oameni.\n- Gălăgie, larmă, taifas.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "ANTA",
+    "display_word": "antă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Element de construcție decorativ și de întărire situat la colțurile unui edificiu.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "POPA",
+    "display_word": "popă",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- Preot, părinte, sacerdot.\n- Numele uneia dintre cărțile de joc, care are imprimată pe una dintre părți o imagine asemănătoare cu a unui rege.\n- Nume dat celei mai mari piese de la jocul de popice.\n- Snop care se pune cu spicele în jos în vârful clăii.\n- Boul-Domnului, boul-lui-Dumnezeu, buburuză, vaca-Domnului.\n- Libelulă.\n- Traista-ciobanului.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "ADIA",
+    "display_word": "adia",
+    "length": 4,
+    "word_type": "",
+    "dex_definitions": "- (Despre vânt) A sufla lin, ușor; (rar) a aburi; (despre miros) a veni în unde ușoare.\n- A cânta cu glas stins.\n- A atinge ușor.\n- A clătina, a mișca ușor.",
+    "historical_pass_rate": 0.0,
+    "tier": "rare"
+  },
+  {
+    "word": "TRANSPLANTAT",
+    "display_word": "transplantat",
+    "length": 12,
+    "word_type": "",
+    "dex_definitions": "- Mutat, trecut într-un loc nou.\n- A muta o plantă de la un Ioc provizoriu la locul de cultură.\n- A aduce și a face să se aclimatizeze o plantă sau un animal în altă regiune decât aceea unde trăiește de obicei.\n- A adapta, a împământeni o instituție, un obicei etc.\n- Transfera, transporta.",
+    "historical_pass_rate": 0.3333333333333333,
+    "tier": "rare"
+  }
+]
