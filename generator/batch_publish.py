@@ -71,7 +71,7 @@ from .core.slot_extractor import Slot, extract_slots
 from .core.word_index import WordEntry, WordIndex
 from .core.constraint_solver import solve
 from .phases.activate import set_published
-from .core.dex_cache import lookup_batch as _dex_lookup_batch
+from .core.dex_cache import DexProvider, create_provider as _create_dex_provider
 from .phases.define import generate_definitions_for_puzzle, generate_definitions_for_state
 from .phases.download import run as download_words
 from .phases.theme import generate_title_for_final_puzzle
@@ -631,7 +631,7 @@ def _rewrite_failed_clues(
     client,
     rounds: int,
     multi_model: bool = False,
-    dex_cache: dict[str, str] | None = None,
+    dex: DexProvider | None = None,
 ) -> tuple[int, int]:
     theme = puzzle.title or "Puzzle intern"
     if multi_model:
@@ -711,7 +711,7 @@ def _rewrite_failed_clues(
             rating_feedback = clue.current.assessment.feedback
             bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
-            dex_defs = (dex_cache or {}).get(clue.word_normalized, "")
+            dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
             try:
                 if clue.current.definition.startswith("["):
                     new_definition = generate_definition(
@@ -812,16 +812,14 @@ def _prepare_puzzle_for_publication(
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
         _inject_word_types(state, candidate.metadata)
         # Load dex definitions for rewrite rounds
-        try:
-            from supabase import create_client as _create_sb
-            from .config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-            _sb = _create_sb(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-            _all_words = [c.word_normalized for c in all_working_clues(state)]
-            _dex_cache = _dex_lookup_batch(_sb, _all_words)
-        except Exception:
-            _dex_cache = {}
+        _dex = _create_dex_provider()
+        _all_clues = all_working_clues(state)
+        _dex.prefetch(
+            [c.word_normalized for c in _all_clues],
+            originals={c.word_normalized: c.word_original for c in _all_clues if c.word_original},
+        )
         passed, total = _rewrite_failed_clues(
-            state, client, rewrite_rounds, multi_model=multi_model, dex_cache=_dex_cache,
+            state, client, rewrite_rounds, multi_model=multi_model, dex=_dex,
         )
         _restore_best_versions(state)
         state.assessment = _score_puzzle_state(state, candidate.report)

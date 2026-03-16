@@ -4,7 +4,7 @@ from __future__ import annotations
 from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.ai_clues import create_client, generate_definition
-from ..core.dex_cache import lookup_batch
+from ..core.dex_cache import DexProvider, create_provider
 from ..core.pipeline_state import (
     WorkingClue,
     WorkingPuzzle,
@@ -54,19 +54,18 @@ def _split_and_define(clues: list[ClueEntry], client: OpenAI,
 
 
 def generate_definitions_for_state(
-    state: WorkingPuzzle, client: OpenAI, dex_cache: dict[str, str] | None = None,
+    state: WorkingPuzzle, client: OpenAI, dex: DexProvider | None = None,
 ) -> None:
     theme = state.title or "Rebus Românesc"
     print(f"Theme: {theme}")
-    if dex_cache is None:
-        dex_cache = {}
 
     for label, clues in (("horizontal", state.horizontal_clues), ("vertical", state.vertical_clues)):
         print(f"Generating {label} definitions...")
         for clue in clues:
             if clue.current.definition:
                 continue
-            dex_defs = dex_cache.get(clue.word_normalized, "")
+            dex_defs = dex.get(clue.word_normalized, clue.word_original) if dex else None
+            dex_defs = dex_defs or ""
             if dex_defs:
                 print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'}) [DEX context available]")
             else:
@@ -84,24 +83,17 @@ def generate_definitions_for_state(
                 clue.best = clue.current
 
 
-def _load_dex_cache_for_state(state: WorkingPuzzle) -> dict[str, str]:
-    """Batch-load dex definitions for all words in the puzzle."""
+def _load_dex_provider(state: WorkingPuzzle) -> DexProvider:
+    """Create a DexProvider and prefetch definitions for all puzzle words."""
     from ..core.pipeline_state import all_working_clues as _all_clues
-    try:
-        from supabase import create_client as _create_sb
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            return {}
-        sb = _create_sb(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    except Exception:
-        return {}
-    words = [clue.word_normalized for clue in _all_clues(state) if not clue.current.definition]
-    if not words:
-        return {}
-    cache = lookup_batch(sb, words)
-    if cache:
-        print(f"  DEX cache: {len(cache)}/{len(words)} words have definitions")
-    return cache
+    dex = create_provider()
+    words_needing_defs = [clue for clue in _all_clues(state) if not clue.current.definition]
+    if words_needing_defs:
+        dex.prefetch(
+            [c.word_normalized for c in words_needing_defs],
+            originals={c.word_normalized: c.word_original for c in words_needing_defs if c.word_original},
+        )
+    return dex
 
 
 def generate_definitions_for_puzzle(
@@ -114,8 +106,8 @@ def generate_definitions_for_puzzle(
         for clue in _all_clues(state):
             word_meta = metadata.get(clue.word_normalized, {})
             clue.word_type = word_meta.get("word_type", "")
-    dex_cache = _load_dex_cache_for_state(state)
-    generate_definitions_for_state(state, client, dex_cache=dex_cache)
+    dex = _load_dex_provider(state)
+    generate_definitions_for_state(state, client, dex=dex)
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues
@@ -129,7 +121,8 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
 
     client = create_client()
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
-    generate_definitions_for_state(state, client)
+    dex = _load_dex_provider(state)
+    generate_definitions_for_state(state, client, dex=dex)
     puzzle = puzzle_from_working_state(state)
 
     md = write_with_definitions(puzzle)

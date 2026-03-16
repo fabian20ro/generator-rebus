@@ -1,8 +1,26 @@
-"""Dexonline.ro definition cache backed by Supabase.
+"""Dexonline.ro definition provider with multi-layer caching.
 
-Downloads and caches raw HTML from dexonline.ro/definitie/{word}.
-Definitions are parsed from HTML on the fly using stdlib html.parser.
-Respects robots.txt Crawl-delay: 2.
+Architecture (3 cache layers):
+  L1 — In-memory dict (per DexProvider instance, i.e. per puzzle run)
+  L2 — Supabase ``dex_definitions`` table (persistent, shared across projects)
+  L3 — dexonline.ro HTTP fetch (origin, with crawl-delay and exponential backoff)
+
+Usage::
+
+    from supabase import create_client
+    sb = create_client(url, key)
+    dex = DexProvider(sb)
+
+    # Prefetch all puzzle words (batch L2 query, then L3 for missing)
+    dex.prefetch(["CASA", "MARE"], originals={"CASA": "casă", "MARE": "mare"})
+
+    # Single lookup (hits L1 first, then L2, then L3)
+    defs = dex.get("CASA", original="casă")
+
+    # Read-only lookup (L1 + L2 only, no HTTP)
+    defs = dex.lookup("CASA")
+
+Designed for easy embedding in other projects (propozitii-nostime, word-rarity).
 """
 
 from __future__ import annotations
@@ -21,6 +39,8 @@ _USER_AGENT = (
     "+https://github.com/fabian20ro/generator-rebus)"
 )
 _CRAWL_DELAY = 2.0
+_MAX_RETRIES = 3
+_MAX_DEFS = 8
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +87,6 @@ def parse_definitions_from_html(html: str) -> list[str]:
     """Extract plain-text definitions from dexonline HTML."""
     parser = _DefinitionExtractor()
     parser.feed(html)
-    # Deduplicate while preserving order
     seen: set[str] = set()
     result: list[str] = []
     for d in parser.definitions:
@@ -77,39 +96,57 @@ def parse_definitions_from_html(html: str) -> list[str]:
     return result
 
 
+def _format_definitions(defs: list[str]) -> str:
+    """Format a list of definition strings into bullet-point text."""
+    return "\n".join(f"- {d}" for d in defs[:_MAX_DEFS])
+
+
 # ---------------------------------------------------------------------------
-# Fetch from dexonline.ro
+# Fetch from dexonline.ro — with exponential backoff
 # ---------------------------------------------------------------------------
 
-def fetch_from_dexonline(original: str) -> tuple[str, str]:
+def fetch_from_dexonline(
+    original: str, *, max_retries: int = _MAX_RETRIES,
+) -> tuple[str, str]:
     """Fetch definition page from dexonline.ro.
+
+    Retries with exponential backoff (2s, 4s, 8s) on transient errors.
+    Does NOT retry on 404 (not_found) or successful responses.
 
     Returns (html, status) where status is 'ok', 'not_found', or 'error'.
     """
     url = f"https://dexonline.ro/definitie/{urllib.request.quote(original.lower())}"
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", errors="replace")
-            # Check if the page actually has definitions
-            if "meaningContainer" in html or "tree-def" in html:
-                return html, "ok"
-            return html, "not_found"
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return "", "not_found"
-        return "", "error"
-    except Exception:
-        return "", "error"
+
+    for attempt in range(max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+                if "meaningContainer" in html or "tree-def" in html:
+                    return html, "ok"
+                return html, "not_found"
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return "", "not_found"
+            if attempt < max_retries:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            return "", "error"
+        except Exception:
+            if attempt < max_retries:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            return "", "error"
+
+    return "", "error"  # unreachable, but satisfies type checkers
 
 
 # ---------------------------------------------------------------------------
-# Supabase cache operations
+# Supabase helpers (L2 cache operations)
 # ---------------------------------------------------------------------------
 
-def lookup(client, word: str) -> str | None:
-    """Look up cached definitions for a word. Returns formatted text or None."""
-    normalized = normalize(word)
+def _sb_lookup_single(client, normalized: str) -> tuple[str | None, bool]:
+    """Query Supabase for one word. Returns (html_or_None, was_found_in_db)."""
     try:
         resp = (client.table("dex_definitions")
                 .select("html, status")
@@ -117,27 +154,20 @@ def lookup(client, word: str) -> str | None:
                 .limit(1)
                 .execute())
     except Exception:
-        return None
+        return None, False
     if not resp.data:
-        return None
+        return None, False
     row = resp.data[0]
     if row["status"] != "ok" or not row.get("html"):
-        return None
-    defs = parse_definitions_from_html(row["html"])
-    if not defs:
-        return None
-    return "\n".join(f"- {d}" for d in defs[:8])
+        return None, True  # in DB but no usable content
+    return row["html"], True
 
 
-def lookup_batch(client, words: list[str]) -> dict[str, str]:
-    """Look up cached definitions for multiple words. Returns {normalized: formatted_text}."""
-    if not words:
-        return {}
-    normalized_words = [normalize(w) for w in words]
-    result: dict[str, str] = {}
-    # Supabase IN filter — batch in chunks of 200
-    for i in range(0, len(normalized_words), 200):
-        chunk = normalized_words[i:i + 200]
+def _sb_lookup_batch(client, words: list[str]) -> dict[str, str | None]:
+    """Batch query Supabase. Returns {normalized: html_or_None} for words found."""
+    result: dict[str, str | None] = {}
+    for i in range(0, len(words), 200):
+        chunk = words[i:i + 200]
         try:
             resp = (client.table("dex_definitions")
                     .select("word, html, status")
@@ -146,93 +176,215 @@ def lookup_batch(client, words: list[str]) -> dict[str, str]:
         except Exception:
             continue
         for row in resp.data:
-            if row["status"] != "ok" or not row.get("html"):
-                continue
-            defs = parse_definitions_from_html(row["html"])
-            if defs:
-                result[row["word"]] = "\n".join(f"- {d}" for d in defs[:8])
+            if row["status"] == "ok" and row.get("html"):
+                result[row["word"]] = row["html"]
+            else:
+                result[row["word"]] = None  # present but unusable
     return result
 
 
-def store(client, word: str, original: str, html: str, status: str) -> None:
-    """Store a definition in the cache (upsert)."""
-    normalized = normalize(word)
+def _sb_store(client, word: str, original: str, html: str, status: str) -> None:
+    """Upsert a definition into Supabase."""
     now = datetime.now(timezone.utc).isoformat()
-    client.table("dex_definitions").upsert({
-        "word": normalized,
-        "original": original,
-        "html": html,
-        "status": status,
-        "fetched_at": now,
-    }).execute()
-
-
-def get_cached_words(client) -> set[str]:
-    """Get the set of all words already in the cache."""
-    all_words: set[str] = set()
-    offset = 0
-    batch_size = 1000
-    while True:
-        resp = (client.table("dex_definitions")
-                .select("word")
-                .range(offset, offset + batch_size - 1)
-                .execute())
-        if not resp.data:
-            break
-        for row in resp.data:
-            all_words.add(row["word"])
-        if len(resp.data) < batch_size:
-            break
-        offset += batch_size
-    return all_words
-
-
-def _wait_for_crawl_delay(client, delay: float = _CRAWL_DELAY) -> None:
-    """Wait until at least `delay` seconds have passed since the last fetch."""
     try:
-        resp = (client.table("dex_definitions")
-                .select("fetched_at")
-                .not_.is_("fetched_at", "null")
-                .order("fetched_at", desc=True)
-                .limit(1)
-                .execute())
+        client.table("dex_definitions").upsert({
+            "word": word,
+            "original": original,
+            "html": html,
+            "status": status,
+            "fetched_at": now,
+        }).execute()
     except Exception:
-        time.sleep(delay)
-        return
-    if not resp.data:
-        return
-    last_fetched = resp.data[0]["fetched_at"]
-    # Parse ISO timestamp
-    try:
-        if last_fetched.endswith("Z"):
-            last_fetched = last_fetched[:-1] + "+00:00"
-        last_dt = datetime.fromisoformat(last_fetched)
-        now = datetime.now(timezone.utc)
-        elapsed = (now - last_dt).total_seconds()
-        remaining = delay - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
-    except Exception:
-        time.sleep(delay)
+        pass  # non-critical — word will be re-fetched next time
 
 
-def download_if_missing(
-    client, word: str, original: str, delay: float = _CRAWL_DELAY,
-) -> str | None:
-    """Download and cache a word's definition if not already cached.
+# ---------------------------------------------------------------------------
+# DexProvider — multi-layer cache
+# ---------------------------------------------------------------------------
 
-    Returns formatted definition text or None.
+class DexProvider:
+    """Multi-layer definition cache: memory -> Supabase -> dexonline.ro.
+
+    One instance per puzzle run. Thread-unsafe (single-threaded pipeline).
     """
-    existing = lookup(client, word)
-    if existing is not None:
-        return existing
 
-    _wait_for_crawl_delay(client, delay)
-    html, status = fetch_from_dexonline(original)
-    store(client, word, original, html, status)
+    def __init__(self, supabase_client=None):
+        self._sb = supabase_client
+        # L1: normalized word -> formatted definitions string (or None for known-missing)
+        self._memory: dict[str, str | None] = {}
+        self._last_fetch_time: float = 0.0  # monotonic clock
 
-    if status == "ok" and html:
+    # -- Public API --------------------------------------------------------
+
+    def get(self, word: str, original: str = "") -> str | None:
+        """Get formatted definitions, fetching from dexonline if needed.
+
+        Cache resolution order: L1 memory -> L2 Supabase -> L3 dexonline.
+        """
+        norm = normalize(word)
+
+        # L1: in-memory
+        if norm in self._memory:
+            return self._memory[norm]
+
+        # L2: Supabase
+        if self._sb is not None:
+            html, found = _sb_lookup_single(self._sb, norm)
+            if found:
+                formatted = self._parse_and_cache(norm, html)
+                return formatted
+
+        # L3: dexonline.ro
+        return self._fetch_and_store(norm, original or word)
+
+    def lookup(self, word: str) -> str | None:
+        """Read-only lookup: L1 + L2 only, no HTTP fetch."""
+        norm = normalize(word)
+
+        if norm in self._memory:
+            return self._memory[norm]
+
+        if self._sb is not None:
+            html, found = _sb_lookup_single(self._sb, norm)
+            if found:
+                return self._parse_and_cache(norm, html)
+
+        return None
+
+    def prefetch(
+        self,
+        words: list[str],
+        originals: dict[str, str] | None = None,
+        *,
+        fetch_missing: bool = True,
+    ) -> dict[str, str]:
+        """Batch-load definitions for multiple words.
+
+        1. Skips words already in L1.
+        2. Batch-queries L2 (Supabase) for the rest.
+        3. If fetch_missing=True, fetches L3 (dexonline) for words not in L2.
+
+        Returns {normalized: formatted_defs} for words that have definitions.
+        """
+        if originals is None:
+            originals = {}
+
+        normalized_map: dict[str, str] = {}  # norm -> original
+        to_query: list[str] = []
+
+        for w in words:
+            norm = normalize(w)
+            if norm in self._memory:
+                continue
+            if norm not in normalized_map:
+                normalized_map[norm] = originals.get(w, w)
+                to_query.append(norm)
+
+        # L2 batch query
+        if to_query and self._sb is not None:
+            sb_results = _sb_lookup_batch(self._sb, to_query)
+            for norm, html in sb_results.items():
+                self._parse_and_cache(norm, html)
+            # Remove found words from to_query
+            to_query = [n for n in to_query if n not in sb_results]
+
+        found_count = sum(1 for v in self._memory.values() if v is not None)
+        total = len(normalized_map) + sum(1 for n in words if normalize(n) in self._memory and normalize(n) not in normalized_map)
+
+        # L3: fetch missing from dexonline one-by-one
+        if fetch_missing and to_query:
+            print(f"  DEX: fetching {len(to_query)} words from dexonline.ro...")
+            for norm in to_query:
+                original = normalized_map.get(norm, norm)
+                self._fetch_and_store(norm, original)
+
+        # Report
+        cached = sum(1 for w in words if self._memory.get(normalize(w)) is not None)
+        total_words = len(set(normalize(w) for w in words))
+        if cached:
+            print(f"  DEX cache: {cached}/{total_words} words have definitions")
+
+        return {
+            normalize(w): self._memory[normalize(w)]
+            for w in words
+            if self._memory.get(normalize(w)) is not None
+        }
+
+    def as_dict(self) -> dict[str, str]:
+        """Return a snapshot of all cached definitions as {normalized: formatted}.
+
+        Useful for passing to functions that expect a plain dict.
+        """
+        return {k: v for k, v in self._memory.items() if v is not None}
+
+    # -- Internal ----------------------------------------------------------
+
+    def _parse_and_cache(self, norm: str, html: str | None) -> str | None:
+        """Parse HTML and store formatted result in L1. Returns formatted or None."""
+        if not html:
+            self._memory[norm] = None
+            return None
         defs = parse_definitions_from_html(html)
         if defs:
-            return "\n".join(f"- {d}" for d in defs[:8])
-    return None
+            formatted = _format_definitions(defs)
+            self._memory[norm] = formatted
+            return formatted
+        self._memory[norm] = None
+        return None
+
+    def _respect_crawl_delay(self) -> None:
+        """Sleep if needed to respect robots.txt Crawl-delay."""
+        if self._last_fetch_time > 0:
+            elapsed = time.monotonic() - self._last_fetch_time
+            remaining = _CRAWL_DELAY - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+    def _fetch_and_store(self, norm: str, original: str) -> str | None:
+        """Fetch from dexonline, store in L2 and L1. Returns formatted or None."""
+        self._respect_crawl_delay()
+        html, status = fetch_from_dexonline(original)
+        self._last_fetch_time = time.monotonic()
+
+        # Store in L2 (Supabase)
+        if self._sb is not None:
+            _sb_store(self._sb, norm, original, html, status)
+
+        # Store in L1 (memory)
+        if status == "ok" and html:
+            return self._parse_and_cache(norm, html)
+        self._memory[norm] = None
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Convenience factory
+# ---------------------------------------------------------------------------
+
+def create_provider() -> DexProvider:
+    """Create a DexProvider with Supabase client from environment config.
+
+    Returns a provider with no Supabase backend if credentials are missing.
+    """
+    try:
+        from supabase import create_client as _create_sb
+        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            return DexProvider()
+        sb = _create_sb(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        return DexProvider(sb)
+    except BaseException:
+        return DexProvider()
+
+
+# ---------------------------------------------------------------------------
+# Legacy compatibility — batch lookup returning a plain dict
+# ---------------------------------------------------------------------------
+
+def lookup_batch(client, words: list[str]) -> dict[str, str]:
+    """Batch lookup cached definitions. Returns {normalized: formatted_text}.
+
+    Legacy wrapper — new code should use DexProvider.prefetch() instead.
+    """
+    provider = DexProvider(client)
+    return provider.prefetch(words, fetch_missing=False)

@@ -46,7 +46,7 @@ from .core.pipeline_state import (
     set_current_definition,
 )
 from .core.plateau import has_plateaued
-from .core.dex_cache import lookup_batch as _dex_lookup_batch
+from .core.dex_cache import DexProvider, create_provider as _create_dex_provider
 from .phases.verify import rate_working_puzzle, verify_working_puzzle
 
 REDEFINE_ROUNDS = 7
@@ -139,16 +139,12 @@ def rewrite_puzzle_definitions(
     theme = puzzle.title or "Puzzle rebus"
 
     # Load dex definitions for all words in puzzle
-    try:
-        from supabase import create_client as _create_sb
-        from .config import SUPABASE_URL as _url, SUPABASE_SERVICE_ROLE_KEY as _key
-        _sb = _create_sb(_url, _key)
-        _all_words = [c.word_normalized for c in all_working_clues(puzzle)]
-        dex_cache = _dex_lookup_batch(_sb, _all_words)
-        if dex_cache:
-            print(f"  DEX cache: {len(dex_cache)}/{len(_all_words)} words have definitions")
-    except Exception:
-        dex_cache = {}
+    dex = _create_dex_provider()
+    _all_clues = all_working_clues(puzzle)
+    dex.prefetch(
+        [c.word_normalized for c in _all_clues],
+        originals={c.word_normalized: c.word_original for c in _all_clues if c.word_original},
+    )
 
     if multi_model:
         ensure_model_loaded(PRIMARY_MODEL)
@@ -215,7 +211,7 @@ def rewrite_puzzle_definitions(
             rating_feedback = clue.current.assessment.feedback
             bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
-            dex_defs = dex_cache.get(clue.word_normalized, "")
+            dex_defs = (dex.get(clue.word_normalized, clue.word_original) or "")
             try:
                 if clue.current.definition.startswith("["):
                     new_definition = generate_definition(
