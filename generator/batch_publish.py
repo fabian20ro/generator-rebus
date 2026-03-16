@@ -543,7 +543,7 @@ def _rewrite_failed_clues(
         current_model = PRIMARY_MODEL
     preset_skip: set[str] = set()
     passed, total = verify_working_puzzle(puzzle, client, skip_words=preset_skip)
-    rate_working_puzzle(puzzle, client, skip_words=preset_skip)
+    rate_working_puzzle(puzzle, client, skip_words=preset_skip, dex=dex)
     for clue in all_working_clues(puzzle):
         _update_best_clue_version(clue, client=client)
 
@@ -656,7 +656,7 @@ def _rewrite_failed_clues(
                 print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
             print(f"  Model activ (evaluare): {current_model.display_name}")
         passed, total = verify_working_puzzle(puzzle, client, skip_words=skip_words)
-        rate_working_puzzle(puzzle, client, skip_words=skip_words)
+        rate_working_puzzle(puzzle, client, skip_words=skip_words, dex=dex)
         for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:
                 continue

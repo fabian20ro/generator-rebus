@@ -37,7 +37,7 @@ _USER_AGENT = (
     "Mozilla/5.0 (compatible; generator-rebus/1.0; "
     "+https://github.com/fabian20ro/generator-rebus)"
 )
-_CRAWL_DELAY = 2.0
+_CRAWL_DELAY = 3.0
 _MAX_RETRIES = 3
 _MAX_DEFS = 8
 _SB_BATCH_CHUNK_SIZE = 200
@@ -208,11 +208,12 @@ class DexProvider:
     One instance per puzzle run. Thread-unsafe (single-threaded pipeline).
     """
 
+    _last_fetch_time: float = 0.0  # class-level: shared across instances
+
     def __init__(self, supabase_client=None):
         self._sb = supabase_client
         # L1: normalized word -> formatted definitions string (or None for known-missing)
         self._memory: dict[str, str | None] = {}
-        self._last_fetch_time: float = 0.0  # monotonic clock
 
     # -- Public API --------------------------------------------------------
 
@@ -348,8 +349,8 @@ class DexProvider:
 
     def _respect_crawl_delay(self) -> None:
         """Sleep if needed to respect robots.txt Crawl-delay."""
-        if self._last_fetch_time > 0:
-            elapsed = time.monotonic() - self._last_fetch_time
+        if DexProvider._last_fetch_time > 0:
+            elapsed = time.monotonic() - DexProvider._last_fetch_time
             remaining = _CRAWL_DELAY - elapsed
             if remaining > 0:
                 time.sleep(remaining)
@@ -358,7 +359,9 @@ class DexProvider:
         """Fetch from dexonline, store in L2 and L1. Returns formatted or None."""
         self._respect_crawl_delay()
         html, status = fetch_from_dexonline(original)
-        self._last_fetch_time = time.monotonic()
+        DexProvider._last_fetch_time = time.monotonic()
+        now = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"    [DEX {now}] {original} -> {status}")
 
         # Store in L2 (Supabase)
         if self._sb is not None:

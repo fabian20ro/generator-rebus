@@ -8,6 +8,8 @@ Criterii:
 - dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic
 - dacă e precisă și scurtă: scoruri mari
 - dacă e banală dar corectă: semantic mediu, guessability mediu sau mic
+- dacă definiția este aproape identică cu o definiție DEX: creativity_score mic (3-4)
+- dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare
 - nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun
 - feedback-ul este exclusiv în română, scurt și concret
 Răspunzi STRICT JSON: {"semantic_score": <1-10>, "guessability_score": <1-10>, "creativity_score": <1-10>, "feedback": "<motiv scurt>"}

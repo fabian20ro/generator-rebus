@@ -91,6 +91,7 @@ class FormatDefinitionsTests(unittest.TestCase):
 
 class DexProviderMemoryOnlyTests(unittest.TestCase):
     def setUp(self):
+        DexProvider._last_fetch_time = 0.0  # reset class-level state
         self.dex = DexProvider()  # no supabase client
 
     def test_lookup_unknown_returns_none(self):
@@ -248,6 +249,9 @@ class DexProviderSupabaseTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class DexProviderFetchStoreTests(unittest.TestCase):
+    def setUp(self):
+        DexProvider._last_fetch_time = 0.0  # reset class-level state
+
     def test_get_stores_in_supabase_after_fetch(self):
         sb = _mock_supabase_with_rows([])  # nothing cached
         sb.table.return_value.upsert.return_value.execute.return_value = SimpleNamespace(data=[])
@@ -271,8 +275,8 @@ class DexProviderFetchStoreTests(unittest.TestCase):
         # So: 1st call uses 1 monotonic (record), 2nd call uses 2 (check + record)
         mock_monotonic.side_effect = [
             1.0,    # 1st _fetch_and_store: record _last_fetch_time
-            1.5,    # 2nd _fetch_and_store: _respect_crawl_delay checks elapsed (0.5s < 2s → sleep)
-            3.0,    # 2nd _fetch_and_store: record _last_fetch_time
+            1.5,    # 2nd _fetch_and_store: _respect_crawl_delay checks elapsed (0.5s < 3s → sleep)
+            4.0,    # 2nd _fetch_and_store: record _last_fetch_time
         ]
         dex = DexProvider()
         with patch("generator.core.dex_cache.fetch_from_dexonline", return_value=("", "not_found")):
@@ -280,7 +284,7 @@ class DexProviderFetchStoreTests(unittest.TestCase):
             dex.get("WORD2", "word2")
         mock_sleep.assert_called_once()
         sleep_arg = mock_sleep.call_args[0][0]
-        self.assertAlmostEqual(sleep_arg, 1.5, places=1)  # 2.0 - 0.5 = 1.5
+        self.assertAlmostEqual(sleep_arg, 2.5, places=1)  # 3.0 - 0.5 = 2.5
 
 
 # ---------------------------------------------------------------------------

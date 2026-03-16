@@ -14,6 +14,7 @@ from ..core.ai_clues import (
     verify_definition,
     contains_english_markers,
 )
+from ..core.dex_cache import DexProvider
 from ..core.pipeline_state import (
     ClueAssessment,
     ClueFailureReason,
@@ -102,6 +103,7 @@ def _rate_clues(
     clues: list[WorkingClue],
     client: OpenAI,
     skip_words: set[str] | None = None,
+    dex: DexProvider | None = None,
 ) -> None:
     """Rate each usable clue definition quality in-place."""
     for clue in clues:
@@ -113,6 +115,7 @@ def _rate_clues(
         if not definition or definition.startswith("["):
             continue
 
+        dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
         try:
             rating = rate_definition(
                 client,
@@ -121,6 +124,7 @@ def _rate_clues(
                 definition,
                 len(clue.word_normalized),
                 word_type=clue.word_type,
+                dex_definitions=dex_defs,
             )
         except Exception:
             rating = None
@@ -176,13 +180,14 @@ def rate_working_puzzle(
     puzzle: WorkingPuzzle,
     client: OpenAI,
     skip_words: set[str] | None = None,
+    dex: DexProvider | None = None,
 ) -> tuple[float, float, int]:
     """Rate all usable definitions in-place."""
     print("Rating horizontal definitions...")
-    _rate_clues(puzzle.horizontal_clues, client, skip_words=skip_words)
+    _rate_clues(puzzle.horizontal_clues, client, skip_words=skip_words, dex=dex)
 
     print("Rating vertical definitions...")
-    _rate_clues(puzzle.vertical_clues, client, skip_words=skip_words)
+    _rate_clues(puzzle.vertical_clues, client, skip_words=skip_words, dex=dex)
 
     semantic_scores = []
     guessability_scores = []
@@ -212,7 +217,8 @@ def verify_puzzle(puzzle, client: OpenAI) -> tuple[int, int]:
 
 def rate_puzzle(puzzle, client: OpenAI) -> tuple[float, float, int]:
     state = working_puzzle_from_puzzle(puzzle, split_compound=False)
-    avg_semantic, avg_guessability, rated = rate_working_puzzle(state, client)
+    dex = DexProvider.for_puzzle(state)
+    avg_semantic, avg_guessability, rated = rate_working_puzzle(state, client, dex=dex)
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues
@@ -227,8 +233,9 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
 
     client = create_client()
     state = working_puzzle_from_puzzle(puzzle, split_compound=False)
+    dex = DexProvider.for_puzzle(state)
     passed, total = verify_working_puzzle(state, client)
-    avg_semantic, avg_guessability, rated = rate_working_puzzle(state, client)
+    avg_semantic, avg_guessability, rated = rate_working_puzzle(state, client, dex=dex)
     puzzle = puzzle_from_working_state(state)
 
     md = write_with_definitions(puzzle)

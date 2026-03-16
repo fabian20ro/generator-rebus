@@ -269,16 +269,22 @@ def _build_verify_prompt(definition: str, answer_length: int) -> str:
     )
 
 
-def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int, word_type: str = "") -> str:
+def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int, word_type: str = "", dex_definitions: str = "") -> str:
     label = WORD_TYPE_LABELS.get(word_type)
     word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
-    return load_user_template("rate").format(
+    prompt = load_user_template("rate").format(
         display_word=display_word,
         word=word,
         answer_length=answer_length,
         word_type_line=word_type_line,
         definition=definition,
     )
+    if dex_definitions:
+        prompt += (
+            f"\nDefiniții DEX (referință):\n{dex_definitions}\n"
+            "Folosește-le pentru a evalua corectitudinea și originalitatea definiției."
+        )
+    return prompt
 
 
 def _build_clue_tiebreak_prompt(word: str, answer_length: int, definition_a: str, definition_b: str) -> str:
@@ -363,13 +369,16 @@ def generate_definition(
     display_word = original if original else word.lower()
     length = len(word)
     prompt = _build_generate_prompt(display_word, word, length, word_type=word_type, dex_definitions=dex_definitions)
+    system_prompt = load_system_prompt("definition")
+    print(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
+    print(f"  [LLM user prompt]\n{prompt}")
 
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
                 model="default",
                 messages=[
-                    {"role": "system", "content": load_system_prompt("definition")},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
@@ -428,13 +437,16 @@ def rewrite_definition(
         display_word, word, previous_definition, feedback_text, bad_example_text,
         word_type=word_type, dex_definitions=dex_definitions,
     )
+    system_prompt = load_system_prompt("rewrite")
+    print(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
+    print(f"  [LLM user prompt]\n{prompt}")
 
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
                 model="default",
                 messages=[
-                    {"role": "system", "content": load_system_prompt("rewrite")},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
@@ -493,17 +505,19 @@ def rate_definition(
     definition: str,
     answer_length: int,
     word_type: str = "",
+    dex_definitions: str = "",
 ) -> DefinitionRating:
     """Rate a definition's semantic quality and guessability."""
     display_word = original if original else word.lower()
-    prompt = _build_rate_prompt(display_word, word, definition, answer_length, word_type=word_type)
+    prompt = _build_rate_prompt(display_word, word, definition, answer_length, word_type=word_type, dex_definitions=dex_definitions)
+    system_prompt = load_system_prompt("rate")
 
     for attempt in range(2):
         try:
             response = client.chat.completions.create(
                 model="default",
                 messages=[
-                    {"role": "system", "content": load_system_prompt("rate")},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,

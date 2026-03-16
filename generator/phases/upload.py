@@ -141,6 +141,9 @@ def upload_puzzle(puzzle, force: bool = False, *, difficulty: int = 3, descripti
         for record in clue_records:
             record["puzzle_id"] = puzzle_id
         client.table("crossword_clues").insert(clue_records).execute()
+        for record in clue_records:
+            print(f"  [DB] {record['direction']}{record['clue_number']} "
+                  f"{record['word_normalized']}: {record['definition'][:80]}")
 
     print(f"Uploaded! Puzzle ID: {puzzle_id}")
     print(f"Run 'python rebus.py activate {puzzle_id}' to publish it.")
