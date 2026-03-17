@@ -371,6 +371,7 @@ def generate_definition(
     retries: int = 3,
     word_type: str = "",
     dex_definitions: str = "",
+    temperature: float | None = None,
 ) -> str:
     """Generate a single clue definition."""
     display_word = original if original else word.lower()
@@ -388,7 +389,7 @@ def generate_definition(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.2,
+                temperature=temperature if temperature is not None else 0.2,
                 max_tokens=160,
             )
             definition = _clean_response(response.choices[0].message.content)
@@ -424,6 +425,7 @@ def rewrite_definition(
     word_type: str = "",
     dex_definitions: str = "",
     failure_history: list[tuple[str, str]] | None = None,
+    temperature: float | None = None,
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
     display_word = original if original else word.lower()
@@ -458,7 +460,7 @@ def rewrite_definition(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.3,
+                temperature=temperature if temperature is not None else 0.3,
                 max_tokens=220,
             )
             definition = _clean_response(response.choices[0].message.content)

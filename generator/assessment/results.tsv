@@ -20,3 +20,4 @@ commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
 94402c9	73.1	0.329	8.6	7.2	discard	exp18: rewrite must use completely different angle
 94402c9	63.6	0.271	7.8	6.5	discard	exp19: instruct to base on first DEX definition
 94402c9	71.0	0.329	8.0	7.0	discard	exp20: add low-score JSON example to rate prompt
+dbab70c	75.1	0.329	9.0	7.6	discard	exp21: semantic_score with DEX-anchored range like guessability
