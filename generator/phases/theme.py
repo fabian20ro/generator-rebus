@@ -83,8 +83,7 @@ def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
 
     parts = cleaned.split()
     if len(parts) > 4:
-        cleaned = " ".join(parts[:4])
-        cleaned = cleaned.rstrip(".,;:!?…")
+        return _fallback_title()
 
     # Only reject if 2+ input words of length >= 4 appear in the title
     if input_words:

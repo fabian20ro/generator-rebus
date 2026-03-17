@@ -1,0 +1,12 @@
+[
+  {
+    "name": "exp001",
+    "desc": "add step-by-step solving to verify system",
+    "status": "discard",
+    "composite": 88.8,
+    "pass_rate": 0.471,
+    "avg_semantic": 8.6,
+    "avg_rebus": 7.8,
+    "prev_best": 92.5
+  }
+]

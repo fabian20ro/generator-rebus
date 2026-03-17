@@ -187,9 +187,9 @@ class SanitizeTitleTests(unittest.TestCase):
         self.assertNotIn("Românesc", result)
         self.assertIn(result, FALLBACK_TITLES)
 
-    def test_truncates_very_long_output(self):
+    def test_rejects_very_long_output(self):
         result = _sanitize_title("Acesta este foarte lung dar util pentru test")
-        self.assertEqual(4, len(result.split()))
+        self.assertIn(result, FALLBACK_TITLES)
 
     def test_rejects_title_containing_two_input_words(self):
         result = _sanitize_title(
@@ -212,10 +212,9 @@ class SanitizeTitleTests(unittest.TestCase):
         )
         self.assertIn(result, FALLBACK_TITLES)
 
-    def test_strips_trailing_comma_after_truncation(self):
+    def test_rejects_five_word_title_instead_of_truncating(self):
         result = _sanitize_title("Alfa Beta Gama Delta Epsilon")
-        self.assertEqual("Alfa Beta Gama Delta", result)
-        self.assertFalse(result.endswith(","))
+        self.assertIn(result, FALLBACK_TITLES)
 
     def test_strips_trailing_punctuation(self):
         result = _sanitize_title("Suflet și Lumină,")
