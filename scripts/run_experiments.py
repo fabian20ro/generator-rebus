@@ -738,6 +738,34 @@ def get_result_by_description(description: str) -> dict:
     raise ValueError(f"No TSV row found for description={description!r}")
 
 
+def git_short_hash() -> str:
+    """Best-effort current git short hash for manual TSV appends."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def append_results_row(description: str, status: str, result: dict) -> None:
+    """Append an experiment outcome row to the shared results TSV."""
+    header = "commit\tcomposite\tpass_rate\tavg_semantic\tavg_rebus\tstatus\tdescription\n"
+
+    if not RESULTS_TSV.exists():
+        RESULTS_TSV.write_text(header, encoding="utf-8")
+
+    with RESULTS_TSV.open("a", encoding="utf-8") as f:
+        f.write(
+            f"{git_short_hash()}\t{result['composite']:.1f}\t{result['pass_rate']:.3f}\t"
+            f"{result['avg_semantic']:.1f}\t{result['avg_rebus']:.1f}\t"
+            f"{status}\t{description}\n"
+        )
+
+
 def apply_experiment(exp: Experiment) -> bool:
     """Apply an experiment's edit. Returns True if the edit was applied."""
     filepath = PROMPTS_DIR / exp.file
@@ -759,26 +787,67 @@ def apply_experiment(exp: Experiment) -> bool:
     return True
 
 
-def run_assessment(description: str) -> dict:
+def run_assessment(
+    description: str,
+    assessment_log_path: Path | None = None,
+    stream_output: bool = False,
+) -> dict:
     """Run the multi-model assessment and return parsed results."""
     cmd = [
         sys.executable, "-u", "-m", "generator.assessment.run_assessment",
         "--description", description,
     ]
     print(f"  Running assessment: {description}")
+    if assessment_log_path is not None:
+        assessment_log_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"  Assessment log: {assessment_log_path}")
     start = time.monotonic()
 
-    result = subprocess.run(
+    process = subprocess.Popen(
         cmd,
-        timeout=2400,  # 40 min timeout
         cwd=str(PROJECT_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
+    deadline = start + 2400  # 40 min timeout
+    log_file = assessment_log_path.open("w", encoding="utf-8") if assessment_log_path is not None else None
+
+    try:
+        while True:
+            if process.stdout is None:
+                break
+
+            line = process.stdout.readline()
+            if line:
+                if log_file is not None:
+                    log_file.write(line)
+                    log_file.flush()
+                if stream_output:
+                    print(line, end="")
+                continue
+
+            returncode = process.poll()
+            if returncode is not None:
+                break
+
+            if time.monotonic() > deadline:
+                process.kill()
+                raise subprocess.TimeoutExpired(cmd, 2400)
+    finally:
+        if process.stdout is not None:
+            process.stdout.close()
+        if log_file is not None:
+            log_file.close()
+
+    result = process.wait()
 
     elapsed = time.monotonic() - start
     print(f"  Assessment completed in {elapsed:.0f}s")
 
-    if result.returncode != 0:
-        print(f"  [ERROR] Assessment failed with exit code {result.returncode}")
+    if result != 0:
+        print(f"  [ERROR] Assessment failed with exit code {result}")
         return {"composite": 0.0, "pass_rate": 0.0, "avg_semantic": 0.0, "avg_rebus": 0.0, "error": True}
 
     return get_result_by_description(description)
@@ -811,6 +880,10 @@ def main() -> None:
                         help="Prefix added to assessment descriptions, e.g. campaign-a/")
     parser.add_argument("--backup-dir", type=Path, default=BEST_BACKUP_DIR,
                         help="Directory used for the current run's best prompt snapshot")
+    parser.add_argument("--assessment-logs-dir", type=Path,
+                        help="Directory for per-experiment assessment logs")
+    parser.add_argument("--stream-assessment-output", action="store_true",
+                        help="Also print inner assessment logs to stdout")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -819,6 +892,9 @@ def main() -> None:
             print(f"     File: {exp.file}")
         print(f"\nTotal: {len(EXPERIMENTS)} experiments")
         return
+
+    if args.assessment_logs_dir is None:
+        args.assessment_logs_dir = args.log_path.parent / f"{args.log_path.stem}_logs"
 
     # Initialize
     if args.reset_log and args.log_path.exists():
@@ -833,6 +909,7 @@ def main() -> None:
     print(f"Starting from: experiment {args.start_from}")
     print(f"Experiment log: {args.log_path}")
     print(f"Best-prompt backup: {args.backup_dir}")
+    print(f"Assessment logs dir: {args.assessment_logs_dir}")
     if args.description_prefix:
         print(f"Description prefix: {args.description_prefix}")
 
@@ -867,6 +944,9 @@ def main() -> None:
             entry = {
                 "name": exp.name,
                 "assessment_description": f"{args.description_prefix}{exp.name}",
+                "file": exp.file,
+                "find": exp.find,
+                "replace": exp.replace,
                 "desc": exp.desc,
                 "status": "skipped",
                 "reason": "find text not found",
@@ -879,10 +959,15 @@ def main() -> None:
 
         results_snapshot = snapshot_results_tsv()
         assessment_description = f"{args.description_prefix}{exp.name}"
+        assessment_log_path = args.assessment_logs_dir / f"{exp.name}.log"
 
         # Run assessment
         try:
-            result = run_assessment(assessment_description)
+            result = run_assessment(
+                assessment_description,
+                assessment_log_path=assessment_log_path,
+                stream_output=args.stream_assessment_output,
+            )
         except KeyboardInterrupt:
             print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
             restore_prompts(args.backup_dir)
@@ -893,6 +978,10 @@ def main() -> None:
             entry = {
                 "name": exp.name,
                 "assessment_description": assessment_description,
+                "assessment_log": str(assessment_log_path),
+                "file": exp.file,
+                "find": exp.find,
+                "replace": exp.replace,
                 "desc": exp.desc,
                 "status": "error",
                 "best_composite": best_composite,
@@ -903,6 +992,7 @@ def main() -> None:
             # Restore best prompts
             restore_prompts(args.backup_dir)
             restore_results_tsv(results_snapshot)
+            append_results_row(assessment_description, "error", result)
             continue
 
         composite = result["composite"]
@@ -916,6 +1006,10 @@ def main() -> None:
         entry = {
             "name": exp.name,
             "assessment_description": assessment_description,
+            "assessment_log": str(assessment_log_path),
+            "file": exp.file,
+            "find": exp.find,
+            "replace": exp.replace,
             "desc": exp.desc,
             "status": status,
             "composite": composite,
@@ -935,6 +1029,7 @@ def main() -> None:
         else:
             restore_prompts(args.backup_dir)
             restore_results_tsv(results_snapshot)
+            append_results_row(assessment_description, "discard", result)
             discarded += 1
 
     # Final restore of best prompts

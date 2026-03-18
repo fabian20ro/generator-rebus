@@ -17,6 +17,16 @@
 
 ---
 
+### [2026-03-18] Recover partial 41-experiment campaign after power loss
+
+**Context:** user lost power during the 100-experiment campaign and wanted exact prompt edits, discarded results in TSV, and smaller logs.
+**Happened:** Reconstructed `exp001`-`exp041` change diffs from `scripts/run_experiments.py` plus `logs/march17_campaign.json`; generated markdown/TSV reports under `build/experiment_reports/`. Backfilled discarded experiments into `generator/assessment/multistep_results.tsv`. Split the 3.4 MB monolithic log into `logs/march17_campaign_split/expNNN.log` files. Patched `scripts/run_experiments.py` so future runs write one assessment log per experiment, persist discard rows in TSV, and store `file/find/replace` in the campaign JSON. Confirmed the crash left `generator/prompts/system/definition.md` with `exp042` applied while no `exp042` result existed.
+**Outcome:** success
+**Insight:** abnormal termination can leave prompt files ahead of recorded experiment state; always diff against the campaign backup after crashes
+**Promoted:** yes — see LESSONS_LEARNED entries on interrupted campaigns and per-experiment logs
+
+---
+
 ### [2026-03-18] Rebuild multistep benchmark from March 17 and harden runner repeatability
 
 **Context:** user wanted old assessment words replaced with March-17 low/high candidates only; multistep benchmark only; repeatable baseline and full experiment runs.
