@@ -1,0 +1,857 @@
+Starting composite: 67.8
+Total experiments: 100
+Starting from: experiment 1
+Experiment log: logs/march17_campaign.json
+Best-prompt backup: build/prompt_backups/march17_campaign_best
+Description prefix: march17/
+Best prompts backed up to build/prompt_backups/march17_campaign_best
+
+============================================================
+[1/100] exp001: add step-by-step solving to verify system
+============================================================
+  Running assessment: march17/exp001
+Running multi-model assessment on 70 words...
+
+============================================================
+PHASE 1: gpt-oss-20b generates definitions
+============================================================
+[07:27:34] Model already active: gpt-oss-20b
+
+[1/70] DINA (tier=low, len=4)
+  [LLM prompt] word=DINA system=1293 chars
+  [LLM user prompt]
+Cuvânt: dină
+Formă normalizată: DINA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: DINA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[2/70] INAURA (tier=low, len=6)
+  [LLM prompt] word=INAURA system=1293 chars
+  [LLM user prompt]
+Cuvânt: înaura
+Formă normalizată: INAURA
+Lungime: 6
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: INAU, INAUR, INAURA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[3/70] ZDUPAIALA (tier=low, len=9)
+  [LLM prompt] word=ZDUPAIALA system=1293 chars
+  [LLM user prompt]
+Cuvânt: zdupăială
+Formă normalizată: ZDUPAIALA
+Lungime: 9
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ZDUPAI, ZDUPAIAL, ZDUPAIALA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+  Skipping — no definition generated
+
+[4/70] ARCANA (tier=low, len=6)
+  [LLM prompt] word=ARCANA system=1293 chars
+  [LLM user prompt]
+Cuvânt: arcana
+Formă normalizată: ARCANA
+Lungime: 6
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ARCA, ARCAN, ARCANA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[5/70] CELESTA (tier=low, len=7)
+  [LLM prompt] word=CELESTA system=1293 chars
+  [LLM user prompt]
+Cuvânt: celestă
+Formă normalizată: CELESTA
+Lungime: 7
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: CELE, CELES, CELESTA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[6/70] NUOR (tier=low, len=4)
+  [LLM prompt] word=NUOR system=1293 chars
+  [LLM user prompt]
+Cuvânt: nuor
+Formă normalizată: NUOR
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: NUOR.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[7/70] RABEGIT (tier=low, len=7)
+  [LLM prompt] word=RABEGIT system=1293 chars
+  [LLM user prompt]
+Cuvânt: răbegit
+Formă normalizată: RABEGIT
+Lungime: 7
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: RABEG, RABEGIT.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[8/70] SOIA (tier=low, len=4)
+  [LLM prompt] word=SOIA system=1293 chars
+  [LLM user prompt]
+Cuvânt: soia
+Formă normalizată: SOIA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: SOIA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[9/70] URAT (tier=low, len=4)
+  [LLM prompt] word=URAT system=1293 chars
+  [LLM user prompt]
+Cuvânt: urat
+Formă normalizată: URAT
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: URAT.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[10/70] ANINIS (tier=low, len=6)
+  [LLM prompt] word=ANINIS system=1293 chars
+  [LLM user prompt]
+Cuvânt: aniniș
+Formă normalizată: ANINIS
+Lungime: 6
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ANIN, ANINIS.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected ANINIS: too short (0 chars)]
+
+[11/70] CARIC (tier=low, len=5)
+  [LLM prompt] word=CARIC system=1293 chars
+  [LLM user prompt]
+Cuvânt: caric
+Formă normalizată: CARIC
+Lungime: 5
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: CARI, CARIC.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected CARIC: too short (0 chars)]
+    [rejected CARIC: too short (0 chars)]
+    [rejected CARIC: too short (0 chars)]
+  Skipping — no definition generated
+
+[12/70] CEASLA (tier=low, len=6)
+  [LLM prompt] word=CEASLA system=1293 chars
+  [LLM user prompt]
+Cuvânt: ceasla
+Formă normalizată: CEASLA
+Lungime: 6
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: CEAS, CEASL, CEASLA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected CEASLA: too short (0 chars)]
+    [rejected CEASLA: too short (0 chars)]
+
+[13/70] COFOZA (tier=low, len=6)
+  [LLM prompt] word=COFOZA system=1293 chars
+  [LLM user prompt]
+Cuvânt: cofoză
+Formă normalizată: COFOZA
+Lungime: 6
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: COFO, COFOZ, COFOZA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[14/70] GOLAS (tier=low, len=5)
+  [LLM prompt] word=GOLAS system=1293 chars
+  [LLM user prompt]
+Cuvânt: golaș
+Formă normalizată: GOLAS
+Lungime: 5
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: GOLA, GOLAS.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[15/70] MANATURA (tier=low, len=8)
+  [LLM prompt] word=MANATURA system=1293 chars
+  [LLM user prompt]
+Cuvânt: mânătură
+Formă normalizată: MANATURA
+Lungime: 8
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: MANAT, MANATUR, MANATURA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[16/70] MITIRE (tier=low, len=6)
+  [LLM prompt] word=MITIRE system=1293 chars
+  [LLM user prompt]
+Cuvânt: mițire
+Formă normalizată: MITIRE
+Lungime: 6
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: MITI, MITIR, MITIRE.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected MITIRE: too short (0 chars)]
+
+[17/70] MOZOLI (tier=low, len=6)
+  [LLM prompt] word=MOZOLI system=1293 chars
+  [LLM user prompt]
+Cuvânt: mozoli
+Formă normalizată: MOZOLI
+Lungime: 6
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: MOZO, MOZOL, MOZOLI.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[18/70] OAGA (tier=low, len=4)
+  [LLM prompt] word=OAGA system=1293 chars
+  [LLM user prompt]
+Cuvânt: oagă
+Formă normalizată: OAGA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+Definiții DEX (referință):
+- Vâlcea.
+Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus.
+ATENȚIE — Cuvinte complet interzise în definiție: OAGA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[19/70] OFILI (tier=low, len=5)
+  [LLM prompt] word=OFILI system=1293 chars
+  [LLM user prompt]
+Cuvânt: ofili
+Formă normalizată: OFILI
+Lungime: 5
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: OFIL, OFILI.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected OFILI: too short (0 chars)]
+    [rejected OFILI: too short (0 chars)]
+    [rejected OFILI: too short (0 chars)]
+  Skipping — no definition generated
+
+[20/70] ORIPILAT (tier=low, len=8)
+  [LLM prompt] word=ORIPILAT system=1293 chars
+  [LLM user prompt]
+Cuvânt: oripilat
+Formă normalizată: ORIPILAT
+Lungime: 8
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ORIPIL, ORIPILAT.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[21/70] RIZAT (tier=low, len=5)
+  [LLM prompt] word=RIZAT system=1293 chars
+  [LLM user prompt]
+Cuvânt: rizat
+Formă normalizată: RIZAT
+Lungime: 5
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: RIZA, RIZAT.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[22/70] SCOCIORARE (tier=low, len=10)
+  [LLM prompt] word=SCOCIORARE system=1293 chars
+  [LLM user prompt]
+Cuvânt: scociorâre
+Formă normalizată: SCOCIORARE
+Lungime: 10
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: SCOCIOR, SCOCIORAR, SCOCIORARE.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected SCOCIORARE: too short (0 chars)]
+
+[23/70] SCORNACI (tier=low, len=8)
+  [LLM prompt] word=SCORNACI system=1293 chars
+  [LLM user prompt]
+Cuvânt: scornâci
+Formă normalizată: SCORNACI
+Lungime: 8
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: SCORN, SCORNAC, SCORNACI.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected SCORNACI: too short (0 chars)]
+
+[24/70] ZARASTIRE (tier=low, len=9)
+  [LLM prompt] word=ZARASTIRE system=1293 chars
+  [LLM user prompt]
+Cuvânt: zărăstire
+Formă normalizată: ZARASTIRE
+Lungime: 9
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ZARAST, ZARASTIR, ZARASTIRE.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[25/70] INAT (tier=low, len=4)
+  [LLM prompt] word=INAT system=1293 chars
+  [LLM user prompt]
+Cuvânt: inat
+Formă normalizată: INAT
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: INAT.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[26/70] TIPO (tier=low, len=4)
+  [LLM prompt] word=TIPO system=1293 chars
+  [LLM user prompt]
+Cuvânt: tipo
+Formă normalizată: TIPO
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: TIPO.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected TIPO: too short (0 chars)]
+  Skipping — no definition generated
+
+[27/70] IN (tier=low, len=2)
+  [LLM prompt] word=IN system=1293 chars
+  [LLM user prompt]
+Cuvânt: in
+Formă normalizată: IN
+Lungime: 2
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE: Cuvântul IN este în limba ROMÂNĂ. Sensul corect: plantă textilă cu flori albastre. NU defini ca și cum ar fi un cuvânt englezesc.
+
+[28/70] HAT (tier=low, len=3)
+  [LLM prompt] word=HAT system=1293 chars
+  [LLM user prompt]
+Cuvânt: hat
+Formă normalizată: HAT
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE: Cuvântul HAT este în limba ROMÂNĂ. Sensul corect: hotărâre fermă, decizie. NU defini ca și cum ar fi un cuvânt englezesc.
+
+[29/70] FON (tier=low, len=3)
+  [LLM prompt] word=FON system=1293 chars
+  [LLM user prompt]
+Cuvânt: fon
+Formă normalizată: FON
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+    [rejected FON: too short (0 chars)]
+
+[30/70] OCA (tier=low, len=3)
+  [LLM prompt] word=OCA system=1293 chars
+  [LLM user prompt]
+Cuvânt: oca
+Formă normalizată: OCA
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[31/70] ARTA (tier=medium, len=4)
+  [LLM prompt] word=ARTA system=1293 chars
+  [LLM user prompt]
+Cuvânt: artă
+Formă normalizată: ARTA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+Definiții DEX (referință):
+- Activitate a omului care are drept scop producerea unor valori estetice și care folosește mijloace de exprimare cu caracter specific; totalitatea operelor (dintr-o epocă, dintr-o țară etc.) care aparțin acestei activități.
+- Formă a conștiinței sociale care oglindește realitatea în imagini artistice și care, ca și știința, are o mare forță de cunoaștere și de transformare a vieții sociale.
+- Îndemânare deosebită într-o activitate.
+- Îndeletnicire care cere multă îndemânare și anumite cunoștințe.
+- Ceartă, hărțuială, hărțuire, sfadă, încăierare.
+- Ciocnire între avangărzi sau între (mici) grupuri militare potrivnice.
+Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus.
+ATENȚIE — Cuvinte complet interzise în definiție: ARTA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[32/70] ASCA (tier=medium, len=4)
+  [LLM prompt] word=ASCA system=1293 chars
+  [LLM user prompt]
+Cuvânt: ască
+Formă normalizată: ASCA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ASCA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[33/70] ARATORIU (tier=medium, len=8)
+  [LLM prompt] word=ARATORIU system=1293 chars
+  [LLM user prompt]
+Cuvânt: aratoriu
+Formă normalizată: ARATORIU
+Lungime: 8
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ARAT, ARATOR, ARATORIU.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[34/70] SIDERARE (tier=medium, len=8)
+  [LLM prompt] word=SIDERARE system=1293 chars
+  [LLM user prompt]
+Cuvânt: siderare
+Formă normalizată: SIDERARE
+Lungime: 8
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: SIDER, SIDERAR, SIDERARE.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[35/70] ALIA (tier=medium, len=4)
+  [LLM prompt] word=ALIA system=1293 chars
+  [LLM user prompt]
+Cuvânt: alia
+Formă normalizată: ALIA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ALIA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected ALIA: too short (0 chars)]
+    [rejected ALIA: too short (0 chars)]
+
+[36/70] TRAI (tier=medium, len=4)
+  [LLM prompt] word=TRAI system=1293 chars
+  [LLM user prompt]
+Cuvânt: trai
+Formă normalizată: TRAI
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: TRAI.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[37/70] AFET (tier=medium, len=4)
+  [LLM prompt] word=AFET system=1293 chars
+  [LLM user prompt]
+Cuvânt: afet
+Formă normalizată: AFET
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: AFET.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[38/70] EROS (tier=medium, len=4)
+  [LLM prompt] word=EROS system=1293 chars
+  [LLM user prompt]
+Cuvânt: eros
+Formă normalizată: EROS
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: EROS.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[39/70] HARTA (tier=medium, len=5)
+  [LLM prompt] word=HARTA system=1293 chars
+  [LLM user prompt]
+Cuvânt: hartă
+Formă normalizată: HARTA
+Lungime: 5
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: HART, HARTA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[40/70] UJBA (tier=medium, len=4)
+  [LLM prompt] word=UJBA system=1293 chars
+  [LLM user prompt]
+Cuvânt: ujbă
+Formă normalizată: UJBA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: UJBA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[41/70] ARAC (tier=medium, len=4)
+  [LLM prompt] word=ARAC system=1293 chars
+  [LLM user prompt]
+Cuvânt: arac
+Formă normalizată: ARAC
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ARAC.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[42/70] SINUCIGAS (tier=medium, len=9)
+  [LLM prompt] word=SINUCIGAS system=1293 chars
+  [LLM user prompt]
+Cuvânt: sinucigaș
+Formă normalizată: SINUCIGAS
+Lungime: 9
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: SINUCIG, SINUCIGAS.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[43/70] IDE (tier=medium, len=3)
+  [LLM prompt] word=IDE system=1293 chars
+  [LLM user prompt]
+Cuvânt: ide
+Formă normalizată: IDE
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE: Cuvântul IDE este în limba ROMÂNĂ. Sensul corect: pește de apă dulce din familia ciprinidelor. NU defini ca și cum ar fi un cuvânt englezesc.
+
+[44/70] MAT (tier=medium, len=3)
+  [LLM prompt] word=MAT system=1293 chars
+  [LLM user prompt]
+Cuvânt: mat
+Formă normalizată: MAT
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[45/70] COZ (tier=medium, len=3)
+  [LLM prompt] word=COZ system=1293 chars
+  [LLM user prompt]
+Cuvânt: coz
+Formă normalizată: COZ
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+    [rejected COZ: too short (0 chars)]
+  Skipping — no definition generated
+
+[46/70] MUL (tier=medium, len=3)
+  [LLM prompt] word=MUL system=1293 chars
+  [LLM user prompt]
+Cuvânt: mul
+Formă normalizată: MUL
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+    [rejected MUL: too short (0 chars)]
+    [rejected MUL: too short (0 chars)]
+  Skipping — no definition generated
+
+[47/70] MIT (tier=medium, len=3)
+  [LLM prompt] word=MIT system=1293 chars
+  [LLM user prompt]
+Cuvânt: mit
+Formă normalizată: MIT
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[48/70] ROS (tier=medium, len=3)
+  [LLM prompt] word=ROS system=1293 chars
+  [LLM user prompt]
+Cuvânt: ros
+Formă normalizată: ROS
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+    [rejected ROS: too short (0 chars)]
+
+[49/70] RAC (tier=medium, len=3)
+  [LLM prompt] word=RAC system=1293 chars
+  [LLM user prompt]
+Cuvânt: rac
+Formă normalizată: RAC
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[50/70] MAS (tier=medium, len=3)
+  [LLM prompt] word=MAS system=1293 chars
+  [LLM user prompt]
+Cuvânt: mas
+Formă normalizată: MAS
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+    [rejected MAS: too short (0 chars)]
+  Skipping — no definition generated
+
+[51/70] RAR (tier=medium, len=3)
+  [LLM prompt] word=RAR system=1293 chars
+  [LLM user prompt]
+Cuvânt: rar
+Formă normalizată: RAR
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+    [rejected RAR: contains answer or family word]
+
+[52/70] MED (tier=medium, len=3)
+  [LLM prompt] word=MED system=1293 chars
+  [LLM user prompt]
+Cuvânt: med
+Formă normalizată: MED
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[53/70] NUN (tier=medium, len=3)
+  [LLM prompt] word=NUN system=1293 chars
+  [LLM user prompt]
+Cuvânt: nun
+Formă normalizată: NUN
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[54/70] FIU (tier=medium, len=3)
+  [LLM prompt] word=FIU system=1293 chars
+  [LLM user prompt]
+Cuvânt: fiu
+Formă normalizată: FIU
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[55/70] MIC (tier=medium, len=3)
+  [LLM prompt] word=MIC system=1293 chars
+  [LLM user prompt]
+Cuvânt: mic
+Formă normalizată: MIC
+Lungime: 3
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+
+[56/70] ANUS (tier=high, len=4)
+  [LLM prompt] word=ANUS system=1293 chars
+  [LLM user prompt]
+Cuvânt: anus
+Formă normalizată: ANUS
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ANUS.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[57/70] AMIN (tier=high, len=4)
+  [LLM prompt] word=AMIN system=1293 chars
+  [LLM user prompt]
+Cuvânt: amin
+Formă normalizată: AMIN
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: AMIN.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected AMIN: too short (0 chars)]
+    [rejected AMIN: contains answer or family word]
+    [rejected AMIN: too short (0 chars)]
+  Skipping — no definition generated
+
+[58/70] ARMA (tier=high, len=4)
+  [LLM prompt] word=ARMA system=1293 chars
+  [LLM user prompt]
+Cuvânt: arma
+Formă normalizată: ARMA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ARMA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[59/70] ATOL (tier=high, len=4)
+  [LLM prompt] word=ATOL system=1293 chars
+  [LLM user prompt]
+Cuvânt: atol
+Formă normalizată: ATOL
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ATOL.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[60/70] AURA (tier=high, len=4)
+  [LLM prompt] word=AURA system=1293 chars
+  [LLM user prompt]
+Cuvânt: aură
+Formă normalizată: AURA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: AURA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+    [rejected AURA: too short (0 chars)]
+
+[61/70] BORS (tier=high, len=4)
+  [LLM prompt] word=BORS system=1293 chars
+  [LLM user prompt]
+Cuvânt: borș
+Formă normalizată: BORS
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: BORS.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[62/70] CITI (tier=high, len=4)
+  [LLM prompt] word=CITI system=1293 chars
+  [LLM user prompt]
+Cuvânt: citi
+Formă normalizată: CITI
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+Definiții DEX (referință):
+- A parcurge un text (pronunțând cuvintele sau nu) pentru a lua cunoștință de cele scrise.
+- A rosti un text cu voce tare pentru a comunica cuiva conținutul lui.
+- A descifra o partitură muzicală, urmărind cu ochii sunetele reprezentate și valorile lor (și a le reproduce cu vocea sau cu un instrument).
+- A interpreta indicațiile topografice ale unei hărți sau ale unui plan și a reconstitui după ele conformația terenului.
+- A înregistra, a desluși indicațiile date de un contor, de un barometru, de un indicator etc.
+- A descoperi, a sesiza gândul, sentimentele ascunse etc. ale cuiva din atitudinea sau din expresia figurii sale.
+- A învăța, a studia (parcurgând scrieri, izvoare etc.).
+- A se instrui, a se cultiva.
+Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus.
+ATENȚIE — Cuvinte complet interzise în definiție: CITI.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[63/70] ETICHETA (tier=high, len=8)
+  [LLM prompt] word=ETICHETA system=1293 chars
+  [LLM user prompt]
+Cuvânt: eticheta
+Formă normalizată: ETICHETA
+Lungime: 8
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ETIC, ETICH, ETICHETA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[64/70] IDEA (tier=high, len=4)
+  [LLM prompt] word=IDEA system=1293 chars
+  [LLM user prompt]
+Cuvânt: idea
+Formă normalizată: IDEA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+Definiții DEX (referință):
+- A imagina, a concepe scheme, planuri etc. care urmează să fie aplicate.
+- A-și propune.
+Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus.
+ATENȚIE — Cuvinte complet interzise în definiție: IDEA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[65/70] IRIS (tier=high, len=4)
+  [LLM prompt] word=IRIS system=1293 chars
+  [LLM user prompt]
+Cuvânt: iris
+Formă normalizată: IRIS
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: IRIS.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[66/70] LEGE (tier=high, len=4)
+  [LLM prompt] word=LEGE system=1293 chars
+  [LLM user prompt]
+Cuvânt: lege
+Formă normalizată: LEGE
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: LEGE.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[67/70] ORAR (tier=high, len=4)
+  [LLM prompt] word=ORAR system=1293 chars
+  [LLM user prompt]
+Cuvânt: orar
+Formă normalizată: ORAR
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: ORAR.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[68/70] PUMA (tier=high, len=4)
+  [LLM prompt] word=PUMA system=1293 chars
+  [LLM user prompt]
+Cuvânt: puma
+Formă normalizată: PUMA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: PUMA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.
+
+[69/70] SALA (tier=high, len=4)
+  [LLM prompt] word=SALA system=1293 chars
+  [LLM user prompt]
+Cuvânt: sală
+Formă normalizată: SALA
+Lungime: 4
+
+Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+ATENȚIE — Cuvinte complet interzise în definiție: SALA.
+Orice cuvânt care conține aceste rădăcini este interzis.
+Folosește o perifrază creativă, fără nicio legătură lexicală cu răspunsul.

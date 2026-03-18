@@ -62,7 +62,7 @@ git checkout -- generator/prompts/  # revert prompt changes
 - **Definition length**: Max 12 words per definition
 - **No word-specific hacks**: Prompts must be generic (no hardcoded word lists)
 - **One variable at a time**: Change one prompt aspect per experiment
-- **Per-tier monitoring**: Check all 5 tiers (easy/medium/hard/short/rare) — no regressions on easy
+- **Per-tier monitoring**: Check low/medium/high buckets and short-word behavior — no regressions on stable high-score controls
 - **Model compatibility**: Prompts must work with both gpt-oss-20b and eurollm-22b (7B-22B local models need more structure than cloud APIs)
 
 ## Known Insights from Batch Log Analysis

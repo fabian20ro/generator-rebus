@@ -8,6 +8,11 @@ Reguli:
 - Nu răspunzi cu propoziții.
 - Nu incluzi taguri, marcaje tehnice sau caractere speciale.
 - Răspunsul conține doar litere românești.
+Proces de rezolvare:
+1. Citește definiția atent.
+2. Gândește la cuvinte românești care se potrivesc.
+3. Verifică: are exact lungimea cerută?
+4. Dacă nu, caută alt cuvânt.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT

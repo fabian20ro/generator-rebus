@@ -23,7 +23,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
 RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "multistep_results.tsv"
-EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
+DEFAULT_EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
 BEST_BACKUP_DIR = Path("/tmp/prompt_experiment_best")
 
 # ── Prompt file paths ─────────────────────────────────────────────
@@ -685,13 +685,57 @@ def save_best_prompts(backup_dir: Path = BEST_BACKUP_DIR) -> None:
 
 
 def get_last_composite() -> float:
-    """Read the last composite score from results TSV."""
+    """Read the last kept composite score from results TSV."""
     lines = RESULTS_TSV.read_text().strip().split("\n")
     if len(lines) < 2:
         raise ValueError("No results in TSV")
-    last_line = lines[-1]
-    fields = last_line.split("\t")
-    return float(fields[1])
+    for line in reversed(lines[1:]):
+        fields = line.split("\t")
+        if len(fields) < 7:
+            continue
+        if fields[5] != "keep":
+            continue
+        return float(fields[1])
+    raise ValueError("No kept results in TSV")
+
+
+def snapshot_results_tsv() -> str | None:
+    """Capture the current TSV contents for rollback on discard/interruption."""
+    if not RESULTS_TSV.exists():
+        return None
+    return RESULTS_TSV.read_text(encoding="utf-8")
+
+
+def restore_results_tsv(snapshot: str | None) -> None:
+    """Restore prior TSV contents after a discarded or interrupted experiment."""
+    if snapshot is None:
+        if RESULTS_TSV.exists():
+            RESULTS_TSV.unlink()
+        return
+    RESULTS_TSV.write_text(snapshot, encoding="utf-8")
+
+
+def get_result_by_description(description: str) -> dict:
+    """Read the newest TSV row for a specific assessment description."""
+    lines = RESULTS_TSV.read_text(encoding="utf-8").strip().split("\n")
+    if len(lines) < 2:
+        raise ValueError("No results in TSV")
+
+    for line in reversed(lines[1:]):
+        fields = line.split("\t")
+        if len(fields) < 7:
+            continue
+        if fields[6] != description:
+            continue
+        return {
+            "composite": float(fields[1]),
+            "pass_rate": float(fields[2]),
+            "avg_semantic": float(fields[3]),
+            "avg_rebus": float(fields[4]),
+            "error": False,
+        }
+
+    raise ValueError(f"No TSV row found for description={description!r}")
 
 
 def apply_experiment(exp: Experiment) -> bool:
@@ -718,7 +762,7 @@ def apply_experiment(exp: Experiment) -> bool:
 def run_assessment(description: str) -> dict:
     """Run the multi-model assessment and return parsed results."""
     cmd = [
-        sys.executable, "-m", "generator.assessment.run_assessment",
+        sys.executable, "-u", "-m", "generator.assessment.run_assessment",
         "--description", description,
     ]
     print(f"  Running assessment: {description}")
@@ -726,8 +770,6 @@ def run_assessment(description: str) -> dict:
 
     result = subprocess.run(
         cmd,
-        capture_output=True,
-        text=True,
         timeout=2400,  # 40 min timeout
         cwd=str(PROJECT_ROOT),
     )
@@ -736,31 +778,23 @@ def run_assessment(description: str) -> dict:
     print(f"  Assessment completed in {elapsed:.0f}s")
 
     if result.returncode != 0:
-        print(f"  [ERROR] Assessment failed:\n{result.stderr[-500:]}")
+        print(f"  [ERROR] Assessment failed with exit code {result.returncode}")
         return {"composite": 0.0, "pass_rate": 0.0, "avg_semantic": 0.0, "avg_rebus": 0.0, "error": True}
 
-    # Parse from TSV (last line)
-    lines = RESULTS_TSV.read_text().strip().split("\n")
-    last = lines[-1].split("\t")
-    return {
-        "composite": float(last[1]),
-        "pass_rate": float(last[2]),
-        "avg_semantic": float(last[3]),
-        "avg_rebus": float(last[4]),
-        "error": False,
-    }
+    return get_result_by_description(description)
 
 
-def load_log() -> list[dict]:
+def load_log(log_path: Path) -> list[dict]:
     """Load experiment log from JSON."""
-    if EXPERIMENT_LOG.exists():
-        return json.loads(EXPERIMENT_LOG.read_text())
+    if log_path.exists():
+        return json.loads(log_path.read_text(encoding="utf-8"))
     return []
 
 
-def save_log(log: list[dict]) -> None:
+def save_log(log_path: Path, log: list[dict]) -> None:
     """Save experiment log to JSON."""
-    EXPERIMENT_LOG.write_text(json.dumps(log, indent=2, ensure_ascii=False))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def main() -> None:
@@ -769,6 +803,14 @@ def main() -> None:
                         help="Resume from experiment N (1-indexed)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show experiments without running")
+    parser.add_argument("--log-path", type=Path, default=DEFAULT_EXPERIMENT_LOG,
+                        help="Path to experiment log JSON")
+    parser.add_argument("--reset-log", action="store_true",
+                        help="Ignore and overwrite any existing experiment log")
+    parser.add_argument("--description-prefix", default="",
+                        help="Prefix added to assessment descriptions, e.g. campaign-a/")
+    parser.add_argument("--backup-dir", type=Path, default=BEST_BACKUP_DIR,
+                        help="Directory used for the current run's best prompt snapshot")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -779,7 +821,9 @@ def main() -> None:
         return
 
     # Initialize
-    log = load_log()
+    if args.reset_log and args.log_path.exists():
+        args.log_path.unlink()
+    log = load_log(args.log_path)
     completed_names = {entry["name"] for entry in log}
 
     # Get current best composite
@@ -787,10 +831,14 @@ def main() -> None:
     print(f"Starting composite: {best_composite:.1f}")
     print(f"Total experiments: {len(EXPERIMENTS)}")
     print(f"Starting from: experiment {args.start_from}")
+    print(f"Experiment log: {args.log_path}")
+    print(f"Best-prompt backup: {args.backup_dir}")
+    if args.description_prefix:
+        print(f"Description prefix: {args.description_prefix}")
 
     # Back up current prompts as "best"
-    backup_prompts()
-    print(f"Best prompts backed up to {BEST_BACKUP_DIR}")
+    backup_prompts(args.backup_dir)
+    print(f"Best prompts backed up to {args.backup_dir}")
 
     kept = 0
     skipped = 0
@@ -811,38 +859,50 @@ def main() -> None:
         print(f"{'='*60}")
 
         # Restore to best state before applying this experiment
-        restore_prompts()
+        restore_prompts(args.backup_dir)
 
         # Apply the experiment edit
         applied = apply_experiment(exp)
         if not applied:
             entry = {
                 "name": exp.name,
+                "assessment_description": f"{args.description_prefix}{exp.name}",
                 "desc": exp.desc,
                 "status": "skipped",
                 "reason": "find text not found",
                 "best_composite": best_composite,
             }
             log.append(entry)
-            save_log(log)
+            save_log(args.log_path, log)
             skipped += 1
             continue
 
+        results_snapshot = snapshot_results_tsv()
+        assessment_description = f"{args.description_prefix}{exp.name}"
+
         # Run assessment
-        result = run_assessment(exp.name)
+        try:
+            result = run_assessment(assessment_description)
+        except KeyboardInterrupt:
+            print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
+            restore_prompts(args.backup_dir)
+            restore_results_tsv(results_snapshot)
+            raise SystemExit(130) from None
 
         if result.get("error"):
             entry = {
                 "name": exp.name,
+                "assessment_description": assessment_description,
                 "desc": exp.desc,
                 "status": "error",
                 "best_composite": best_composite,
             }
             log.append(entry)
-            save_log(log)
+            save_log(args.log_path, log)
             skipped += 1
             # Restore best prompts
-            restore_prompts()
+            restore_prompts(args.backup_dir)
+            restore_results_tsv(results_snapshot)
             continue
 
         composite = result["composite"]
@@ -855,6 +915,7 @@ def main() -> None:
 
         entry = {
             "name": exp.name,
+            "assessment_description": assessment_description,
             "desc": exp.desc,
             "status": status,
             "composite": composite,
@@ -864,19 +925,20 @@ def main() -> None:
             "prev_best": best_composite,
         }
         log.append(entry)
-        save_log(log)
+        save_log(args.log_path, log)
 
         if improved:
             best_composite = composite
-            save_best_prompts()
+            save_best_prompts(args.backup_dir)
             kept += 1
             print(f"  New best: {best_composite:.1f}")
         else:
-            restore_prompts()
+            restore_prompts(args.backup_dir)
+            restore_results_tsv(results_snapshot)
             discarded += 1
 
     # Final restore of best prompts
-    restore_prompts()
+    restore_prompts(args.backup_dir)
 
     total_elapsed = time.monotonic() - total_start
     print(f"\n{'='*60}")

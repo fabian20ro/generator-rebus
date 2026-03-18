@@ -1,3 +1,2 @@
 commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
-d5af9e7	92.5	0.500	8.8	8.0	keep	baseline
-264df2b	88.8	0.471	8.6	7.8	keep	exp001
+ab380f2	67.8	0.286	8.3	7.2	keep	baseline_march17_rebuilt

@@ -32,7 +32,7 @@
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
 ## Process & Workflow
-<!-- **[YYYY-MM-DD]** title — explanation -->
+**[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to `multistep_results.tsv`, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 
 ---
 

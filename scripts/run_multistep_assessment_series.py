@@ -33,8 +33,12 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=None)
     args = parser.parse_args()
 
-    before = len(_read_results())
+    if args.runs <= 0:
+        print("No runs requested.")
+        return
+
     for index in range(1, args.runs + 1):
+        before_rows = _read_results()
         description = f"{args.description_prefix} run {index}/{args.runs}"
         cmd = [
             sys.executable,
@@ -51,8 +55,22 @@ def main() -> None:
         result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
         if result.returncode != 0:
             raise SystemExit(result.returncode)
+        after_rows = _read_results()
+        new_rows = after_rows[len(before_rows):]
+        if len(new_rows) != 1:
+            print(f"Expected exactly 1 appended row for {description}, found {len(new_rows)}")
+            raise SystemExit(1)
+        row = new_rows[0]
+        print(
+            "Recorded: "
+            f"composite={row['composite']} "
+            f"pass={row['pass_rate']} "
+            f"sem={row['avg_semantic']} "
+            f"reb={row['avg_rebus']} "
+            f"status={row['status']}"
+        )
 
-    rows = _read_results()[before:]
+    rows = _read_results()[-args.runs:]
     if not rows:
         print("No new rows appended.")
         return

@@ -21,7 +21,7 @@ generate_definition() → verify_definition() → rate_definition() → rewrite_
 
 1. **Read** `prompt_research.md` for the optimization program, constraints, and known insights
 2. **Read** `generator/assessment/multistep_results.tsv` to see experiment history
-3. **Analyze** the latest assessment to identify which tier(s) are weakest
+3. **Analyze** the latest assessment to identify which tier(s) are weakest and which failure mode dominates
 4. **Propose** a single-variable experiment (change one thing at a time)
 5. **Edit** the relevant prompt file(s) in `generator/prompts/system/` or `generator/prompts/user/`
 6. **Run** `python3 -m generator.assessment.run_assessment --description "your description"`
@@ -34,7 +34,7 @@ generate_definition() → verify_definition() → rate_definition() → rewrite_
 Experiment: [short name]
 Hypothesis: [what to improve and why]
 Change: File: [path], Edit: [specific diff]
-Predicted impact: [which tier benefits: easy/medium/hard/short/rare]
+Predicted impact: [which bucket benefits: low/medium/high; mention short-word effects if relevant]
 Risk: [what could regress]
 ```
 
@@ -63,8 +63,8 @@ Risk: [what could regress]
 
 ## Experiment Priority Queue (from log analysis)
 
-1. Length enforcement in verify prompt — add explicit letter-counting
-2. Crossword-style definition examples in generate prompt
-3. Short-word specialization (2-3 letter words need different strategies)
-4. Anti-hallucination instructions for rare words
-5. Rewrite prompt: leverage failure history more effectively
+1. Exact-surface-form accuracy — gender/number/inflection mismatches in definitions
+2. Length enforcement in verify prompt — add explicit letter-counting
+3. Crossword-style definition examples in generate prompt
+4. Stable-control protection — no regressions on high-score March-17 words
+5. Rewrite prompt: leverage failure history and prior wrong guesses more effectively
