@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from generator.core.ai_clues import (
     DefinitionRating,
     _clean_response,
+    _build_verify_prompt,
     _definition_describes_english_meaning,
     _build_generate_prompt,
     compute_rebus_score,
@@ -229,6 +230,11 @@ class AiCluesTests(unittest.TestCase):
         from generator.core.ai_clues import _build_rate_prompt
         prompt = _build_rate_prompt("casă", "CASA", "Locuință", 4, word_type="N")
         self.assertIn("Categorie gramaticală: substantiv", prompt)
+
+    def test_verify_prompt_includes_word_type(self):
+        prompt = _build_verify_prompt("Locuință", 4, word_type="N")
+        self.assertIn("Categorie gramaticală: substantiv", prompt)
+        self.assertIn("Definiție: Locuință", prompt)
 
     def test_rate_definition_returns_none_on_unparseable_response(self):
         """When JSON parsing fails, rate_definition returns None (not 5/5/5)."""

@@ -9,6 +9,7 @@ Reguli:
 - Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]
 - Preferi definiții precise, naturale, maxim 12 cuvinte.
 - Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
+- Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
 Exemple corecte:
 OS -> Țesut dur al scheletului

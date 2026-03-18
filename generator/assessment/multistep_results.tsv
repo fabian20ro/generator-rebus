@@ -1,43 +1,43 @@
 commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
 ab380f2	67.8	0.286	8.3	7.2	keep	baseline_march17_rebuilt
-5aff410	70.1	0.314	8.2	7.0	keep	march17/exp001
-5aff410	65.9	0.271	8.3	7.0	discard	march17/exp002
-5aff410	69.1	0.314	8.1	6.7	discard	march17/exp003
-5aff410	68.6	0.314	8.0	6.7	discard	march17/exp004
-5aff410	68.4	0.300	8.2	6.9	discard	march17/exp005
-5aff410	73.0	0.343	8.2	7.0	keep	march17/exp006
-5aff410	66.7	0.286	8.1	6.9	discard	march17/exp007
-5aff410	67.2	0.286	8.3	6.9	discard	march17/exp008
-5aff410	64.3	0.271	7.9	6.8	discard	march17/exp009
-5aff410	67.2	0.300	7.9	6.7	discard	march17/exp010
-5aff410	63.3	0.271	7.6	6.6	discard	march17/exp011
-5aff410	68.2	0.300	8.2	6.9	discard	march17/exp012
-5aff410	76.8	0.400	7.8	6.7	keep	march17/exp013
-5aff410	67.5	0.300	8.0	6.7	discard	march17/exp014
-5aff410	74.0	0.357	8.1	7.1	discard	march17/exp015
-5aff410	64.7	0.271	8.0	6.8	discard	march17/exp016
-5aff410	70.7	0.314	8.3	7.2	discard	march17/exp017
-5aff410	69.6	0.314	8.0	7.0	discard	march17/exp018
-5aff410	73.1	0.343	8.2	7.1	discard	march17/exp019
-5aff410	72.6	0.343	8.2	6.9	discard	march17/exp020
-5aff410	66.5	0.286	8.1	6.9	discard	march17/exp021
-5aff410	69.9	0.300	8.5	7.2	discard	march17/exp022
-5aff410	66.8	0.286	8.2	6.9	discard	march17/exp023
-5aff410	69.9	0.314	8.2	7.0	discard	march17/exp024
-5aff410	70.4	0.314	8.3	7.0	discard	march17/exp025
-5aff410	67.6	0.300	8.1	6.7	discard	march17/exp026
-5aff410	61.6	0.243	7.9	6.8	discard	march17/exp027
-5aff410	64.7	0.286	7.7	6.5	discard	march17/exp028
-5aff410	65.9	0.271	8.3	7.0	discard	march17/exp029
-5aff410	74.8	0.371	7.9	7.0	discard	march17/exp030
-5aff410	64.9	0.286	7.7	6.6	discard	march17/exp031
-5aff410	68.4	0.300	8.1	7.0	discard	march17/exp032
-5aff410	67.3	0.300	8.0	6.7	discard	march17/exp033
-5aff410	69.4	0.329	7.7	6.7	discard	march17/exp034
-5aff410	65.6	0.286	7.9	6.7	discard	march17/exp035
-5aff410	68.1	0.286	8.4	7.1	discard	march17/exp036
-5aff410	71.0	0.314	8.4	7.2	discard	march17/exp037
-5aff410	74.1	0.343	8.5	7.2	discard	march17/exp038
-5aff410	66.0	0.271	8.2	7.1	discard	march17/exp039
-5aff410	67.6	0.286	8.3	7.1	discard	march17/exp040
-5aff410	70.4	0.314	8.4	6.9	discard	march17/exp041
+5aff410	70.1	0.314	8.2	7.0	keep	march17/exp001 | add step-by-step solving to verify system | system/verify.md
+5aff410	65.9	0.271	8.3	7.0	discard	march17/exp002 | add common-word preference to verify | system/verify.md
+5aff410	69.1	0.314	8.1	6.7	discard	march17/exp003 | add expert framing to verify role | system/verify.md
+5aff410	68.6	0.314	8.0	6.7	discard	march17/exp004 | add length double-check to verify | system/verify.md
+5aff410	68.4	0.300	8.2	6.9	discard	march17/exp005 | add lateral thinking hint to verify | system/verify.md
+5aff410	73.0	0.343	8.2	7.0	keep	march17/exp006 | add rare/technical word hint to verify | system/verify.md
+5aff410	66.7	0.286	8.1	6.9	discard	march17/exp007 | add verb form awareness to verify | system/verify.md
+5aff410	67.2	0.286	8.3	6.9	discard	march17/exp008 | add grammatical form example to verify | system/verify.md
+5aff410	64.3	0.271	7.9	6.8	discard	march17/exp009 | add longer word example to verify | system/verify.md
+5aff410	67.2	0.300	7.9	6.7	discard	march17/exp010 | add rare word example to verify | system/verify.md
+5aff410	63.3	0.271	7.6	6.6	discard	march17/exp011 | emphasize EXACT length in verify user template | user/verify.md
+5aff410	68.2	0.300	8.2	6.9	discard	march17/exp012 | move length before definition in verify user | user/verify.md
+5aff410	76.8	0.400	7.8	6.7	keep	march17/exp013 | add explicit verification step to verify user | user/verify.md
+5aff410	67.5	0.300	8.0	6.7	discard	march17/exp014 | simplify verify user to bare minimum | user/verify.md
+5aff410	74.0	0.357	8.1	7.1	discard	march17/exp015 | add rebus-style hint to verify user | user/verify.md
+5aff410	64.7	0.271	8.0	6.8	discard	march17/exp016 | add think-in-romanian to verify user | user/verify.md
+5aff410	70.7	0.314	8.3	7.2	discard	march17/exp017 | add most-common-meaning instruction to verify | system/verify.md
+5aff410	69.6	0.314	8.0	7.0	discard	march17/exp018 | add domain-switching awareness to verify | system/verify.md
+5aff410	73.1	0.343	8.2	7.1	discard	march17/exp019 | add short word strategy to verify | system/verify.md
+5aff410	72.6	0.343	8.2	6.9	discard	march17/exp020 | add no-english reinforcement to verify | system/verify.md
+5aff410	66.5	0.286	8.1	6.9	discard	march17/exp021 | add diacritics awareness to verify | system/verify.md
+5aff410	69.9	0.300	8.5	7.2	discard	march17/exp022 | add confidence instruction to verify | system/verify.md
+5aff410	66.8	0.286	8.2	6.9	discard	march17/exp023 | add crossword-cell framing to verify | system/verify.md
+5aff410	69.9	0.314	8.2	7.0	discard	march17/exp024 | remove tag/markup instruction from verify (redundant) | system/verify.md
+5aff410	70.4	0.314	8.3	7.0	discard	march17/exp025 | add multiple word examples covering all tiers to verify | system/verify.md
+5aff410	67.6	0.300	8.1	6.7	discard	march17/exp026 | add uniqueness-check rule to definition | system/definition.md
+5aff410	61.6	0.243	7.9	6.8	discard	march17/exp027 | add single-answer rule to definition | system/definition.md
+5aff410	64.7	0.286	7.7	6.5	discard	march17/exp028 | add domain-surprise rule to definition | system/definition.md
+5aff410	65.9	0.271	8.3	7.0	discard	march17/exp029 | add anti-synonym rule to definition | system/definition.md
+5aff410	74.8	0.371	7.9	7.0	discard	march17/exp030 | add distinctive-sense rule to definition | system/definition.md
+5aff410	64.9	0.286	7.7	6.6	discard	march17/exp031 | add rebus-not-dictionary framing to definition | system/definition.md
+5aff410	68.4	0.300	8.1	7.0	discard	march17/exp032 | add concrete-over-abstract rule to definition | system/definition.md
+5aff410	67.3	0.300	8.0	6.7	discard	march17/exp033 | add anti-generic-formula rule to definition | system/definition.md
+5aff410	69.4	0.329	7.7	6.7	discard	march17/exp034 | add word-count tightening to definition | system/definition.md
+5aff410	65.6	0.286	7.9	6.7	discard	march17/exp035 | add self-test instruction to definition | system/definition.md
+5aff410	68.1	0.286	8.4	7.1	discard	march17/exp036 | add quality hierarchy to definition | system/definition.md
+5aff410	71.0	0.314	8.4	7.2	discard	march17/exp037 | add anti-clisee rule to definition | system/definition.md
+5aff410	74.1	0.343	8.5	7.2	discard	march17/exp038 | add no-ambiguity reinforcement to definition | system/definition.md
+5aff410	66.0	0.271	8.2	7.1	discard	march17/exp039 | add verifiability principle to definition role | system/definition.md
+5aff410	67.6	0.286	8.3	7.1	discard	march17/exp040 | add expert framing to definition role | system/definition.md
+5aff410	70.4	0.314	8.4	6.9	discard	march17/exp041 | add new crossword example RIAL to definition | system/definition.md

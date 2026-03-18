@@ -321,35 +321,31 @@ _exp("exp041", "add new crossword example RIAL to definition",
      "CLOU -> Moment culminant\n"
      "RIAL -> Se plătește la șah")
 
-_exp("exp042", "add action-verb example to definition",
-     SYS_DEFINITION,
-     "CLOU -> Moment culminant",
-     "CLOU -> Moment culminant\n"
-     "ARDE -> Efectul focului asupra materiei")
+_exp("exp042", "remove english-translation recovery hint from verify",
+     SYS_VERIFY,
+     "- Dacă primul cuvânt care îți vine este în engleză, îl traduci mental și răspunzi în română.\n",
+     "")
 
-_exp("exp043", "add longer word example to definition",
-     SYS_DEFINITION,
-     "CLOU -> Moment culminant",
-     "CLOU -> Moment culminant\n"
-     "ALARMA -> Semnal sonor de pericol")
+_exp("exp043", "remove technical-word hint from verify",
+     SYS_VERIFY,
+     "- Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.\n",
+     "")
 
-_exp("exp044", "add verb-definition strategy to definition",
-     SYS_DEFINITION,
-     "Exemple corecte:",
-     "- Dacă cuvântul este un verb, descrie acțiunea sau rezultatul ei fără a folosi infinitivul.\n"
-     "Exemple corecte:")
+_exp("exp044", "remove duplicate length reminder from verify user",
+     USR_VERIFY,
+     "Verifică lungimea înainte de a scrie.\n",
+     "")
 
-_exp("exp045", "add length-awareness to definition",
-     SYS_DEFINITION,
-     "Exemple corecte:",
-     "- Ține cont de lungimea cuvântului: definiția + lungimea trebuie să dea un răspuns unic.\n"
-     "Exemple corecte:")
+_exp("exp045", "remove shortest example from verify system",
+     SYS_VERIFY,
+     "Definiție: Țesut dur al scheletului\nRăspuns: OS\n",
+     "")
 
-_exp("exp046", "add disambiguation strategy to definition",
-     SYS_DEFINITION,
-     "Exemple corecte:",
-     "- Dacă definiția ar putea avea mai multe răspunsuri, adaugă un detaliu discriminator.\n"
-     "Exemple corecte:")
+_exp("exp046", "add grammatical-agreement rule to verify",
+     SYS_VERIFY,
+     "- Dacă definiția indică o abreviere, un simbol, un domeniu internet, o interjecție sau o formă gramaticală, răspunzi exact cu forma scurtă cerută.",
+     "- Dacă definiția indică o abreviere, un simbol, un domeniu internet, o interjecție sau o formă gramaticală, răspunzi exact cu forma scurtă cerută.\n"
+     "- Dacă definiția implică explicit genul, numărul sau persoana, alegi doar o formă compatibilă.")
 
 _exp("exp047", "strengthen no-invention rule in definition",
      SYS_DEFINITION,
@@ -400,87 +396,87 @@ _exp("exp055", "add specificity instruction to generate user",
 # ── BLOCK 3: Rating calibration (exp 56-85) ──────────────────────
 # Better rating → better rebus scores and more useful feedback.
 
-_exp("exp056", "add anchored semantic scale to rate",
+_exp("exp056", "add grammatical-agreement penalty to rate",
+     SYS_RATE,
+     "- dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici",
+     "- dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici\n"
+     "- dacă definiția sugerează alt gen, alt număr sau altă flexiune decât răspunsul: semantic_score ≤ 4")
+
+_exp("exp057", "add anchored semantic scale to rate",
      SYS_RATE,
      "- semantic_score: cât de corectă și onestă este definiția pentru răspunsul dat",
      "- semantic_score: cât de corectă semantic este definiția — 9-10 = acoperă exact un sens real, 5-6 = parțial corectă, 1-3 = incorectă sau inventată")
 
-_exp("exp057", "add stricter guessability framing to rate",
+_exp("exp058", "add stricter guessability framing to rate",
      SYS_RATE,
      "- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe de completat, ar scrie exact cuvântul-răspuns?",
      "- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe, ar scrie EXACT acest cuvânt? Fii strict: dacă există și alt cuvânt posibil, scor ≤ 6.")
 
-_exp("exp058", "add uniqueness criterion to guessability in rate",
+_exp("exp059", "add uniqueness criterion to guessability in rate",
      SYS_RATE,
      "Criterii:",
      "- un guessability_score de 9-10 înseamnă: nu există alt cuvânt românesc de aceeași lungime care să se potrivească definiției\n"
      "Criterii:")
 
-_exp("exp059", "add strictness instruction to rate",
+_exp("exp060", "add strictness instruction to rate",
      SYS_RATE,
      "Criterii:",
      "- Fii strict și obiectiv. Nu da scoruri mari din inerție.\n"
      "Criterii:")
 
-_exp("exp060", "add multi-answer penalty to rate",
+_exp("exp061", "add multi-answer penalty to rate",
      SYS_RATE,
      "- dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic",
      "- dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic (≤ 5)\n"
      "- dacă definiția funcționează pentru 2+ cuvinte de aceeași lungime: guessability_score ≤ 6")
 
-_exp("exp061", "add factual-accuracy emphasis to semantic in rate",
+_exp("exp062", "add factual-accuracy emphasis to semantic in rate",
      SYS_RATE,
      "Criterii:",
      "- semantic_score reflectă corectitudinea factuală, nu stilul sau creativitatea\n"
      "Criterii:")
 
-_exp("exp062", "add domain-switch creativity emphasis to rate",
+_exp("exp063", "add domain-switch creativity emphasis to rate",
      SYS_RATE,
      "- dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare",
      "- dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare\n"
      "- creativity_score 8-10: definiția face rezolvitorul să se gândească inițial la alt domeniu complet")
 
-_exp("exp063", "add low-score JSON example to rate",
+_exp("exp064", "add low-score JSON example to rate",
      SYS_RATE,
      'Exemplu de răspuns corect:\n{"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}',
      'Exemple de răspunsuri corecte:\n'
      '{"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}\n'
      '{"semantic_score": 4, "guessability_score": 2, "creativity_score": 5, "feedback": "Definiția ar putea duce la mai multe cuvinte."}')
 
-_exp("exp064", "add high-score JSON example to rate",
+_exp("exp065", "add high-score JSON example to rate",
      SYS_RATE,
      'Exemplu de răspuns corect:\n{"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}',
      'Exemple de răspunsuri corecte:\n'
      '{"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}\n'
      '{"semantic_score": 10, "guessability_score": 9, "creativity_score": 8, "feedback": "Definiție precisă și ingenioasă, un singur răspuns posibil."}')
 
-_exp("exp065", "add no-identical-scores instruction to rate",
+_exp("exp066", "add no-identical-scores instruction to rate",
      SYS_RATE,
      "Criterii:",
      "- Diferențiază cele trei scoruri — e rar ca semantic, guessability și creativity să fie egale.\n"
      "Criterii:")
 
-_exp("exp066", "add constructive feedback instruction to rate",
+_exp("exp067", "add constructive feedback instruction to rate",
      SYS_RATE,
      "- feedback-ul este exclusiv în română, scurt și concret",
      "- feedback-ul este exclusiv în română, maxim 15 cuvinte, menționând: (1) ce e bun, (2) ce ar îmbunătăți")
 
-_exp("exp067", "tighten guessability scale in rate",
+_exp("exp068", "tighten guessability scale in rate",
      SYS_RATE,
      "9-10 = sigur da, 5-6 = posibil, 1-3 = ar scrie altceva",
      "9-10 = un singur cuvânt posibil la această lungime, 7-8 = probabil corect, 5-6 = mai multe opțiuni, 1-3 = ar scrie altceva cu certitudine")
 
-_exp("exp068", "add length consideration to guessability in rate",
+_exp("exp069", "add length consideration to guessability in rate",
      SYS_RATE,
      "Criterii:",
      "- Consideră și lungimea: dacă definiția + lungimea dau un singur cuvânt posibil, guessability mare.\n"
      "Criterii:")
-
-_exp("exp069", "add solver perspective framing to rate",
-     SYS_RATE,
-     "Evaluezi o definiție de rebus pe scara 1-10.",
-     "Evaluezi o definiție de rebus pe scara 1-10.\n"
-     "Pune-te în locul unui rezolvitor experimentat de rebusuri românești.")
 
 _exp("exp070", "remove rarity-tolerance rule from rate (test stricter)",
      SYS_RATE,
@@ -519,11 +515,10 @@ _exp("exp076", "add rate user guessability focus",
      "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
      "Evaluează separat. Atenție specială la guessability: există alt cuvânt de {answer_length} litere care se potrivește? Răspunde STRICT cu JSON.")
 
-_exp("exp077", "add creativity emphasis for DEX copies in rate",
-     SYS_RATE,
-     "- dacă definiția este aproape identică cu o definiție DEX: creativity_score mic (3-4)",
-     "- dacă definiția este aproape identică cu o definiție DEX: creativity_score mic (2-3)\n"
-     "- parafrazarea minimă a DEX nu e creativitate reală")
+_exp("exp077", "add rate user grammatical-form check",
+     USR_RATE,
+     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
+     "Verifică și forma gramaticală: definiția descrie exact această formă, nu alta apropiată? Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.")
 
 _exp("exp078", "put guessability first in rate system (most important)",
      SYS_RATE,
@@ -787,6 +782,92 @@ def apply_experiment(exp: Experiment) -> bool:
     return True
 
 
+def build_assessment_description(prefix: str, exp: Experiment) -> str:
+    """Human-readable experiment label stored in TSV/logs."""
+    base = f"{prefix}{exp.name}" if prefix else exp.name
+    return f"{base} | {exp.desc} | {exp.file}"
+
+
+def git_current_branch() -> str:
+    """Return current branch name, or empty string if unavailable."""
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def git_stage_commit_push(
+    paths: list[Path],
+    message: str,
+    *,
+    push: bool,
+    remote: str,
+    branch: str,
+) -> bool:
+    """Stage selected paths, commit, and optionally push. Best-effort only."""
+    stage_targets = []
+    seen = set()
+    for path in paths:
+        resolved = path.resolve()
+        if not resolved.exists():
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        stage_targets.append(str(resolved.relative_to(PROJECT_ROOT)))
+
+    if not stage_targets:
+        print(f"  [git] No existing paths to stage for: {message}")
+        return False
+
+    add_result = subprocess.run(
+        ["git", "add", *stage_targets],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if add_result.returncode != 0:
+        print(f"  [git] add failed for '{message}': {add_result.stderr.strip()}")
+        return False
+
+    commit_result = subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    combined_output = (commit_result.stdout or "") + (commit_result.stderr or "")
+    if commit_result.returncode != 0:
+        if "nothing to commit" in combined_output.lower():
+            print(f"  [git] Nothing to commit for: {message}")
+            return True
+        print(f"  [git] commit failed for '{message}': {combined_output.strip()}")
+        return False
+
+    print(f"  [git] committed: {message}")
+    if not push:
+        return True
+
+    push_result = subprocess.run(
+        ["git", "push", remote, branch],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if push_result.returncode != 0:
+        push_output = (push_result.stdout or "") + (push_result.stderr or "")
+        print(f"  [git] push failed for '{message}': {push_output.strip()}")
+        return False
+
+    print(f"  [git] pushed: {remote}/{branch}")
+    return True
+
+
 def run_assessment(
     description: str,
     assessment_log_path: Path | None = None,
@@ -884,6 +965,14 @@ def main() -> None:
                         help="Directory for per-experiment assessment logs")
     parser.add_argument("--stream-assessment-output", action="store_true",
                         help="Also print inner assessment logs to stdout")
+    parser.add_argument("--git-live-commit", action="store_true",
+                        help="Commit experiment state immediately after applying each edit")
+    parser.add_argument("--git-live-push", action="store_true",
+                        help="Push live experiment commits to the remote branch")
+    parser.add_argument("--git-live-remote", default="origin",
+                        help="Remote used by --git-live-push")
+    parser.add_argument("--git-live-branch",
+                        help="Branch used by --git-live-push (default: current branch)")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -895,6 +984,10 @@ def main() -> None:
 
     if args.assessment_logs_dir is None:
         args.assessment_logs_dir = args.log_path.parent / f"{args.log_path.stem}_logs"
+    if args.git_live_push:
+        args.git_live_commit = True
+    if (args.git_live_commit or args.git_live_push) and not args.git_live_branch:
+        args.git_live_branch = git_current_branch()
 
     # Initialize
     if args.reset_log and args.log_path.exists():
@@ -910,6 +1003,10 @@ def main() -> None:
     print(f"Experiment log: {args.log_path}")
     print(f"Best-prompt backup: {args.backup_dir}")
     print(f"Assessment logs dir: {args.assessment_logs_dir}")
+    if args.git_live_commit:
+        print(f"Git live commit: enabled")
+    if args.git_live_push:
+        print(f"Git live push: {args.git_live_remote}/{args.git_live_branch}")
     if args.description_prefix:
         print(f"Description prefix: {args.description_prefix}")
 
@@ -940,10 +1037,11 @@ def main() -> None:
 
         # Apply the experiment edit
         applied = apply_experiment(exp)
+        assessment_description = build_assessment_description(args.description_prefix, exp)
         if not applied:
             entry = {
                 "name": exp.name,
-                "assessment_description": f"{args.description_prefix}{exp.name}",
+                "assessment_description": assessment_description,
                 "file": exp.file,
                 "find": exp.find,
                 "replace": exp.replace,
@@ -958,8 +1056,17 @@ def main() -> None:
             continue
 
         results_snapshot = snapshot_results_tsv()
-        assessment_description = f"{args.description_prefix}{exp.name}"
         assessment_log_path = args.assessment_logs_dir / f"{exp.name}.log"
+        prompt_path = PROMPTS_DIR / exp.file
+
+        if args.git_live_commit:
+            git_stage_commit_push(
+                [prompt_path],
+                assessment_description,
+                push=args.git_live_push,
+                remote=args.git_live_remote,
+                branch=args.git_live_branch or "",
+            )
 
         # Run assessment
         try:
@@ -972,6 +1079,14 @@ def main() -> None:
             print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
             restore_prompts(args.backup_dir)
             restore_results_tsv(results_snapshot)
+            if args.git_live_commit:
+                git_stage_commit_push(
+                    [prompt_path],
+                    f"restore interrupted | {assessment_description}",
+                    push=args.git_live_push,
+                    remote=args.git_live_remote,
+                    branch=args.git_live_branch or "",
+                )
             raise SystemExit(130) from None
 
         if result.get("error"):
@@ -993,6 +1108,14 @@ def main() -> None:
             restore_prompts(args.backup_dir)
             restore_results_tsv(results_snapshot)
             append_results_row(assessment_description, "error", result)
+            if args.git_live_commit:
+                git_stage_commit_push(
+                    [prompt_path, RESULTS_TSV, args.log_path, assessment_log_path],
+                    f"error | {assessment_description}",
+                    push=args.git_live_push,
+                    remote=args.git_live_remote,
+                    branch=args.git_live_branch or "",
+                )
             continue
 
         composite = result["composite"]
@@ -1026,11 +1149,27 @@ def main() -> None:
             save_best_prompts(args.backup_dir)
             kept += 1
             print(f"  New best: {best_composite:.1f}")
+            if args.git_live_commit:
+                git_stage_commit_push(
+                    [RESULTS_TSV, args.log_path, assessment_log_path],
+                    f"keep | {assessment_description}",
+                    push=args.git_live_push,
+                    remote=args.git_live_remote,
+                    branch=args.git_live_branch or "",
+                )
         else:
             restore_prompts(args.backup_dir)
             restore_results_tsv(results_snapshot)
             append_results_row(assessment_description, "discard", result)
             discarded += 1
+            if args.git_live_commit:
+                git_stage_commit_push(
+                    [prompt_path, RESULTS_TSV, args.log_path, assessment_log_path],
+                    f"discard | {assessment_description}",
+                    push=args.git_live_push,
+                    remote=args.git_live_remote,
+                    branch=args.git_live_branch or "",
+                )
 
     # Final restore of best prompts
     restore_prompts(args.backup_dir)

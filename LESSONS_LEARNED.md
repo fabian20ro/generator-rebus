@@ -23,7 +23,7 @@
 **[2026-03-14]** Family check needs prefix stripping — `clue_uses_same_family` only stripped suffixes. Prefixed words (NEINCEPUT→ÎNCEPUT) weren't caught. Added `ROMANIAN_PREFIXES` list, `forbidden_definition_stems()`, and `_family_exclusion_note()` in prompt builders.
 
 ## Testing & Quality
-<!-- **[YYYY-MM-DD]** title — explanation -->
+**[2026-03-18]** `rate_puzzle()` tests must mock `DexProvider.for_puzzle()` — otherwise `tests/test_verify.py` can hang or become environment-dependent during DEX prefetch. Unit tests for verify/rate flow should stub DEX access explicitly.
 
 ## Performance & Infrastructure
 <!-- **[YYYY-MM-DD]** title — explanation -->

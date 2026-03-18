@@ -269,21 +269,25 @@ def _build_rewrite_prompt(
     return prompt
 
 
-def _build_verify_prompt(definition: str, answer_length: int) -> str:
+def _word_type_line(word_type: str) -> str:
+    label = WORD_TYPE_LABELS.get(word_type)
+    return f"Categorie gramaticală: {label}\n" if label else ""
+
+
+def _build_verify_prompt(definition: str, answer_length: int, word_type: str = "") -> str:
     return load_user_template("verify").format(
+        word_type_line=_word_type_line(word_type),
         definition=definition,
         answer_length=answer_length,
     )
 
 
 def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int, word_type: str = "", dex_definitions: str = "") -> str:
-    label = WORD_TYPE_LABELS.get(word_type)
-    word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
     prompt = load_user_template("rate").format(
         display_word=display_word,
         word=word,
         answer_length=answer_length,
-        word_type_line=word_type_line,
+        word_type_line=_word_type_line(word_type),
         definition=definition,
     )
     if dex_definitions:
@@ -482,9 +486,9 @@ def rewrite_definition(
     return previous_definition
 
 
-def verify_definition(client: OpenAI, definition: str, answer_length: int) -> str:
+def verify_definition(client: OpenAI, definition: str, answer_length: int, word_type: str = "") -> str:
     """Ask AI to guess the word from a clue definition."""
-    prompt = _build_verify_prompt(definition, answer_length)
+    prompt = _build_verify_prompt(definition, answer_length, word_type=word_type)
 
     last_guess = ""
     for attempt in range(2):

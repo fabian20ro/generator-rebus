@@ -17,6 +17,16 @@
 
 ---
 
+### [2026-03-18] Add grammatical-form checks and richer experiment metadata
+
+**Context:** user wanted future experiments to include prompt-pruning/removal variants, grammatical-form checking, and more readable experiment descriptions/logs.
+**Happened:** Updated base prompts and verify pipeline to pass grammatical category into `verify`, added form-agreement instructions to `verify/rate/rewrite/definition`, rewrote pending experiment definitions to include removal-style attempts plus grammatical-form checks, and changed experiment descriptions to include short description + modified file. Backfilled current campaign JSON/TSV descriptions to the richer format. Added unit tests for verify prompt metadata, verify word-type propagation, runner description formatting, and stabilized `test_verify.py` by mocking `DexProvider.for_puzzle()`.
+**Outcome:** success
+**Insight:** verify/rate unit tests must isolate DEX prefetch or they stop being reliable local tests
+**Promoted:** yes — see LESSONS_LEARNED "rate_puzzle() tests must mock DexProvider.for_puzzle()"
+
+---
+
 ### [2026-03-18] Recover partial 41-experiment campaign after power loss
 
 **Context:** user lost power during the 100-experiment campaign and wanted exact prompt edits, discarded results in TSV, and smaller logs.

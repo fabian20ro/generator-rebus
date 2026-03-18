@@ -28,10 +28,37 @@ class VerifyPhaseTests(unittest.TestCase):
 
         _verify_clues([clue], client=client)
 
-        mock_verify_definition.assert_called_once_with(client, "Metal prețios galben", 3)
+        mock_verify_definition.assert_called_once_with(
+            client,
+            "Metal prețios galben",
+            3,
+            word_type="",
+        )
 
+    @patch("generator.phases.verify.verify_definition")
+    def test_verify_passes_word_type_to_model(self, mock_verify_definition):
+        mock_verify_definition.return_value = "LOVI"
+        client = object()
+        clue = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="LOVI",
+            word_original="lovi",
+            definition="A atinge cu forță",
+        ))
+        clue.word_type = "V"
+
+        _verify_clues([clue], client=client)
+
+        mock_verify_definition.assert_called_once_with(
+            client,
+            "A atinge cu forță",
+            4,
+            word_type="V",
+        )
+
+    @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")
-    def test_rate_puzzle_reports_two_averages(self, mock_rate_definition):
+    def test_rate_puzzle_reports_two_averages(self, mock_rate_definition, _mock_dex):
         mock_rate_definition.side_effect = [
             DefinitionRating(semantic_score=8, guessability_score=6, feedback="bună", creativity_score=7),
             DefinitionRating(semantic_score=6, guessability_score=4, feedback="prea vagă", creativity_score=5),
@@ -53,8 +80,9 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertIn("Scor semantic: 8/10", puzzle.horizontal_clues[0].verify_note)
         self.assertIn("Scor rebus:", puzzle.vertical_clues[0].verify_note)
 
+    @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")
-    def test_rate_logging_includes_definition_text(self, mock_rate_definition):
+    def test_rate_logging_includes_definition_text(self, mock_rate_definition, _mock_dex):
         mock_rate_definition.return_value = DefinitionRating(
             semantic_score=9,
             guessability_score=9,

@@ -7,5 +7,6 @@ Reguli:
 - Sunt interzise forme din aceeași familie lexicală cu răspunsul.
 - Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.
 - Fă definiția mai precisă decât cea veche.
-- Max 12 cuvinte.
+- Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.
+- Max 15 cuvinte.
 - Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]

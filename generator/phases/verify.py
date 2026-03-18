@@ -78,7 +78,12 @@ def _verify_clues(
 
         print(f"  Verifying: {clue.word_normalized} - {definition[:50]}...")
         try:
-            guess = verify_definition(client, definition, len(clue.word_normalized))
+            guess = verify_definition(
+                client,
+                definition,
+                len(clue.word_normalized),
+                word_type=clue.word_type,
+            )
         except Exception as e:
             guess = f"[Eroare: {e}]"
         guess_normalized = normalize(guess)
