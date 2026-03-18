@@ -2,3 +2,4 @@ commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
 4965a1e	70.4	0.329	7.9	7.0	keep	baseline_results
 082a9f3	69.8	0.329	7.9	6.7	discard	results/exp001 | add step-by-step solving to verify system | system/verify.md
 b91206b	70.4	0.314	8.2	7.1	discard	results/exp002 | add common-word preference to verify | system/verify.md
+ab6fdad	69.9	0.329	7.9	6.7	discard	results/exp003 | add expert framing to verify role | system/verify.md
