@@ -37,9 +37,9 @@ Higher = better. Theoretical maximum ≈ 130.
 
 | File | Role |
 |------|------|
-| `generator/assessment/dataset.json` | Fixed 100-word assessment set (stratified by difficulty) |
+| `generator/assessment/dataset.json` | Current multistep assessment set built from March-17 batch mining |
 | `generator/assessment/run_assessment.py` | Assessment runner (composite metric computation) |
-| `generator/assessment/results.tsv` | Experiment log (append-only) |
+| `generator/assessment/multistep_results.tsv` | Experiment log (append-only) |
 
 ## Running an Experiment
 
@@ -49,7 +49,7 @@ Higher = better. Theoretical maximum ≈ 130.
 python3 -m generator.assessment.run_assessment --description "short description of change"
 
 # 3. Check results
-cat generator/assessment/results.tsv
+cat generator/assessment/multistep_results.tsv
 
 # 4. If improved: commit and keep
 # 5. If regressed: revert
@@ -88,15 +88,13 @@ These are patterns observed in `20260317_002435/run.log` that should guide exper
 
 | Tier | Count | Criteria | Purpose |
 |------|-------|----------|---------|
-| Easy | 20 | >80% historical pass rate, 4+ letters | Regression guard |
-| Medium | 20 | 30-80% pass rate, 4+ letters | Main optimization target |
-| Hard | 20 | <30% pass rate, 4+ letters | Stretch target |
-| Short | 20 | 2-3 letters, any pass rate | Special handling needed |
-| Rare | 20 | rarity ≥ 3, any length | Hallucination resistance |
+| Low | 30 | avg rebus < 5 from `20260317_*` | Primary failure target |
+| Medium | 25 | avg rebus 6-7, repeated, low variance | Main optimization target |
+| High | 15 | avg rebus 9-10, stable controls | Regression guard |
 
 ## Experiment Log Convention
 
-Each row in `results.tsv`:
+Each row in `multistep_results.tsv`:
 ```
 commit  composite  pass_rate  avg_semantic  avg_rebus  status  description
 ```

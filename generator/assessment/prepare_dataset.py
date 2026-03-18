@@ -1,20 +1,35 @@
-"""Build a stratified assessment dataset from word_difficulty.json + DEX cache.
+"""Build the multistep assessment dataset from March-17 batch mining.
 
-Run once to create dataset.json. After creation, the dataset is fixed —
-do not regenerate unless the evaluation criteria fundamentally change.
+Default composition:
+- 30 low words (avg rebus < 5)
+- 25 medium words (avg rebus 6-7, repeated, low variance)
+- 15 high/control words (avg rebus 9-10, stable)
+
+The selection is intentionally length-aware to avoid overfitting the eval set
+to 2-3 letter crossword words just because they appear more often in batches.
 
 Usage:
     python3 -m generator.assessment.prepare_dataset
+    python3 -m generator.assessment.prepare_dataset --source-date 20260317
+    python3 -m generator.assessment.prepare_dataset --fetch-dex
 """
 
 from __future__ import annotations
 
+import argparse
+import csv
 import json
-import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ..core.dex_cache import DexProvider, create_provider
+from ..core.dex_cache import create_provider
+
+
+OUTPUT_DIR = Path(__file__).parent
+OUTPUT_PATH = OUTPUT_DIR / "dataset.json"
+WORDS_PATH = Path("generator/output/words.json")
+DEFAULT_SOURCE_DATE = "20260317"
+DEFAULT_CANDIDATES_DIR = Path("build/assessment_candidates")
 
 
 @dataclass(frozen=True)
@@ -24,26 +39,11 @@ class DatasetEntry:
     length: int
     word_type: str
     dex_definitions: str
-    historical_pass_rate: float
     tier: str
-
-
-TIERS = {
-    "easy": 20,
-    "medium": 20,
-    "hard": 20,
-    "short": 20,
-    "rare": 20,
-}
-
-OUTPUT_DIR = Path(__file__).parent
-DIFFICULTY_PATH = Path("generator/output/word_difficulty.json")
-WORDS_PATH = Path("generator/output/words.json")
-
-
-def _load_difficulty() -> dict[str, dict]:
-    with open(DIFFICULTY_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    avg_rebus_score: float
+    appearances: int
+    min_rebus_score: int
+    max_rebus_score: int
 
 
 def _load_words_metadata() -> dict[str, dict]:
@@ -52,138 +52,272 @@ def _load_words_metadata() -> dict[str, dict]:
     return {w["normalized"]: w for w in words}
 
 
-def _pass_rate(entry: dict) -> float:
-    attempts = entry.get("attempts", 0)
-    if attempts == 0:
-        return 0.0
-    return entry.get("successes", 0) / attempts
-
-
-def _stratify(
-    difficulty: dict[str, dict],
-    words_meta: dict[str, dict],
-    rng: random.Random,
-) -> dict[str, list[str]]:
-    """Assign words to tiers based on pass rate, length, and rarity."""
-    # Only consider words with 3+ attempts for statistical significance
-    eligible = {
-        word: data
-        for word, data in difficulty.items()
-        if data.get("attempts", 0) >= 3 and word in words_meta
+def _load_existing_dex(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        entries = json.load(f)
+    return {
+        entry["word"]: entry.get("dex_definitions", "")
+        for entry in entries
+        if entry.get("word")
     }
 
-    # Pre-compute pass rates
-    rates = {word: _pass_rate(data) for word, data in eligible.items()}
 
-    # Tier buckets
-    easy_pool: list[str] = []
-    medium_pool: list[str] = []
-    hard_pool: list[str] = []
-    short_pool: list[str] = []
-    rare_pool: list[str] = []
+def _read_tsv(path: Path) -> list[dict]:
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        rows = []
+        for row in reader:
+            rows.append({
+                "word": row["word"],
+                "avg_score": float(row["avg_score"]),
+                "hits": int(row["hits"]),
+                "min_score": int(row["min_score"]),
+                "max_score": int(row["max_score"]),
+                "length": int(row["length"]),
+                "verified_pass": int(row["verified_pass"]),
+                "verified_fail": int(row["verified_fail"]),
+            })
+        return rows
 
-    for word, rate in rates.items():
-        meta = words_meta[word]
-        length = meta.get("length", len(word))
-        rarity = meta.get("rarity_level", 1)
 
-        # Short tier: 2-3 letter words
-        if length <= 3:
-            short_pool.append(word)
+def _sort_low(row: dict) -> tuple:
+    short_penalty = 1 if row["length"] <= 3 else 0
+    return (short_penalty, row["avg_score"], -row["hits"], row["min_score"], row["word"])
+
+
+def _sort_medium(row: dict) -> tuple:
+    short_penalty = 1 if row["length"] <= 3 else 0
+    score_range = row["max_score"] - row["min_score"]
+    return (short_penalty, score_range, -row["hits"], row["avg_score"], row["word"])
+
+
+def _sort_high(row: dict) -> tuple:
+    short_penalty = 1 if row["length"] <= 3 else 0
+    return (short_penalty, -row["hits"], -row["avg_score"], row["word"])
+
+
+def _pick_with_short_cap(
+    candidates: list[dict],
+    count: int,
+    max_short: int,
+    sort_key,
+) -> list[dict]:
+    ordered = sorted(candidates, key=sort_key)
+    selected: list[dict] = []
+    short_count = 0
+
+    for row in ordered:
+        is_short = row["length"] <= 3
+        if is_short and short_count >= max_short:
             continue
+        selected.append(row)
+        if is_short:
+            short_count += 1
+        if len(selected) == count:
+            return selected
 
-        # Rare tier: rarity >= 3
-        if rarity >= 3:
-            rare_pool.append(word)
+    for row in ordered:
+        if row in selected:
             continue
+        selected.append(row)
+        if len(selected) == count:
+            return selected
 
-        # Pass rate tiers (4+ letters, rarity < 3)
-        if rate > 0.8:
-            easy_pool.append(word)
-        elif rate >= 0.3:
-            medium_pool.append(word)
-        else:
-            hard_pool.append(word)
-
-    # Sample from each pool
-    result: dict[str, list[str]] = {}
-    for tier_name, pool in [
-        ("easy", easy_pool),
-        ("medium", medium_pool),
-        ("hard", hard_pool),
-        ("short", short_pool),
-        ("rare", rare_pool),
-    ]:
-        count = TIERS[tier_name]
-        rng.shuffle(pool)
-        result[tier_name] = pool[:count]
-
-    return result
+    return selected
 
 
-def _fetch_dex_definitions(
+def _build_selection(
+    low_rows: list[dict],
+    high_rows: list[dict],
+    *,
+    low_count: int,
+    medium_count: int,
+    high_count: int,
+    max_short_low: int,
+    max_short_medium: int,
+    max_short_high: int,
+    medium_min_hits: int,
+    medium_max_range: int,
+) -> dict[str, list[dict]]:
+    primary_low_candidates = [row for row in low_rows if row["avg_score"] < 5.0]
+    secondary_low_candidates = [
+        row for row in low_rows
+        if row["avg_score"] >= 5.0 and row["min_score"] < 5
+    ]
+    medium_candidates = [
+        row for row in low_rows
+        if 6.0 <= row["avg_score"] < 8.0
+        and row["hits"] >= medium_min_hits
+        and (row["max_score"] - row["min_score"]) <= medium_max_range
+    ]
+    high_candidates = [
+        row for row in high_rows
+        if row["avg_score"] >= 9.0 and row["verified_fail"] == 0
+    ]
+
+    selection = {
+        "low": _pick_with_short_cap(
+            primary_low_candidates + secondary_low_candidates,
+            low_count,
+            max_short_low,
+            _sort_low,
+        ),
+        "medium": _pick_with_short_cap(medium_candidates, medium_count, max_short_medium, _sort_medium),
+        "high": _pick_with_short_cap(high_candidates, high_count, max_short_high, _sort_high),
+    }
+
+    expected = {"low": low_count, "medium": medium_count, "high": high_count}
+    for tier_name, rows in selection.items():
+        if len(rows) < expected[tier_name]:
+            raise ValueError(
+                f"Not enough {tier_name} candidates: wanted {expected[tier_name]}, got {len(rows)}"
+            )
+    return selection
+
+
+def _reuse_or_fetch_dex(
     words: list[str],
     words_meta: dict[str, dict],
-    dex: DexProvider,
+    existing_dex: dict[str, str],
+    *,
+    fetch_dex: bool,
 ) -> dict[str, str]:
-    """Fetch DEX definitions for all assessment words."""
-    originals = {
-        w: words_meta[w].get("original", w.lower())
-        for w in words
-        if w in words_meta
-    }
-    dex.prefetch(words, originals=originals)
-    return {w: dex.get(w, originals.get(w, w.lower())) or "" for w in words}
+    dex_defs = {word: existing_dex.get(word, "") for word in words}
+    if not fetch_dex:
+        return dex_defs
 
+    missing = [word for word in words if not dex_defs.get(word)]
+    if not missing:
+        return dex_defs
 
-def build_dataset(seed: int = 42) -> list[DatasetEntry]:
-    """Build the stratified assessment dataset."""
-    rng = random.Random(seed)
-    difficulty = _load_difficulty()
-    words_meta = _load_words_metadata()
-    tiers = _stratify(difficulty, words_meta, rng)
-
-    all_words = [w for tier_words in tiers.values() for w in tier_words]
-    print(f"Fetching DEX definitions for {len(all_words)} words...")
     dex = create_provider()
-    dex_defs = _fetch_dex_definitions(all_words, words_meta, dex)
+    originals = {
+        word: words_meta[word].get("original", word.lower())
+        for word in missing
+        if word in words_meta
+    }
+    dex.prefetch(missing, originals=originals)
+    for word in missing:
+        dex_defs[word] = dex.get(word, originals.get(word, word.lower())) or ""
+    return dex_defs
+
+
+def build_dataset(
+    *,
+    source_date: str = DEFAULT_SOURCE_DATE,
+    candidates_dir: Path = DEFAULT_CANDIDATES_DIR,
+    low_count: int = 30,
+    medium_count: int = 25,
+    high_count: int = 15,
+    max_short_low: int = 8,
+    max_short_medium: int = 10,
+    max_short_high: int = 5,
+    medium_min_hits: int = 2,
+    medium_max_range: int = 2,
+    fetch_dex: bool = False,
+) -> list[DatasetEntry]:
+    low_path = candidates_dir / f"{source_date}_low_words.tsv"
+    high_path = candidates_dir / f"{source_date}_high_words.tsv"
+    if not low_path.exists() or not high_path.exists():
+        raise FileNotFoundError(
+            f"Missing candidate TSVs for {source_date}. "
+            f"Expected {low_path} and {high_path}."
+        )
+
+    words_meta = _load_words_metadata()
+    existing_dex = _load_existing_dex(OUTPUT_PATH)
+    low_rows = _read_tsv(low_path)
+    high_rows = _read_tsv(high_path)
+    selection = _build_selection(
+        low_rows,
+        high_rows,
+        low_count=low_count,
+        medium_count=medium_count,
+        high_count=high_count,
+        max_short_low=max_short_low,
+        max_short_medium=max_short_medium,
+        max_short_high=max_short_high,
+        medium_min_hits=medium_min_hits,
+        medium_max_range=medium_max_range,
+    )
+
+    chosen_words = [row["word"] for rows in selection.values() for row in rows]
+    dex_defs = _reuse_or_fetch_dex(
+        chosen_words,
+        words_meta,
+        existing_dex,
+        fetch_dex=fetch_dex,
+    )
 
     entries: list[DatasetEntry] = []
-    for tier_name, tier_words in tiers.items():
-        for word in tier_words:
-            meta = words_meta.get(word, {})
-            diff = difficulty.get(word, {})
+    for tier_name in ("low", "medium", "high"):
+        for row in selection[tier_name]:
+            meta = words_meta.get(row["word"])
+            if not meta:
+                continue
             entries.append(DatasetEntry(
-                word=word,
-                display_word=meta.get("original", word.lower()),
-                length=meta.get("length", len(word)),
+                word=row["word"],
+                display_word=meta.get("original", row["word"].lower()),
+                length=meta.get("length", row["length"]),
                 word_type=meta.get("word_type", ""),
-                dex_definitions=dex_defs.get(word, ""),
-                historical_pass_rate=_pass_rate(diff),
+                dex_definitions=dex_defs.get(row["word"], ""),
                 tier=tier_name,
+                avg_rebus_score=row["avg_score"],
+                appearances=row["hits"],
+                min_rebus_score=row["min_score"],
+                max_rebus_score=row["max_score"],
             ))
-
     return entries
 
 
 def main() -> None:
-    entries = build_dataset()
+    parser = argparse.ArgumentParser(description="Build March-17 multistep assessment dataset")
+    parser.add_argument("--source-date", default=DEFAULT_SOURCE_DATE)
+    parser.add_argument("--candidates-dir", default=str(DEFAULT_CANDIDATES_DIR))
+    parser.add_argument("--low-count", type=int, default=30)
+    parser.add_argument("--medium-count", type=int, default=25)
+    parser.add_argument("--high-count", type=int, default=15)
+    parser.add_argument("--max-short-low", type=int, default=8)
+    parser.add_argument("--max-short-medium", type=int, default=10)
+    parser.add_argument("--max-short-high", type=int, default=5)
+    parser.add_argument("--medium-min-hits", type=int, default=2)
+    parser.add_argument("--medium-max-range", type=int, default=2)
+    parser.add_argument("--fetch-dex", action="store_true")
+    args = parser.parse_args()
 
-    # Report
+    entries = build_dataset(
+        source_date=args.source_date,
+        candidates_dir=Path(args.candidates_dir),
+        low_count=args.low_count,
+        medium_count=args.medium_count,
+        high_count=args.high_count,
+        max_short_low=args.max_short_low,
+        max_short_medium=args.max_short_medium,
+        max_short_high=args.max_short_high,
+        medium_min_hits=args.medium_min_hits,
+        medium_max_range=args.medium_max_range,
+        fetch_dex=args.fetch_dex,
+    )
+
     tier_counts: dict[str, int] = {}
+    short_counts: dict[str, int] = {}
     for entry in entries:
         tier_counts[entry.tier] = tier_counts.get(entry.tier, 0) + 1
-    print(f"\nDataset: {len(entries)} words")
-    for tier, count in sorted(tier_counts.items()):
-        print(f"  {tier}: {count}")
-    dex_coverage = sum(1 for e in entries if e.dex_definitions)
-    print(f"  DEX coverage: {dex_coverage}/{len(entries)}")
+        if entry.length <= 3:
+            short_counts[entry.tier] = short_counts.get(entry.tier, 0) + 1
 
-    # Write
-    output_path = OUTPUT_DIR / "dataset.json"
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump([asdict(e) for e in entries], f, ensure_ascii=False, indent=2)
-    print(f"\nWritten to {output_path}")
+    print(f"Dataset: {len(entries)} words")
+    for tier in ("low", "medium", "high"):
+        print(
+            f"  {tier}: {tier_counts.get(tier, 0)} "
+            f"(short={short_counts.get(tier, 0)})"
+        )
+
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump([asdict(entry) for entry in entries], f, ensure_ascii=False, indent=2)
+    print(f"Written to {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

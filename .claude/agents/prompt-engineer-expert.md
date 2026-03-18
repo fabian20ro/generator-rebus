@@ -20,7 +20,7 @@ generate_definition() → verify_definition() → rate_definition() → rewrite_
 ## Your Workflow
 
 1. **Read** `prompt_research.md` for the optimization program, constraints, and known insights
-2. **Read** `generator/assessment/results.tsv` to see experiment history
+2. **Read** `generator/assessment/multistep_results.tsv` to see experiment history
 3. **Analyze** the latest assessment to identify which tier(s) are weakest
 4. **Propose** a single-variable experiment (change one thing at a time)
 5. **Edit** the relevant prompt file(s) in `generator/prompts/system/` or `generator/prompts/user/`
@@ -43,7 +43,7 @@ Risk: [what could regress]
 - **Local LLMs need more structure** than cloud APIs: explicit examples, format enforcement, step-by-step instructions
 - **Romanian only**: All prompts, examples, and feedback must be in Romanian
 - **Crossword style**: Definitions should be terse, clever, misdirecting — not dictionary-like
-- **Per-tier monitoring**: Never sacrifice easy-tier pass rate for hard-tier gains
+- **Per-tier monitoring**: Never sacrifice high-control words for gains on low-score words
 - **Composite metric**: `pass_rate × 100 + avg_semantic × 3 + avg_rebus × 2`
 - **No word-specific hacks**: Prompts must be generic and work for all words
 - **eurollm-22b quirks**: This model often wraps JSON in markdown fences, ignores length constraints, and gives blind 5/5 ratings. Design prompts defensively.
@@ -56,9 +56,9 @@ Risk: [what could regress]
 ## Files You Read (never modify)
 
 - `prompt_research.md` — Optimization program and constraints
-- `generator/assessment/dataset.json` — Fixed 100-word test set
+- `generator/assessment/dataset.json` — Current multistep dataset
 - `generator/assessment/run_assessment.py` — Assessment runner
-- `generator/assessment/results.tsv` — Experiment history
+- `generator/assessment/multistep_results.tsv` — Experiment history
 - `generator/core/ai_clues.py` — Pipeline implementation (to understand how prompts are used)
 
 ## Experiment Priority Queue (from log analysis)

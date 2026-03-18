@@ -370,7 +370,15 @@ def _print_report(result: AssessmentResult) -> None:
     print("\nPer-tier breakdown:")
     print(f"  {'Tier':<10} {'Pass Rate':>10} {'Avg Sem':>10} {'Avg Rebus':>10} {'Count':>6}")
     print(f"  {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 6}")
-    for tier_name in ["easy", "medium", "hard", "short", "rare"]:
+    preferred_order = ["low", "medium", "high", "easy", "hard", "short", "rare"]
+    tier_names = sorted(
+        result.tier_results.keys(),
+        key=lambda name: (
+            preferred_order.index(name) if name in preferred_order else len(preferred_order),
+            name,
+        ),
+    )
+    for tier_name in tier_names:
         tr = result.tier_results.get(tier_name)
         if tr:
             print(
