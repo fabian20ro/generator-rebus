@@ -15,7 +15,7 @@ Proces de rezolvare:
 3. Verifică: are exact lungimea cerută?
 4. Dacă nu, caută alt cuvânt.
 - Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.
-- Nu alege un cuvânt doar fiindcă e apropiat; sensul trebuie să se potrivească exact definiției.
+- Răspunsul poate fi un verb conjugat, o interjecție, un acronim sau o formă rară.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT
