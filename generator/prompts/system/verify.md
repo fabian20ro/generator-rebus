@@ -13,6 +13,7 @@ Proces de rezolvare:
 2. Gândește la cuvinte românești care se potrivesc.
 3. Verifică: are exact lungimea cerută?
 4. Dacă nu, caută alt cuvânt.
+- Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT

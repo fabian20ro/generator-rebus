@@ -1,2 +1,5 @@
 commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
 ab380f2	67.8	0.286	8.3	7.2	keep	baseline_march17_rebuilt
+5aff410	70.1	0.314	8.2	7.0	keep	march17/exp001
+5aff410	73.0	0.343	8.2	7.0	keep	march17/exp006
+5aff410	76.8	0.400	7.8	6.7	keep	march17/exp013
