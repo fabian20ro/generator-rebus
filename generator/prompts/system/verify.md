@@ -15,7 +15,7 @@ Proces de rezolvare:
 3. Verifică: are exact lungimea cerută?
 4. Dacă nu, caută alt cuvânt.
 - Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.
-- Un rebus folosește definiții creative. Gândește lateral, nu literal.
+- Nu alege un cuvânt doar fiindcă e apropiat; sensul trebuie să se potrivească exact definiției.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT
