@@ -101,10 +101,10 @@ _exp("exp005", "add lateral thinking hint to verify",
      "- Un rebus folosește definiții creative. Gândește lateral, nu literal.\n"
      "Exemple:")
 
-_exp("exp006", "add rare/technical word hint to verify",
+_exp("exp006", "add exact-sense guard to verify",
      SYS_VERIFY,
      "Exemple:",
-     "- Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.\n"
+     "- Nu alege un cuvânt doar fiindcă e apropiat; sensul trebuie să se potrivească exact definiției.\n"
      "Exemple:")
 
 _exp("exp007", "add verb form awareness to verify",
