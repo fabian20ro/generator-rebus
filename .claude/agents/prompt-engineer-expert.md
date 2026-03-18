@@ -20,7 +20,7 @@ generate_definition() → verify_definition() → rate_definition() → rewrite_
 ## Your Workflow
 
 1. **Read** `prompt_research.md` for the optimization program, constraints, and known insights
-2. **Read** `generator/assessment/multistep_results.tsv` to see experiment history
+2. **Read** `generator/assessment/results.tsv` to see experiment history
 3. **Analyze** the latest assessment to identify which tier(s) are weakest and which failure mode dominates
 4. **Propose** a single-variable experiment (change one thing at a time)
 5. **Edit** the relevant prompt file(s) in `generator/prompts/system/` or `generator/prompts/user/`
@@ -58,7 +58,7 @@ Risk: [what could regress]
 - `prompt_research.md` — Optimization program and constraints
 - `generator/assessment/dataset.json` — Current multistep dataset
 - `generator/assessment/run_assessment.py` — Assessment runner
-- `generator/assessment/multistep_results.tsv` — Experiment history
+- `generator/assessment/results.tsv` — Experiment history
 - `generator/core/ai_clues.py` — Pipeline implementation (to understand how prompts are used)
 
 ## Experiment Priority Queue (from log analysis)

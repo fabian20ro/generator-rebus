@@ -22,7 +22,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
-RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "multistep_results.tsv"
+RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 DEFAULT_EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
 BEST_BACKUP_DIR = Path("/tmp/prompt_experiment_best")
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RESULTS_PATH = PROJECT_ROOT / "generator" / "assessment" / "multistep_results.tsv"
+RESULTS_PATH = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 
 
 def _read_results() -> list[dict]:

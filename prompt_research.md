@@ -39,7 +39,7 @@ Higher = better. Theoretical maximum ≈ 130.
 |------|------|
 | `generator/assessment/dataset.json` | Current multistep assessment set built from March-17 batch mining |
 | `generator/assessment/run_assessment.py` | Assessment runner (composite metric computation) |
-| `generator/assessment/multistep_results.tsv` | Experiment log (append-only) |
+| `generator/assessment/results.tsv` | Experiment log (append-only) |
 
 ## Running an Experiment
 
@@ -49,7 +49,7 @@ Higher = better. Theoretical maximum ≈ 130.
 python3 -m generator.assessment.run_assessment --description "short description of change"
 
 # 3. Check results
-cat generator/assessment/multistep_results.tsv
+cat generator/assessment/results.tsv
 
 # 4. If improved: commit and keep
 # 5. If regressed: revert
@@ -94,7 +94,7 @@ These are patterns observed in `20260317_002435/run.log` that should guide exper
 
 ## Experiment Log Convention
 
-Each row in `multistep_results.tsv`:
+Each row in `results.tsv`:
 ```
 commit  composite  pass_rate  avg_semantic  avg_rebus  status  description
 ```
