@@ -3,3 +3,4 @@ commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
 082a9f3	69.8	0.329	7.9	6.7	discard	results/exp001 | add step-by-step solving to verify system | system/verify.md
 b91206b	70.4	0.314	8.2	7.1	discard	results/exp002 | add common-word preference to verify | system/verify.md
 ab6fdad	69.9	0.329	7.9	6.7	discard	results/exp003 | add expert framing to verify role | system/verify.md
+aec5e7e	68.1	0.300	8.0	7.1	discard	results/exp004 | add length double-check to verify | system/verify.md

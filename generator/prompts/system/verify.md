@@ -9,13 +9,13 @@ Reguli:
 - Nu răspunzi cu propoziții.
 - Nu incluzi taguri, marcaje tehnice sau caractere speciale.
 - Răspunsul conține doar litere românești.
-- Verifică de două ori: răspunsul tău are exact lungimea cerută?
 Proces de rezolvare:
 1. Citește definiția atent.
 2. Gândește la cuvinte românești care se potrivesc.
 3. Verifică: are exact lungimea cerută?
 4. Dacă nu, caută alt cuvânt.
 - Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.
+- Un rebus folosește definiții creative. Gândește lateral, nu literal.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT
