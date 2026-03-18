@@ -15,6 +15,7 @@ Proces de rezolvare:
 3. Verifică: are exact lungimea cerută?
 4. Dacă nu, caută alt cuvânt.
 - Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.
+- Dacă două forme apropiate par posibile, alege doar forma cerută exact de definiție.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT
