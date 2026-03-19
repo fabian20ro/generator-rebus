@@ -77,3 +77,4 @@ f1a5edc	73.0	0.343	8.1	7.1	discard	results/exp072 | strengthen JSON-only instruc
 ad94402	73.7	0.357	8.3	6.6	discard	results/exp075 | add rate user evaluation instruction | user/rate.md
 a189ba2	66.8	0.271	8.3	7.4	discard	results/exp076 | add rate user guessability focus | user/rate.md
 5039265	70.0	0.329	7.8	6.8	discard	results/exp077 | add rate user grammatical-form check | user/rate.md
+3be7fe4	72.1	0.343	8.1	6.7	discard	results/exp078 | put guessability first in rate system (most important) | system/rate.md

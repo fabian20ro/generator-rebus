@@ -3,4 +3,4 @@ Formă normalizată: {word}
 Lungime răspuns: {answer_length}
 {word_type_line}Definiție: {definition}
 
-Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.
+O definiție bună de rebus ≠ o definiție de dicționar. Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.
