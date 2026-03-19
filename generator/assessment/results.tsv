@@ -26,3 +26,4 @@ bbe8693	72.2	0.343	8.0	7.0	discard	results/exp022 | add confidence instruction t
 f8998b6	66.0	0.286	8.0	6.7	discard	results/exp024 | remove tag/markup instruction from verify (redundant) | system/verify.md
 ac52cc5	65.9	0.271	8.2	7.1	discard	results/exp025 | add multiple word examples covering all tiers to verify | system/verify.md
 da2aa62	67.9	0.300	8.0	6.9	discard	results/exp026 | add uniqueness-check rule to definition | system/definition.md
+b0189aa	71.5	0.343	7.9	6.8	discard	results/exp027 | add single-answer rule to definition | system/definition.md
