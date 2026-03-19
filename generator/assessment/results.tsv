@@ -32,3 +32,4 @@ b0189aa	71.5	0.343	7.9	6.8	discard	results/exp027 | add single-answer rule to de
 d15df75	71.9	0.343	8.0	6.8	discard	results/exp030 | add distinctive-sense rule to definition | system/definition.md
 6a5d5c7	66.2	0.286	7.9	6.9	discard	results/exp031 | add rebus-not-dictionary framing to definition | system/definition.md
 946f517	66.2	0.271	8.3	7.1	discard	results/exp032 | add concrete-over-abstract rule to definition | system/definition.md
+4d8b533	63.4	0.271	7.7	6.6	discard	results/exp033 | add anti-generic-formula rule to definition | system/definition.md
