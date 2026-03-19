@@ -7,10 +7,11 @@ Reguli:
 - Sunt interzise forme din aceeași familie lexicală cu răspunsul.
 - Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.
 - Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]
-- Definiția ideală: 4-8 cuvinte. Maxim 12 în cazuri complexe.
+- Preferi definiții precise, naturale, maxim 12 cuvinte.
 - Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
+- Testează mental: dacă citești definiția fără context, te duce la un singur cuvânt?
 Exemple corecte:
 OS -> Țesut dur al scheletului
 AN -> Unitate de timp egală cu 12 luni
