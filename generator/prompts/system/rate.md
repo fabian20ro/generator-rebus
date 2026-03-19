@@ -12,7 +12,7 @@ Criterii:
 - dacă definiția este aproape identică cu o definiție DEX: creativity_score mic (3-4)
 - dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare
 - nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun
-- feedback-ul este exclusiv în română, maxim 10 cuvinte
+- feedback-ul este exclusiv în română, scurt și concret
 Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:
 
 Exemplu de răspuns corect:
