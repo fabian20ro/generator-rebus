@@ -6,3 +6,4 @@ ab6fdad	69.9	0.329	7.9	6.7	discard	results/exp003 | add expert framing to verify
 aec5e7e	68.1	0.300	8.0	7.1	discard	results/exp004 | add length double-check to verify | system/verify.md
 ef7315a	69.6	0.329	7.8	6.7	discard	results/exp005 | add lateral thinking hint to verify | system/verify.md
 8489562	70.4	0.329	7.9	6.8	discard	results/exp006 | add exact-sense guard to verify | system/verify.md
+5196f36	71.4	0.329	8.1	7.1	keep	results/exp007 | add verb form awareness to verify | system/verify.md

@@ -25,3 +25,5 @@ Definiție: Formă a verbului a avea
 Răspuns: AI
 Definiție: Substanță gazoasă pe care o respirăm
 Răspuns: AER
+Definiție: Conjuncție adversativă
+Răspuns: DAR
