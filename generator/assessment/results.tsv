@@ -74,3 +74,4 @@ ada2a20	63.6	0.271	7.7	6.7	discard	results/exp070 | remove rarity-tolerance rule
 f1a5edc	73.0	0.343	8.1	7.1	discard	results/exp072 | strengthen JSON-only instruction in rate | system/rate.md
 0fa0797	66.3	0.271	8.3	7.2	discard	results/exp073 | add precision-over-style to rate | system/rate.md
 5ac5228	64.1	0.286	7.6	6.4	discard	results/exp074 | add creative-but-accurate to rate | system/rate.md
+ad94402	73.7	0.357	8.3	6.6	discard	results/exp075 | add rate user evaluation instruction | user/rate.md
