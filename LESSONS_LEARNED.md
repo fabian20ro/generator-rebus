@@ -32,11 +32,13 @@
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
 ## Process & Workflow
-**[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to `multistep_results.tsv`, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
+**[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 
 **[2026-03-18]** Interrupted prompt campaigns can leave prompt files mid-experiment — if a run stops due to power loss or crash, compare `generator/prompts/` against the campaign backup dir before trusting the working tree. The current prompt files may contain the next experiment's unreviewed edit even when no result was recorded.
 
 **[2026-03-18]** One log per experiment beats one monolithic campaign log — full multistep assessments are too verbose to share a single append-only file. Use a campaign JSON/TSV for summaries and a separate `expNNN.log` file for each assessment run.
+
+**[2026-03-20]** Live git experiment commits are not enough to reconstruct winning prompt state — when the runner commits prompt edits before assessment and later tries to commit results, ignored log paths or interrupted runs can desynchronize git history, prompt backups, and the results TSV. Treat the results TSV as score history, not as authoritative prompt-state history; restore or diff prompt backups explicitly before starting the next campaign.
 
 ---
 

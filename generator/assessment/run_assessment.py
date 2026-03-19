@@ -35,7 +35,7 @@ from ..core.model_manager import (
 
 
 DATASET_PATH = Path(__file__).parent / "dataset.json"
-RESULTS_PATH = Path(__file__).parent / "multistep_results.tsv"
+RESULTS_PATH = Path(__file__).parent / "results.tsv"
 
 
 @dataclass

@@ -18,7 +18,7 @@ class RunExperimentsTests(unittest.TestCase):
         mod = _load_run_experiments_module()
         exp = mod.Experiment(
             name="exp006",
-            desc="add rare/technical word hint to verify",
+            desc="remove technical-word hint from verify",
             file="system/verify.md",
             find="a",
             replace="b",
@@ -27,8 +27,32 @@ class RunExperimentsTests(unittest.TestCase):
         description = mod.build_assessment_description("march17/", exp)
 
         self.assertEqual(
-            "march17/exp006 | add rare/technical word hint to verify | system/verify.md",
+            "march17/exp006 | remove technical-word hint from verify | system/verify.md",
             description,
+        )
+
+    def test_campaign_has_100_unique_experiments(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(100, len(mod.EXPERIMENTS))
+        self.assertEqual(100, len({exp.name for exp in mod.EXPERIMENTS}))
+
+    def test_first_round_alternates_across_prompt_files(self):
+        mod = _load_run_experiments_module()
+        first_round_files = [exp.file for exp in mod.EXPERIMENTS[:8]]
+
+        self.assertEqual(
+            [
+                "system/definition.md",
+                "system/rate.md",
+                "system/verify.md",
+                "system/rewrite.md",
+                "user/generate.md",
+                "user/verify.md",
+                "user/rate.md",
+                "user/rewrite.md",
+            ],
+            first_round_files,
         )
 
 
