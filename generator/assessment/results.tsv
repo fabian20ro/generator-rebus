@@ -18,3 +18,4 @@ c1b865b	67.5	0.300	7.9	6.9	discard	results/exp013 | add explicit verification st
 fad3599	65.9	0.286	7.9	6.8	discard	results/exp016 | add think-in-romanian to verify user | user/verify.md
 6098b35	70.6	0.329	7.8	7.1	discard	results/exp017 | add most-common-meaning instruction to verify | system/verify.md
 3ae4296	73.7	0.357	8.0	6.9	keep	results/exp018 | add domain-switching awareness to verify | system/verify.md
+ad1fda6	67.5	0.300	8.0	6.8	discard	results/exp019 | add short word strategy to verify | system/verify.md

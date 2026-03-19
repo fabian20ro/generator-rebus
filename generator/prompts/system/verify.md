@@ -9,6 +9,7 @@ Reguli:
 - Nu răspunzi cu propoziții.
 - Nu incluzi taguri, marcaje tehnice sau caractere speciale.
 - Răspunsul conține doar litere românești.
+- NICIODATĂ nu răspunde cu un cuvânt englezesc, chiar dacă pare să se potrivească.
 Proces de rezolvare:
 1. Citește definiția atent.
 2. Gândește la cuvinte românești care se potrivesc.
@@ -17,7 +18,6 @@ Proces de rezolvare:
 - Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.
 - Răspunsul poate fi un verb conjugat, o interjecție, un acronim sau o formă rară.
 - Definiția poate folosi un sens figurat sau o referință din alt domeniu. Gândește flexibil.
-- Pentru cuvinte de 2-3 litere: gândește la prepoziții, interjecții, forme verbale scurte.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT
