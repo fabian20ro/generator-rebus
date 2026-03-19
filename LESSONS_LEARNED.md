@@ -38,6 +38,8 @@
 
 **[2026-03-18]** One log per experiment beats one monolithic campaign log — full multistep assessments are too verbose to share a single append-only file. Use a campaign JSON/TSV for summaries and a separate `expNNN.log` file for each assessment run.
 
+**[2026-03-20]** Live git experiment commits are not enough to reconstruct winning prompt state — when the runner commits prompt edits before assessment and later tries to commit results, ignored log paths or interrupted runs can desynchronize git history, prompt backups, and the results TSV. Treat the results TSV as score history, not as authoritative prompt-state history; restore or diff prompt backups explicitly before starting the next campaign.
+
 ---
 
 ## Archive

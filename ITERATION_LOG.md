@@ -17,6 +17,16 @@
 
 ---
 
+### [2026-03-20] Archive results3 and redesign next 100-experiment campaign
+
+**Context:** user stopped the live 150-experiment campaign after 99 completed runs and wanted a forensic read of what worked, what almost worked, what failed badly, then a fresh 100-experiment plan starting with removals and alternating prompt files.
+**Happened:** Analyzed `results.tsv` plus `logs/results_exp150.json`, wrote `build/experiment_reports/results3_campaign_review.md`, archived the finished campaign to `generator/assessment/results3.tsv`, recreated an empty `generator/assessment/results.tsv`, redesigned `scripts/run_experiments.py` to a new 100-experiment single-file campaign with removals first and strong file alternation, tightened git-live result commits to avoid ignored `logs/` paths, and added runner tests for count/ordering.
+**Outcome:** success
+**Insight:** in live-git campaigns, score history and prompt-state history can diverge; keep prompt backups authoritative and do not assume a “keep” row means the current prompt tree still contains that winning edit
+**Promoted:** yes — see LESSONS_LEARNED "Live git experiment commits are not enough to reconstruct winning prompt state"
+
+---
+
 ### [2026-03-18] Add grammatical-form checks and richer experiment metadata
 
 **Context:** user wanted future experiments to include prompt-pruning/removal variants, grammatical-form checking, and more readable experiment descriptions/logs.
