@@ -17,6 +17,7 @@ Proces de rezolvare:
 - Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.
 - Răspunsul poate fi un verb conjugat, o interjecție, un acronim sau o formă rară.
 - Definiția poate folosi un sens figurat sau o referință din alt domeniu. Gândește flexibil.
+- Pentru cuvinte de 2-3 litere: gândește la prepoziții, interjecții, forme verbale scurte.
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT
