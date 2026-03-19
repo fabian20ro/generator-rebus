@@ -20,3 +20,4 @@ fad3599	65.9	0.286	7.9	6.8	discard	results/exp016 | add think-in-romanian to ver
 3ae4296	73.7	0.357	8.0	6.9	keep	results/exp018 | add domain-switching awareness to verify | system/verify.md
 ad1fda6	67.5	0.300	8.0	6.8	discard	results/exp019 | add short word strategy to verify | system/verify.md
 ff9caeb	67.8	0.300	7.9	7.1	discard	results/exp020 | add no-english reinforcement to verify | system/verify.md
+2d3cf39	73.8	0.357	8.0	7.0	keep	results/exp021 | add diacritics awareness to verify | system/verify.md
