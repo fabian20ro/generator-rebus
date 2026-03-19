@@ -11,10 +11,10 @@ Criterii:
 - dacă e banală dar corectă: semantic mediu, guessability mediu sau mic
 - dacă definiția este aproape identică cu o definiție DEX: creativity_score mic (3-4)
 - dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare
-- creativity_score 8-10: definiția face rezolvitorul să se gândească inițial la alt domeniu complet
 - nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun
 - feedback-ul este exclusiv în română, scurt și concret
 Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:
 
-Exemplu de răspuns corect:
+Exemple de răspunsuri corecte:
 {"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}
+{"semantic_score": 4, "guessability_score": 2, "creativity_score": 5, "feedback": "Definiția ar putea duce la mai multe cuvinte."}

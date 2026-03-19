@@ -62,3 +62,4 @@ d7a87b1	69.6	0.329	7.6	7.0	discard	results/exp058 | add stricter guessability fr
 e72e746	69.8	0.329	7.9	6.7	discard	results/exp060 | add strictness instruction to rate | system/rate.md
 e330042	69.1	0.329	7.7	6.5	discard	results/exp061 | add multi-answer penalty to rate | system/rate.md
 e3dacda	67.4	0.314	7.7	6.5	discard	results/exp062 | add factual-accuracy emphasis to semantic in rate | system/rate.md
+2701e97	65.5	0.286	8.0	6.5	discard	results/exp063 | add domain-switch creativity emphasis to rate | system/rate.md
