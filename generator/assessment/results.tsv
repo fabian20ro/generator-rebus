@@ -42,3 +42,4 @@ d140176	66.4	0.286	8.0	6.9	discard	results/exp039 | add verifiability principle 
 a555946	63.3	0.257	8.1	6.7	discard	results/exp040 | add expert framing to definition role | system/definition.md
 b562706	67.1	0.286	8.2	7.0	discard	results/exp041 | add new crossword example RIAL to definition | system/definition.md
 8c460d3	67.1	0.286	8.1	7.0	discard	results/exp042 | remove english-translation recovery hint from verify | system/verify.md
+6ee8189	67.5	0.300	7.8	7.0	discard	results/exp043 | remove technical-word hint from verify | system/verify.md
