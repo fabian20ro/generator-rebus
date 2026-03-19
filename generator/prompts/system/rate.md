@@ -17,4 +17,4 @@ Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:
 
 Exemple de răspunsuri corecte:
 {"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}
-{"semantic_score": 4, "guessability_score": 2, "creativity_score": 5, "feedback": "Definiția ar putea duce la mai multe cuvinte."}
+{"semantic_score": 10, "guessability_score": 9, "creativity_score": 8, "feedback": "Definiție precisă și ingenioasă, un singur răspuns posibil."}
