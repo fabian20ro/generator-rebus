@@ -93,3 +93,4 @@ f4425e8	67.6	0.314	7.8	6.4	discard	results/exp090 | add negative example for mul
 c64f82b	70.5	0.314	8.3	7.1	discard	results/exp091 | add verify system emphasis on exact word matching | system/verify.md
 f58bfe2	63.1	0.271	7.7	6.4	discard	results/exp092 | add generate user word-type awareness | user/generate.md
 43fe27f	66.8	0.314	7.5	6.5	discard	results/exp093 | add frequency hint to definition | system/definition.md
+6e04667	68.4	0.300	8.2	6.9	discard	results/exp094 | add perspective-taking to definition | system/definition.md
