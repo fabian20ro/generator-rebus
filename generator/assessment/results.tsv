@@ -81,3 +81,4 @@ a189ba2	66.8	0.271	8.3	7.4	discard	results/exp076 | add rate user guessability f
 e6f6ff3	60.4	0.243	7.7	6.5	discard	results/exp079 | add rate user rebus-vs-dictionary note | user/rate.md
 234032b	67.0	0.300	7.9	6.6	discard	results/exp080 | strengthen family-word penalty in rate | system/rate.md
 3542020	65.8	0.300	7.7	6.4	discard	results/exp081 | add vagueness penalty to rate | system/rate.md
+2ea0665	68.0	0.300	8.1	6.8	discard	results/exp082 | add simplicity preference for high semantic in rate | system/rate.md
