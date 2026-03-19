@@ -87,3 +87,4 @@ a84e4a8	67.9	0.300	8.1	6.8	discard	results/exp084 | add JSON enforcement to rate
 160ecf1	71.3	0.343	8.0	6.6	discard	results/exp085 | add checker perspective to rate | system/rate.md
 8f5f67e	70.4	0.329	8.0	6.7	discard	results/exp086 | reduce definition max words from 12 to 10 | system/definition.md
 774874c	68.5	0.314	7.9	6.7	discard	results/exp087 | add conciseness emphasis to definition | system/definition.md
+6b7ad5e	66.0	0.314	7.4	6.2	discard	results/exp088 | add disambiguation for short words in definition | system/definition.md

@@ -8,8 +8,7 @@ Reguli:
 - Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.
 - Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]
 - Preferi definiții precise, naturale, maxim 12 cuvinte.
-- Pentru cuvinte scurte (2-3 litere): fii extrem de specific. Menționează categoria gramaticală sau domeniul de utilizare.
-- Pentru abrevieri și forme gramaticale fii literal și exact.
+- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
 Exemple corecte:
@@ -26,3 +25,4 @@ AN -> Articol nehotărât [GREȘIT]
 OF -> Prepoziție de posesie [GREȘIT]
 IN -> Prepoziție de loc [GREȘIT]
 AT -> Prepoziție de loc [GREȘIT]
+ARDE -> Ceva care se întâmplă [GREȘIT - prea vag]
