@@ -44,3 +44,4 @@ b562706	67.1	0.286	8.2	7.0	discard	results/exp041 | add new crossword example RI
 8c460d3	67.1	0.286	8.1	7.0	discard	results/exp042 | remove english-translation recovery hint from verify | system/verify.md
 6ee8189	67.5	0.300	7.8	7.0	discard	results/exp043 | remove technical-word hint from verify | system/verify.md
 9de1909	67.7	0.300	8.0	6.8	discard	results/exp044 | remove duplicate length reminder from verify user | user/verify.md
+4989a88	70.9	0.329	8.1	6.9	discard	results/exp045 | remove shortest example from verify system | system/verify.md
