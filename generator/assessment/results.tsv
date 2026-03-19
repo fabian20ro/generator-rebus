@@ -70,3 +70,4 @@ acfa3d9	69.2	0.314	8.0	6.9	discard	results/exp066 | add no-identical-scores inst
 7c3d012	74.0	0.357	8.2	6.9	keep	results/exp068 | tighten guessability scale in rate | system/rate.md
 8be69b2	66.8	0.300	7.8	6.7	discard	results/exp069 | add length consideration to guessability in rate | system/rate.md
 ada2a20	63.6	0.271	7.7	6.7	discard	results/exp070 | remove rarity-tolerance rule from rate (test stricter) | system/rate.md
+8a8dad0	70.0	0.371	7.0	6.0	discard	results/exp071 | add DEX reference instruction to rate | system/rate.md
