@@ -20,7 +20,6 @@ AT -> Domeniul online al Austriei
 AI -> Formă a verbului a avea
 FAR -> Lumină de semnalizare pe coastă
 CLOU -> Moment culminant
-RIAL -> Se plătește la șah
 Contra-exemple (GREȘIT - sensuri englezești):
 AN -> Articol nehotărât [GREȘIT]
 OF -> Prepoziție de posesie [GREȘIT]

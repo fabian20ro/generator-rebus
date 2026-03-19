@@ -40,3 +40,4 @@ d60bf35	71.0	0.314	8.3	7.3	discard	results/exp034 | add word-count tightening to
 fbfecd8	73.6	0.357	8.0	7.0	discard	results/exp038 | add no-ambiguity reinforcement to definition | system/definition.md
 d140176	66.4	0.286	8.0	6.9	discard	results/exp039 | add verifiability principle to definition role | system/definition.md
 a555946	63.3	0.257	8.1	6.7	discard	results/exp040 | add expert framing to definition role | system/definition.md
+b562706	67.1	0.286	8.2	7.0	discard	results/exp041 | add new crossword example RIAL to definition | system/definition.md
