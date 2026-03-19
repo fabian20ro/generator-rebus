@@ -98,3 +98,4 @@ f58bfe2	63.1	0.271	7.7	6.4	discard	results/exp092 | add generate user word-type 
 ba99dbe	57.9	0.200	8.0	6.9	discard	results/exp096 | add generate user test-question framing | user/generate.md
 4da8532	70.0	0.329	8.0	6.6	discard	results/exp097 | simplify definition system prompt (fewer rules) | system/definition.md
 7980dec	62.7	0.257	8.0	6.5	discard	results/exp098 | add rewrite-awareness to definition system | system/definition.md
+b7fcabf	67.3	0.300	7.9	6.7	discard	results/exp099 | add wordplay emphasis to definition | system/definition.md
