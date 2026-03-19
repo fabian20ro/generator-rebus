@@ -50,3 +50,4 @@ f6a371c	69.8	0.329	7.9	6.6	discard	results/exp047 | strengthen no-invention rule
 d2d448d	60.1	0.243	7.5	6.7	discard	results/exp048 | add generate user rebus-style instruction | user/generate.md
 2379235	68.8	0.300	8.1	7.2	discard	results/exp049 | add generate user uniqueness instruction | user/generate.md
 0c44666	69.6	0.314	8.0	7.0	discard	results/exp050 | add generate user max-words hint | user/generate.md
+0b473db	69.1	0.300	8.1	7.4	discard	results/exp051 | add generate user concreteness instruction | user/generate.md
