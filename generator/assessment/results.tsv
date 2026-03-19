@@ -58,3 +58,4 @@ b89ae38	71.9	0.343	7.9	7.0	discard	results/exp052 | add generate user single-sen
 c20464c	64.2	0.271	7.9	6.7	discard	results/exp056 | add grammatical-agreement penalty to rate | system/rate.md
 dc833af	67.6	0.300	8.1	6.6	discard	results/exp057 | add anchored semantic scale to rate | system/rate.md
 d7a87b1	69.6	0.329	7.6	7.0	discard	results/exp058 | add stricter guessability framing to rate | system/rate.md
+1f373e8	71.9	0.329	8.2	7.3	discard	results/exp059 | add uniqueness criterion to guessability in rate | system/rate.md
