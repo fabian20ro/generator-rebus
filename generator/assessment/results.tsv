@@ -10,3 +10,4 @@ ef7315a	69.6	0.329	7.8	6.7	discard	results/exp005 | add lateral thinking hint to
 694d1e7	68.6	0.300	8.2	7.0	discard	results/exp008 | add grammatical form example to verify | system/verify.md
 88204c7	73.6	0.343	8.3	7.2	keep	results/exp009 | add longer word example to verify | system/verify.md
 a95d824	68.1	0.300	8.1	7.0	discard	results/exp010 | add rare word example to verify | system/verify.md
+f623b29	70.7	0.329	8.0	6.9	discard	results/exp011 | emphasize EXACT length in verify user template | user/verify.md
