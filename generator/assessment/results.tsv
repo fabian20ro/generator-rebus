@@ -38,3 +38,4 @@ d60bf35	71.0	0.314	8.3	7.3	discard	results/exp034 | add word-count tightening to
 36f866c	67.8	0.300	8.0	6.9	discard	results/exp036 | add quality hierarchy to definition | system/definition.md
 0ae50d5	71.1	0.329	8.1	7.0	discard	results/exp037 | add anti-clisee rule to definition | system/definition.md
 fbfecd8	73.6	0.357	8.0	7.0	discard	results/exp038 | add no-ambiguity reinforcement to definition | system/definition.md
+d140176	66.4	0.286	8.0	6.9	discard	results/exp039 | add verifiability principle to definition role | system/definition.md
