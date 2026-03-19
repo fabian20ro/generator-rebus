@@ -84,3 +84,4 @@ e6f6ff3	60.4	0.243	7.7	6.5	discard	results/exp079 | add rate user rebus-vs-dicti
 2ea0665	68.0	0.300	8.1	6.8	discard	results/exp082 | add simplicity preference for high semantic in rate | system/rate.md
 6f95f98	71.4	0.343	7.9	6.7	discard	results/exp083 | add short feedback instruction to rate | system/rate.md
 a84e4a8	67.9	0.300	8.1	6.8	discard	results/exp084 | add JSON enforcement to rate user | user/rate.md
+160ecf1	71.3	0.343	8.0	6.6	discard	results/exp085 | add checker perspective to rate | system/rate.md
