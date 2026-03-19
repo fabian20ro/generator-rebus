@@ -90,3 +90,4 @@ a84e4a8	67.9	0.300	8.1	6.8	discard	results/exp084 | add JSON enforcement to rate
 6b7ad5e	66.0	0.314	7.4	6.2	discard	results/exp088 | add disambiguation for short words in definition | system/definition.md
 2609be7	75.0	0.371	8.1	6.8	keep	results/exp089 | add negative example for vague definition | system/definition.md
 f4425e8	67.6	0.314	7.8	6.4	discard	results/exp090 | add negative example for multi-answer definition | system/definition.md
+c64f82b	70.5	0.314	8.3	7.1	discard	results/exp091 | add verify system emphasis on exact word matching | system/verify.md
