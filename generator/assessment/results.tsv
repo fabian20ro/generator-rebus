@@ -34,3 +34,4 @@ d15df75	71.9	0.343	8.0	6.8	discard	results/exp030 | add distinctive-sense rule t
 946f517	66.2	0.271	8.3	7.1	discard	results/exp032 | add concrete-over-abstract rule to definition | system/definition.md
 4d8b533	63.4	0.271	7.7	6.6	discard	results/exp033 | add anti-generic-formula rule to definition | system/definition.md
 d60bf35	71.0	0.314	8.3	7.3	discard	results/exp034 | add word-count tightening to definition | system/definition.md
+01a726e	64.4	0.271	7.9	6.7	discard	results/exp035 | add self-test instruction to definition | system/definition.md
