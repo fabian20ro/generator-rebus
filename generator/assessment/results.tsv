@@ -36,3 +36,4 @@ d15df75	71.9	0.343	8.0	6.8	discard	results/exp030 | add distinctive-sense rule t
 d60bf35	71.0	0.314	8.3	7.3	discard	results/exp034 | add word-count tightening to definition | system/definition.md
 01a726e	64.4	0.271	7.9	6.7	discard	results/exp035 | add self-test instruction to definition | system/definition.md
 36f866c	67.8	0.300	8.0	6.9	discard	results/exp036 | add quality hierarchy to definition | system/definition.md
+0ae50d5	71.1	0.329	8.1	7.0	discard	results/exp037 | add anti-clisee rule to definition | system/definition.md
