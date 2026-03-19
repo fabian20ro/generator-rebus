@@ -7,3 +7,4 @@ aec5e7e	68.1	0.300	8.0	7.1	discard	results/exp004 | add length double-check to v
 ef7315a	69.6	0.329	7.8	6.7	discard	results/exp005 | add lateral thinking hint to verify | system/verify.md
 8489562	70.4	0.329	7.9	6.8	discard	results/exp006 | add exact-sense guard to verify | system/verify.md
 5196f36	71.4	0.329	8.1	7.1	keep	results/exp007 | add verb form awareness to verify | system/verify.md
+694d1e7	68.6	0.300	8.2	7.0	discard	results/exp008 | add grammatical form example to verify | system/verify.md
