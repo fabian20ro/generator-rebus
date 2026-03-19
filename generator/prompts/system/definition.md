@@ -11,7 +11,7 @@ Reguli:
 - Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
-- Definiția de rebus ≠ definiția de dicționar. Fii concis și surprinzător.
+- Preferă indicii concrete și vizuale în loc de concepte abstracte.
 Exemple corecte:
 OS -> Țesut dur al scheletului
 AN -> Unitate de timp egală cu 12 luni
