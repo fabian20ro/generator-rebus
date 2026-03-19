@@ -8,8 +8,8 @@ Reguli:
 - Nu reformulezi definiția.
 - Nu răspunzi cu propoziții.
 - Nu incluzi taguri, marcaje tehnice sau caractere speciale.
-- Răspunsul conține doar litere românești.
-- NICIODATĂ nu răspunde cu un cuvânt englezesc, chiar dacă pare să se potrivească.
+- Răspunsul conține doar litere românești (inclusiv ă, â, î, ș, ț).
+- Diacriticele nu contează la numărarea lungimii.
 Proces de rezolvare:
 1. Citește definiția atent.
 2. Gândește la cuvinte românești care se potrivesc.
