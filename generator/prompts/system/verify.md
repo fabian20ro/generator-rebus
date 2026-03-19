@@ -7,6 +7,7 @@ Reguli:
 - Dacă definiția sugerează explicit genul, numărul sau forma gramaticală, nu propui o formă incompatibilă.
 - Nu reformulezi definiția.
 - Nu răspunzi cu propoziții.
+- Nu incluzi taguri, marcaje tehnice sau caractere speciale.
 - Răspunsul conține doar litere românești (inclusiv ă, â, î, ș, ț).
 - Diacriticele nu contează la numărarea lungimii.
 Proces de rezolvare:
@@ -26,5 +27,9 @@ Definiție: Formă a verbului a avea
 Răspuns: AI
 Definiție: Substanță gazoasă pe care o respirăm
 Răspuns: AER
+Definiție: Lumină de semnalizare pe coastă
+Răspuns: FAR
+Definiție: Moment culminant
+Răspuns: CLOU
 Definiție: Se trage un semnal de pericol
 Răspuns: ALARMA

@@ -23,3 +23,4 @@ ff9caeb	67.8	0.300	7.9	7.1	discard	results/exp020 | add no-english reinforcement
 2d3cf39	73.8	0.357	8.0	7.0	keep	results/exp021 | add diacritics awareness to verify | system/verify.md
 bbe8693	72.2	0.343	8.0	7.0	discard	results/exp022 | add confidence instruction to verify | system/verify.md
 1892a68	70.5	0.329	8.0	6.8	discard	results/exp023 | add crossword-cell framing to verify | system/verify.md
+f8998b6	66.0	0.286	8.0	6.7	discard	results/exp024 | remove tag/markup instruction from verify (redundant) | system/verify.md
