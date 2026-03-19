@@ -25,5 +25,7 @@ Definiție: Formă a verbului a avea
 Răspuns: AI
 Definiție: Substanță gazoasă pe care o respirăm
 Răspuns: AER
+Definiție: Bețe de sprijin pentru vița de vie
+Răspuns: ARACI
 Definiție: Se trage un semnal de pericol
 Răspuns: ALARMA
