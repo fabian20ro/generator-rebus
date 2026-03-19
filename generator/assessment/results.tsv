@@ -15,3 +15,4 @@ f623b29	70.7	0.329	8.0	6.9	discard	results/exp011 | emphasize EXACT length in ve
 c1b865b	67.5	0.300	7.9	6.9	discard	results/exp013 | add explicit verification step to verify user | user/verify.md
 51f30e8	70.7	0.314	8.2	7.3	discard	results/exp014 | simplify verify user to bare minimum | user/verify.md
 2c0acfc	64.6	0.271	8.0	6.8	discard	results/exp015 | add rebus-style hint to verify user | user/verify.md
+fad3599	65.9	0.286	7.9	6.8	discard	results/exp016 | add think-in-romanian to verify user | user/verify.md

@@ -6,6 +6,7 @@ Reguli:
 - Dacă definiția indică o abreviere, un simbol, un domeniu internet, o interjecție sau o formă gramaticală, răspunzi exact cu forma scurtă cerută.
 - Dacă definiția sugerează explicit genul, numărul sau forma gramaticală, nu propui o formă incompatibilă.
 - Nu reformulezi definiția.
+- Alege sensul cel mai comun și direct al definiției.
 - Nu răspunzi cu propoziții.
 - Nu incluzi taguri, marcaje tehnice sau caractere speciale.
 - Răspunsul conține doar litere românești.
