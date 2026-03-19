@@ -13,3 +13,4 @@ a95d824	68.1	0.300	8.1	7.0	discard	results/exp010 | add rare word example to ver
 f623b29	70.7	0.329	8.0	6.9	discard	results/exp011 | emphasize EXACT length in verify user template | user/verify.md
 8ef4f3d	68.8	0.314	7.9	6.9	discard	results/exp012 | move length before definition in verify user | user/verify.md
 c1b865b	67.5	0.300	7.9	6.9	discard	results/exp013 | add explicit verification step to verify user | user/verify.md
+51f30e8	70.7	0.314	8.2	7.3	discard	results/exp014 | simplify verify user to bare minimum | user/verify.md
