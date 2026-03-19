@@ -92,3 +92,4 @@ a84e4a8	67.9	0.300	8.1	6.8	discard	results/exp084 | add JSON enforcement to rate
 f4425e8	67.6	0.314	7.8	6.4	discard	results/exp090 | add negative example for multi-answer definition | system/definition.md
 c64f82b	70.5	0.314	8.3	7.1	discard	results/exp091 | add verify system emphasis on exact word matching | system/verify.md
 f58bfe2	63.1	0.271	7.7	6.4	discard	results/exp092 | add generate user word-type awareness | user/generate.md
+43fe27f	66.8	0.314	7.5	6.5	discard	results/exp093 | add frequency hint to definition | system/definition.md
