@@ -27,9 +27,5 @@ Definiție: Formă a verbului a avea
 Răspuns: AI
 Definiție: Substanță gazoasă pe care o respirăm
 Răspuns: AER
-Definiție: Lumină de semnalizare pe coastă
-Răspuns: FAR
-Definiție: Moment culminant
-Răspuns: CLOU
 Definiție: Se trage un semnal de pericol
 Răspuns: ALARMA
