@@ -61,3 +61,4 @@ d7a87b1	69.6	0.329	7.6	7.0	discard	results/exp058 | add stricter guessability fr
 1f373e8	71.9	0.329	8.2	7.3	discard	results/exp059 | add uniqueness criterion to guessability in rate | system/rate.md
 e72e746	69.8	0.329	7.9	6.7	discard	results/exp060 | add strictness instruction to rate | system/rate.md
 e330042	69.1	0.329	7.7	6.5	discard	results/exp061 | add multi-answer penalty to rate | system/rate.md
+e3dacda	67.4	0.314	7.7	6.5	discard	results/exp062 | add factual-accuracy emphasis to semantic in rate | system/rate.md
