@@ -2,4 +2,5 @@ Cuvânt: {display_word}
 Formă normalizată: {word}
 Lungime: {length}
 
-Scrie o definiție de rebus: scurtă, precisă, cu un unghi neașteptat. Un singur răspuns posibil. Răspunde doar cu definiția.
+Scrie o definiție de rebus scurtă și exactă. Scopul: un rezolvitor să scrie exact acest cuvânt.
+Răspunde doar cu definiția.

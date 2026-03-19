@@ -47,3 +47,4 @@ b562706	67.1	0.286	8.2	7.0	discard	results/exp041 | add new crossword example RI
 4989a88	70.9	0.329	8.1	6.9	discard	results/exp045 | remove shortest example from verify system | system/verify.md
 9b3531f	66.8	0.286	8.1	7.0	discard	results/exp046 | add grammatical-agreement rule to verify | system/verify.md
 f6a371c	69.8	0.329	7.9	6.6	discard	results/exp047 | strengthen no-invention rule in definition | system/definition.md
+d2d448d	60.1	0.243	7.5	6.7	discard	results/exp048 | add generate user rebus-style instruction | user/generate.md
