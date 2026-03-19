@@ -97,3 +97,4 @@ f58bfe2	63.1	0.271	7.7	6.4	discard	results/exp092 | add generate user word-type 
 6416b51	64.6	0.300	7.4	6.1	discard	results/exp095 | strengthen Romanian-only in definition role | system/definition.md
 ba99dbe	57.9	0.200	8.0	6.9	discard	results/exp096 | add generate user test-question framing | user/generate.md
 4da8532	70.0	0.329	8.0	6.6	discard	results/exp097 | simplify definition system prompt (fewer rules) | system/definition.md
+7980dec	62.7	0.257	8.0	6.5	discard	results/exp098 | add rewrite-awareness to definition system | system/definition.md

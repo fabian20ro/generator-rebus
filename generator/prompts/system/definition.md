@@ -11,7 +11,7 @@ Reguli:
 - Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
-- Gândește la definiție ca la un test: dacă 10 rezolvitori o citesc, toți ar scrie același cuvânt?
+- Cel mai bun tip de definiție: o perifrază elegantă care exploatează un joc de domenii.
 Exemple corecte:
 OS -> Țesut dur al scheletului
 AN -> Unitate de timp egală cu 12 luni
