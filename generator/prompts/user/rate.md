@@ -3,4 +3,4 @@ Formă normalizată: {word}
 Lungime răspuns: {answer_length}
 {word_type_line}Definiție: {definition}
 
-Evaluează separat. Atenție specială la guessability: există alt cuvânt de {answer_length} litere care se potrivește? Răspunde STRICT cu JSON.
+Verifică și forma gramaticală: definiția descrie exact această formă, nu alta apropiată? Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.
