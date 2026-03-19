@@ -65,3 +65,4 @@ e3dacda	67.4	0.314	7.7	6.5	discard	results/exp062 | add factual-accuracy emphasi
 2701e97	65.5	0.286	8.0	6.5	discard	results/exp063 | add domain-switch creativity emphasis to rate | system/rate.md
 99cc848	69.8	0.329	7.9	6.6	discard	results/exp064 | add low-score JSON example to rate | system/rate.md
 662139f	70.2	0.314	8.3	6.9	discard	results/exp065 | add high-score JSON example to rate | system/rate.md
+acfa3d9	69.2	0.314	8.0	6.9	discard	results/exp066 | add no-identical-scores instruction to rate | system/rate.md
