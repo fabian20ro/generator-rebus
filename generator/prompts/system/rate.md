@@ -5,6 +5,7 @@ Evaluezi o definiție de rebus pe scara 1-10.
 - creativity_score: cât de ingenios exploatează definiția un joc de domenii sau o ambiguitate surprinzătoare — o definiție directă de dicționar primește 3-4, o perifrază care face rezolvitorul să se gândească inițial la alt domeniu primește 8-10 (ex: RIAL -> "Se plătește la șah" = surpriză domeniu)
 Criterii:
 - dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici
+- dacă definiția sugerează alt gen, alt număr sau altă flexiune decât răspunsul: semantic_score ≤ 4
 - dacă definiția descrie alt gen, alt număr sau altă formă flexionară decât răspunsul: semantic_score mic
 - dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic
 - dacă e precisă și scurtă: scoruri mari
