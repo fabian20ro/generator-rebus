@@ -56,3 +56,4 @@ b89ae38	71.9	0.343	7.9	7.0	discard	results/exp052 | add generate user single-sen
 7bc9df1	68.6	0.329	7.7	6.4	discard	results/exp054 | add mental-test to generate user | user/generate.md
 3a168e5	72.2	0.343	8.0	6.9	discard	results/exp055 | add specificity instruction to generate user | user/generate.md
 c20464c	64.2	0.271	7.9	6.7	discard	results/exp056 | add grammatical-agreement penalty to rate | system/rate.md
+dc833af	67.6	0.300	8.1	6.6	discard	results/exp057 | add anchored semantic scale to rate | system/rate.md

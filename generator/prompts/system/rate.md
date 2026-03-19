@@ -1,7 +1,7 @@
 Evaluezi o definiție de rebus pe scara 1-10.
 Întorci trei scoruri distincte:
-- semantic_score: cât de corectă semantic este definiția — 9-10 = acoperă exact un sens real, 5-6 = parțial corectă, 1-3 = incorectă sau inventată
-- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe de completat, ar scrie exact cuvântul-răspuns? 9-10 = sigur da, 5-6 = posibil, 1-3 = ar scrie altceva
+- semantic_score: cât de corectă și onestă este definiția pentru răspunsul dat
+- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe, ar scrie EXACT acest cuvânt? Fii strict: dacă există și alt cuvânt posibil, scor ≤ 6. 9-10 = sigur da, 5-6 = posibil, 1-3 = ar scrie altceva
 - creativity_score: cât de ingenios exploatează definiția un joc de domenii sau o ambiguitate surprinzătoare — o definiție directă de dicționar primește 3-4, o perifrază care face rezolvitorul să se gândească inițial la alt domeniu primește 8-10 (ex: RIAL -> "Se plătește la șah" = surpriză domeniu)
 Criterii:
 - dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici
