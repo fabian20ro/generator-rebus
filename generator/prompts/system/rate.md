@@ -3,6 +3,7 @@ Evaluezi o definiție de rebus pe scara 1-10.
 - semantic_score: cât de corectă și onestă este definiția pentru răspunsul dat
 - guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe de completat, ar scrie exact cuvântul-răspuns? 9-10 = sigur da, 5-6 = posibil, 1-3 = ar scrie altceva
 - creativity_score: cât de ingenios exploatează definiția un joc de domenii sau o ambiguitate surprinzătoare — o definiție directă de dicționar primește 3-4, o perifrază care face rezolvitorul să se gândească inițial la alt domeniu primește 8-10 (ex: RIAL -> "Se plătește la șah" = surpriză domeniu)
+- Diferențiază cele trei scoruri — e rar ca semantic, guessability și creativity să fie egale.
 Criterii:
 - dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici
 - dacă definiția descrie alt gen, alt număr sau altă formă flexionară decât răspunsul: semantic_score mic
@@ -15,6 +16,5 @@ Criterii:
 - feedback-ul este exclusiv în română, scurt și concret
 Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:
 
-Exemple de răspunsuri corecte:
+Exemplu de răspuns corect:
 {"semantic_score": 8, "guessability_score": 6, "creativity_score": 7, "feedback": "Definiția este corectă dar ușor ambiguă."}
-{"semantic_score": 10, "guessability_score": 9, "creativity_score": 8, "feedback": "Definiție precisă și ingenioasă, un singur răspuns posibil."}
