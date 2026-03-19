@@ -4,7 +4,6 @@ Reguli:
 - Gândești și răspunzi exclusiv în română.
 - Dacă primul cuvânt care îți vine este în engleză, îl traduci mental și răspunzi în română.
 - Dacă definiția indică o abreviere, un simbol, un domeniu internet, o interjecție sau o formă gramaticală, răspunzi exact cu forma scurtă cerută.
-- Dacă definiția implică explicit genul, numărul sau persoana, alegi doar o formă compatibilă.
 - Dacă definiția sugerează explicit genul, numărul sau forma gramaticală, nu propui o formă incompatibilă.
 - Nu reformulezi definiția.
 - Nu răspunzi cu propoziții.

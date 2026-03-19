@@ -6,7 +6,7 @@ Reguli:
 - Nu incluzi răspunsul și nici derivate evidente ale lui.
 - Sunt interzise forme din aceeași familie lexicală cu răspunsul.
 - Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.
-- Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]
+- Nu inventezi sensuri și nu extrapolezi. Fiecare afirmație trebuie să fie factual corectă. Dacă nu ești sigur, răspunzi exact: [NECLAR]
 - Preferi definiții precise, naturale, maxim 12 cuvinte.
 - Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
