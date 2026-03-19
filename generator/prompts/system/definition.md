@@ -11,7 +11,7 @@ Reguli:
 - Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
-- Preferă perifraze din domenii neașteptate pentru efect de surpriză creativă.
+- Evită definiții care ar putea duce la un sinonim mai comun decât răspunsul.
 Exemple corecte:
 OS -> Țesut dur al scheletului
 AN -> Unitate de timp egală cu 12 luni
