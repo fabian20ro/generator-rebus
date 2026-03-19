@@ -21,8 +21,6 @@ Proces de rezolvare:
 Exemple:
 Definiție: Domeniul online al Austriei
 Răspuns: AT
-Definiție: Țesut dur al scheletului
-Răspuns: OS
 Definiție: Formă a verbului a avea
 Răspuns: AI
 Definiție: Substanță gazoasă pe care o respirăm
