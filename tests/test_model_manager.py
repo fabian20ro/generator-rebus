@@ -10,6 +10,8 @@ from generator.core.model_manager import (
     get_loaded_models,
     get_loaded_model_instances,
     _post_json,
+    switch_model,
+    unload_model,
 )
 
 
@@ -69,6 +71,42 @@ class ModelManagerTests(unittest.TestCase):
             "/api/v1/models/unload", {"instance_id": "inst-xyz"},
         )
         mock_load.assert_called_once_with(PRIMARY_MODEL)
+
+    @patch("generator.core.model_manager._post_json")
+    @patch("generator.core.model_manager.get_loaded_model_instances")
+    def test_unload_model_uses_loaded_instance_id(self, mock_inst, mock_post):
+        mock_inst.return_value = {PRIMARY_MODEL.model_id: "inst-primary"}
+
+        unload_model(PRIMARY_MODEL)
+
+        mock_post.assert_called_once_with(
+            "/api/v1/models/unload", {"instance_id": "inst-primary"},
+        )
+
+    @patch("generator.core.model_manager._post_json")
+    @patch("generator.core.model_manager.get_loaded_model_instances")
+    def test_unload_model_skips_when_instance_missing(self, mock_inst, mock_post):
+        mock_inst.return_value = {}
+
+        unload_model(PRIMARY_MODEL)
+
+        mock_post.assert_not_called()
+
+    @patch("generator.core.model_manager.time.sleep")
+    @patch("generator.core.model_manager.load_model")
+    @patch("generator.core.model_manager._post_json")
+    @patch("generator.core.model_manager.get_loaded_model_instances")
+    def test_switch_model_unloads_with_instance_id_then_loads_target(
+        self, mock_inst, mock_post, mock_load, mock_sleep,
+    ):
+        mock_inst.return_value = {PRIMARY_MODEL.model_id: "inst-primary"}
+
+        switch_model(PRIMARY_MODEL, SECONDARY_MODEL)
+
+        mock_post.assert_called_once_with(
+            "/api/v1/models/unload", {"instance_id": "inst-primary"},
+        )
+        mock_load.assert_called_once_with(SECONDARY_MODEL)
 
 
 class GetLoadedModelInstancesTests(unittest.TestCase):

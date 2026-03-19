@@ -57,8 +57,48 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(data["CASA"]["attempts"], 2)
             self.assertEqual(data["CASA"]["successes"], 2)
             self.assertEqual(data["CASA"]["avg_semantic"], 9.5)
+            self.assertEqual(data["CASA"]["avg_rebus"], 0.0)
             self.assertEqual(data["SMACEALA"]["attempts"], 2)
             self.assertEqual(data["SMACEALA"]["successes"], 0)
+
+    def test_word_difficulty_tracks_failure_patterns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "word_difficulty.json"
+
+            metrics = [
+                WordMetric(
+                    word="TUN",
+                    length=3,
+                    final_verified=False,
+                    semantic_score=9,
+                    guessability_score=6,
+                    rebus_score=7,
+                    was_blocker=True,
+                    wrong_guess="BARIL",
+                    failure_kind="wrong_guess",
+                    rarity_only_override=True,
+                ),
+                WordMetric(
+                    word="TUN",
+                    length=3,
+                    final_verified=False,
+                    semantic_score=8,
+                    guessability_score=5,
+                    rebus_score=6,
+                    was_blocker=True,
+                    wrong_guess="BARIL",
+                    failure_kind="wrong_guess",
+                ),
+            ]
+            update_word_difficulty(metrics, path)
+
+            data = load_word_difficulty(path)
+            self.assertEqual(data["TUN"]["blockers"], 2)
+            self.assertEqual(data["TUN"]["rarity_override_count"], 1)
+            self.assertEqual(data["TUN"]["failure_kind_counts"]["wrong_guess"], 2)
+            self.assertEqual(data["TUN"]["wrong_guess_counts"]["BARIL"], 2)
+            self.assertEqual(data["TUN"]["avg_guessability"], 5.5)
+            self.assertEqual(data["TUN"]["avg_rebus"], 6.5)
 
     def test_load_empty_difficulty(self):
         with tempfile.TemporaryDirectory() as tmp:

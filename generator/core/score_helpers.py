@@ -56,9 +56,9 @@ def _extract_rebus_score(clue: WorkingClue) -> int | None:
 def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     """Return True when a clue should be rewritten.
 
-    We rewrite based on quality score, not raw verify failure alone.
-    A clue can be semantically good yet still fail exact-match verification
-    because the local model prefers a synonym or a more common variant.
+    Multistep exact solve is the main target.
+    High semantic/rebus scores are not enough when verification still lands on
+    a different answer.
     """
     clue = _coerce_working_clue(clue)
     definition = clue.current.definition
@@ -78,6 +78,9 @@ def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     rarity_override = clue.current.assessment.rarity_only_override
     if rarity_override and semantic_score >= RATE_MIN_SEMANTIC:
         return False
+
+    if clue.current.assessment.verified is False:
+        return True
 
     return rebus_score < min_rebus
 

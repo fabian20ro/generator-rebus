@@ -26,14 +26,14 @@ def clue_versions_equivalent(a: ClueCandidateVersion, b: ClueCandidateVersion) -
     return _normalized_definition(a.definition) == _normalized_definition(b.definition)
 
 
-def clue_rank(version: ClueCandidateVersion) -> tuple[int, int, int, int, int]:
+def clue_rank(version: ClueCandidateVersion) -> tuple[int, int, int, int, int, int]:
     scores = version.assessment.scores
     semantic = scores.semantic_exactness or 0
     rebus = scores.rebus_score or 0
     verified = 1 if version.assessment.verified is True else 0
     language = scores.language_integrity or 0
     family_penalty = 0 if scores.family_leakage else 1
-    return (semantic + rebus, rebus, verified, language, family_penalty)
+    return (verified, semantic + rebus, semantic, rebus, language, family_penalty)
 
 
 def choose_clue_version(

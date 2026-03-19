@@ -54,6 +54,7 @@ from .core.size_tuning import (
     get_min_preparation_attempts,
 )
 from .core.pipeline_state import (
+    ClueAssessment,
     ClueCandidateVersion,
     ClueFailureReason,
     ClueScores,
@@ -351,7 +352,6 @@ def _best_candidate(
             )
             if best is None or candidate.score > best.score:
                 best = candidate
-            return best
 
     if best is not None:
         return best
@@ -761,6 +761,7 @@ def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
     metrics = []
     for clue in all_working_clues(puzzle):
         version = clue.active_version()
+        failure_reason = version.assessment.failure_reason
         semantic = version.assessment.scores.semantic_exactness
         targeting = version.assessment.scores.answer_targeting
         creativity = version.assessment.scores.creativity
@@ -768,6 +769,7 @@ def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
         metrics.append(WordMetric(
             word=clue.word_normalized,
             length=len(clue.word_normalized),
+            word_type=clue.word_type,
             definition_rounds=len(clue.history),
             final_verified=version.assessment.verified is True,
             semantic_score=semantic,
@@ -776,6 +778,10 @@ def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
             rebus_score=rebus,
             was_blocker=_needs_rewrite(clue),
             english_meaning_detected=False,
+            wrong_guess=version.assessment.wrong_guess,
+            failure_kind=failure_reason.kind if failure_reason else "",
+            failure_message=failure_reason.message if failure_reason else "",
+            rarity_only_override=version.assessment.rarity_only_override,
         ))
     return metrics
 
@@ -784,10 +790,7 @@ def _clear_verification_state(puzzle: WorkingPuzzle):
     clean = copy.deepcopy(puzzle)
     for clue in all_working_clues(clean):
         version = clue.active_version()
-        version.assessment.verified = None
-        version.assessment.wrong_guess = ""
-        version.assessment.feedback = ""
-        version.assessment.failure_reason = None
+        version.assessment = ClueAssessment()
     return clean
 
 

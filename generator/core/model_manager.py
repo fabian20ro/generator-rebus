@@ -75,9 +75,13 @@ def load_model(config: ModelConfig) -> None:
 
 def unload_model(config: ModelConfig) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] Unloading model: {config.display_name}...")
+    instance_id = get_loaded_model_instances().get(config.model_id)
+    if not instance_id:
+        print(f"  Model unload skipped ({config.display_name}): no loaded instance found")
+        return
     try:
         _post_json("/api/v1/models/unload", {
-            "instance_id": config.model_id,
+            "instance_id": instance_id,
         })
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
         print(f"  Model unload skipped ({config.display_name}): {e}")

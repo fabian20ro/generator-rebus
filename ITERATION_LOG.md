@@ -68,3 +68,11 @@
 ---
 
 <!-- new entries above this line, most recent first -->
+
+### [2026-03-20] Fix generator correctness and objective-alignment bugs on main
+
+**Context:** user asked for task lists plus concrete fixes across multiple passes: correctness, objective alignment, metrics, and tests.
+**Happened:** Identified and fixed four core issues: `_best_candidate()` returned after the first solved grid; LM Studio model switching unloaded by model key instead of loaded instance id; clean `defs.md` export kept score residue; clue selection and rewrite gating underweighted exact verification. Added richer word-difficulty aggregation fields (`wrong_guess`, `failure_kind`, blocker counts, rebus/guessability averages, rarity-override counts, word type). Added focused tests for model switching, selection ranking, best-candidate search, clean export, and richer metrics. Wrote a pass-based task list under `build/experiment_reports/20260320_generator_task_list.md`.
+**Outcome:** success
+**Insight:** selector/rule mismatches between assessment and production create false-positive prompt wins; correctness fixes and objective alignment should land before the next baseline
+**Promoted:** yes — see LESSONS_LEARNED entries on selection alignment and LM Studio unload instance ids
