@@ -25,6 +25,7 @@ Designed for easy embedding in other projects (propozitii-nostime, word-rarity).
 
 from __future__ import annotations
 
+import re
 import time
 import urllib.error
 import urllib.request
@@ -41,6 +42,24 @@ _CRAWL_DELAY = 3.0
 _MAX_RETRIES = 3
 _MAX_DEFS = 8
 _SB_BATCH_CHUNK_SIZE = 200
+_REDIRECT_TARGET_DEFS = 2
+_SHORT_DEF_WORD_LIMIT = 10
+_DEF_CONTAINER_TAGS = {"span", "div", "p", "b", "i", "a", "em", "strong", "sup", "sub"}
+
+_REDIRECT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("diminutiv", re.compile(r"^diminutiv al lui\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("augmentativ", re.compile(r"^augmentativ al lui\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("plural", re.compile(r"^pluralul lui\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("singular", re.compile(r"^singularul lui\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("feminin", re.compile(r"^(?:femininul lui|form[ăa] feminin[ăa] a lui)\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("masculin", re.compile(r"^(?:masculinul lui|form[ăa] masculin[ăa] a lui)\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("participiu", re.compile(r"^(?:participiul al lui|participiul trecut al lui)\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("gerunziu", re.compile(r"^gerunziul lui\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("varianta", re.compile(r"^(?:variant[ăa](?: grafic[ăa]| fonetic[ăa])? a lui|variant[ăa] al lui)\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("vezi", re.compile(r"^(?:vezi|v\.)\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("acelasi", re.compile(r"^acela(?:ș|s)i lucru cu\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+    ("termen", re.compile(r"^(?:termen pentru|nume pentru)\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -66,11 +85,11 @@ class _DefinitionExtractor(HTMLParser):
                 self._current = []
                 return
         if self._in_def:
-            self._depth += 1 if tag in ("span", "div", "p", "b", "i", "a", "em", "strong", "sup", "sub") else 0
+            self._depth += 1 if tag in _DEF_CONTAINER_TAGS else 0
 
     def handle_endtag(self, tag: str) -> None:
         if self._in_def:
-            if tag == "span":
+            if tag in _DEF_CONTAINER_TAGS:
                 self._depth -= 1
                 if self._depth <= 0:
                     text = " ".join("".join(self._current).split()).strip()
@@ -99,6 +118,27 @@ def parse_definitions_from_html(html: str) -> list[str]:
 def _format_definitions(defs: list[str]) -> str:
     """Format a list of definition strings into bullet-point text."""
     return "\n".join(f"- {d}" for d in defs[:_MAX_DEFS])
+
+
+def _definition_word_count(definition: str) -> int:
+    return len([part for part in definition.split() if part])
+
+
+def _extract_redirect_target(definition: str) -> tuple[str, str] | None:
+    text = definition.strip()
+    if not text:
+        return None
+    for kind, pattern in _REDIRECT_PATTERNS:
+        match = pattern.match(text)
+        if not match:
+            continue
+        target = match.group(1).strip(" \"'„”()[]")
+        target = re.split(r"\s+(?:sau|ori)\s+", target, maxsplit=1, flags=re.IGNORECASE)[0]
+        target = re.split(r"\s*[-–]\s*", target, maxsplit=1)[0]
+        target = target.strip(" \"'„”()[]")
+        if target:
+            return kind, target
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +254,7 @@ class DexProvider:
         self._sb = supabase_client
         # L1: normalized word -> formatted definitions string (or None for known-missing)
         self._memory: dict[str, str | None] = {}
+        self._uncertain_short_definitions: list[dict[str, str]] = []
 
     # -- Public API --------------------------------------------------------
 
@@ -315,6 +356,10 @@ class DexProvider:
         """
         return {k: v for k, v in self._memory.items() if v is not None}
 
+    def uncertain_short_definitions(self) -> list[dict[str, str]]:
+        """Return short single-definition rows that look like unresolved redirects."""
+        return list(self._uncertain_short_definitions)
+
     @classmethod
     def for_puzzle(cls, puzzle) -> DexProvider:
         """Create a provider from env config and prefetch all puzzle words.
@@ -340,12 +385,72 @@ class DexProvider:
             self._memory[norm] = None
             return None
         defs = parse_definitions_from_html(html)
+        defs = self._expand_redirect_definitions(norm, defs)
         if defs:
             formatted = _format_definitions(defs)
             self._memory[norm] = formatted
             return formatted
         self._memory[norm] = None
         return None
+
+    def _expand_redirect_definitions(self, norm: str, defs: list[str]) -> list[str]:
+        if not defs:
+            return defs
+        expanded = list(defs)
+        if len(defs) != 1:
+            return expanded
+        direct = defs[0].strip()
+        if _definition_word_count(direct) >= _SHORT_DEF_WORD_LIMIT:
+            return expanded
+        redirect = _extract_redirect_target(direct)
+        if redirect is None:
+            self._remember_uncertain_short_definition(norm, direct)
+            return expanded
+
+        _, target = redirect
+        target_norm = normalize(target)
+        if not target_norm or target_norm == norm:
+            return expanded
+
+        base_defs = self._lookup_plain_definitions(target_norm, target)
+        if not base_defs:
+            return expanded
+
+        expanded = [f'Definiție directă DEX pentru „{norm}”: {direct}']
+        for base_def in base_defs[:_REDIRECT_TARGET_DEFS]:
+            expanded.append(f"Sens bază pentru „{target}”: {base_def}")
+        return expanded
+
+    def _lookup_plain_definitions(self, norm: str, original: str) -> list[str]:
+        if norm in self._memory and self._memory[norm]:
+            return [
+                line[2:].strip()
+                for line in self._memory[norm].splitlines()
+                if line.startswith("- ")
+            ]
+
+        html = None
+        found = False
+        if self._sb is not None:
+            html, found = _sb_lookup_single(self._sb, norm)
+        if not found:
+            self._respect_crawl_delay()
+            html, status = fetch_from_dexonline(original)
+            DexProvider._last_fetch_time = time.monotonic()
+            if self._sb is not None:
+                _sb_store(self._sb, norm, original, html, status)
+            if status != "ok":
+                return []
+        if not html:
+            return []
+        return parse_definitions_from_html(html)
+
+    def _remember_uncertain_short_definition(self, norm: str, definition: str) -> None:
+        entry = {"word": norm, "definition": definition}
+        if entry in self._uncertain_short_definitions:
+            return
+        self._uncertain_short_definitions.append(entry)
+        print(f"    [DEX short/uncertain] {norm}: {definition}")
 
     def _respect_crawl_delay(self) -> None:
         """Sleep if needed to respect robots.txt Crawl-delay."""

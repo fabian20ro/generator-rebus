@@ -70,6 +70,11 @@ class ParseDefinitionsFromHtmlTests(unittest.TestCase):
         result = parse_definitions_from_html(html)
         self.assertEqual(result, ["Definition with html class."])
 
+    def test_inline_markup_definition(self):
+        html = '<span class="tree-def html">Diminutiv al lui <i>fir</i>.</span>'
+        result = parse_definitions_from_html(html)
+        self.assertEqual(result, ["Diminutiv al lui fir."])
+
 
 class FormatDefinitionsTests(unittest.TestCase):
     def test_basic(self):
@@ -242,6 +247,41 @@ class DexProviderSupabaseTests(unittest.TestCase):
         with patch("generator.core.dex_cache.fetch_from_dexonline", return_value=("", "not_found")):
             result = dex.lookup("WORD")
         self.assertIsNone(result)
+
+    @patch("generator.core.dex_cache._sb_lookup_single")
+    def test_redirect_definition_gets_one_hop_base_sense(self, mock_lookup):
+        html_redirect = '<span class="tree-def html">Diminutiv al lui <i>fir</i>.</span>'
+        html_base = (
+            '<span class="tree-def html">'
+            'Fiecare dintre elementele lungi și subțiri ale unei fibre textile.'
+            "</span>"
+        )
+
+        def lookup_side_effect(_client, normalized):
+            if normalized == "FIRISOR":
+                return html_redirect, True
+            if normalized == "FIR":
+                return html_base, True
+            return None, False
+
+        mock_lookup.side_effect = lookup_side_effect
+        dex = DexProvider(MagicMock())
+        result = dex.get("FIRISOR", "firișor")
+        self.assertIn("Definiție directă DEX pentru „FIRISOR”: Diminutiv al lui fir.", result)
+        self.assertIn("Sens bază pentru „fir”", result)
+        self.assertIn("elementele lungi și subțiri", result)
+
+    def test_uncertain_short_definition_is_logged(self):
+        sb = _mock_supabase_with_rows([
+            {"html": '<span class="tree-def html">Mic obiect decorativ.</span>', "status": "ok"}
+        ])
+        dex = DexProvider(sb)
+        result = dex.get("BIBEL", "bibel")
+        self.assertIn("Mic obiect decorativ.", result)
+        self.assertEqual(
+            dex.uncertain_short_definitions(),
+            [{"word": "BIBEL", "definition": "Mic obiect decorativ."}],
+        )
 
 
 # ---------------------------------------------------------------------------

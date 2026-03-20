@@ -37,6 +37,8 @@
 
 **[2026-03-20]** Top-k verifier changes need pipeline-wide semantics, not just a prompt tweak — if verify starts returning 2-3 candidates, pass/fail, exported notes, metrics, and assessment all need to treat “any candidate matches” as success. Otherwise near-miss data is lost and benchmark semantics drift from production.
 
+**[2026-03-20]** DEX redirect-style definitions need both parser robustness and one-hop expansion — dexonline often returns entries like `Diminutiv al lui fir.` or `Vezi X.`; inline HTML tags can make a naive parser drop them entirely, and even parsed correctly they are too weak for prompt context unless the base lexeme's sense is also injected. Keep the direct definition, add at most one hop of base-sense context, and flag short unresolved cases separately.
+
 **[2026-03-20]** LM Studio unload calls must use loaded `instance_id`, not model key — `/api/v1/models` exposes loaded instances separately from model keys, and switching by key can silently leave the old model loaded. In two-model workflows, always resolve the active instance id before unloading.
 
 **[2026-03-20]** “Publishable” needs an exact-solve floor, not only “no blockers” — otherwise puzzles with weak multistep pass rates can still ship just because every clue cleared loose score thresholds. Gate publication on both blocker-free state and a minimum verification pass rate.

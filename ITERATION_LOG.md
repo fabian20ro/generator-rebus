@@ -79,6 +79,14 @@
 
 <!-- new entries above this line, most recent first -->
 
+### [2026-03-20] Fix DEX redirect parsing and one-hop semantic expansion
+
+**Context:** `FIRISOR` had a Supabase `dex_definitions` row, but no DEX context reached prompts; the stored HTML contained `Diminutiv al lui <i>fir</i>.`, which both exposed a parser bug and showed that redirect-style definitions are semantically too thin on their own.
+**Happened:** Audited `generator/core/dex_cache.py` and `tests/test_dex_cache.py`. Fixed `_DefinitionExtractor` so inline closing tags (`i`, `b`, `em`, etc.) decrement depth correctly instead of leaving `tree-def` spans unclosed. Added redirect/meta-pattern detection for short single-definition entries, with 1-hop dereference to the base lexeme and injection of up to two `Sens bază pentru ...` lines alongside the original DEX definition. Added a separate `uncertain_short_definitions()` collection plus `[DEX short/uncertain] ...` runtime log entries for short unresolved single-definition cases. Added targeted tests for inline markup parsing, `FIRISOR -> fir` expansion, and uncertain short definitions; verified locally that `Diminutiv al lui <i>fir</i>.` now parses and expands as expected.
+**Outcome:** success
+**Insight:** redirect-style DEX entries fail in two different ways — parser loss and semantic thinness — so the durable fix is parser robustness plus bounded dereference, not either one alone
+**Promoted:** yes — see LESSONS_LEARNED "DEX redirect-style definitions need both parser robustness and one-hop expansion"
+
 ### [2026-03-20] Validate baseline, smoke artifacts, and close lock/publication gaps
 
 **Context:** after the new baseline was recalculated, the next task was runtime validation: confirm the code changes on real artifacts, then continue closing objective-alignment bugs one by one.
