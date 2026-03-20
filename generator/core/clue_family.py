@@ -178,6 +178,11 @@ def clue_uses_same_family(answer: str, definition: str) -> bool:
     return False
 
 
+def words_share_family(a: str, b: str) -> bool:
+    """Return True if two word forms are obvious family variants."""
+    return clue_uses_same_family(a, b)
+
+
 def forbidden_definition_stems(answer: str) -> list[str]:
     """Compute forbidden word forms for LLM prompts to avoid family leakage."""
     tokens = _normalized_tokens(answer)

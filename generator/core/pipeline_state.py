@@ -41,6 +41,10 @@ class ClueAssessment:
     scores: ClueScores = field(default_factory=ClueScores)
     failure_reason: ClueFailureReason | None = None
     rarity_only_override: bool = False
+    form_mismatch: bool = False
+    form_mismatch_detail: str = ""
+    verified_by: str = ""
+    rated_by: str = ""
 
 
 @dataclass
@@ -48,6 +52,7 @@ class ClueCandidateVersion:
     definition: str
     round_index: int
     source: str
+    generated_by: str = ""
     assessment: ClueAssessment = field(default_factory=ClueAssessment)
 
 
@@ -80,6 +85,9 @@ class PuzzleAssessment:
     avg_creativity: float = 0.0
     avg_rebus: float = 0.0
     min_rebus: int = 0
+    verified_count: int = 0
+    total_clues: int = 0
+    pass_rate: float = 0.0
 
 
 @dataclass
@@ -157,6 +165,7 @@ def working_clue_from_entry(entry: ClueEntry) -> WorkingClue:
         definition=entry.definition,
         round_index=0,
         source="import",
+        generated_by="",
         assessment=_assessment_from_entry(entry),
     )
     return WorkingClue(
@@ -225,11 +234,13 @@ def set_current_definition(
     *,
     round_index: int,
     source: str,
+    generated_by: str = "",
 ) -> None:
     clue.current = ClueCandidateVersion(
         definition=definition,
         round_index=round_index,
         source=source,
+        generated_by=generated_by,
         assessment=ClueAssessment(),
     )
     clue.history.append(clue.current)

@@ -58,6 +58,7 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(data["CASA"]["successes"], 2)
             self.assertEqual(data["CASA"]["avg_semantic"], 9.5)
             self.assertEqual(data["CASA"]["avg_rebus"], 0.0)
+            self.assertEqual(data["CASA"]["semantic_spread"], 1)
             self.assertEqual(data["SMACEALA"]["attempts"], 2)
             self.assertEqual(data["SMACEALA"]["successes"], 0)
 
@@ -77,6 +78,9 @@ class MetricsTests(unittest.TestCase):
                     wrong_guess="BARIL",
                     failure_kind="wrong_guess",
                     rarity_only_override=True,
+                    form_mismatch=True,
+                    model_generated="gpt-oss-20b",
+                    model_rated="eurollm-22b",
                 ),
                 WordMetric(
                     word="TUN",
@@ -88,6 +92,8 @@ class MetricsTests(unittest.TestCase):
                     was_blocker=True,
                     wrong_guess="BARIL",
                     failure_kind="wrong_guess",
+                    model_generated="gpt-oss-20b",
+                    model_rated="eurollm-22b",
                 ),
             ]
             update_word_difficulty(metrics, path)
@@ -95,10 +101,14 @@ class MetricsTests(unittest.TestCase):
             data = load_word_difficulty(path)
             self.assertEqual(data["TUN"]["blockers"], 2)
             self.assertEqual(data["TUN"]["rarity_override_count"], 1)
+            self.assertEqual(data["TUN"]["form_mismatch_count"], 1)
             self.assertEqual(data["TUN"]["failure_kind_counts"]["wrong_guess"], 2)
             self.assertEqual(data["TUN"]["wrong_guess_counts"]["BARIL"], 2)
             self.assertEqual(data["TUN"]["avg_guessability"], 5.5)
             self.assertEqual(data["TUN"]["avg_rebus"], 6.5)
+            self.assertEqual(data["TUN"]["rebus_spread"], 1)
+            self.assertEqual(data["TUN"]["generated_model_counts"]["gpt-oss-20b"], 2)
+            self.assertEqual(data["TUN"]["rated_model_counts"]["eurollm-22b"], 2)
 
     def test_load_empty_difficulty(self):
         with tempfile.TemporaryDirectory() as tmp:

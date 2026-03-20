@@ -14,6 +14,7 @@ from ..core.ai_clues import (
     verify_definition,
     contains_english_markers,
 )
+from ..core.clue_family import words_share_family
 from ..core.dex_cache import DexProvider
 from ..core.pipeline_state import (
     ClueAssessment,
@@ -33,6 +34,11 @@ def _build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
     assessment = clue.current.assessment
     if assessment.scores.family_leakage:
         return ClueFailureReason("same_family", "Definiția folosește aceeași familie lexicală.")
+    if assessment.form_mismatch:
+        return ClueFailureReason(
+            "related_form",
+            assessment.form_mismatch_detail or "Definiția duce la o altă formă a aceluiași cuvânt.",
+        )
     if assessment.wrong_guess:
         return ClueFailureReason("wrong_guess", f"AI a ghicit: {assessment.wrong_guess}")
     if assessment.scores.semantic_exactness is not None and assessment.scores.semantic_exactness < RATE_MIN_SEMANTIC:
@@ -48,6 +54,8 @@ def _verify_clues(
     clues: list[WorkingClue],
     client: OpenAI,
     skip_words: set[str] | None = None,
+    *,
+    model_label: str = "",
 ) -> list[WorkingClue]:
     """Verify each clue by asking AI to guess the word."""
     result = []
@@ -63,6 +71,7 @@ def _verify_clues(
                 verified=False,
                 feedback="Definiție lipsă",
                 failure_reason=ClueFailureReason("missing_definition", "Definiție lipsă"),
+                verified_by=model_label,
                 scores=ClueScores(
                     semantic_exactness=1,
                     answer_targeting=1,
@@ -91,12 +100,28 @@ def _verify_clues(
         if guess_normalized == clue.word_normalized:
             clue.current.assessment.verified = True
             clue.current.assessment.wrong_guess = ""
+            clue.current.assessment.form_mismatch = False
+            clue.current.assessment.form_mismatch_detail = ""
+            clue.current.assessment.verified_by = model_label
             clue.current.assessment.failure_reason = None
             print(f"    ✓ AI a ghicit corect: {guess}")
         else:
+            related_form = bool(guess_normalized) and words_share_family(clue.word_normalized, guess_normalized)
             clue.current.assessment.verified = False
             clue.current.assessment.wrong_guess = guess
-            clue.current.assessment.failure_reason = ClueFailureReason("wrong_guess", f"AI a ghicit: {guess}")
+            clue.current.assessment.form_mismatch = related_form
+            clue.current.assessment.form_mismatch_detail = (
+                f"AI a ghicit o formă înrudită: {guess}" if related_form else ""
+            )
+            clue.current.assessment.verified_by = model_label
+            clue.current.assessment.failure_reason = ClueFailureReason(
+                "related_form" if related_form else "wrong_guess",
+                (
+                    clue.current.assessment.form_mismatch_detail
+                    if related_form
+                    else f"AI a ghicit: {guess}"
+                ),
+            )
             print(f"    ✗ AI a ghicit: {guess} (expected: {clue.word_normalized})")
 
         result.append(clue)
@@ -109,6 +134,8 @@ def _rate_clues(
     client: OpenAI,
     skip_words: set[str] | None = None,
     dex: DexProvider | None = None,
+    *,
+    model_label: str = "",
 ) -> None:
     """Rate each usable clue definition quality in-place."""
     for clue in clues:
@@ -138,6 +165,7 @@ def _rate_clues(
             # Unrated — use None scores so the word enters the rewrite queue
             clue.current.assessment.feedback = ""
             clue.current.assessment.rarity_only_override = False
+            clue.current.assessment.rated_by = model_label
             clue.current.assessment.scores = ClueScores(
                 semantic_exactness=None,
                 answer_targeting=None,
@@ -160,6 +188,7 @@ def _rate_clues(
         rebus = compute_rebus_score(guessability_score, creativity_score)
         clue.current.assessment.feedback = feedback
         clue.current.assessment.rarity_only_override = rarity_override
+        clue.current.assessment.rated_by = model_label
         clue.current.assessment.scores = ClueScores(
             semantic_exactness=semantic_score,
             answer_targeting=guessability_score,
@@ -186,13 +215,19 @@ def verify_working_puzzle(
     puzzle: WorkingPuzzle,
     client: OpenAI,
     skip_words: set[str] | None = None,
+    *,
+    model_label: str = "",
 ) -> tuple[int, int]:
     """Verify all clue definitions in-place and return (passed, total)."""
     print("Verifying horizontal definitions...")
-    puzzle.horizontal_clues = _verify_clues(puzzle.horizontal_clues, client, skip_words=skip_words)
+    puzzle.horizontal_clues = _verify_clues(
+        puzzle.horizontal_clues, client, skip_words=skip_words, model_label=model_label,
+    )
 
     print("Verifying vertical definitions...")
-    puzzle.vertical_clues = _verify_clues(puzzle.vertical_clues, client, skip_words=skip_words)
+    puzzle.vertical_clues = _verify_clues(
+        puzzle.vertical_clues, client, skip_words=skip_words, model_label=model_label,
+    )
 
     total = len(puzzle.horizontal_clues) + len(puzzle.vertical_clues)
     passed = sum(1 for c in all_working_clues(puzzle) if c.current.assessment.verified)
@@ -204,13 +239,19 @@ def rate_working_puzzle(
     client: OpenAI,
     skip_words: set[str] | None = None,
     dex: DexProvider | None = None,
+    *,
+    model_label: str = "",
 ) -> tuple[float, float, int]:
     """Rate all usable definitions in-place."""
     print("Rating horizontal definitions...")
-    _rate_clues(puzzle.horizontal_clues, client, skip_words=skip_words, dex=dex)
+    _rate_clues(
+        puzzle.horizontal_clues, client, skip_words=skip_words, dex=dex, model_label=model_label,
+    )
 
     print("Rating vertical definitions...")
-    _rate_clues(puzzle.vertical_clues, client, skip_words=skip_words, dex=dex)
+    _rate_clues(
+        puzzle.vertical_clues, client, skip_words=skip_words, dex=dex, model_label=model_label,
+    )
 
     semantic_scores = []
     guessability_scores = []

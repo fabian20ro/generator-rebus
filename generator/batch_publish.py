@@ -421,6 +421,9 @@ def _score_puzzle_state(puzzle: WorkingPuzzle, candidate_report: QualityReport |
         avg_creativity=sum(creativity_scores) / len(creativity_scores),
         avg_rebus=sum(rebus_scores) / len(rebus_scores),
         min_rebus=min(non_preset_rebus) if non_preset_rebus else 0,
+        verified_count=sum(1 for clue in clues if clue.active_version().assessment.verified is True),
+        total_clues=len(clues),
+        pass_rate=sum(1 for clue in clues if clue.active_version().assessment.verified is True) / len(clues),
     )
 
 
@@ -499,7 +502,12 @@ def _better_prepared_puzzle(
         return candidate if candidate_publishable else best
 
     score_delta = candidate.assessment.definition_score - best.assessment.definition_score
+    verified_delta = candidate.assessment.verified_count - best.assessment.verified_count
+    if verified_delta != 0:
+        return candidate if verified_delta > 0 else best
     if abs(score_delta) > PUZZLE_TIEBREAK_DELTA:
+        if candidate.assessment.min_rebus != best.assessment.min_rebus:
+            return candidate if candidate.assessment.min_rebus > best.assessment.min_rebus else best
         return candidate if score_delta > 0 else best
 
     def _tiebreak(a_summary: str, b_summary: str) -> str:
@@ -542,8 +550,12 @@ def _rewrite_failed_clues(
     else:
         current_model = PRIMARY_MODEL
     preset_skip: set[str] = set()
-    passed, total = verify_working_puzzle(puzzle, client, skip_words=preset_skip)
-    rate_working_puzzle(puzzle, client, skip_words=preset_skip, dex=dex)
+    passed, total = verify_working_puzzle(
+        puzzle, client, skip_words=preset_skip, model_label=current_model.display_name,
+    )
+    rate_working_puzzle(
+        puzzle, client, skip_words=preset_skip, dex=dex, model_label=current_model.display_name,
+    )
     for clue in all_working_clues(puzzle):
         _update_best_clue_version(clue, client=client)
 
@@ -646,7 +658,13 @@ def _rewrite_failed_clues(
                     f"'{_compact_log_text(clue.current.definition)}' -> "
                     f"'{_compact_log_text(new_definition)}'"
                 )
-                set_current_definition(clue, new_definition, round_index=round_index, source="rewrite")
+                set_current_definition(
+                    clue,
+                    new_definition,
+                    round_index=round_index,
+                    source="rewrite",
+                    generated_by=current_model.display_name,
+                )
             else:
                 consecutive_failures[clue.word_normalized] = consecutive_failures.get(clue.word_normalized, 0) + 1
                 if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
@@ -662,8 +680,12 @@ def _rewrite_failed_clues(
             except Exception as e:
                 print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
             print(f"  Model activ (evaluare): {current_model.display_name}")
-        passed, total = verify_working_puzzle(puzzle, client, skip_words=skip_words)
-        rate_working_puzzle(puzzle, client, skip_words=skip_words, dex=dex)
+        passed, total = verify_working_puzzle(
+            puzzle, client, skip_words=skip_words, model_label=current_model.display_name,
+        )
+        rate_working_puzzle(
+            puzzle, client, skip_words=skip_words, dex=dex, model_label=current_model.display_name,
+        )
         for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:
                 continue
@@ -711,7 +733,12 @@ def _prepare_puzzle_for_publication(
         puzzle.title = ""
         if multi_model:
             ensure_model_loaded(PRIMARY_MODEL)
-        generate_definitions_for_puzzle(puzzle, client, metadata=candidate.metadata)
+        generate_definitions_for_puzzle(
+            puzzle,
+            client,
+            metadata=candidate.metadata,
+            generated_model=PRIMARY_MODEL.display_name,
+        )
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
         _inject_word_types(state, candidate.metadata)
         # Load dex definitions for rewrite rounds
@@ -782,6 +809,11 @@ def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
             failure_kind=failure_reason.kind if failure_reason else "",
             failure_message=failure_reason.message if failure_reason else "",
             rarity_only_override=version.assessment.rarity_only_override,
+            form_mismatch=version.assessment.form_mismatch,
+            form_mismatch_detail=version.assessment.form_mismatch_detail,
+            model_generated=version.generated_by,
+            model_verified=version.assessment.verified_by,
+            model_rated=version.assessment.rated_by,
         ))
     return metrics
 

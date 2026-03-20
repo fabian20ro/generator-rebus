@@ -75,9 +75,14 @@ def choose_clue_version(
     )
 
 
-def puzzle_rank(assessment: PuzzleAssessment) -> tuple[int, float, float]:
+def puzzle_rank(assessment: PuzzleAssessment) -> tuple[int, int, int, float]:
     publishable = 1 if not assessment.blocker_words else 0
-    return (publishable, assessment.definition_score, assessment.avg_rebus)
+    return (
+        publishable,
+        assessment.verified_count,
+        assessment.min_rebus,
+        assessment.avg_rebus,
+    )
 
 
 def choose_puzzle_assessment(
@@ -87,12 +92,12 @@ def choose_puzzle_assessment(
     tiebreaker=None,
 ) -> tuple[str, SelectionDecision]:
     a_summary = (
-        f"score={a.definition_score:.2f}, blockers={len(a.blocker_words)}, "
-        f"rebus={a.avg_rebus:.2f}, ambiguity={a.ambiguity_count}"
+        f"score={a.definition_score:.2f}, verified={a.verified_count}/{a.total_clues}, "
+        f"blockers={len(a.blocker_words)}, rebus={a.avg_rebus:.2f}, ambiguity={a.ambiguity_count}"
     )
     b_summary = (
-        f"score={b.definition_score:.2f}, blockers={len(b.blocker_words)}, "
-        f"rebus={b.avg_rebus:.2f}, ambiguity={b.ambiguity_count}"
+        f"score={b.definition_score:.2f}, verified={b.verified_count}/{b.total_clues}, "
+        f"blockers={len(b.blocker_words)}, rebus={b.avg_rebus:.2f}, ambiguity={b.ambiguity_count}"
     )
     a_rank = puzzle_rank(a)
     b_rank = puzzle_rank(b)

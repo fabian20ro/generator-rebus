@@ -54,7 +54,11 @@ def _split_and_define(clues: list[ClueEntry], client: OpenAI,
 
 
 def generate_definitions_for_state(
-    state: WorkingPuzzle, client: OpenAI, dex: DexProvider | None = None,
+    state: WorkingPuzzle,
+    client: OpenAI,
+    dex: DexProvider | None = None,
+    *,
+    generated_model: str = "",
 ) -> None:
     theme = state.title or "Rebus Românesc"
     print(f"Theme: {theme}")
@@ -78,13 +82,23 @@ def generate_definitions_for_state(
             except Exception as e:
                 definition = f"[Definiție lipsă: {e}]"
             print(f"    → {definition}")
-            set_current_definition(clue, definition, round_index=0, source="generate")
+            set_current_definition(
+                clue,
+                definition,
+                round_index=0,
+                source="generate",
+                generated_by=generated_model,
+            )
             if clue.best is None:
                 clue.best = clue.current
 
 
 def generate_definitions_for_puzzle(
-    puzzle, client: OpenAI, metadata: dict[str, dict] | None = None,
+    puzzle,
+    client: OpenAI,
+    metadata: dict[str, dict] | None = None,
+    *,
+    generated_model: str = "",
 ) -> None:
     """Expand clues and generate definitions in-place for the whole puzzle."""
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
@@ -94,7 +108,7 @@ def generate_definitions_for_puzzle(
             word_meta = metadata.get(clue.word_normalized, {})
             clue.word_type = word_meta.get("word_type", "")
     dex = DexProvider.for_puzzle(state)
-    generate_definitions_for_state(state, client, dex=dex)
+    generate_definitions_for_state(state, client, dex=dex, generated_model=generated_model)
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues

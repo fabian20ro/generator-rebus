@@ -1,6 +1,6 @@
 import unittest
 
-from generator.core.clue_family import clue_uses_same_family, forbidden_definition_stems
+from generator.core.clue_family import clue_uses_same_family, forbidden_definition_stems, words_share_family
 
 
 class ClueFamilyTests(unittest.TestCase):
@@ -39,6 +39,12 @@ class ClueFamilyTests(unittest.TestCase):
 
     def test_forbidden_stems_short_word(self):
         self.assertEqual(forbidden_definition_stems("AT"), [])
+
+    def test_words_share_family_detects_inflected_form(self):
+        self.assertTrue(words_share_family("NEINCEPUT", "INCEPUT"))
+
+    def test_words_share_family_ignores_unrelated_word(self):
+        self.assertFalse(words_share_family("MARE", "SARE"))
 
 
 if __name__ == "__main__":

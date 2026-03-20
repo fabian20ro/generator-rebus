@@ -29,7 +29,7 @@ from generator.batch_publish import (
 )
 from generator.core.clue_rating import append_rating_to_note
 from generator.core.markdown_io import ClueEntry, write_with_definitions
-from generator.core.pipeline_state import WorkingPuzzle, puzzle_from_working_state, working_clue_from_entry
+from generator.core.pipeline_state import PuzzleAssessment, WorkingPuzzle, puzzle_from_working_state, working_clue_from_entry
 from generator.core.quality import QualityReport
 from generator.core.size_tuning import get_size_settings
 from generator.rebus import build_parser as build_rebus_parser
@@ -293,8 +293,8 @@ class BatchPublishTests(unittest.TestCase):
     @patch("generator.batch_publish.choose_better_puzzle_variant")
     def test_prepared_puzzle_tiebreak_uses_llm_for_near_equal_scores(self, mock_tiebreak):
         mock_tiebreak.return_value = "B"
-        best = _prepared_puzzle(title="A", definition_score=8.0, blocking_words=[])
-        candidate = _prepared_puzzle(title="B", definition_score=8.2, blocking_words=[])
+        best = _prepared_puzzle(title="A", definition_score=8.0, blocking_words=[], verified_count=1)
+        candidate = _prepared_puzzle(title="B", definition_score=8.2, blocking_words=[], verified_count=1)
 
         with patch("sys.stdout", new=StringIO()) as captured:
             winner = _better_prepared_puzzle(best, candidate, client=object())
@@ -303,6 +303,14 @@ class BatchPublishTests(unittest.TestCase):
         mock_tiebreak.assert_called_once()
         self.assertIn("Puzzle tie-break:", captured.getvalue())
         self.assertIn("câștigă B", captured.getvalue())
+
+    def test_prepared_puzzle_prefers_more_verified_clues_before_score(self):
+        best = _prepared_puzzle(title="A", definition_score=8.0, blocking_words=[], verified_count=5, total_clues=6)
+        candidate = _prepared_puzzle(title="B", definition_score=9.5, blocking_words=[], verified_count=4, total_clues=6)
+
+        winner = _better_prepared_puzzle(best, candidate, client=object())
+
+        self.assertEqual("A", winner.title)
 
     @patch("generator.batch_publish.score_words")
     @patch("generator.batch_publish.solve")
@@ -635,7 +643,7 @@ class BatchPublishTests(unittest.TestCase):
         )
         mock_parse_markdown.return_value = puzzle
 
-        def _fill_defs(puzzle_obj, client, metadata=None):
+        def _fill_defs(puzzle_obj, client, metadata=None, generated_model=""):
             puzzle_obj.horizontal_clues[0].definition = "Gaz din atmosferă"
 
         def _rewrite(puzzle_obj, client, rounds, **kwargs):
@@ -835,7 +843,15 @@ def _count_two_letter_slots(grid: list[list[bool]]) -> int:
     return count
 
 
-def _prepared_puzzle(title: str, definition_score: float, blocking_words: list[str]) -> PreparedPuzzle:
+def _prepared_puzzle(
+    title: str,
+    definition_score: float,
+    blocking_words: list[str],
+    *,
+    verified_count: int = 1,
+    total_clues: int = 1,
+    min_rebus: int = 8,
+) -> PreparedPuzzle:
     clue = ClueEntry(
         row_number=1,
         word_normalized="AER",
@@ -877,6 +893,15 @@ def _prepared_puzzle(title: str, definition_score: float, blocking_words: list[s
         total=1,
         definition_score=definition_score,
         blocking_words=blocking_words,
+        assessment=PuzzleAssessment(
+            definition_score=definition_score,
+            avg_rebus=8.0,
+            min_rebus=min_rebus,
+            blocker_words=list(blocking_words),
+            verified_count=verified_count,
+            total_clues=total_clues,
+            pass_rate=(verified_count / total_clues) if total_clues else 0.0,
+        ),
     )
 
 

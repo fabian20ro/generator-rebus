@@ -56,6 +56,24 @@ class VerifyPhaseTests(unittest.TestCase):
             word_type="V",
         )
 
+    @patch("generator.phases.verify.verify_definition")
+    def test_verify_marks_related_form_guess_explicitly(self, mock_verify_definition):
+        mock_verify_definition.return_value = "INCEPUT"
+        clue = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="NEINCEPUT",
+            word_original="neînceput",
+            definition="Care nu a început încă",
+        ))
+
+        result = _verify_clues([clue], client=object(), model_label="eurollm-22b")
+        assessed = result[0].current.assessment
+
+        self.assertFalse(assessed.verified)
+        self.assertTrue(assessed.form_mismatch)
+        self.assertEqual("related_form", assessed.failure_reason.kind)
+        self.assertEqual("eurollm-22b", assessed.verified_by)
+
     @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")
     def test_rate_puzzle_reports_two_averages(self, mock_rate_definition, _mock_dex):
