@@ -12,6 +12,7 @@ from generator.batch_publish import (
     PLATEAU_LOOKBACK,
     PreparedPuzzle,
     SizeSettings,
+    _backfill_generated_model,
     _best_candidate,
     _better_prepared_puzzle,
     _clear_verification_state,
@@ -19,6 +20,7 @@ from generator.batch_publish import (
     _is_publishable,
     _merge_best_clue_variants,
     _needs_rewrite,
+    _update_best_clue_version,
     _preparation_attempts_for_size,
     _prepare_puzzle_for_publication,
     _synthesize_failure_reason,
@@ -82,7 +84,7 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertTrue(_needs_rewrite(clue))
 
-    def test_rarity_only_override_prevents_rewrite(self):
+    def test_rarity_only_override_does_not_prevent_rewrite_after_failed_verify(self):
         clue = ClueEntry(
             row_number=1,
             word_normalized="ARACI",
@@ -99,7 +101,66 @@ class BatchPublishTests(unittest.TestCase):
         working = working_clue_from_entry(clue)
         working.current.assessment.rarity_only_override = True
 
+        self.assertTrue(_needs_rewrite(working))
+
+    def test_rarity_only_override_still_allows_verified_clue_to_stand(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="ARACI",
+            word_original="",
+            definition="Bete de sprijin pentru vita",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: ARACI",
+                semantic_score=9,
+                guessability_score=4,
+                feedback="Răspunsul este rar.",
+            ),
+        )
+        working = working_clue_from_entry(clue)
+        working.current.assessment.rarity_only_override = True
+
         self.assertFalse(_needs_rewrite(working))
+
+    def test_failed_verify_high_score_clue_does_not_lock(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="JUPAIRE",
+            word_original="jupăire",
+            definition="Atingere rapidă cu un obiect dur.",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: PICĂTURĂ",
+                semantic_score=9,
+                guessability_score=7,
+                feedback="Răspunsul este rar.",
+            ),
+        )
+        working = working_clue_from_entry(clue)
+
+        _update_best_clue_version(working)
+
+        self.assertFalse(working.locked)
+
+    def test_verified_high_score_clue_locks(self):
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="SET",
+            word_original="",
+            definition="Parte dintr-o competiție sportivă.",
+            verified=True,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: SET",
+                semantic_score=9,
+                guessability_score=9,
+                feedback="Definiție bună.",
+            ),
+        )
+        working = working_clue_from_entry(clue)
+
+        _update_best_clue_version(working)
+
+        self.assertTrue(working.locked)
 
     def test_rarity_only_override_false_still_triggers_rewrite(self):
         clue = ClueEntry(
@@ -192,7 +253,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertIn("B='Amestec gazos din atmosferă'", log_line)
         self.assertIn("aleasă='Amestec gazos din atmosferă'", log_line)
 
-    def test_nine_nine_clue_is_locked(self):
+    def test_nine_nine_but_failed_verify_still_needs_rewrite(self):
         clue = ClueEntry(
             row_number=1,
             word_normalized="AER",
@@ -207,7 +268,7 @@ class BatchPublishTests(unittest.TestCase):
             ),
         )
 
-        self.assertFalse(_needs_rewrite(clue))
+        self.assertTrue(_needs_rewrite(clue))
 
     def test_nine_eight_clue_is_locked(self):
         clue = ClueEntry(
@@ -561,6 +622,25 @@ class BatchPublishTests(unittest.TestCase):
         self.assertNotIn("semantic", rendered.lower())
         self.assertIsNone(clean.horizontal_clues[0].active_version().assessment.verified)
 
+    def test_backfill_generated_model_marks_initial_versions(self):
+        clue = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="BOL",
+            word_original="",
+            definition="Vas fără picior",
+        ))
+        puzzle = WorkingPuzzle(
+            title="Test",
+            size=3,
+            grid=[["B", "O", "L"]],
+            horizontal_clues=[clue],
+            vertical_clues=[],
+        )
+
+        _backfill_generated_model(puzzle, "gpt-oss-20b")
+
+        self.assertEqual("gpt-oss-20b", puzzle.horizontal_clues[0].current.generated_by)
+
     @patch("generator.batch_publish.generate_incremental_template")
     @patch("generator.batch_publish._generate_candidate")
     @patch("generator.batch_publish._build_index")
@@ -765,9 +845,22 @@ class BatchPublishTests(unittest.TestCase):
             title="Test",
             definition_score=4.0,
             blocking_words=[],
+            verified_count=1,
+            total_clues=1,
         )
 
         self.assertTrue(_is_publishable(prepared))
+
+    def test_low_pass_rate_blocks_publication_even_without_missing_definitions(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=8.0,
+            blocking_words=[],
+            verified_count=9,
+            total_clues=22,
+        )
+
+        self.assertFalse(_is_publishable(prepared))
 
     def test_missing_definition_blocks_publication(self):
         prepared = _prepared_puzzle(

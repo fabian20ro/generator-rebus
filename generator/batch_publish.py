@@ -135,6 +135,7 @@ class PreparedPuzzle:
 
 
 PUZZLE_TIEBREAK_DELTA = 0.25
+MIN_PUBLISHABLE_PASS_RATE = 0.5
 MAX_REWRITE_ROUNDS = 30
 
 
@@ -469,6 +470,12 @@ def _merge_best_clue_variants(
     return merged
 
 
+def _backfill_generated_model(puzzle: WorkingPuzzle, model_label: str) -> None:
+    for clue in all_working_clues(puzzle):
+        if clue.current.definition and not clue.current.generated_by:
+            clue.current.generated_by = model_label
+
+
 def _compute_difficulty(report: QualityReport) -> int:
     """Star rating based on word rarity levels."""
     max_r = report.max_rarity
@@ -485,7 +492,10 @@ def _compute_difficulty(report: QualityReport) -> int:
 
 
 def _is_publishable(prepared: PreparedPuzzle) -> bool:
-    return not prepared.blocking_words
+    return (
+        not prepared.blocking_words
+        and prepared.assessment.pass_rate >= MIN_PUBLISHABLE_PASS_RATE
+    )
 
 
 def _better_prepared_puzzle(
@@ -740,6 +750,7 @@ def _prepare_puzzle_for_publication(
             generated_model=PRIMARY_MODEL.display_name,
         )
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
+        _backfill_generated_model(state, PRIMARY_MODEL.display_name)
         _inject_word_types(state, candidate.metadata)
         # Load dex definitions for rewrite rounds
         _dex = DexProvider.for_puzzle(state)

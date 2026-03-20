@@ -117,6 +117,9 @@ def _clean_response(text: str | None) -> str:
     ).strip()
     if "\n" in text:
         text = text.split("\n")[0].strip()
+    for left, right in (("**", "**"), ("__", "__"), ("*", "*"), ("_", "_"), ("`", "`")):
+        if text.startswith(left) and text.endswith(right) and len(text) > len(left) + len(right):
+            text = text[len(left):-len(right)].strip()
     return text
 
 
@@ -548,7 +551,14 @@ def rate_definition(
             match = fence_match or bare_match
             if match:
                 json_str = match.group(1) if fence_match and match is fence_match else match.group()
-                data = json.loads(json_str)
+                try:
+                    data = json.loads(json_str)
+                except json.JSONDecodeError:
+                    prompt += (
+                        "\nRăspunsul anterior nu a fost JSON valid. "
+                        "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
+                    )
+                    continue
                 feedback = str(data.get("feedback", "")).strip()
                 if contains_english_markers(feedback):
                     prompt += "\nAtenție: feedback-ul anterior nu a fost în română. Refă-l exclusiv în română."
@@ -562,6 +572,10 @@ def rate_definition(
                 rating = _guard_same_family_rating(word, definition, rating)
                 rating = _guard_english_meaning_rating(word, definition, rating)
                 return _guard_definition_centric_rating(rating)
+            prompt += (
+                "\nRăspunsul anterior nu a fost JSON valid. "
+                "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
+            )
         except Exception:
             pass
 

@@ -112,6 +112,29 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(4, rating.guessability_score)
         self.assertIn("sinonim", rating.feedback)
 
+    def test_rate_definition_retries_with_stricter_json_instruction(self):
+        client = _RecordingClient([
+            "semantic_score: 9, guessability_score: 4",
+            json.dumps({
+                "semantic_score": 9,
+                "guessability_score": 6,
+                "creativity_score": 5,
+                "feedback": "Definiția este corectă.",
+            }),
+        ])
+
+        rating = rate_definition(
+            client,
+            word="ARACI",
+            original="araci",
+            definition="Bețe de sprijin pentru viță",
+            answer_length=5,
+        )
+
+        self.assertIsNotNone(rating)
+        self.assertEqual(2, len(client.prompts))
+        self.assertIn("strict cu un singur obiect JSON valid", client.prompts[1])
+
 
     def test_clean_response_strips_model_tokens(self):
         self.assertEqual("ZI", _clean_response("<|channel|>ZI"))
@@ -121,6 +144,10 @@ class AiCluesTests(unittest.TestCase):
 
     def test_clean_response_takes_first_line(self):
         self.assertEqual("CASA", _clean_response("CASA\naltceva pe linia doi"))
+
+    def test_clean_response_strips_markdown_emphasis(self):
+        self.assertEqual("CASA", _clean_response("**CASA**"))
+        self.assertEqual("AER", _clean_response("`AER`"))
 
     def test_definition_describes_english_meaning_detects_engleza(self):
         self.assertTrue(_definition_describes_english_meaning("AN", "Articol nehotărât în limba engleză"))

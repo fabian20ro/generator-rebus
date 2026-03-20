@@ -69,17 +69,17 @@ def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     rebus_score = _extract_rebus_score(clue)
     if semantic_score is None or rebus_score is None:
         return True
-    if semantic_score >= LOCKED_SEMANTIC and rebus_score >= LOCKED_REBUS:
-        return False
-
-    if semantic_score < RATE_MIN_SEMANTIC:
+    if clue.current.assessment.verified is False:
         return True
 
     rarity_override = clue.current.assessment.rarity_only_override
     if rarity_override and semantic_score >= RATE_MIN_SEMANTIC:
         return False
 
-    if clue.current.assessment.verified is False:
+    if semantic_score >= LOCKED_SEMANTIC and rebus_score >= LOCKED_REBUS:
+        return False
+
+    if semantic_score < RATE_MIN_SEMANTIC:
         return True
 
     return rebus_score < min_rebus
@@ -148,7 +148,11 @@ def _update_best_clue_version(clue: WorkingClue, client=None) -> None:
 
     semantic_score = clue.best.assessment.scores.semantic_exactness or 0
     rebus_score = clue.best.assessment.scores.rebus_score or 0
-    clue.locked = semantic_score >= LOCKED_SEMANTIC and rebus_score >= LOCKED_REBUS
+    clue.locked = (
+        clue.best.assessment.verified is True
+        and semantic_score >= LOCKED_SEMANTIC
+        and rebus_score >= LOCKED_REBUS
+    )
 
 
 def _restore_best_versions(puzzle: WorkingPuzzle) -> None:

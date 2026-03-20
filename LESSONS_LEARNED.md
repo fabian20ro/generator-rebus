@@ -24,6 +24,8 @@
 
 **[2026-03-20]** Keep production selection aligned with assessment selection — if the benchmark ranks verified/exact clues first but production still prefers semantic+rebus totals, prompt experiments optimize the wrong target. Change selector and rewrite gates together, then retest.
 
+**[2026-03-20]** `locked` state must follow exact verification, not only score thresholds — a 9/8 clue that still guesses wrong can get skipped forever in rewrite rounds if lock logic only checks semantic/rebus. Keep lock semantics aligned with `_needs_rewrite()`.
+
 ## Testing & Quality
 **[2026-03-18]** `rate_puzzle()` tests must mock `DexProvider.for_puzzle()` — otherwise `tests/test_verify.py` can hang or become environment-dependent during DEX prefetch. Unit tests for verify/rate flow should stub DEX access explicitly.
 
@@ -34,6 +36,10 @@
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
 **[2026-03-20]** LM Studio unload calls must use loaded `instance_id`, not model key — `/api/v1/models` exposes loaded instances separately from model keys, and switching by key can silently leave the old model loaded. In two-model workflows, always resolve the active instance id before unloading.
+
+**[2026-03-20]** “Publishable” needs an exact-solve floor, not only “no blockers” — otherwise puzzles with weak multistep pass rates can still ship just because every clue cleared loose score thresholds. Gate publication on both blocker-free state and a minimum verification pass rate.
+
+**[2026-03-20]** Invalid JSON from the rating model needs a stricter retry prompt, not a blind resend — LM Studio-compatible local models can drift out of schema even with low temperature. On parse failure, re-ask explicitly for one JSON object only; otherwise reruns waste one of the limited attempts.
 
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.

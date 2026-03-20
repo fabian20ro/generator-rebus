@@ -69,6 +69,14 @@
 
 <!-- new entries above this line, most recent first -->
 
+### [2026-03-20] Validate baseline, smoke artifacts, and close lock/publication gaps
+
+**Context:** after the new baseline was recalculated, the next task was runtime validation: confirm the code changes on real artifacts, then continue closing objective-alignment bugs one by one.
+**Happened:** Confirmed the new baseline in `generator/assessment/results.tsv` (`c0551f6`, composite `65.0`). Ran two real smoke batches against LM Studio under `build/smoke_batch_verify*` and checked `defs.md` plus `metrics.json`. First smoke run exposed three issues: missing `model_generated` provenance on initial clue versions, markdown emphasis leaking into final definitions, and `verified=False` clues escaping blockers because rarity-only override still suppressed rewrites. Fixed those, added tests, reran smoke, then found a second coherence bug: `clue.locked` still depended only on score thresholds, so some `9/8` failures were skipped in rewrite rounds. Fixed lock semantics to require `verified=True`, added tests, tightened `_is_publishable()` so blocker-free puzzles still need at least a `0.5` exact-solve pass rate before publication, and hardened `rate_definition()` retries so invalid JSON gets a stricter second prompt instead of the same blind retry.
+**Outcome:** success
+**Insight:** exact-solve alignment has to cover three layers together — rewrite gating, clue locking, and final publication — or high-score false positives still leak through one of the later stages
+**Promoted:** yes — see LESSONS_LEARNED entries on `locked` semantics and publishable pass-rate floors
+
 ### [2026-03-20] Fix generator correctness and objective-alignment bugs on main
 
 **Context:** user asked for task lists plus concrete fixes across multiple passes: correctness, objective alignment, metrics, and tests.
