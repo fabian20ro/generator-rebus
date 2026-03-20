@@ -82,6 +82,7 @@ class MetricsTests(unittest.TestCase):
                     rewrite_rescued_verify=False,
                     was_blocker=True,
                     wrong_guess="BARIL",
+                    verify_candidates=["BARIL", "TUN"],
                     failure_kind="wrong_guess",
                     rarity_only_override=True,
                     form_mismatch=True,
@@ -103,6 +104,7 @@ class MetricsTests(unittest.TestCase):
                     rewrite_rescued_verify=False,
                     was_blocker=True,
                     wrong_guess="BARIL",
+                    verify_candidates=["BARIL", "BUTOI"],
                     failure_kind="wrong_guess",
                     model_generated="gpt-oss-20b",
                     model_rated="eurollm-22b",
@@ -116,6 +118,8 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(data["TUN"]["form_mismatch_count"], 1)
             self.assertEqual(data["TUN"]["failure_kind_counts"]["wrong_guess"], 2)
             self.assertEqual(data["TUN"]["wrong_guess_counts"]["BARIL"], 2)
+            self.assertEqual(data["TUN"]["verify_candidate_counts"]["BARIL"], 2)
+            self.assertEqual(data["TUN"]["verify_candidate_counts"]["TUN"], 1)
             self.assertEqual(data["TUN"]["avg_guessability"], 5.5)
             self.assertEqual(data["TUN"]["avg_rebus"], 6.5)
             self.assertEqual(data["TUN"]["rewrite_attempts"], 2)

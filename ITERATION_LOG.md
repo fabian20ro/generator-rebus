@@ -47,6 +47,16 @@
 
 ---
 
+### [2026-03-20] Stop interrupted results run, archive results4, restore best prompt state, add top-k verifier semantics
+
+**Context:** user asked to stop the interrupted `results_exp100` campaign, archive current assessment rows to `results4.tsv`, restore prompt files to the best current experiment backup, then change the verifier so it can emit 2-3 candidate words and count pass if any candidate is correct.
+**Happened:** Confirmed the active `tmux` session and compared `generator/prompts/` against `build/prompt_backups/results_exp100_best`. Only one partial experiment edit remained: an added ambiguity-disambiguation line in `generator/prompts/system/definition.md`. Stopped the session, copied `generator/assessment/results.tsv` to `generator/assessment/results4.tsv`, removed the partial line, and rechecked that `generator/prompts/` matched the best-backup tree exactly. Then implemented configurable top-k verification across the pipeline: added `VERIFY_CANDIDATE_COUNT` config, updated verify prompts to request multiple candidates, added response parsing for numbered/comma-separated candidate lists, stored candidate lists in `ClueAssessment`, rendered them into verify notes, propagated “any candidate matches” semantics into `phases/verify.py`, `generator/assessment/run_assessment.py`, `batch_publish.py`, `redefine.py`, `loop_controller.py`, and CLI entrypoints, and extended metrics with stored verify candidates. Added focused tests for prompt formatting, multi-candidate parsing, verify success on a non-first correct answer, note roundtrips, and difficulty aggregation of candidate lists.
+**Outcome:** success
+**Insight:** top-k verification is only useful if notes, metrics, batch publication, and benchmark scoring all adopt the same pass criterion; otherwise “near miss” evidence disappears or contradicts pass-rate metrics
+**Promoted:** yes — see LESSONS_LEARNED "Top-k verifier changes need pipeline-wide semantics, not just a prompt tweak"
+
+---
+
 ### [2026-03-18] Rebuild multistep benchmark from March 17 and harden runner repeatability
 
 **Context:** user wanted old assessment words replaced with March-17 low/high candidates only; multistep benchmark only; repeatable baseline and full experiment runs.

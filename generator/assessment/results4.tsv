@@ -1,0 +1,33 @@
+commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
+c0551f6	65.0	0.286	7.7	6.6	keep	baseline_results
+72be196	72.0	0.314	8.6	7.3	keep	baseline_results_poly
+72be196	70.5	0.314	8.3	7.1	discard	results/exp001 | remove duplicate english-only fallback in definition | system/definition.md
+72be196	74.2	0.343	8.5	7.1	keep	results/exp002 | remove low-creativity DEX anchor from rate | system/rate.md
+72be196	71.4	0.314	8.5	7.3	discard	results/exp003 | remove technical-word hint from verify | system/verify.md
+72be196	72.7	0.314	8.8	7.5	discard	results/exp004 | remove max-15-words cap from rewrite | system/rewrite.md
+72be196	71.6	0.314	8.5	7.3	discard	results/exp005 | remove normalized-form line from generate user | user/generate.md
+72be196	73.7	0.343	8.3	7.2	discard	results/exp006 | remove duplicate length reminder from verify user | user/verify.md
+72be196	66.6	0.271	8.3	7.3	discard	results/exp007 | remove normalized-form line from rate user | user/rate.md
+72be196	70.8	0.300	8.6	7.5	discard	results/exp008 | remove normalized-form line from rewrite user | user/rewrite.md
+72be196	71.6	0.314	8.5	7.3	discard	results/exp009 | remove creative-paraphrase rule from definition | system/definition.md
+72be196	69.0	0.286	8.6	7.3	discard	results/exp010 | remove high-creativity dictionary-distance rule from rate | system/rate.md
+72be196	71.8	0.314	8.5	7.4	discard	results/exp011 | remove domain-switch flexibility line from verify | system/verify.md
+72be196	70.5	0.300	8.6	7.4	discard	results/exp012 | remove english-only reminder from rewrite | system/rewrite.md
+72be196	73.2	0.329	8.6	7.3	discard	results/exp013 | remove answer-length line from generate user | user/generate.md
+72be196	72.7	0.329	8.5	7.2	discard	results/exp014 | remove long length-check sentence from verify user | user/verify.md
+72be196	69.7	0.300	8.5	7.1	discard	results/exp015 | remove answer-length line from rate user | user/rate.md
+72be196	66.5	0.257	8.6	7.5	discard	results/exp016 | remove failure-history placeholder from rewrite user | user/rewrite.md
+72be196	69.2	0.286	8.6	7.4	discard	results/exp017 | simplify precision line in definition | system/definition.md
+72be196	66.2	0.257	8.4	7.7	discard	results/exp018 | shorten creativity-score explanation in rate | system/rate.md
+72be196	68.7	0.286	8.5	7.3	discard	results/exp019 | remove longest verify example | system/verify.md
+72be196	73.7	0.343	8.3	7.2	discard	results/exp020 | remove precision-versus-old-clue line from rewrite | system/rewrite.md
+72be196	73.6	0.329	8.6	7.5	discard	results/exp021 | simplify generate user final instruction | user/generate.md
+72be196	72.0	0.314	8.6	7.4	discard	results/exp022 | remove word-type line from verify user | user/verify.md
+72be196	69.7	0.314	8.0	7.1	discard	results/exp024 | remove bad-example placeholder from rewrite user | user/rewrite.md
+72be196	70.3	0.300	8.5	7.4	discard	results/exp025 | add exact-form detail to definition | system/definition.md
+72be196	71.8	0.314	8.6	7.3	discard	results/exp026 | add lemma-vs-form penalty to rate | system/rate.md
+72be196	63.5	0.243	8.3	7.2	discard	results/exp027 | add exact-sense guard to verify | system/verify.md
+72be196	67.6	0.286	8.3	7.0	discard	results/exp028 | add sure-over-clever rule to rewrite | system/rewrite.md
+72be196	69.9	0.300	8.5	7.2	discard	results/exp029 | add distinctive-sense reminder to generate user | user/generate.md
+72be196	70.2	0.300	8.5	7.4	discard	results/exp030 | add exact-form reminder to verify user | user/verify.md
+72be196	71.9	0.314	8.6	7.4	discard	results/exp032 | add exact-form target to rewrite user | user/rewrite.md

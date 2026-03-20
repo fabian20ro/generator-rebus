@@ -8,6 +8,7 @@ GUESSABILITY_LABEL = "Scor ghicibilitate:"
 REBUS_LABEL = "Scor rebus:"
 CREATIVITY_LABEL = "Scor creativitate:"
 VERIFY_GUESS_LABEL = "AI a ghicit:"
+VERIFY_CANDIDATES_LABEL = "AI a propus:"
 
 
 def append_rating_to_note(
@@ -77,12 +78,24 @@ def extract_feedback(note: str) -> str:
             and not part.startswith(REBUS_LABEL)
             and not part.startswith(CREATIVITY_LABEL)
             and not part.startswith(VERIFY_GUESS_LABEL)
+            and not part.startswith(VERIFY_CANDIDATES_LABEL)
         ):
             return part
     return ""
 
 
+def extract_verify_candidates(note: str) -> list[str]:
+    if not note:
+        return []
+    if VERIFY_CANDIDATES_LABEL in note:
+        raw = note.split(VERIFY_CANDIDATES_LABEL, 1)[1].split("|", 1)[0].strip()
+        return [candidate.strip() for candidate in raw.split(",") if candidate.strip()]
+    if VERIFY_GUESS_LABEL in note:
+        wrong_guess = note.split(VERIFY_GUESS_LABEL, 1)[1].split("|", 1)[0].strip()
+        return [wrong_guess] if wrong_guess else []
+    return []
+
+
 def extract_wrong_guess(note: str) -> str:
-    if not note or VERIFY_GUESS_LABEL not in note:
-        return ""
-    return note.split(VERIFY_GUESS_LABEL, 1)[1].split("|", 1)[0].strip()
+    candidates = extract_verify_candidates(note)
+    return candidates[0] if candidates else ""

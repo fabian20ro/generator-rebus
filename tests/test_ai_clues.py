@@ -12,6 +12,7 @@ from generator.core.ai_clues import (
     generate_definition,
     rate_definition,
     rewrite_definition,
+    verify_definition_candidates,
 )
 
 
@@ -259,7 +260,35 @@ class AiCluesTests(unittest.TestCase):
             "lovi", "LOVI", "A atinge cu forță", "[niciun feedback]", "", word_type="V",
         )
         self.assertIn("Categorie gramaticală: verb", prompt)
-        self.assertIn("nu un singur cuvânt izolat", prompt)
+
+    def test_build_verify_prompt_includes_candidate_count(self):
+        prompt = _build_verify_prompt("Țesut dur al scheletului", 2, max_guesses=3)
+        self.assertIn("maximum 3", prompt)
+        self.assertIn("Răspunsuri", prompt)
+
+    def test_verify_definition_candidates_parses_numbered_lines(self):
+        client = _RecordingClient(["1. BAR\n2. TUN\n3. ARC"])
+
+        result = verify_definition_candidates(
+            client,
+            "Recipient mare pentru vin",
+            answer_length=3,
+            max_guesses=3,
+        )
+
+        self.assertEqual(["BAR", "TUN", "ARC"], result.candidates)
+
+    def test_verify_definition_candidates_filters_wrong_lengths(self):
+        client = _RecordingClient(["1. BARIL\n2. TUN\n3. ARC"])
+
+        result = verify_definition_candidates(
+            client,
+            "Recipient mare pentru vin",
+            answer_length=3,
+            max_guesses=3,
+        )
+
+        self.assertEqual(["TUN", "ARC"], result.candidates)
 
     def test_rate_prompt_includes_word_type(self):
         from generator.core.ai_clues import _build_rate_prompt

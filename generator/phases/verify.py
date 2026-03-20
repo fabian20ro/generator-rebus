@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from openai import OpenAI
 
+from ..config import VERIFY_CANDIDATE_COUNT
 from ..core.markdown_io import parse_markdown, write_with_definitions
 from ..core.ai_clues import (
     RATE_MIN_REBUS,
@@ -11,7 +12,7 @@ from ..core.ai_clues import (
     compute_rebus_score,
     create_client,
     rate_definition,
-    verify_definition,
+    verify_definition_candidates,
     contains_english_markers,
 )
 from ..core.clue_family import words_share_family
@@ -56,6 +57,7 @@ def _verify_clues(
     skip_words: set[str] | None = None,
     *,
     model_label: str = "",
+    max_guesses: int = VERIFY_CANDIDATE_COUNT,
 ) -> list[WorkingClue]:
     """Verify each clue by asking AI to guess the word."""
     result = []
@@ -87,31 +89,45 @@ def _verify_clues(
 
         print(f"  Verifying: {clue.word_normalized} - {definition[:50]}...")
         try:
-            guess = verify_definition(
+            verify_result = verify_definition_candidates(
                 client,
                 definition,
                 len(clue.word_normalized),
                 word_type=clue.word_type,
+                max_guesses=max_guesses,
             )
         except Exception as e:
-            guess = f"[Eroare: {e}]"
-        guess_normalized = normalize(guess)
+            verify_result = None
+            guess_candidates = [f"[Eroare: {e}]"]
+        else:
+            guess_candidates = verify_result.candidates
+        normalized_candidates = [normalize(guess) for guess in guess_candidates]
+        matched = clue.word_normalized in normalized_candidates
 
-        if guess_normalized == clue.word_normalized:
+        clue.current.assessment.verify_candidates = guess_candidates
+        if matched:
             clue.current.assessment.verified = True
             clue.current.assessment.wrong_guess = ""
             clue.current.assessment.form_mismatch = False
             clue.current.assessment.form_mismatch_detail = ""
             clue.current.assessment.verified_by = model_label
             clue.current.assessment.failure_reason = None
-            print(f"    ✓ AI a ghicit corect: {guess}")
+            print(f"    ✓ AI a inclus răspunsul corect: {', '.join(guess_candidates)}")
         else:
-            related_form = bool(guess_normalized) and words_share_family(clue.word_normalized, guess_normalized)
+            first_guess = guess_candidates[0] if guess_candidates else ""
+            related_guess = next(
+                (
+                    guess for guess, normalized_guess in zip(guess_candidates, normalized_candidates)
+                    if normalized_guess and words_share_family(clue.word_normalized, normalized_guess)
+                ),
+                "",
+            )
+            related_form = bool(related_guess)
             clue.current.assessment.verified = False
-            clue.current.assessment.wrong_guess = guess
+            clue.current.assessment.wrong_guess = first_guess
             clue.current.assessment.form_mismatch = related_form
             clue.current.assessment.form_mismatch_detail = (
-                f"AI a ghicit o formă înrudită: {guess}" if related_form else ""
+                f"AI a ghicit o formă înrudită: {related_guess}" if related_form else ""
             )
             clue.current.assessment.verified_by = model_label
             clue.current.assessment.failure_reason = ClueFailureReason(
@@ -119,10 +135,13 @@ def _verify_clues(
                 (
                     clue.current.assessment.form_mismatch_detail
                     if related_form
-                    else f"AI a ghicit: {guess}"
+                    else f"AI a propus: {', '.join(guess_candidates)}"
                 ),
             )
-            print(f"    ✗ AI a ghicit: {guess} (expected: {clue.word_normalized})")
+            print(
+                f"    ✗ AI a propus: {', '.join(guess_candidates) or '[nimic]'} "
+                f"(expected: {clue.word_normalized})"
+            )
 
         result.append(clue)
 
@@ -217,16 +236,25 @@ def verify_working_puzzle(
     skip_words: set[str] | None = None,
     *,
     model_label: str = "",
+    max_guesses: int = VERIFY_CANDIDATE_COUNT,
 ) -> tuple[int, int]:
     """Verify all clue definitions in-place and return (passed, total)."""
     print("Verifying horizontal definitions...")
     puzzle.horizontal_clues = _verify_clues(
-        puzzle.horizontal_clues, client, skip_words=skip_words, model_label=model_label,
+        puzzle.horizontal_clues,
+        client,
+        skip_words=skip_words,
+        model_label=model_label,
+        max_guesses=max_guesses,
     )
 
     print("Verifying vertical definitions...")
     puzzle.vertical_clues = _verify_clues(
-        puzzle.vertical_clues, client, skip_words=skip_words, model_label=model_label,
+        puzzle.vertical_clues,
+        client,
+        skip_words=skip_words,
+        model_label=model_label,
+        max_guesses=max_guesses,
     )
 
     total = len(puzzle.horizontal_clues) + len(puzzle.vertical_clues)
@@ -270,9 +298,9 @@ def rate_working_puzzle(
     return avg_semantic, avg_guessability, len(semantic_scores)
 
 
-def verify_puzzle(puzzle, client: OpenAI) -> tuple[int, int]:
+def verify_puzzle(puzzle, client: OpenAI, *, max_guesses: int = VERIFY_CANDIDATE_COUNT) -> tuple[int, int]:
     state = working_puzzle_from_puzzle(puzzle, split_compound=False)
-    passed, total = verify_working_puzzle(state, client)
+    passed, total = verify_working_puzzle(state, client, max_guesses=max_guesses)
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues
@@ -298,7 +326,8 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     client = create_client()
     state = working_puzzle_from_puzzle(puzzle, split_compound=False)
     dex = DexProvider.for_puzzle(state)
-    passed, total = verify_working_puzzle(state, client)
+    max_guesses = max(1, int(kwargs.get("verify_candidates", VERIFY_CANDIDATE_COUNT)))
+    passed, total = verify_working_puzzle(state, client, max_guesses=max_guesses)
     avg_semantic, avg_guessability, rated = rate_working_puzzle(state, client, dex=dex)
     puzzle = puzzle_from_working_state(state)
 

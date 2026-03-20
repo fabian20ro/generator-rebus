@@ -212,6 +212,21 @@ class TestRenderVerifyNote(unittest.TestCase):
         # Should contain score info via append_rating_to_note
         self.assertTrue(len(note) > 0)
 
+    def test_with_multiple_verify_candidates(self):
+        assessment = ClueAssessment(verify_candidates=["PARI", "ARACI", "NULE"])
+        note = render_verify_note(assessment)
+        self.assertIn("AI a propus", note)
+        self.assertIn("ARACI", note)
+
+    def test_entry_roundtrip_preserves_verify_candidates(self):
+        entry = _make_entry(
+            verified=False,
+            verify_note="AI a propus: PARI, ARACI, NULE | Scor semantic: 8/10 | Scor rebus: 6/10",
+        )
+        clue = working_clue_from_entry(entry)
+        self.assertEqual(["PARI", "ARACI", "NULE"], clue.current.assessment.verify_candidates)
+        self.assertEqual("PARI", clue.current.assessment.wrong_guess)
+
 
 if __name__ == "__main__":
     unittest.main()

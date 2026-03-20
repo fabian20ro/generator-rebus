@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .config import VERIFY_CANDIDATE_COUNT
 from .core.size_tuning import OVERNIGHT_LOOP_SIZES
 
 
@@ -38,6 +39,7 @@ def build_batch_command(
     preparation_attempts: int,
     seed: int,
     multi_model: bool = False,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> list[str]:
     cmd = [
         sys.executable,
@@ -55,6 +57,8 @@ def build_batch_command(
         str(preparation_attempts),
         "--seed",
         str(seed),
+        "--verify-candidates",
+        str(verify_candidates),
     ]
     if multi_model:
         cmd.append("--multi-model")
@@ -72,6 +76,7 @@ def run_size(
     cwd: Path,
     env: dict[str, str] | None = None,
     multi_model: bool = False,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> LoopRunResult:
     seed = random.SystemRandom().randint(1, 10_000_000)
     command = build_batch_command(
@@ -82,6 +87,7 @@ def run_size(
         preparation_attempts=preparation_attempts,
         seed=seed,
         multi_model=multi_model,
+        verify_candidates=verify_candidates,
     )
     with open(log_path, "a", encoding="utf-8") as log_file:
         log_file.write(
@@ -122,6 +128,7 @@ def run_cycle(
     cwd: Path,
     env: dict[str, str] | None = None,
     multi_model: bool = False,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> list[LoopRunResult]:
     results: list[LoopRunResult] = []
     for size in sizes:
@@ -136,6 +143,7 @@ def run_cycle(
                 cwd=cwd,
                 env=env,
                 multi_model=multi_model,
+                verify_candidates=verify_candidates,
             )
         )
     return results
@@ -161,6 +169,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=True,
         help="Alternate between primary and secondary models for cross-validation",
+    )
+    parser.add_argument(
+        "--verify-candidates",
+        type=int,
+        default=VERIFY_CANDIDATE_COUNT,
+        help=f"How many verifier candidates to request per clue (default: {VERIFY_CANDIDATE_COUNT})",
     )
     return parser
 
@@ -190,6 +204,7 @@ def main() -> None:
             cwd=cwd,
             env=os.environ.copy(),
             multi_model=args.multi_model,
+            verify_candidates=max(1, args.verify_candidates),
         )
         time.sleep(args.sleep_seconds)
 

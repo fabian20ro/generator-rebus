@@ -88,6 +88,7 @@ from .core.slot_extractor import Slot, extract_slots
 from .core.word_index import WordEntry, WordIndex
 from .core.constraint_solver import solve
 from .phases.activate import set_published
+from .config import VERIFY_CANDIDATE_COUNT
 from .core.dex_cache import DexProvider
 from .phases.define import generate_definitions_for_puzzle, generate_definitions_for_state
 from .phases.download import run as download_words
@@ -547,6 +548,7 @@ def _rewrite_failed_clues(
     rounds: int,
     multi_model: bool = False,
     dex: DexProvider | None = None,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> tuple[int, int, int]:
     theme = puzzle.title or "Puzzle intern"
     if multi_model:
@@ -562,7 +564,11 @@ def _rewrite_failed_clues(
         current_model = PRIMARY_MODEL
     preset_skip: set[str] = set()
     initial_passed, total = verify_working_puzzle(
-        puzzle, client, skip_words=preset_skip, model_label=current_model.display_name,
+        puzzle,
+        client,
+        skip_words=preset_skip,
+        model_label=current_model.display_name,
+        max_guesses=verify_candidates,
     )
     rate_working_puzzle(
         puzzle, client, skip_words=preset_skip, dex=dex, model_label=current_model.display_name,
@@ -692,7 +698,11 @@ def _rewrite_failed_clues(
                 print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
             print(f"  Model activ (evaluare): {current_model.display_name}")
         _, total = verify_working_puzzle(
-            puzzle, client, skip_words=skip_words, model_label=current_model.display_name,
+            puzzle,
+            client,
+            skip_words=skip_words,
+            model_label=current_model.display_name,
+            max_guesses=verify_candidates,
         )
         rate_working_puzzle(
             puzzle, client, skip_words=skip_words, dex=dex, model_label=current_model.display_name,
@@ -720,6 +730,7 @@ def _prepare_puzzle_for_publication(
     preparation_attempts: int,
     seen_template_fingerprints: set[str] | None = None,
     multi_model: bool = False,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> PreparedPuzzle:
     best_prepared: PreparedPuzzle | None = None
     effective_attempts = _preparation_attempts_for_size(size, preparation_attempts)
@@ -756,7 +767,12 @@ def _prepare_puzzle_for_publication(
         # Load dex definitions for rewrite rounds
         _dex = DexProvider.for_puzzle(state)
         first_passed, final_passed, total = _rewrite_failed_clues(
-            state, client, rewrite_rounds, multi_model=multi_model, dex=_dex,
+            state,
+            client,
+            rewrite_rounds,
+            multi_model=multi_model,
+            dex=_dex,
+            verify_candidates=verify_candidates,
         )
         _restore_best_versions(state)
         state.assessment = _score_puzzle_state(state, candidate.report)
@@ -832,6 +848,7 @@ def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
             was_blocker=_needs_rewrite(clue),
             english_meaning_detected=False,
             wrong_guess=version.assessment.wrong_guess,
+            verify_candidates=list(version.assessment.verify_candidates),
             failure_kind=failure_reason.kind if failure_reason else "",
             failure_message=failure_reason.message if failure_reason else "",
             rarity_only_override=version.assessment.rarity_only_override,
@@ -867,6 +884,7 @@ def run_batch(
     seed: int | None = None,
     run_dir: Path | None = None,
     multi_model: bool = False,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> list[dict]:
     raw_words = _load_words(words_path)
     client = create_client()
@@ -901,6 +919,7 @@ def run_batch(
             preparation_attempts=preparation_attempts,
             seen_template_fingerprints=seen_7x7_templates if size == 7 else None,
             multi_model=multi_model,
+            verify_candidates=verify_candidates,
         )
         if prepared.blocking_words:
             print("\n--- Detailed rejection report ---")
@@ -1067,6 +1086,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Alternate between primary and secondary models for cross-validation",
     )
+    parser.add_argument(
+        "--verify-candidates",
+        type=int,
+        default=VERIFY_CANDIDATE_COUNT,
+        help=f"How many verifier candidates to request per clue (default: {VERIFY_CANDIDATE_COUNT})",
+    )
     return parser
 
 
@@ -1096,6 +1121,7 @@ def main() -> None:
                 seed=args.seed,
                 run_dir=preview_run_dir,
                 multi_model=args.multi_model,
+                verify_candidates=max(1, args.verify_candidates),
             )
             print("\nBatch complete:")
             for item in manifest:

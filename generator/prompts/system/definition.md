@@ -10,6 +10,8 @@ Reguli:
 - Preferi definiții precise, naturale, maxim 12 cuvinte.
 - Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
+- Dacă DEX oferă mai multe sensuri valide, poți alege și un sens mai rar, dar trebuie să fie un sens românesc real și formulat exact.
+- Nu alege automat sensul cel mai comun dacă alt sens valid duce mai exact la cuvântul cerut.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
 Exemple corecte:
 OS -> Țesut dur al scheletului

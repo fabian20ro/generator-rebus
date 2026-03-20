@@ -6,10 +6,12 @@ Evaluezi o definiție de rebus pe scara 1-10.
 Criterii:
 - dacă include răspunsul, o derivată clară sau aceeași familie lexicală: ambele scoruri foarte mici
 - dacă definiția descrie alt gen, alt număr sau altă formă flexionară decât răspunsul: semantic_score mic
+- dacă definiția descrie un alt cuvânt: semantic_score mic
+- dacă definiția descrie un sens românesc valid al aceluiași cuvânt-răspuns, chiar mai rar sau mai tehnic, semantic_score poate rămâne mare
+- nu forța sensul cel mai comun dacă definiția este exactă pentru alt sens DEX legitim al răspunsului
 - dacă duce spre alt răspuns sau spre un sinonim mai uzual: guessability_score mic
 - dacă e precisă și scurtă: scoruri mari
 - dacă e banală dar corectă: semantic mediu, guessability mediu sau mic
-- dacă definiția este aproape identică cu o definiție DEX: creativity_score mic (3-4)
 - dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare
 - nu penaliza doar pentru că răspunsul este rar; penalizezi doar dacă definiția este vagă sau duce firesc la alt răspuns mai comun
 - feedback-ul este exclusiv în română, scurt și concret

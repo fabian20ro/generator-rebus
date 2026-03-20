@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from openai import OpenAI
 
-from ..config import LMSTUDIO_BASE_URL
+from ..config import LMSTUDIO_BASE_URL, VERIFY_CANDIDATE_COUNT
 from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
@@ -124,6 +124,15 @@ class DefinitionRating:
     feedback: str
     creativity_score: int = 5
     rarity_only_override: bool = False
+
+
+@dataclass(frozen=True)
+class VerifyResult:
+    candidates: list[str]
+
+    @property
+    def primary_guess(self) -> str:
+        return self.candidates[0] if self.candidates else ""
 
 
 def compute_rebus_score(guessability: int, creativity: int) -> int:
@@ -317,11 +326,17 @@ def _word_type_line(word_type: str) -> str:
     return f"Categorie gramaticală: {label}\n" if label else ""
 
 
-def _build_verify_prompt(definition: str, answer_length: int, word_type: str = "") -> str:
+def _build_verify_prompt(
+    definition: str,
+    answer_length: int,
+    word_type: str = "",
+    max_guesses: int = VERIFY_CANDIDATE_COUNT,
+) -> str:
     return load_user_template("verify").format(
         word_type_line=_word_type_line(word_type),
         definition=definition,
         answer_length=answer_length,
+        max_guesses=max_guesses,
     )
 
 
@@ -421,6 +436,51 @@ def _augment_definition_retry_prompt(prompt: str, rejection: str) -> str:
         + "\nRăspunde cu o definiție completă, naturală, de minimum 2 cuvinte."
         + "\nNu te opri la un gloss minimal și nu lăsa ultimul cuvânt neterminat."
     )
+
+
+def _clean_verify_chunk(text: str | None) -> str:
+    chunk = (text or "").strip().strip('"').strip("'")
+    chunk = re.sub(r"<\|[^|]*\|>", "", chunk).strip()
+    chunk = re.sub(
+        r"^\s*(?:[-*•]+|\d+[.)]\s*|(?:Răspunsuri|Raspunsuri|Răspuns|Raspuns|Cuvinte):\s*)",
+        "",
+        chunk,
+        flags=re.IGNORECASE,
+    ).strip()
+    token_match = re.search(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", chunk)
+    return token_match.group(0) if token_match else ""
+
+
+def _extract_verify_candidates(raw: str, answer_length: int, max_guesses: int) -> list[str]:
+    pieces = re.split(r"[\n,;/|]+", raw or "")
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _append(candidate: str) -> None:
+        normalized = normalize(candidate)
+        if not normalized or len(normalized) != answer_length:
+            return
+        if contains_english_markers(candidate) or normalized in seen:
+            return
+        seen.add(normalized)
+        candidates.append(candidate.upper())
+
+    for piece in pieces:
+        candidate = _clean_verify_chunk(piece)
+        if candidate:
+            _append(candidate)
+        if len(candidates) >= max_guesses:
+            return candidates[:max_guesses]
+
+    if candidates:
+        return candidates[:max_guesses]
+
+    fallback_tokens = re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", raw or "")
+    for token in fallback_tokens:
+        _append(token)
+        if len(candidates) >= max_guesses:
+            break
+    return candidates[:max_guesses]
 
 
 def generate_definition(
@@ -544,11 +604,22 @@ def rewrite_definition(
     return previous_definition
 
 
-def verify_definition(client: OpenAI, definition: str, answer_length: int, word_type: str = "") -> str:
-    """Ask AI to guess the word from a clue definition."""
-    prompt = _build_verify_prompt(definition, answer_length, word_type=word_type)
+def verify_definition_candidates(
+    client: OpenAI,
+    definition: str,
+    answer_length: int,
+    word_type: str = "",
+    max_guesses: int = VERIFY_CANDIDATE_COUNT,
+) -> VerifyResult:
+    """Ask AI to suggest up to max_guesses candidate answers for a clue definition."""
+    prompt = _build_verify_prompt(
+        definition,
+        answer_length,
+        word_type=word_type,
+        max_guesses=max_guesses,
+    )
 
-    last_guess = ""
+    last_candidates: list[str] = []
     for attempt in range(2):
         response = client.chat.completions.create(
             model="default",
@@ -559,16 +630,25 @@ def verify_definition(client: OpenAI, definition: str, answer_length: int, word_
             temperature=0.0,
             max_tokens=320,
         )
-        guess = _clean_response(response.choices[0].message.content)
-        if ":" in guess:
-            guess = guess.split(":", 1)[1].strip()
-        guess = guess.split()[0] if guess.split() else guess
-        last_guess = guess
-        if not contains_english_markers(guess):
-            return guess
+        raw = response.choices[0].message.content or ""
+        candidates = _extract_verify_candidates(raw, answer_length, max_guesses=max_guesses)
+        last_candidates = candidates
+        if candidates:
+            return VerifyResult(candidates)
         prompt += "\nAtenție: răspunsul anterior nu a fost în română. Răspunde exclusiv în română."
 
-    return last_guess
+    return VerifyResult(last_candidates)
+
+
+def verify_definition(client: OpenAI, definition: str, answer_length: int, word_type: str = "") -> str:
+    """Backward-compatible single-guess wrapper over the multi-candidate verifier."""
+    return verify_definition_candidates(
+        client,
+        definition,
+        answer_length,
+        word_type=word_type,
+        max_guesses=1,
+    ).primary_guess
 
 
 def rate_definition(

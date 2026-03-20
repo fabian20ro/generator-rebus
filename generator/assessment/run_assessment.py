@@ -18,12 +18,13 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..config import VERIFY_CANDIDATE_COUNT
 from ..core.ai_clues import (
     compute_rebus_score,
     create_client,
     generate_definition,
     rate_definition,
-    verify_definition,
+    verify_definition_candidates,
 )
 from ..core.diacritics import normalize
 from ..core.model_manager import (
@@ -48,14 +49,14 @@ class WordCandidate:
     dex_definitions: str
     # Pass 1: PRIMARY generates, SECONDARY evaluates
     pass1_definition: str = ""
-    pass1_guess: str = ""
+    pass1_guesses: list[str] = field(default_factory=list)
     pass1_verified: bool = False
     pass1_semantic: int = 0
     pass1_rebus: int = 0
     pass1_rated: bool = False
     # Pass 2: SECONDARY generates, PRIMARY evaluates
     pass2_definition: str = ""
-    pass2_guess: str = ""
+    pass2_guesses: list[str] = field(default_factory=list)
     pass2_verified: bool = False
     pass2_semantic: int = 0
     pass2_rebus: int = 0
@@ -136,6 +137,10 @@ def _best_definition(c: WordCandidate) -> str:
     return c.pass1_definition if c.best_source == "pass1" else c.pass2_definition
 
 
+def _best_guesses(c: WordCandidate) -> list[str]:
+    return c.pass1_guesses if c.best_source == "pass1" else c.pass2_guesses
+
+
 def _pick_best(c: WordCandidate) -> None:
     rank1 = _candidate_rank(c.pass1_verified, c.pass1_semantic, c.pass1_rebus)
     rank2 = _candidate_rank(c.pass2_verified, c.pass2_semantic, c.pass2_rebus)
@@ -178,13 +183,19 @@ def _generate_for_word(
         return "[Definiție negenerată]"
 
 
-def _verify_for_word(client, definition: str, length: int) -> str:
-    """Returns the guessed word, or empty string on failure."""
+def _verify_for_word(client, definition: str, length: int, word_type: str, max_guesses: int) -> list[str]:
+    """Returns candidate guessed words, or an empty list on failure."""
     try:
-        return verify_definition(client, definition, length)
+        return verify_definition_candidates(
+            client,
+            definition,
+            length,
+            word_type=word_type,
+            max_guesses=max_guesses,
+        ).candidates
     except Exception as e:
         print(f"  Verify failed: {e}")
-        return ""
+        return []
 
 
 def _rate_for_word(
@@ -209,6 +220,7 @@ def _rate_for_word(
 def run_assessment(
     dataset_path: Path = DATASET_PATH,
     temperature: float | None = None,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> AssessmentResult:
     """Run the multi-model generate → cross-verify → cross-rate pipeline."""
     dataset = _load_dataset(dataset_path)
@@ -264,11 +276,11 @@ def run_assessment(
         if c.pass1_definition.startswith("["):
             continue
         print(f"\n[{i}/{n}] {c.word} — verify+rate pass1")
-        guess = _verify_for_word(client, c.pass1_definition, c.length)
-        c.pass1_guess = guess
-        c.pass1_verified = normalize(guess) == c.word
+        guesses = _verify_for_word(client, c.pass1_definition, c.length, c.word_type, verify_candidates)
+        c.pass1_guesses = guesses
+        c.pass1_verified = c.word in {normalize(guess) for guess in guesses}
         symbol = "✓" if c.pass1_verified else "✗"
-        print(f"  {symbol} Guess: {guess} (expected: {c.word})")
+        print(f"  {symbol} Guesses: {', '.join(guesses) or '[nimic]'} (expected: {c.word})")
 
         semantic, rebus, rated = _rate_for_word(
             client, c.word, c.display_word, c.pass1_definition,
@@ -306,11 +318,11 @@ def run_assessment(
         if c.pass2_definition.startswith("["):
             continue
         print(f"\n[{i}/{n}] {c.word} — verify+rate pass2")
-        guess = _verify_for_word(client, c.pass2_definition, c.length)
-        c.pass2_guess = guess
-        c.pass2_verified = normalize(guess) == c.word
+        guesses = _verify_for_word(client, c.pass2_definition, c.length, c.word_type, verify_candidates)
+        c.pass2_guesses = guesses
+        c.pass2_verified = c.word in {normalize(guess) for guess in guesses}
         symbol = "✓" if c.pass2_verified else "✗"
-        print(f"  {symbol} Guess: {guess} (expected: {c.word})")
+        print(f"  {symbol} Guesses: {', '.join(guesses) or '[nimic]'} (expected: {c.word})")
 
         semantic, rebus, rated = _rate_for_word(
             client, c.word, c.display_word, c.pass2_definition,
@@ -396,8 +408,8 @@ def _print_report(result: AssessmentResult) -> None:
         print(f"\nFailed words ({len(failures)}):")
         for c in failures:
             defn = _best_definition(c)[:60]
-            guess = c.pass1_guess if c.best_source == "pass1" else c.pass2_guess
-            print(f"  {c.word} ({c.tier}, {c.best_source}): '{defn}...' → guessed '{guess}'")
+            guesses = ", ".join(_best_guesses(c)) or "[nimic]"
+            print(f"  {c.word} ({c.tier}, {c.best_source}): '{defn}...' → guessed '{guesses}'")
 
 
 def _append_results_tsv(result: AssessmentResult, description: str) -> None:
@@ -431,9 +443,17 @@ def main() -> None:
         "--temperature", type=float, default=None,
         help="Override generate temperature (default: use function default 0.2)",
     )
+    parser.add_argument(
+        "--verify-candidates", type=int, default=VERIFY_CANDIDATE_COUNT,
+        help=f"How many verifier candidates to request per definition (default: {VERIFY_CANDIDATE_COUNT})",
+    )
     args = parser.parse_args()
 
-    result = run_assessment(Path(args.dataset), temperature=args.temperature)
+    result = run_assessment(
+        Path(args.dataset),
+        temperature=args.temperature,
+        verify_candidates=max(1, args.verify_candidates),
+    )
     _print_report(result)
     _append_results_tsv(result, args.description)
 

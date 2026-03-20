@@ -1,5 +1,6 @@
 {word_type_line}Definiție: {definition}
 Lungime răspuns: EXACT {answer_length} litere
-Numără literele răspunsului tău înainte de a răspunde. Dacă nu are exact {answer_length} litere, gândește-te la alt cuvânt.
-Verifică lungimea înainte de a scrie.
-Răspuns:
+Număr variante: maximum {max_guesses}
+Numără literele fiecărei variante înainte de a răspunde. Dacă nu are exact {answer_length} litere, nu o include.
+Scrie fiecare variantă pe rând separat, fără explicații.
+Răspunsuri:

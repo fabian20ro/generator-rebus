@@ -30,6 +30,7 @@ Examples:
 import argparse
 import sys
 
+from .config import VERIFY_CANDIDATE_COUNT
 from .core.size_tuning import SUPPORTED_GRID_SIZES
 
 
@@ -56,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Max backtracks for solver (default: 50000)")
     parser.add_argument("--force", action="store_true",
                         help="Force upload even with unverified definitions")
+    parser.add_argument(
+        "--verify-candidates",
+        type=int,
+        default=VERIFY_CANDIDATE_COUNT,
+        help=f"How many verifier candidates to request (default: {VERIFY_CANDIDATE_COUNT})",
+    )
 
     return parser
 
@@ -70,6 +77,7 @@ def main():
         "max_rarity": args.max_rarity,
         "max_backtracks": args.max_backtracks,
         "force": args.force,
+        "verify_candidates": args.verify_candidates,
     }
 
     phase = args.phase

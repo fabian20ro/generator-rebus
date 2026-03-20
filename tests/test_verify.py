@@ -15,9 +15,9 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertTrue(contains_english_markers("Precise and correct definition"))
         self.assertFalse(contains_english_markers("Definiție scurtă și exactă"))
 
-    @patch("generator.phases.verify.verify_definition")
+    @patch("generator.phases.verify.verify_definition_candidates")
     def test_verify_passes_answer_length_to_model(self, mock_verify_definition):
-        mock_verify_definition.return_value = "AUR"
+        mock_verify_definition.return_value = SimpleNamespace(candidates=["AUR"])
         client = object()
         clue = ClueEntry(
             row_number=1,
@@ -33,11 +33,12 @@ class VerifyPhaseTests(unittest.TestCase):
             "Metal prețios galben",
             3,
             word_type="",
+            max_guesses=3,
         )
 
-    @patch("generator.phases.verify.verify_definition")
+    @patch("generator.phases.verify.verify_definition_candidates")
     def test_verify_passes_word_type_to_model(self, mock_verify_definition):
-        mock_verify_definition.return_value = "LOVI"
+        mock_verify_definition.return_value = SimpleNamespace(candidates=["LOVI"])
         client = object()
         clue = working_clue_from_entry(ClueEntry(
             row_number=1,
@@ -54,11 +55,12 @@ class VerifyPhaseTests(unittest.TestCase):
             "A atinge cu forță",
             4,
             word_type="V",
+            max_guesses=3,
         )
 
-    @patch("generator.phases.verify.verify_definition")
+    @patch("generator.phases.verify.verify_definition_candidates")
     def test_verify_marks_related_form_guess_explicitly(self, mock_verify_definition):
-        mock_verify_definition.return_value = "INCEPUT"
+        mock_verify_definition.return_value = SimpleNamespace(candidates=["INCEPUT", "START"])
         clue = working_clue_from_entry(ClueEntry(
             row_number=1,
             word_normalized="NEINCEPUT",
@@ -73,6 +75,23 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertTrue(assessed.form_mismatch)
         self.assertEqual("related_form", assessed.failure_reason.kind)
         self.assertEqual("eurollm-22b", assessed.verified_by)
+
+    @patch("generator.phases.verify.verify_definition_candidates")
+    def test_verify_accepts_correct_word_among_multiple_candidates(self, mock_verify_definition):
+        mock_verify_definition.return_value = SimpleNamespace(candidates=["PARI", "ARACI", "NULE"])
+        clue = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="ARACI",
+            word_original="araci",
+            definition="Bețe de sprijin pentru vie",
+        ))
+
+        result = _verify_clues([clue], client=object(), model_label="gpt-oss-20b")
+        assessed = result[0].current.assessment
+
+        self.assertTrue(assessed.verified)
+        self.assertEqual(["PARI", "ARACI", "NULE"], assessed.verify_candidates)
+        self.assertEqual("", assessed.wrong_guess)
 
     @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")
@@ -120,9 +139,9 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertIn("Metal prețios galben", captured.getvalue())
 
 
-    @patch("generator.phases.verify.verify_definition")
+    @patch("generator.phases.verify.verify_definition_candidates")
     def test_verify_skips_words_in_skip_set(self, mock_verify_definition):
-        mock_verify_definition.return_value = "NOR"
+        mock_verify_definition.return_value = SimpleNamespace(candidates=["NOR"])
         clue_skipped = working_clue_from_entry(ClueEntry(
             row_number=1,
             word_normalized="AUR",

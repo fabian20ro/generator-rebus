@@ -23,7 +23,7 @@ from .core.score_helpers import (
     _synthesize_failure_reason,
     _update_best_clue_version,
 )
-from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from .core.ai_clues import (
     RATE_MIN_REBUS,
     RATE_MIN_SEMANTIC,
@@ -130,6 +130,7 @@ def rewrite_puzzle_definitions(
     *,
     rounds: int = REDEFINE_ROUNDS,
     multi_model: bool = True,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> dict[str, ClueCandidateVersion]:
     """Run the verify-rate-rewrite loop and return best versions per word.
 
@@ -156,7 +157,11 @@ def rewrite_puzzle_definitions(
     preset_skip: set[str] = set()
 
     verify_working_puzzle(
-        puzzle, client, skip_words=preset_skip, model_label=current_model.display_name,
+        puzzle,
+        client,
+        skip_words=preset_skip,
+        model_label=current_model.display_name,
+        max_guesses=verify_candidates,
     )
     rate_working_puzzle(
         puzzle, client, skip_words=preset_skip, dex=dex, model_label=current_model.display_name,
@@ -266,7 +271,11 @@ def rewrite_puzzle_definitions(
                 print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
             print(f"  Model activ (evaluare): {current_model.display_name}")
         verify_working_puzzle(
-            puzzle, client, skip_words=skip_words, model_label=current_model.display_name,
+            puzzle,
+            client,
+            skip_words=skip_words,
+            model_label=current_model.display_name,
+            max_guesses=verify_candidates,
         )
         rate_working_puzzle(
             puzzle, client, skip_words=skip_words, dex=dex, model_label=current_model.display_name,
@@ -300,6 +309,7 @@ def redefine_puzzle(
     dry_run: bool = False,
     multi_model: bool = True,
     rounds: int = REDEFINE_ROUNDS,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> int:
     """Redefine definitions for one puzzle. Returns count of updated clues."""
     puzzle_id = puzzle_row["id"]
@@ -312,7 +322,11 @@ def redefine_puzzle(
     print(f"  [{puzzle_id}] {len(clue_rows)} clues, title: {puzzle.title}")
 
     improved = rewrite_puzzle_definitions(
-        puzzle, client, rounds=rounds, multi_model=multi_model,
+        puzzle,
+        client,
+        rounds=rounds,
+        multi_model=multi_model,
+        verify_candidates=verify_candidates,
     )
 
     if not improved:
@@ -371,6 +385,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=REDEFINE_ROUNDS,
         help=f"Number of rewrite rounds (default: {REDEFINE_ROUNDS})",
     )
+    parser.add_argument(
+        "--verify-candidates",
+        type=int,
+        default=VERIFY_CANDIDATE_COUNT,
+        help=f"How many verifier candidates to request per clue (default: {VERIFY_CANDIDATE_COUNT})",
+    )
     return parser
 
 
@@ -423,6 +443,7 @@ def main() -> None:
                 dry_run=args.dry_run,
                 multi_model=args.multi_model,
                 rounds=args.rounds,
+                verify_candidates=max(1, args.verify_candidates),
             )
             total_updated += count
             total_puzzles += 1

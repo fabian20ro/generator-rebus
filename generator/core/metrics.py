@@ -28,6 +28,7 @@ class WordMetric:
     was_blocker: bool = False
     english_meaning_detected: bool = False
     wrong_guess: str = ""
+    verify_candidates: list[str] = field(default_factory=list)
     failure_kind: str = ""
     failure_message: str = ""
     rarity_only_override: bool = False
@@ -151,6 +152,9 @@ def update_word_difficulty(
         if wm.wrong_guess:
             wrong_guess_counts = entry.setdefault("wrong_guess_counts", {})
             wrong_guess_counts[wm.wrong_guess] = wrong_guess_counts.get(wm.wrong_guess, 0) + 1
+        for candidate in wm.verify_candidates:
+            verify_candidate_counts = entry.setdefault("verify_candidate_counts", {})
+            verify_candidate_counts[candidate] = verify_candidate_counts.get(candidate, 0) + 1
         if wm.model_generated:
             generated_model_counts = entry.setdefault("generated_model_counts", {})
             generated_model_counts[wm.model_generated] = generated_model_counts.get(wm.model_generated, 0) + 1

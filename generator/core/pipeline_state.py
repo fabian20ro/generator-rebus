@@ -10,6 +10,7 @@ from .clue_rating import (
     extract_feedback,
     extract_guessability_score,
     extract_rebus_score,
+    extract_verify_candidates,
     extract_semantic_score,
     extract_wrong_guess,
 )
@@ -36,6 +37,7 @@ class ClueFailureReason:
 @dataclass
 class ClueAssessment:
     verified: bool | None = None
+    verify_candidates: list[str] = field(default_factory=list)
     wrong_guess: str = ""
     feedback: str = ""
     scores: ClueScores = field(default_factory=ClueScores)
@@ -108,12 +110,16 @@ def all_working_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
 def _assessment_from_entry(entry: ClueEntry) -> ClueAssessment:
     semantic = extract_semantic_score(entry.verify_note)
     targeting = extract_guessability_score(entry.verify_note)
-    wrong_guess = extract_wrong_guess(entry.verify_note)
+    verify_candidates = extract_verify_candidates(entry.verify_note)
+    wrong_guess = ""
+    if not entry.verified:
+        wrong_guess = extract_wrong_guess(entry.verify_note)
     feedback = extract_feedback(entry.verify_note)
     creativity = extract_creativity_score(entry.verify_note)
     rebus = extract_rebus_score(entry.verify_note)
     return ClueAssessment(
         verified=entry.verified,
+        verify_candidates=verify_candidates,
         wrong_guess=wrong_guess,
         feedback=feedback,
         scores=ClueScores(
@@ -144,7 +150,11 @@ def _entry_from_version(clue: WorkingClue, version: ClueCandidateVersion) -> Clu
 
 def render_verify_note(assessment: ClueAssessment) -> str:
     note = ""
-    if assessment.wrong_guess:
+    if len(assessment.verify_candidates) > 1:
+        note = f"AI a propus: {', '.join(assessment.verify_candidates)}"
+    elif assessment.verify_candidates:
+        note = f"AI a ghicit: {assessment.verify_candidates[0]}"
+    elif assessment.wrong_guess:
         note = f"AI a ghicit: {assessment.wrong_guess}"
     if assessment.scores.semantic_exactness is not None and assessment.scores.answer_targeting is not None:
         note = append_rating_to_note(

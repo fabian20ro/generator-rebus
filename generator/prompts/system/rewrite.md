@@ -8,5 +8,7 @@ Reguli:
 - Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.
 - Fă definiția mai precisă decât cea veche.
 - Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.
+- Dacă termenul are mai multe sensuri românești valide, poți trece la un alt sens DEX mai exact sau mai ghicibil; nu rămâi blocat pe sensul cel mai comun.
+- Nu rescrie definiția spre un alt cuvânt mai uzual; rescrie spre același răspuns, chiar dacă sensul lui bun este mai rar.
 - Max 15 cuvinte.
 - Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]
