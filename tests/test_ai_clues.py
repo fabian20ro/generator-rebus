@@ -149,6 +149,12 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual("CASA", _clean_response("**CASA**"))
         self.assertEqual("AER", _clean_response("`AER`"))
 
+    def test_clean_response_strips_definitia_noua_prefix(self):
+        self.assertEqual(
+            "Material de bază în grădinărit, rezultat din descompunerea vegetală.",
+            _clean_response("Definiția nouă:** Material de bază în grădinărit, rezultat din descompunerea vegetală."),
+        )
+
     def test_definition_describes_english_meaning_detects_engleza(self):
         self.assertTrue(_definition_describes_english_meaning("AN", "Articol nehotărât în limba engleză"))
 
@@ -174,6 +180,7 @@ class AiCluesTests(unittest.TestCase):
     def test_generate_prompt_no_hint_for_normal_word(self):
         prompt = _build_generate_prompt("aer", "AER", 3)
         self.assertNotIn("ATENȚIE", prompt)
+        self.assertIn("nu un singur cuvânt izolat", prompt)
 
     def test_rate_english_meaning_forces_low_scores(self):
         client = _RecordingClient([
@@ -252,6 +259,7 @@ class AiCluesTests(unittest.TestCase):
             "lovi", "LOVI", "A atinge cu forță", "[niciun feedback]", "", word_type="V",
         )
         self.assertIn("Categorie gramaticală: verb", prompt)
+        self.assertIn("nu un singur cuvânt izolat", prompt)
 
     def test_rate_prompt_includes_word_type(self):
         from generator.core.ai_clues import _build_rate_prompt
@@ -340,6 +348,84 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertNotIn("Încercări anterioare eșuate", client.prompts[0])
+
+    def test_generate_definition_retries_after_single_word_gloss(self):
+        client = _RecordingClient([
+            "Pământ",
+            "Pământ fertil, brun-închis și afânat.",
+        ])
+
+        definition = generate_definition(
+            client,
+            word="MUL",
+            original="mul",
+            theme="",
+            retries=2,
+        )
+
+        self.assertEqual("Pământ fertil, brun-închis și afânat.", definition)
+        self.assertEqual(2, len(client.prompts))
+        self.assertIn("single-word gloss", client.prompts[1])
+        self.assertIn("minimum 2 cuvinte", client.prompts[1])
+
+    def test_rewrite_definition_retries_after_single_word_gloss(self):
+        client = _RecordingClient([
+            "Pământ",
+            "Pământ fertil, brun-închis și afânat.",
+        ])
+
+        definition = rewrite_definition(
+            client,
+            word="MUL",
+            original="mul",
+            theme="",
+            previous_definition="Pământ",
+            wrong_guess="ARG",
+            retries=2,
+        )
+
+        self.assertEqual("Pământ fertil, brun-închis și afânat.", definition)
+        self.assertEqual(2, len(client.prompts))
+        self.assertIn("single-word gloss", client.prompts[1])
+        self.assertIn("minimum 2 cuvinte", client.prompts[1])
+
+    def test_generate_definition_retries_after_dangling_ending(self):
+        client = _RecordingClient([
+            "Împușcarea unui câine asupra unei",
+            "Îndemnarea unui câine să atace o persoană.",
+        ])
+
+        definition = generate_definition(
+            client,
+            word="AMUTARE",
+            original="amuțare",
+            theme="",
+            retries=2,
+        )
+
+        self.assertEqual("Îndemnarea unui câine să atace o persoană.", definition)
+        self.assertEqual(2, len(client.prompts))
+        self.assertIn("dangling ending", client.prompts[1])
+
+    def test_rewrite_definition_retries_after_dangling_ending(self):
+        client = _RecordingClient([
+            "Împușcarea unui câine asupra unei",
+            "Îndemnarea unui câine să atace o persoană.",
+        ])
+
+        definition = rewrite_definition(
+            client,
+            word="AMUTARE",
+            original="amuțare",
+            theme="",
+            previous_definition="Împușcarea unui câine.",
+            wrong_guess="ÎMPUSCARE",
+            retries=2,
+        )
+
+        self.assertEqual("Îndemnarea unui câine să atace o persoană.", definition)
+        self.assertEqual(2, len(client.prompts))
+        self.assertIn("dangling ending", client.prompts[1])
 
 
 if __name__ == "__main__":

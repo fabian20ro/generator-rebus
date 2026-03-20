@@ -16,6 +16,7 @@ from generator.batch_publish import (
     _best_candidate,
     _better_prepared_puzzle,
     _clear_verification_state,
+    _collect_word_metrics,
     _generate_candidate,
     _is_publishable,
     _merge_best_clue_variants,
@@ -31,7 +32,15 @@ from generator.batch_publish import (
 )
 from generator.core.clue_rating import append_rating_to_note
 from generator.core.markdown_io import ClueEntry, write_with_definitions
-from generator.core.pipeline_state import PuzzleAssessment, WorkingPuzzle, puzzle_from_working_state, working_clue_from_entry
+from generator.core.pipeline_state import (
+    ClueScores,
+    PuzzleAssessment,
+    WorkingPuzzle,
+    puzzle_from_working_state,
+    set_current_definition,
+    update_current_assessment,
+    working_clue_from_entry,
+)
 from generator.core.quality import QualityReport
 from generator.core.size_tuning import get_size_settings
 from generator.rebus import build_parser as build_rebus_parser
@@ -728,7 +737,7 @@ class BatchPublishTests(unittest.TestCase):
 
         def _rewrite(puzzle_obj, client, rounds, **kwargs):
             puzzle_obj.horizontal_clues[0].current.definition = "Substanță gazoasă din atmosferă"
-            return (1, 1)
+            return (0, 1, 1)
 
         def _title_from_final(puzzle_obj, client=None, rate_client=None, multi_model=False, current_model=None):
             return puzzle_obj.horizontal_clues[0].definition
@@ -820,7 +829,8 @@ class BatchPublishTests(unittest.TestCase):
                 markdown="# Rebus\n",
             ),
             puzzle=object(),
-            passed=0,
+            first_passed=0,
+            final_passed=0,
             total=0,
             definition_score=0.0,
             blocking_words=["TAC", "ATASARE"],
@@ -873,6 +883,63 @@ class BatchPublishTests(unittest.TestCase):
 
     def test_nine_eight_clue_uses_locked_rebus(self):
         self.assertEqual(8, LOCKED_REBUS)
+
+    def test_prepared_puzzle_tracks_first_and_final_pass_counts(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=8.0,
+            blocking_words=[],
+            verified_count=6,
+            total_clues=22,
+            first_passed=3,
+            final_passed=6,
+        )
+
+        self.assertEqual(3, prepared.first_passed)
+        self.assertEqual(6, prepared.final_passed)
+
+    def test_collect_word_metrics_tracks_rewrite_churn(self):
+        clue = working_clue_from_entry(ClueEntry(
+            row_number=1,
+            word_normalized="MUL",
+            word_original="mul",
+            definition="Pământ",
+            verified=False,
+            verify_note=append_rating_to_note(
+                "AI a ghicit: ARG",
+                semantic_score=6,
+                guessability_score=4,
+                feedback="Prea vagă.",
+            ),
+        ))
+        set_current_definition(
+            clue,
+            "Pământ fertil, brun-închis și afânat.",
+            round_index=1,
+            source="rewrite",
+            generated_by="eurollm-22b",
+        )
+        update_current_assessment(
+            clue,
+            verified=True,
+            scores=ClueScores(
+                semantic_exactness=9,
+                answer_targeting=8,
+                creativity=4,
+                rebus_score=7,
+            ),
+        )
+        puzzle = WorkingPuzzle(title="", size=0, grid=[], horizontal_clues=[clue], vertical_clues=[])
+
+        metrics = _collect_word_metrics(puzzle)
+
+        self.assertEqual(1, len(metrics))
+        self.assertFalse(metrics[0].initial_verified)
+        self.assertTrue(metrics[0].rewrite_attempted)
+        self.assertTrue(metrics[0].rewrite_changed_definition)
+        self.assertTrue(metrics[0].rewrite_rescued_verify)
+        self.assertEqual(3, metrics[0].semantic_delta)
+        self.assertEqual(3, metrics[0].rebus_delta)
 
     def test_size_11_settings(self):
         settings = get_size_settings(11)
@@ -944,6 +1011,8 @@ def _prepared_puzzle(
     verified_count: int = 1,
     total_clues: int = 1,
     min_rebus: int = 8,
+    first_passed: int | None = None,
+    final_passed: int | None = None,
 ) -> PreparedPuzzle:
     clue = ClueEntry(
         row_number=1,
@@ -982,8 +1051,9 @@ def _prepared_puzzle(
             markdown="# Rebus\n",
         ),
         puzzle=puzzle,
-        passed=1,
-        total=1,
+        first_passed=verified_count if first_passed is None else first_passed,
+        final_passed=verified_count if final_passed is None else final_passed,
+        total=total_clues,
         definition_score=definition_score,
         blocking_words=blocking_words,
         assessment=PuzzleAssessment(

@@ -61,6 +61,35 @@ FALLBACK_TITLES = [
     "Orizont Fragmentat",
 ]
 
+TITLE_ENGLISH_MARKERS = {
+    "blue",
+    "dream",
+    "dreams",
+    "echo",
+    "echoes",
+    "fire",
+    "fires",
+    "gold",
+    "jazz",
+    "light",
+    "lights",
+    "mirror",
+    "mirrors",
+    "moon",
+    "night",
+    "nights",
+    "river",
+    "rivers",
+    "shadow",
+    "shadows",
+    "silent",
+    "sky",
+    "skies",
+    "sunset",
+    "whisper",
+    "whispers",
+}
+
 
 def _fallback_title() -> str:
     return random.choice(FALLBACK_TITLES)
@@ -83,6 +112,10 @@ def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
 
     parts = cleaned.split()
     if len(parts) > 4:
+        return _fallback_title()
+
+    english_hits = sum(1 for token in cleaned.lower().split() if token in TITLE_ENGLISH_MARKERS)
+    if english_hits >= 2:
         return _fallback_title()
 
     # Only reject if 2+ input words of length >= 4 appear in the title

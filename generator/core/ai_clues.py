@@ -83,6 +83,39 @@ AMBIGUITY_MARKERS = {
     "lexical",
 }
 
+DANGLING_ENDING_MARKERS = {
+    "a",
+    "ai",
+    "al",
+    "ale",
+    "asupra",
+    "ca",
+    "că",
+    "cu",
+    "de",
+    "din",
+    "după",
+    "dupa",
+    "fără",
+    "fara",
+    "in",
+    "în",
+    "la",
+    "o",
+    "ori",
+    "pe",
+    "pentru",
+    "prin",
+    "sau",
+    "si",
+    "spre",
+    "un",
+    "unei",
+    "unor",
+    "unui",
+    "și",
+}
+
 
 @dataclass(frozen=True)
 class DefinitionRating:
@@ -110,7 +143,7 @@ def _clean_response(text: str | None) -> str:
     text = (text or "").strip().strip('"').strip("'")
     text = re.sub(r"<\|[^|]*\|>", "", text).strip()
     text = re.sub(
-        r"^\*{0,2}(Definiție|Definitie|Răspuns|Raspuns):?\*{0,2}\s*",
+        r"^\*{0,2}(Definiția nouă|Definitia noua|Definiție|Definitie|Răspuns|Raspuns):?\*{0,2}\s*",
         "",
         text,
         flags=re.IGNORECASE,
@@ -148,6 +181,11 @@ def _same_family_feedback() -> str:
 
 def _tokens(text: str) -> set[str]:
     return {token.lower() for token in re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț]+", normalize(text))}
+
+
+def _last_word(text: str) -> str:
+    tokens = re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", normalize(text))
+    return tokens[-1].lower() if tokens else ""
 
 
 def _feedback_is_rarity_only(feedback: str) -> bool:
@@ -211,6 +249,7 @@ def _build_generate_prompt(display_word: str, word: str, length: int, word_type:
         word=word,
         length=length,
     )
+    prompt += "\nDefiniția trebuie să fie o formulare completă, nu un singur cuvânt izolat."
     label = WORD_TYPE_LABELS.get(word_type)
     if label:
         prompt = prompt.replace(f"Lungime: {length}", f"Lungime: {length}\nCategorie gramaticală: {label}")
@@ -256,6 +295,7 @@ def _build_rewrite_prompt(
         bad_example_text=bad_example_text,
         failure_history_text=history_text,
     )
+    prompt += "\nDefiniția nouă trebuie să fie completă și naturală, nu un singur cuvânt izolat."
     hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
     if hint:
         prompt += (
@@ -361,6 +401,10 @@ def _validate_definition(word: str, definition: str) -> str | None:
     """Return rejection reason, or None if acceptable."""
     if len(definition) < 5:
         return f"too short ({len(definition)} chars)"
+    if len(re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", definition)) < 2:
+        return "single-word gloss"
+    if _last_word(definition) in DANGLING_ENDING_MARKERS:
+        return "dangling ending"
     if _definition_is_invalid(word, definition):
         return "contains answer or family word"
     if contains_english_markers(definition):
@@ -368,6 +412,15 @@ def _validate_definition(word: str, definition: str) -> str | None:
     if _definition_describes_english_meaning(word, definition):
         return "English meaning"
     return None
+
+
+def _augment_definition_retry_prompt(prompt: str, rejection: str) -> str:
+    return (
+        prompt
+        + f"\nRăspunsul anterior a fost respins: {rejection}."
+        + "\nRăspunde cu o definiție completă, naturală, de minimum 2 cuvinte."
+        + "\nNu te opri la un gloss minimal și nu lăsa ultimul cuvânt neterminat."
+    )
 
 
 def generate_definition(
@@ -407,6 +460,7 @@ def generate_definition(
             rejection = _validate_definition(word, definition)
             if rejection:
                 print(f"    [rejected {word}: {rejection}]")
+                prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             return definition
         except Exception:
@@ -478,6 +532,7 @@ def rewrite_definition(
             rejection = _validate_definition(word, definition)
             if rejection:
                 print(f"    [rewrite rejected {word}: {rejection}]")
+                prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             return definition
         except Exception:

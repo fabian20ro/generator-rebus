@@ -70,10 +70,16 @@ class MetricsTests(unittest.TestCase):
                 WordMetric(
                     word="TUN",
                     length=3,
+                    initial_verified=False,
                     final_verified=False,
                     semantic_score=9,
                     guessability_score=6,
                     rebus_score=7,
+                    semantic_delta=1,
+                    rebus_delta=1,
+                    rewrite_attempted=True,
+                    rewrite_changed_definition=True,
+                    rewrite_rescued_verify=False,
                     was_blocker=True,
                     wrong_guess="BARIL",
                     failure_kind="wrong_guess",
@@ -85,10 +91,16 @@ class MetricsTests(unittest.TestCase):
                 WordMetric(
                     word="TUN",
                     length=3,
+                    initial_verified=False,
                     final_verified=False,
                     semantic_score=8,
                     guessability_score=5,
                     rebus_score=6,
+                    semantic_delta=0,
+                    rebus_delta=0,
+                    rewrite_attempted=True,
+                    rewrite_changed_definition=False,
+                    rewrite_rescued_verify=False,
                     was_blocker=True,
                     wrong_guess="BARIL",
                     failure_kind="wrong_guess",
@@ -106,6 +118,10 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(data["TUN"]["wrong_guess_counts"]["BARIL"], 2)
             self.assertEqual(data["TUN"]["avg_guessability"], 5.5)
             self.assertEqual(data["TUN"]["avg_rebus"], 6.5)
+            self.assertEqual(data["TUN"]["rewrite_attempts"], 2)
+            self.assertEqual(data["TUN"]["rewrite_rescues"], 0)
+            self.assertEqual(data["TUN"]["avg_semantic_delta"], 0.5)
+            self.assertEqual(data["TUN"]["avg_rebus_delta"], 0.5)
             self.assertEqual(data["TUN"]["rebus_spread"], 1)
             self.assertEqual(data["TUN"]["generated_model_counts"]["gpt-oss-20b"], 2)
             self.assertEqual(data["TUN"]["rated_model_counts"]["eurollm-22b"], 2)

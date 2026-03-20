@@ -216,6 +216,10 @@ class SanitizeTitleTests(unittest.TestCase):
         result = _sanitize_title("Alfa Beta Gama Delta Epsilon")
         self.assertIn(result, FALLBACK_TITLES)
 
+    def test_rejects_obvious_english_title(self):
+        result = _sanitize_title("Jazz Sunset Echoes")
+        self.assertIn(result, FALLBACK_TITLES)
+
     def test_strips_trailing_punctuation(self):
         result = _sanitize_title("Suflet și Lumină,")
         self.assertEqual("Suflet și Lumină", result)

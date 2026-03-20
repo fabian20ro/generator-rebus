@@ -41,6 +41,8 @@
 
 **[2026-03-20]** Invalid JSON from the rating model needs a stricter retry prompt, not a blind resend — LM Studio-compatible local models can drift out of schema even with low temperature. On parse failure, re-ask explicitly for one JSON object only; otherwise reruns waste one of the limited attempts.
 
+**[2026-03-20]** First-pass and final-pass metrics must be stored separately — if the rewrite loop only returns final verified counts, any reported `definition_first_pass_rate` is fake and churn analysis becomes misleading. Track `first_passed` and `final_passed` explicitly in prepared puzzles and metrics.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

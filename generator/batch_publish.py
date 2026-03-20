@@ -127,7 +127,8 @@ class PreparedPuzzle:
     title: str
     candidate: Candidate
     puzzle: object
-    passed: int
+    first_passed: int
+    final_passed: int
     total: int
     definition_score: float
     blocking_words: list[str]
@@ -546,7 +547,7 @@ def _rewrite_failed_clues(
     rounds: int,
     multi_model: bool = False,
     dex: DexProvider | None = None,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     theme = puzzle.title or "Puzzle intern"
     if multi_model:
         ensure_model_loaded(PRIMARY_MODEL)
@@ -560,7 +561,7 @@ def _rewrite_failed_clues(
     else:
         current_model = PRIMARY_MODEL
     preset_skip: set[str] = set()
-    passed, total = verify_working_puzzle(
+    initial_passed, total = verify_working_puzzle(
         puzzle, client, skip_words=preset_skip, model_label=current_model.display_name,
     )
     rate_working_puzzle(
@@ -690,7 +691,7 @@ def _rewrite_failed_clues(
             except Exception as e:
                 print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
             print(f"  Model activ (evaluare): {current_model.display_name}")
-        passed, total = verify_working_puzzle(
+        _, total = verify_working_puzzle(
             puzzle, client, skip_words=skip_words, model_label=current_model.display_name,
         )
         rate_working_puzzle(
@@ -704,9 +705,9 @@ def _rewrite_failed_clues(
                 print(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
 
     _restore_best_versions(puzzle)
-    passed = sum(1 for clue in all_working_clues(puzzle) if clue.current.assessment.verified)
+    final_passed = sum(1 for clue in all_working_clues(puzzle) if clue.current.assessment.verified)
     total = len(all_working_clues(puzzle))
-    return passed, total
+    return initial_passed, final_passed, total
 
 
 def _prepare_puzzle_for_publication(
@@ -754,7 +755,7 @@ def _prepare_puzzle_for_publication(
         _inject_word_types(state, candidate.metadata)
         # Load dex definitions for rewrite rounds
         _dex = DexProvider.for_puzzle(state)
-        passed, total = _rewrite_failed_clues(
+        first_passed, final_passed, total = _rewrite_failed_clues(
             state, client, rewrite_rounds, multi_model=multi_model, dex=_dex,
         )
         _restore_best_versions(state)
@@ -773,7 +774,8 @@ def _prepare_puzzle_for_publication(
             title=title,
             candidate=candidate,
             puzzle=copy.deepcopy(state),
-            passed=passed,
+            first_passed=first_passed,
+            final_passed=final_passed,
             total=total,
             definition_score=state.assessment.definition_score,
             blocking_words=[clue.word_normalized for clue in blockers],
@@ -798,22 +800,35 @@ def _prepare_puzzle_for_publication(
 def _collect_word_metrics(puzzle: WorkingPuzzle) -> list[WordMetric]:
     metrics = []
     for clue in all_working_clues(puzzle):
+        initial_version = clue.history[0] if clue.history else clue.current
         version = clue.active_version()
         failure_reason = version.assessment.failure_reason
         semantic = version.assessment.scores.semantic_exactness
         targeting = version.assessment.scores.answer_targeting
         creativity = version.assessment.scores.creativity
         rebus = version.assessment.scores.rebus_score
+        initial_semantic = initial_version.assessment.scores.semantic_exactness
+        initial_rebus = initial_version.assessment.scores.rebus_score
+        rewrite_attempted = any(v.round_index > 0 for v in clue.history)
         metrics.append(WordMetric(
             word=clue.word_normalized,
             length=len(clue.word_normalized),
             word_type=clue.word_type,
             definition_rounds=len(clue.history),
+            initial_verified=initial_version.assessment.verified,
             final_verified=version.assessment.verified is True,
             semantic_score=semantic,
             guessability_score=targeting,
             creativity_score=creativity,
             rebus_score=rebus,
+            semantic_delta=(semantic - initial_semantic) if semantic is not None and initial_semantic is not None else None,
+            rebus_delta=(rebus - initial_rebus) if rebus is not None and initial_rebus is not None else None,
+            rewrite_attempted=rewrite_attempted,
+            rewrite_changed_definition=version.definition != initial_version.definition,
+            rewrite_rescued_verify=(
+                initial_version.assessment.verified is False
+                and version.assessment.verified is True
+            ),
             was_blocker=_needs_rewrite(clue),
             english_meaning_detected=False,
             wrong_guess=version.assessment.wrong_guess,
@@ -946,6 +961,9 @@ def run_batch(
         all_word_metrics.extend(word_metrics)
         clues = all_working_clues(prepared.puzzle)
         verified_count = sum(1 for c in clues if c.active_version().assessment.verified is True)
+        rewrite_attempted_words = sum(1 for wm in word_metrics if wm.rewrite_attempted)
+        rewrite_changed_words = sum(1 for wm in word_metrics if wm.rewrite_changed_definition)
+        rewrite_rescued_words = sum(1 for wm in word_metrics if wm.rewrite_rescued_verify)
         semantic_scores = [c.active_version().assessment.scores.semantic_exactness or 0 for c in clues]
         guess_scores = [c.active_version().assessment.scores.answer_targeting or 0 for c in clues]
         rebus_scores = [c.active_version().assessment.scores.rebus_score or 0 for c in clues]
@@ -953,13 +971,16 @@ def run_batch(
         puzzle_metrics.append(PuzzleMetric(
             size=size,
             word_count=len(clues),
-            definition_first_pass_rate=prepared.passed / prepared.total if prepared.total else 0.0,
-            definition_final_pass_rate=verified_count / len(clues) if clues else 0.0,
+            definition_first_pass_rate=prepared.first_passed / prepared.total if prepared.total else 0.0,
+            definition_final_pass_rate=prepared.final_passed / prepared.total if prepared.total else 0.0,
             avg_semantic=sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0.0,
             avg_guessability=sum(guess_scores) / len(guess_scores) if guess_scores else 0.0,
             avg_creativity=sum(creativity_scores) / len(creativity_scores) if creativity_scores else 0.0,
             avg_rebus=sum(rebus_scores) / len(rebus_scores) if rebus_scores else 0.0,
             min_rebus=min_rebus,
+            rewrite_attempted_words=rewrite_attempted_words,
+            rewrite_changed_words=rewrite_changed_words,
+            rewrite_rescued_words=rewrite_rescued_words,
             blocker_count=len(prepared.blocking_words),
             blocker_words=prepared.blocking_words,
             total_elapsed_ms=puzzle_elapsed_ms,
@@ -972,7 +993,9 @@ def run_batch(
             "puzzle_id": puzzle_id,
             "score": prepared.candidate.score,
             "quality": prepared.candidate.report.to_dict(),
-            "verification_passed": prepared.passed,
+            "verification_first_passed": prepared.first_passed,
+            "verification_final_passed": prepared.final_passed,
+            "verification_passed": prepared.final_passed,
             "verification_total": prepared.total,
             "output_dir": str(puzzle_dir),
             "template_path": str(template_path),

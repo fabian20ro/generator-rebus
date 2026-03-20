@@ -14,11 +14,17 @@ class WordMetric:
     rarity: int | None = None
     word_type: str = ""
     definition_rounds: int = 0
+    initial_verified: bool | None = None
     final_verified: bool = False
     semantic_score: int | None = None
     guessability_score: int | None = None
     creativity_score: int | None = None
     rebus_score: int | None = None
+    semantic_delta: int | None = None
+    rebus_delta: int | None = None
+    rewrite_attempted: bool = False
+    rewrite_changed_definition: bool = False
+    rewrite_rescued_verify: bool = False
     was_blocker: bool = False
     english_meaning_detected: bool = False
     wrong_guess: str = ""
@@ -48,6 +54,9 @@ class PuzzleMetric:
     avg_creativity: float = 0.0
     avg_rebus: float = 0.0
     min_rebus: int = 0
+    rewrite_attempted_words: int = 0
+    rewrite_changed_words: int = 0
+    rewrite_rescued_words: int = 0
     blocker_count: int = 0
     blocker_words: list[str] = field(default_factory=list)
     model_switches: int = 0
@@ -87,11 +96,15 @@ def update_word_difficulty(
             "attempts": 0,
             "successes": 0,
             "blockers": 0,
+            "rewrite_attempts": 0,
+            "rewrite_rescues": 0,
             "form_mismatch_count": 0,
             "rarity_override_count": 0,
             "total_semantic": 0.0,
             "total_guessability": 0.0,
             "total_rebus": 0.0,
+            "total_semantic_delta": 0.0,
+            "total_rebus_delta": 0.0,
             "min_semantic": None,
             "max_semantic": None,
             "min_rebus": None,
@@ -106,6 +119,10 @@ def update_word_difficulty(
             entry["successes"] = entry.get("successes", 0) + 1
         if wm.was_blocker:
             entry["blockers"] = entry.get("blockers", 0) + 1
+        if wm.rewrite_attempted:
+            entry["rewrite_attempts"] = entry.get("rewrite_attempts", 0) + 1
+        if wm.rewrite_rescued_verify:
+            entry["rewrite_rescues"] = entry.get("rewrite_rescues", 0) + 1
         if wm.form_mismatch:
             entry["form_mismatch_count"] = entry.get("form_mismatch_count", 0) + 1
         if wm.rarity_only_override:
@@ -124,6 +141,10 @@ def update_word_difficulty(
             current_max = entry.get("max_rebus")
             entry["min_rebus"] = wm.rebus_score if current_min is None else min(current_min, wm.rebus_score)
             entry["max_rebus"] = wm.rebus_score if current_max is None else max(current_max, wm.rebus_score)
+        if wm.semantic_delta is not None:
+            entry["total_semantic_delta"] = entry.get("total_semantic_delta", 0.0) + wm.semantic_delta
+        if wm.rebus_delta is not None:
+            entry["total_rebus_delta"] = entry.get("total_rebus_delta", 0.0) + wm.rebus_delta
         if wm.failure_kind:
             failure_counts = entry.setdefault("failure_kind_counts", {})
             failure_counts[wm.failure_kind] = failure_counts.get(wm.failure_kind, 0) + 1
@@ -140,9 +161,14 @@ def update_word_difficulty(
         total_sem = entry.get("total_semantic", 0.0)
         total_guessability = entry.get("total_guessability", 0.0)
         total_rebus = entry.get("total_rebus", 0.0)
+        total_semantic_delta = entry.get("total_semantic_delta", 0.0)
+        total_rebus_delta = entry.get("total_rebus_delta", 0.0)
         entry["avg_semantic"] = round(total_sem / attempts, 2) if attempts > 0 else 0.0
         entry["avg_guessability"] = round(total_guessability / attempts, 2) if attempts > 0 else 0.0
         entry["avg_rebus"] = round(total_rebus / attempts, 2) if attempts > 0 else 0.0
+        rewrite_attempts = entry.get("rewrite_attempts", 0)
+        entry["avg_semantic_delta"] = round(total_semantic_delta / rewrite_attempts, 2) if rewrite_attempts > 0 else 0.0
+        entry["avg_rebus_delta"] = round(total_rebus_delta / rewrite_attempts, 2) if rewrite_attempts > 0 else 0.0
         min_semantic = entry.get("min_semantic")
         max_semantic = entry.get("max_semantic")
         min_rebus = entry.get("min_rebus")
