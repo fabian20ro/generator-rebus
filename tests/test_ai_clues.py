@@ -352,16 +352,32 @@ class AiCluesTests(unittest.TestCase):
             previous_definition="Verb auxiliar",
             wrong_guess="DE",
             failure_history=[
-                ("Condiționare", "DE"),
-                ("Auxiliar verbal", "AL"),
-                ("Verb auxiliar", "DE"),
+                ("Condiționare", ["DE", "LA"]),
+                ("Auxiliar verbal", ["AL"]),
+                ("Verb auxiliar", ["DE", "A"]),
             ],
         )
 
         prompt = client.prompts[0]
         self.assertIn("Încercări anterioare eșuate", prompt)
-        self.assertIn("'Condiționare' → ghicit: DE", prompt)
-        self.assertIn("'Auxiliar verbal' → ghicit: AL", prompt)
+        self.assertIn("'Condiționare' → propus: DE, LA", prompt)
+        self.assertIn("'Auxiliar verbal' → propus: AL", prompt)
+
+    def test_rewrite_prompt_prefers_all_wrong_guesses(self):
+        client = _RecordingClient(["Parte a conjugării verbale"])
+
+        rewrite_definition(
+            client,
+            word="AR",
+            original="ar",
+            theme="",
+            previous_definition="Verb auxiliar",
+            wrong_guess="DE",
+            wrong_guesses=["DE", "LA", "PE"],
+        )
+
+        prompt = client.prompts[0]
+        self.assertIn("Rezolvitorul a propus: DE, LA, PE", prompt)
 
     def test_rewrite_prompt_omits_history_when_none(self):
         """No history section when failure_history is None."""

@@ -185,6 +185,16 @@ def _reuse_or_fetch_dex(
     fetch_dex: bool,
 ) -> dict[str, str]:
     dex_defs = {word: existing_dex.get(word, "") for word in words}
+    dex = create_provider()
+
+    # Always refresh from local cache / Supabase when available so dataset.json
+    # does not keep stale pre-expansion DEX text forever.
+    for word in words:
+        original = words_meta.get(word, {}).get("original", word.lower())
+        live_defs = dex.lookup(word)
+        if live_defs:
+            dex_defs[word] = live_defs
+
     if not fetch_dex:
         return dex_defs
 
@@ -192,7 +202,6 @@ def _reuse_or_fetch_dex(
     if not missing:
         return dex_defs
 
-    dex = create_provider()
     originals = {
         word: words_meta[word].get("original", word.lower())
         for word in missing

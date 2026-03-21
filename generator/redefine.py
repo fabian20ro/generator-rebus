@@ -212,10 +212,21 @@ def rewrite_puzzle_definitions(
             if _is_locked_clue(clue):
                 continue
             wrong_guess = clue.current.assessment.wrong_guess
+            wrong_guesses = list(clue.current.assessment.verify_candidates)
             rating_feedback = clue.current.assessment.feedback
             bad_example_definition = clue.current.definition if round_index >= 2 else ""
             bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
             dex_defs = (dex.get(clue.word_normalized, clue.word_original) or "")
+            failure_history: list[tuple[str, list[str]]] = [
+                (
+                    v.definition,
+                    list(v.assessment.verify_candidates)
+                    if v.assessment.verify_candidates
+                    else ([v.assessment.wrong_guess] if v.assessment.wrong_guess else []),
+                )
+                for v in clue.history
+                if (v.assessment.verify_candidates or v.assessment.wrong_guess) and v.definition
+            ]
             try:
                 if clue.current.definition.startswith("["):
                     new_definition = generate_definition(
@@ -230,11 +241,13 @@ def rewrite_puzzle_definitions(
                         theme,
                         clue.current.definition,
                         wrong_guess,
+                        wrong_guesses=wrong_guesses or None,
                         rating_feedback=rating_feedback,
                         bad_example_definition=bad_example_definition,
                         bad_example_reason=bad_example_reason,
                         word_type=clue.word_type,
                         dex_definitions=dex_defs,
+                        failure_history=failure_history or None,
                     )
             except Exception as e:
                 print(f"  Rewrite failed for {clue.word_normalized}: {e}")

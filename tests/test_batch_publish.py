@@ -760,7 +760,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual("Substanță gazoasă din atmosferă", prepared.title)
         self.assertEqual("Substanță gazoasă din atmosferă", prepared.puzzle.title)
 
-    def test_failure_reason_prefers_wrong_guess(self):
+    def test_failure_reason_prefers_verify_candidates(self):
         clue = ClueEntry(
             row_number=1,
             word_normalized="ARACI",
@@ -768,7 +768,7 @@ class BatchPublishTests(unittest.TestCase):
             definition="Prezintă un fapt în mod clar și convingător.",
             verified=False,
             verify_note=append_rating_to_note(
-                "AI a ghicit: EXPLICA",
+                "AI a propus: EXPLICA, DESCRIE, NAREAZA",
                 semantic_score=8,
                 guessability_score=4,
                 feedback="Duce la alt răspuns mai comun.",
@@ -777,7 +777,7 @@ class BatchPublishTests(unittest.TestCase):
 
         reason = _synthesize_failure_reason(clue)
 
-        self.assertEqual("Duce la alt răspuns: EXPLICA.", reason)
+        self.assertEqual("Duce la alte răspunsuri: EXPLICA, DESCRIE, NAREAZA.", reason)
 
     def test_failure_reason_ignores_rarity_as_primary_defect(self):
         clue = ClueEntry(

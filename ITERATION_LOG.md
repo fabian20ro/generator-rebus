@@ -79,6 +79,22 @@
 
 <!-- new entries above this line, most recent first -->
 
+### [2026-03-21] Make rewrite/failure flows use all verifier candidates, not only the first guess
+
+**Context:** user asked whether the change from single-guess verification to top-3 was respected everywhere, including generation and evaluation flows.
+**Happened:** Audited the verifier call chain and confirmed that pass/fail, selection, metrics, markdown notes, and multistep assessment already used `verify_candidates` correctly. The remaining gap was rewrite/failure handling: prompts and synthesized failure reasons still mostly used `wrong_guess`, which is just the first failed candidate kept for compatibility. Patched `generator/core/ai_clues.py` so rewrite prompts mention the full verifier output (`Rezolvitorul a propus: ...`) and failure history carries candidate lists, not just one guess. Patched `generator/core/score_helpers.py` so `_synthesize_failure_reason()` prefers the full candidate list. Updated `generator/batch_publish.py` and `generator/redefine.py` to pass `verify_candidates` and richer failure history into rewrite. Added regression tests for prompt rendering and failure synthesis.
+**Outcome:** success
+**Insight:** once top-k verification exists, `wrong_guess` becomes a lossy compatibility field; decision-making and prompt repair should use `verify_candidates` as the primary signal
+**Promoted:** yes — see LESSONS_LEARNED "Top-k verifier support is incomplete if rewrite still sees only the first wrong guess"
+
+### [2026-03-21] Align assessment dataset DEX context with live expanded provider context
+
+**Context:** user asked to ensure that the new DEX expansion (`definiție directă` + `sens bază`) reaches all prompts where it should, not only the live generation pipeline.
+**Happened:** Traced all DEX call sites. Confirmed that live puzzle generation/rewrite/rating paths already pass `dex.get(...)` into prompt builders, so expanded DEX context reaches `generate`, `rewrite`, and `rate` immediately. Confirmed that `verify` still intentionally does not receive DEX context, to avoid leaking answer-side semantic hints into the guess step. Found one real gap: `generator/assessment/prepare_dataset.py` reused old `dataset.json` `dex_definitions` strings as authoritative, so the multistep benchmark could keep stale pre-expansion DEX text even after the provider improved. Patched `_reuse_or_fetch_dex()` to prefer current provider `lookup()` output from local cache/Supabase before reusing old dataset strings, and added a targeted regression test for stale-vs-live replacement.
+**Outcome:** success
+**Insight:** when prompt context is pre-materialized into datasets, every improvement in the live context generator needs a refresh path into those cached artifacts or the benchmark silently diverges from production
+**Promoted:** yes — see LESSONS_LEARNED "Assessment datasets should refresh DEX text from the live provider, not trust old dataset.json strings forever"
+
 ### [2026-03-21] Expand DEX semantic-base extraction to short first-definition patterns
 
 **Context:** after reviewing all 540 entries whose first parsed DEX definition has under 10 words, the next task was to extend semantic context beyond pure redirect formulas like `Diminutiv al lui X`.

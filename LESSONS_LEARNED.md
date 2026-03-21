@@ -43,6 +43,10 @@
 
 **[2026-03-21]** Short first-definition DEX patterns are worth semantic expansion when they expose a clear base lexeme — beyond `Diminutiv al lui X`, useful families are `Acțiunea de a (se) X`, `Faptul de a (se) X`, `Proprietatea de a fi X`, `A <ordinal> parte dintr-un/dintr-o X`, and one-word synonym glosses like `Corabie.`. Use the first parsed definition as the trigger, strip trailing punctuation/parenthetical sense markers from the target, then inject the base lexeme's sense alongside the original definition.
 
+**[2026-03-21]** Assessment datasets should refresh DEX text from the live provider, not trust old `dataset.json` strings forever — otherwise prompt/runtime code may be using improved expanded DEX context while multistep assessment still feeds stale raw definitions. Prefer provider lookup over reused dataset values, and only reuse the old text as fallback.
+
+**[2026-03-21]** Top-k verifier support is incomplete if rewrite still sees only the first wrong guess — once verification returns multiple candidates, rewrite prompts, failure-history prompts, and synthesized failure reasons should use the whole candidate list. Keep `wrong_guess` only as a compatibility field; the richer signal is `verify_candidates`.
+
 **[2026-03-20]** LM Studio unload calls must use loaded `instance_id`, not model key — `/api/v1/models` exposes loaded instances separately from model keys, and switching by key can silently leave the old model loaded. In two-model workflows, always resolve the active instance id before unloading.
 
 **[2026-03-20]** “Publishable” needs an exact-solve floor, not only “no blockers” — otherwise puzzles with weak multistep pass rates can still ship just because every clue cleared loose score thresholds. Gate publication on both blocker-free state and a minimum verification pass rate.

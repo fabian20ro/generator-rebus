@@ -286,14 +286,17 @@ def _build_rewrite_prompt(
     bad_example_text: str,
     word_type: str = "",
     dex_definitions: str = "",
-    failure_history: list[tuple[str, str]] | None = None,
+    failure_history: list[tuple[str, list[str]]] | None = None,
 ) -> str:
     label = WORD_TYPE_LABELS.get(word_type)
     word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
     history_text = ""
     if failure_history:
         recent = failure_history[-5:]
-        lines = [f"{i}. '{defn}' → ghicit: {guess}" for i, (defn, guess) in enumerate(recent, 1)]
+        lines = [
+            f"{i}. '{defn}' → propus: {', '.join(guesses) if guesses else '[nimic]'}"
+            for i, (defn, guesses) in enumerate(recent, 1)
+        ]
         history_text = "\nÎncercări anterioare eșuate:\n" + "\n".join(lines) + "\n"
     prompt = load_user_template("rewrite").format(
         display_word=display_word,
@@ -545,13 +548,16 @@ def rewrite_definition(
     bad_example_reason: str = "",
     word_type: str = "",
     dex_definitions: str = "",
-    failure_history: list[tuple[str, str]] | None = None,
+    failure_history: list[tuple[str, list[str]]] | None = None,
+    wrong_guesses: list[str] | None = None,
     temperature: float | None = None,
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
     display_word = original if original else word.lower()
     feedback_parts = []
-    if wrong_guess:
+    if wrong_guesses:
+        feedback_parts.append(f"Rezolvitorul a propus: {', '.join(wrong_guesses)}")
+    elif wrong_guess:
         feedback_parts.append(f"Rezolvitorul a ghicit: {wrong_guess}")
     if rating_feedback:
         feedback_parts.append(f"Feedback calitate: {rating_feedback}")

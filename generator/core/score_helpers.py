@@ -99,6 +99,8 @@ def _synthesize_failure_reason(clue: WorkingClue) -> str:
     assessment = clue.current.assessment
     if assessment.scores.family_leakage:
         return "Folosește aceeași familie lexicală ca răspunsul."
+    if assessment.verify_candidates:
+        return f"Duce la alte răspunsuri: {', '.join(assessment.verify_candidates)}."
     if assessment.wrong_guess:
         return f"Duce la alt răspuns: {assessment.wrong_guess}."
     if assessment.feedback:
