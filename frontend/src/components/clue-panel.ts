@@ -79,13 +79,24 @@ function renderClueList(
     li.classList.toggle("clue-item--active", isActive);
   }
 
-  // Scroll active clue into view
+  // Only scroll inside a dedicated clue pane; avoid moving the mobile page.
   const activeLi = entry.items.find((li) =>
     li.classList.contains("clue-item--active")
   );
-  if (activeLi) {
+  if (activeLi && hasScrollableCluePane(container)) {
     activeLi.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
+}
+
+function hasScrollableCluePane(container: HTMLElement): boolean {
+  const pane = container.closest(".clues-container");
+  if (!pane) return false;
+
+  const styles = window.getComputedStyle(pane);
+  const canScroll =
+    styles.overflowY === "auto" || styles.overflowY === "scroll";
+
+  return canScroll && pane.scrollHeight > pane.clientHeight;
 }
 
 function isClueComplete(clue: Clue, state: GridState): boolean {

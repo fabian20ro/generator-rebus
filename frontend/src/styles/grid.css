@@ -123,6 +123,31 @@
   justify-content: center;
 }
 
+.btn-pencil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 9.5rem;
+  background: #64748b;
+}
+
+.btn-pencil:hover {
+  background: #475569;
+}
+
+.btn-pencil__label {
+  font-weight: 600;
+}
+
+.btn-pencil__state {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
 /* Clues */
 .clues-container {
   display: flex;
@@ -173,6 +198,10 @@
 .btn-pencil--active {
   background: #2563eb;
   color: white;
+}
+
+.btn-pencil--active .btn-pencil__state {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 /* Font scaler controls */

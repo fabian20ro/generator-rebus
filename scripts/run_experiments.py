@@ -905,6 +905,9 @@ def apply_experiment(exp: Experiment) -> bool:
         if edit.find in edit.replace and edit.replace in content:
             print(f"  [SKIP] Replacement text already present in {edit.file}")
             return False
+        if edit.find not in content and edit.replace and edit.replace in content:
+            print(f"  [SKIP] Replacement text already present in {edit.file}")
+            return False
         if edit.find not in content:
             print(f"  [SKIP] Find text not found in {edit.file}")
             return False

@@ -22,6 +22,8 @@
 
 **[2026-03-14]** Family check needs prefix stripping — `clue_uses_same_family` only stripped suffixes. Prefixed words (NEINCEPUT→ÎNCEPUT) weren't caught. Added `ROMANIAN_PREFIXES` list, `forbidden_definition_stems()`, and `_family_exclusion_note()` in prompt builders.
 
+**[2026-03-22]** Auto-scrolling the active clue must be gated by a dedicated clue scroll container — on stacked/mobile crossword layouts, `scrollIntoView()` on the active clue can yank the whole page away from the grid every time selection changes. Only auto-scroll when the clue pane itself is scrollable, and pair grid focus changes with `preventScroll` so cell focus does not trigger another jump.
+
 **[2026-03-20]** Keep production selection aligned with assessment selection — if the benchmark ranks verified/exact clues first but production still prefers semantic+rebus totals, prompt experiments optimize the wrong target. Change selector and rewrite gates together, then retest.
 
 **[2026-03-20]** `locked` state must follow exact verification, not only score thresholds — a 9/8 clue that still guesses wrong can get skipped forever in rewrite rounds if lock logic only checks semantic/rebus. Keep lock semantics aligned with `_needs_rewrite()`.
@@ -61,8 +63,14 @@
 
 **[2026-03-21]** Prompt campaign manifests need an anchor-existence test against live prompt files — literal `find -> replace` runners will silently skip experiments when prompt text drifts. Keep one regression test that loads current prompt files and asserts every manifest edit anchor still exists before launching a long campaign.
 
+<<<<<<< HEAD
 **[2026-03-21]** Benchmark incumbent metrics should stay sourced from `generator/assessment/results.tsv`, not duplicated in policy constants — the ledger row is the working score history, while code should only keep labels, ranges, and rules. Read the latest kept row when you need the incumbent numbers; use assessment JSON only for per-word drilldown such as control-word stability.
 
+||||||| parent of 628c09c (fix scroll bug and tests)
+=======
+**[2026-03-22]** Prompt experiment runners/tests should accept “replacement already present” as a valid already-landed state — when baseline prompt text absorbs a prior cleanup edit, strict “find anchor must exist” checks create false CI failures even though the manifest is semantically aligned. Treat either the original anchor or the replacement text as acceptable, and have apply logic no-op cleanly when the replacement is already present.
+
+>>>>>>> 628c09c (fix scroll bug and tests)
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

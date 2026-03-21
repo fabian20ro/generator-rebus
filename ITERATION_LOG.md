@@ -148,6 +148,7 @@
 **Happened:** Patched `generator/assessment/prepare_dataset.py` so the default builder now uses a checked-in curated tier map (`30 low / 25 medium / 15 high`) and still refreshes DEX text through the live provider; added tests for exact curated membership and missing-word failure. Regenerated `generator/assessment/dataset.json`, which now contains the requested 70 words exactly. Reworked `scripts/run_experiments.py` to support multi-file experiments with atomic edit application, manifest validation, joined file descriptions, and a repo-root `sys.path` bootstrap so `python3 scripts/run_experiments.py --dry-run` works from the repo root. Replaced the old removal-heavy manifest with the new ordered campaign: 12 cleanup experiments, 24 verify-example refreshes, 12 rewrite anti-distractor edits, 12 definition examples/counterexamples, 12 rate-calibration edits, 12 paired verify bundles, 8 paired definition+rewrite bundles, 4 paired definition+rate bundles, and 4 three-file confirmatory bundles. Added a regression test that asserts every experiment anchor exists in the current prompt files so prompt drift cannot silently turn parts of the campaign into skips.
 **Verification:** `python3 -m py_compile generator/assessment/prepare_dataset.py scripts/run_experiments.py`; `python3 -m pytest tests/test_prepare_dataset.py tests/test_run_experiments.py -q` (`11 passed`); `python3 -m generator.assessment.prepare_dataset`; `python3 scripts/run_experiments.py --dry-run`.
 **Promoted:** yes — see LESSONS_LEARNED entry on prompt campaign manifests needing anchor-existence tests.
+<<<<<<< HEAD
 
 ### [2026-03-21] Implement pilot-first benchmark workflow around baseline_results_20260321
 
@@ -156,3 +157,20 @@
 **Outcome:** success
 **Insight:** benchmark policy code should store ranges and decision rules, but incumbent scores belong in the results ledger; per-word stability policy needs assessment JSON, not TSV rows alone
 **Promoted:** yes — see LESSONS_LEARNED entry on sourcing benchmark incumbents from `results.tsv`
+||||||| parent of 628c09c (fix scroll bug and tests)
+=======
+
+## 2026-03-22 — Fix mobile rebus scroll-jump and pen-mode clarity
+**Context:** user reported that tapping a grid square on phone scrolled the page down toward the clue/definition area, making entry awkward; pen mode was also unclear and its on/off state too implicit.
+**Happened:** Audited the frontend rebus flow in `frontend/src/main.ts`, `frontend/src/components/clue-panel.ts`, `frontend/src/components/grid-renderer.ts`, and the toolbar markup/styles. Found the main mobile jump source: every active-clue update called `scrollIntoView()` on the active clue item, which on stacked mobile layout scrolled the whole page to the clue list below the grid. Fixed that by auto-scrolling only when `.clues-container` is itself scrollable. Hardened cell focus with `focus({ preventScroll: true })` fallback to plain `focus()`. Replaced the icon-only pencil button with explicit `Creion` + `Pornit/Oprit` state, added `aria-pressed`, a distinct off-state color, and centralized button rendering in `main.ts`. Added `frontend/src/components/pencil-help.ts` with a one-time modal explainer persisted via `localStorage` (`rebus_pencil_help_seen`) plus in-memory fallback for storage failures. Styled the new helper modal and updated toolbar/button CSS. Verified with `npm run build`. Tried a Playwright mobile sanity pass, but the app browser integration is configured for Chrome and local installation required sudo, so browser automation could not be completed in-session.
+**Outcome:** success
+**Insight:** mobile crossword UIs cannot treat clue auto-scroll and cell focus as harmless niceties; in stacked layouts they directly fight the primary input task unless scroll is constrained to an internal clue pane
+**Promoted:** yes — see LESSONS_LEARNED "Auto-scrolling the active clue must be gated by a dedicated clue scroll container"
+
+## 2026-03-22 — Harden prompt-manifest anchor checks against already-landed replacements
+**Context:** user reported a GitHub Actions failure in `tests/test_run_experiments.py::test_all_manifest_edit_anchors_exist_in_current_prompts`; CI showed `exp001` failing because `user/verify.md` already contained the shortened replacement line instead of the old longer anchor text.
+**Happened:** Audited `scripts/run_experiments.py`, `tests/test_run_experiments.py`, and the live prompt files. Local prompt state still had the old anchor, but the failing CI snapshot matched the replacement text, so the brittle part was the invariant, not only the specific manifest entry. Updated `apply_experiment()` to treat `edit.replace` already being present as a clean skip even when `edit.find` is absent. Updated the anchor-regression test to accept either the current `find` anchor or the already-landed replacement text, and added a focused unit test covering the skip-on-replacement-present case with a temporary prompt directory. Verified with `python3 -m pytest tests/test_run_experiments.py -q`, `python3 -m pytest tests/test_verify.py -q`, and full `python3 -m pytest tests/ -q` (`353 passed`).
+**Outcome:** success
+**Insight:** manifest drift checks should enforce semantic applicability, not literal historical wording only; otherwise harmless baseline prompt cleanups become false-negative CI failures
+**Promoted:** yes — see LESSONS_LEARNED "Prompt experiment runners/tests should accept replacement already present as a valid already-landed state"
+>>>>>>> 628c09c (fix scroll bug and tests)

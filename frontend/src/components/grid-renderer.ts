@@ -342,6 +342,10 @@ export function focusCell(
 ): void {
   const ref = cellRefs.get(`${row},${col}`);
   if (ref) {
-    ref.input.focus();
+    try {
+      ref.input.focus({ preventScroll: true });
+    } catch {
+      ref.input.focus();
+    }
   }
 }

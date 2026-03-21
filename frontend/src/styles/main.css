@@ -230,3 +230,29 @@ header h1 {
 .tutorial-btn {
   min-width: 100px;
 }
+
+.pencil-help {
+  max-width: 430px;
+  width: min(92vw, 430px);
+  text-align: left;
+}
+
+.pencil-help__title {
+  color: var(--accent);
+}
+
+.pencil-help__description {
+  margin-bottom: 0.9rem;
+  color: #555;
+  line-height: 1.5;
+}
+
+.pencil-help__list {
+  margin: 0 0 1.25rem 1.2rem;
+  color: #444;
+  line-height: 1.5;
+}
+
+.pencil-help__actions {
+  justify-content: flex-end;
+}

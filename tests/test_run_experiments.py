@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -89,7 +90,40 @@ class RunExperimentsTests(unittest.TestCase):
             for edit in exp.edits:
                 prompt_path = mod.PROMPTS_DIR / edit.file
                 content = prompt_path.read_text(encoding="utf-8")
-                self.assertIn(edit.find, content, msg=f"{exp.name} missing anchor in {edit.file}")
+                self.assertTrue(
+                    edit.find in content or (edit.replace and edit.replace in content),
+                    msg=f"{exp.name} missing anchor/replacement in {edit.file}",
+                )
+
+    def test_apply_experiment_skips_when_replacement_already_present(self):
+        mod = _load_run_experiments_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            prompts_dir = Path(temp_dir)
+            (prompts_dir / "user").mkdir(parents=True)
+            target = prompts_dir / "user" / "verify.md"
+            target.write_text("Excluzi orice variantă care nu are exact {answer_length} litere.\n", encoding="utf-8")
+
+            original_prompts_dir = mod.PROMPTS_DIR
+            mod.PROMPTS_DIR = prompts_dir
+            try:
+                applied = mod.apply_experiment(
+                    mod.Experiment(
+                        name="exp001",
+                        desc="shorten verify user counting sentence",
+                        edits=[
+                            mod.PromptEdit(
+                                file="user/verify.md",
+                                find="Numără literele fiecărei variante înainte de a răspunde. Dacă nu are exact {answer_length} litere, nu o include.",
+                                replace="Excluzi orice variantă care nu are exact {answer_length} litere.",
+                            )
+                        ],
+                    )
+                )
+            finally:
+                mod.PROMPTS_DIR = original_prompts_dir
+
+        self.assertFalse(applied)
 
     def test_protected_regression_detects_high_tier_drop(self):
         mod = _load_run_experiments_module()

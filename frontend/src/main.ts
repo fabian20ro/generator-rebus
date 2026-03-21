@@ -56,6 +56,7 @@ import { formatTime } from "./utils/format-time";
 import { debounce } from "./utils/debounce";
 import { UndoStack } from "./utils/undo-stack";
 import { showTutorialIfNeeded } from "./components/tutorial";
+import { showPencilHelpIfNeeded } from "./components/pencil-help";
 import confetti from "canvas-confetti";
 
 // --- DOM elements ---
@@ -82,6 +83,7 @@ const hintWordCostEl = document.getElementById("hint-word-cost")!;
 const completionDetails = document.getElementById("completion-details")!;
 const navTabs = document.getElementById("nav-tabs")!;
 const btnPencil = document.getElementById("btn-pencil")!;
+const btnPencilState = btnPencil.querySelector(".btn-pencil__state")!;
 
 // --- State ---
 let gridState: GridState | null = null;
@@ -129,6 +131,15 @@ function updateHintCosts(): void {
   checkCostEl.textContent = `${CHECK_COST} pts`;
   hintLetterCostEl.textContent = `${hintLetterCost(currentDifficulty)} pts`;
   hintWordCostEl.textContent = `${hintWordCost(currentDifficulty)} pts`;
+}
+
+function renderPencilButton(): void {
+  btnPencil.classList.toggle("btn-pencil--active", pencilMode);
+  btnPencil.setAttribute("aria-pressed", String(pencilMode));
+  btnPencilState.textContent = pencilMode ? "Pornit" : "Oprit";
+  btnPencil.title = pencilMode
+    ? "Literele noi vor fi marcate ca tentative"
+    : "Literele noi vor fi introduse ca răspuns final";
 }
 
 // --- Navigation ---
@@ -536,9 +547,21 @@ btnCloseModal.addEventListener("click", () => {
   completionModal.classList.add("hidden");
 });
 
-btnPencil.addEventListener("click", () => {
-  pencilMode = !pencilMode;
-  btnPencil.classList.toggle("btn-pencil--active", pencilMode);
+btnPencil.addEventListener("click", async () => {
+  if (!pencilMode) {
+    const shouldEnable = await showPencilHelpIfNeeded();
+    if (!shouldEnable) {
+      pencilMode = false;
+      renderPencilButton();
+      return;
+    }
+    pencilMode = true;
+    renderPencilButton();
+    return;
+  }
+
+  pencilMode = false;
+  renderPencilButton();
 });
 
 // --- PWA: check for service worker updates every 3 minutes ---
@@ -565,6 +588,7 @@ document.addEventListener("visibilitychange", () => {
 // --- Init ---
 applySavedFontSize();
 initFontScaler(document.querySelector(".clues-container")!);
+renderPencilButton();
 updatePointsDisplay();
 showPuzzleList();
 showTutorialIfNeeded();
