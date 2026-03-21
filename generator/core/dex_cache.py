@@ -1,9 +1,10 @@
 """Dexonline.ro definition provider with multi-layer caching.
 
-Architecture (3 cache layers):
+Architecture (4 cache layers):
   L1 — In-memory dict (per DexProvider instance, i.e. per puzzle run)
-  L2 — Supabase ``dex_definitions`` table (persistent, shared across projects)
-  L3 — dexonline.ro HTTP fetch (origin, with crawl-delay and exponential backoff)
+  L2 — Local disk cache (gitignored, shared across local runs)
+  L3 — Supabase ``dex_definitions`` table (persistent, shared across projects)
+  L4 — dexonline.ro HTTP fetch (origin, with crawl-delay and exponential backoff)
 
 Usage::
 
@@ -25,12 +26,14 @@ Designed for easy embedding in other projects (propozitii-nostime, word-rarity).
 
 from __future__ import annotations
 
+import json
 import re
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from pathlib import Path
 
 from .diacritics import normalize
 
@@ -45,6 +48,7 @@ _SB_BATCH_CHUNK_SIZE = 200
 _REDIRECT_TARGET_DEFS = 2
 _SHORT_DEF_WORD_LIMIT = 10
 _DEF_CONTAINER_TAGS = {"span", "div", "p", "b", "i", "a", "em", "strong", "sup", "sub"}
+_DEFAULT_LOCAL_CACHE_DIR = Path(".cache/dex_definitions")
 
 _REDIRECT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("diminutiv", re.compile(r"^diminutiv al lui\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
@@ -60,6 +64,23 @@ _REDIRECT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("acelasi", re.compile(r"^acela(?:ș|s)i lucru cu\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
     ("termen", re.compile(r"^(?:termen pentru|nume pentru)\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
 ]
+
+_ACTION_PATTERN = re.compile(
+    r"^ac(?:ț|t)iunea de a(?:\s+\(se\)|\s+se)?\s+([^\s;:,(=]+)",
+    re.IGNORECASE,
+)
+_FACT_PATTERN = re.compile(
+    r"^faptul de a(?:\s+\(se\)|\s+se)?\s+([^\s;:,(=]+)",
+    re.IGNORECASE,
+)
+_PROPERTY_PATTERN = re.compile(
+    r"^proprietatea de a fi\s+([^\s;:,(=]+)",
+    re.IGNORECASE,
+)
+_UNIT_FRACTION_PATTERN = re.compile(
+    r"^a\s+[^\s;:,(=]+\s+parte dintr-(?:un|o)\s+([^\s;:,(=]+)",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +159,50 @@ def _extract_redirect_target(definition: str) -> tuple[str, str] | None:
         target = target.strip(" \"'„”()[]")
         if target:
             return kind, target
+    return None
+
+
+def _clean_target_text(target: str) -> str:
+    cleaned = target.strip(" \"'„”()[]")
+    cleaned = re.sub(r"\([^)]*\)", "", cleaned).strip()
+    cleaned = re.split(r"\s*=\s*", cleaned, maxsplit=1)[0]
+    cleaned = re.split(r"\s*[/|]\s*", cleaned, maxsplit=1)[0]
+    cleaned = cleaned.strip(" \"'„”()[]")
+    cleaned = cleaned.rstrip(".,;:!?")
+    return cleaned
+
+
+def _extract_base_lookup(definition: str) -> tuple[str, str] | None:
+    text = definition.strip()
+    if not text:
+        return None
+
+    redirect = _extract_redirect_target(text)
+    if redirect is not None:
+        kind, target = redirect
+        cleaned = _clean_target_text(target)
+        if cleaned:
+            return kind, cleaned
+
+    for kind, pattern in (
+        ("actiune", _ACTION_PATTERN),
+        ("fapt", _FACT_PATTERN),
+        ("proprietate", _PROPERTY_PATTERN),
+        ("unitate", _UNIT_FRACTION_PATTERN),
+    ):
+        match = pattern.match(text)
+        if not match:
+            continue
+        cleaned = _clean_target_text(match.group(1))
+        if cleaned:
+            return kind, cleaned
+
+    words = re.findall(r"[A-Za-zĂÂÎȘŞȚŢăâîșşțţ-]+", text)
+    if len(words) == 1:
+        cleaned = _clean_target_text(words[0])
+        if cleaned:
+            return "sinonim_scurt", cleaned
+
     return None
 
 
@@ -238,20 +303,58 @@ def _sb_store(client, word: str, original: str, html: str, status: str) -> None:
         pass  # non-critical — word will be re-fetched next time
 
 
+def _local_cache_path(cache_dir: Path | None, normalized: str) -> Path | None:
+    if cache_dir is None:
+        return None
+    return cache_dir / f"{normalized}.json"
+
+
+def _local_lookup_single(cache_dir: Path | None, normalized: str) -> tuple[str | None, bool]:
+    path = _local_cache_path(cache_dir, normalized)
+    if path is None or not path.exists():
+        return None, False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None, False
+    if data.get("status") != "ok" or not data.get("html"):
+        return None, True
+    return data["html"], True
+
+
+def _local_store(cache_dir: Path | None, word: str, original: str, html: str, status: str) -> None:
+    path = _local_cache_path(cache_dir, word)
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "word": word,
+            "original": original,
+            "status": status,
+            "html": html,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # DexProvider — multi-layer cache
 # ---------------------------------------------------------------------------
 
 class DexProvider:
-    """Multi-layer definition cache: memory -> Supabase -> dexonline.ro.
+    """Multi-layer definition cache: memory -> local disk -> Supabase -> dexonline.ro.
 
     One instance per puzzle run. Thread-unsafe (single-threaded pipeline).
     """
 
     _last_fetch_time: float = 0.0  # class-level: shared across instances
 
-    def __init__(self, supabase_client=None):
+    def __init__(self, supabase_client=None, local_cache_dir: Path | str | None = _DEFAULT_LOCAL_CACHE_DIR):
         self._sb = supabase_client
+        self._local_cache_dir = Path(local_cache_dir) if local_cache_dir is not None else None
         # L1: normalized word -> formatted definitions string (or None for known-missing)
         self._memory: dict[str, str | None] = {}
         self._uncertain_short_definitions: list[dict[str, str]] = []
@@ -261,7 +364,7 @@ class DexProvider:
     def get(self, word: str, original: str = "") -> str | None:
         """Get formatted definitions, fetching from dexonline if needed.
 
-        Cache resolution order: L1 memory -> L2 Supabase -> L3 dexonline.
+        Cache resolution order: L1 memory -> L2 local disk -> L3 Supabase -> L4 dexonline.
         """
         norm = normalize(word)
 
@@ -269,26 +372,37 @@ class DexProvider:
         if norm in self._memory:
             return self._memory[norm]
 
-        # L2: Supabase
+        # L2: local disk cache
+        html, found = _local_lookup_single(self._local_cache_dir, norm)
+        if found:
+            return self._parse_and_cache(norm, html)
+
+        # L3: Supabase
         if self._sb is not None:
             html, found = _sb_lookup_single(self._sb, norm)
             if found:
+                _local_store(self._local_cache_dir, norm, original or word, html or "", "ok" if html else "not_found")
                 formatted = self._parse_and_cache(norm, html)
                 return formatted
 
-        # L3: dexonline.ro
+        # L4: dexonline.ro
         return self._fetch_and_store(norm, original or word)
 
     def lookup(self, word: str) -> str | None:
-        """Read-only lookup: L1 + L2 only, no HTTP fetch."""
+        """Read-only lookup: L1 + local disk + Supabase only, no HTTP fetch."""
         norm = normalize(word)
 
         if norm in self._memory:
             return self._memory[norm]
 
+        html, found = _local_lookup_single(self._local_cache_dir, norm)
+        if found:
+            return self._parse_and_cache(norm, html)
+
         if self._sb is not None:
             html, found = _sb_lookup_single(self._sb, norm)
             if found:
+                _local_store(self._local_cache_dir, norm, norm, html or "", "ok" if html else "not_found")
                 return self._parse_and_cache(norm, html)
 
         return None
@@ -303,8 +417,9 @@ class DexProvider:
         """Batch-load definitions for multiple words.
 
         1. Skips words already in L1.
-        2. Batch-queries L2 (Supabase) for the rest.
-        3. If fetch_missing=True, fetches L3 (dexonline) for words not in L2.
+        2. Checks L2 local disk cache for the rest.
+        3. Batch-queries L3 (Supabase) for the remaining words.
+        4. If fetch_missing=True, fetches L4 (dexonline) for the rest.
 
         Returns {normalized: formatted_defs} for words that have definitions.
         """
@@ -322,15 +437,32 @@ class DexProvider:
                 normalized_map[norm] = originals.get(w, w)
                 to_query.append(norm)
 
-        # L2 batch query
+        # L2 local disk cache
+        remaining: list[str] = []
+        for norm in to_query:
+            html, found = _local_lookup_single(self._local_cache_dir, norm)
+            if found:
+                self._parse_and_cache(norm, html)
+            else:
+                remaining.append(norm)
+        to_query = remaining
+
+        # L3 batch query
         if to_query and self._sb is not None:
             sb_results = _sb_lookup_batch(self._sb, to_query)
             for norm, html in sb_results.items():
+                _local_store(
+                    self._local_cache_dir,
+                    norm,
+                    normalized_map.get(norm, norm),
+                    html or "",
+                    "ok" if html else "not_found",
+                )
                 self._parse_and_cache(norm, html)
             # Remove found words from to_query
             to_query = [n for n in to_query if n not in sb_results]
 
-        # L3: fetch missing from dexonline one-by-one
+        # L4: fetch missing from dexonline one-by-one
         if fetch_missing and to_query:
             print(f"  DEX: fetching {len(to_query)} words from dexonline.ro...")
             for norm in to_query:
@@ -396,29 +528,39 @@ class DexProvider:
     def _expand_redirect_definitions(self, norm: str, defs: list[str]) -> list[str]:
         if not defs:
             return defs
-        expanded = list(defs)
-        if len(defs) != 1:
-            return expanded
-        direct = defs[0].strip()
-        if _definition_word_count(direct) >= _SHORT_DEF_WORD_LIMIT:
-            return expanded
-        redirect = _extract_redirect_target(direct)
-        if redirect is None:
-            self._remember_uncertain_short_definition(norm, direct)
-            return expanded
+        first_definition = defs[0].strip()
+        if _definition_word_count(first_definition) >= _SHORT_DEF_WORD_LIMIT:
+            return list(defs)
 
-        _, target = redirect
+        expansion = _extract_base_lookup(first_definition)
+        if expansion is None:
+            self._remember_uncertain_short_definition(norm, first_definition)
+            return list(defs)
+
+        _kind, target = expansion
+        expanded: list[str] = []
+        seen_expanded: set[str] = set()
+
+        labeled = f'Definiție directă DEX pentru „{norm}”: {first_definition}'
+        expanded.append(labeled)
+        seen_expanded.add(labeled)
+
         target_norm = normalize(target)
-        if not target_norm or target_norm == norm:
-            return expanded
+        if target_norm and target_norm != norm:
+            base_defs = self._lookup_plain_definitions(target_norm, target)
+            for base_def in base_defs[:_REDIRECT_TARGET_DEFS]:
+                labeled_base = f"Sens bază pentru „{target}”: {base_def}"
+                if labeled_base not in seen_expanded:
+                    expanded.append(labeled_base)
+                    seen_expanded.add(labeled_base)
 
-        base_defs = self._lookup_plain_definitions(target_norm, target)
-        if not base_defs:
-            return expanded
-
-        expanded = [f'Definiție directă DEX pentru „{norm}”: {direct}']
-        for base_def in base_defs[:_REDIRECT_TARGET_DEFS]:
-            expanded.append(f"Sens bază pentru „{target}”: {base_def}")
+        for index, definition in enumerate(defs):
+            text = definition.strip()
+            if index == 0:
+                continue
+            if text not in seen_expanded:
+                expanded.append(text)
+                seen_expanded.add(text)
         return expanded
 
     def _lookup_plain_definitions(self, norm: str, original: str) -> list[str]:
@@ -429,14 +571,19 @@ class DexProvider:
                 if line.startswith("- ")
             ]
 
-        html = None
-        found = False
+        html, found = _local_lookup_single(self._local_cache_dir, norm)
+        if found:
+            return parse_definitions_from_html(html or "")
+
         if self._sb is not None:
             html, found = _sb_lookup_single(self._sb, norm)
+            if found:
+                _local_store(self._local_cache_dir, norm, original, html or "", "ok" if html else "not_found")
         if not found:
             self._respect_crawl_delay()
             html, status = fetch_from_dexonline(original)
             DexProvider._last_fetch_time = time.monotonic()
+            _local_store(self._local_cache_dir, norm, original, html, status)
             if self._sb is not None:
                 _sb_store(self._sb, norm, original, html, status)
             if status != "ok":
@@ -461,14 +608,16 @@ class DexProvider:
                 time.sleep(remaining)
 
     def _fetch_and_store(self, norm: str, original: str) -> str | None:
-        """Fetch from dexonline, store in L2 and L1. Returns formatted or None."""
+        """Fetch from dexonline, store in local disk + Supabase + L1. Returns formatted or None."""
         self._respect_crawl_delay()
         html, status = fetch_from_dexonline(original)
         DexProvider._last_fetch_time = time.monotonic()
         now = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"    [DEX {now}] {original} -> {status}")
 
-        # Store in L2 (Supabase)
+        _local_store(self._local_cache_dir, norm, original, html, status)
+
+        # Store in L3 (Supabase)
         if self._sb is not None:
             _sb_store(self._sb, norm, original, html, status)
 

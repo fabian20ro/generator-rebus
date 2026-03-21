@@ -1,6 +1,9 @@
 """Tests for generator.core.dex_cache — DexProvider multi-layer cache."""
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, call
 
@@ -97,7 +100,7 @@ class FormatDefinitionsTests(unittest.TestCase):
 class DexProviderMemoryOnlyTests(unittest.TestCase):
     def setUp(self):
         DexProvider._last_fetch_time = 0.0  # reset class-level state
-        self.dex = DexProvider()  # no supabase client
+        self.dex = DexProvider(local_cache_dir=None)  # no supabase client
 
     def test_lookup_unknown_returns_none(self):
         self.assertIsNone(self.dex.lookup("NECUNOSCUT"))
@@ -192,7 +195,7 @@ class DexProviderSupabaseTests(unittest.TestCase):
     def test_get_hits_supabase_l2(self):
         html = '<span class="tree-def">Din Supabase.</span>'
         sb = _mock_supabase_with_rows([{"html": html, "status": "ok"}])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         result = dex.get("CASĂ", "casă")
         self.assertIn("Din Supabase.", result)
         sb.table.assert_called_with("dex_definitions")
@@ -200,7 +203,7 @@ class DexProviderSupabaseTests(unittest.TestCase):
     def test_get_caches_supabase_hit_in_l1(self):
         html = '<span class="tree-def">Definiție L2.</span>'
         sb = _mock_supabase_with_rows([{"html": html, "status": "ok"}])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         dex.get("TEST", "test")
         # Reset mock to verify second call doesn't hit supabase
         sb.reset_mock()
@@ -210,7 +213,7 @@ class DexProviderSupabaseTests(unittest.TestCase):
 
     def test_get_supabase_not_found_falls_through_to_l3(self):
         sb = _mock_supabase_with_rows([])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         with patch("generator.core.dex_cache.fetch_from_dexonline", return_value=("", "not_found")) as mock_fetch:
             result = dex.get("NOWORD", "noword")
         self.assertIsNone(result)
@@ -218,7 +221,7 @@ class DexProviderSupabaseTests(unittest.TestCase):
 
     def test_get_supabase_status_not_ok(self):
         sb = _mock_supabase_with_rows([{"html": "", "status": "not_found"}])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         # Should recognize it's in DB (found=True) but return None
         result = dex.lookup("MISSING")
         self.assertIsNone(result)
@@ -226,7 +229,7 @@ class DexProviderSupabaseTests(unittest.TestCase):
     def test_lookup_queries_supabase_no_http(self):
         html = '<span class="tree-def">Lookup only.</span>'
         sb = _mock_supabase_with_rows([{"html": html, "status": "ok"}])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         with patch("generator.core.dex_cache.fetch_from_dexonline") as mock_fetch:
             result = dex.lookup("WORD")
         self.assertIn("Lookup only.", result)
@@ -234,7 +237,7 @@ class DexProviderSupabaseTests(unittest.TestCase):
 
     def test_lookup_not_found_returns_none_no_http(self):
         sb = _mock_supabase_with_rows([])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         with patch("generator.core.dex_cache.fetch_from_dexonline") as mock_fetch:
             result = dex.lookup("WORD")
         self.assertIsNone(result)
@@ -243,14 +246,18 @@ class DexProviderSupabaseTests(unittest.TestCase):
     def test_supabase_exception_returns_none(self):
         sb = MagicMock()
         sb.table.return_value.select.side_effect = RuntimeError("connection error")
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         with patch("generator.core.dex_cache.fetch_from_dexonline", return_value=("", "not_found")):
             result = dex.lookup("WORD")
         self.assertIsNone(result)
 
     @patch("generator.core.dex_cache._sb_lookup_single")
     def test_redirect_definition_gets_one_hop_base_sense(self, mock_lookup):
-        html_redirect = '<span class="tree-def html">Diminutiv al lui <i>fir</i>.</span>'
+        html_redirect = (
+            '<span class="tree-def html">Diminutiv al lui <i>fir</i>.</span>'
+            '<span class="tree-def html">Din colțul buzei i se scurge pe bărbie un firișor de sînge.</span>'
+            '<span class="tree-def html">Fir + -ișor.</span>'
+        )
         html_base = (
             '<span class="tree-def html">'
             'Fiecare dintre elementele lungi și subțiri ale unei fibre textile.'
@@ -265,23 +272,169 @@ class DexProviderSupabaseTests(unittest.TestCase):
             return None, False
 
         mock_lookup.side_effect = lookup_side_effect
-        dex = DexProvider(MagicMock())
+        dex = DexProvider(MagicMock(), local_cache_dir=None)
         result = dex.get("FIRISOR", "firișor")
         self.assertIn("Definiție directă DEX pentru „FIRISOR”: Diminutiv al lui fir.", result)
         self.assertIn("Sens bază pentru „fir”", result)
         self.assertIn("elementele lungi și subțiri", result)
+        self.assertIn("Fir + -ișor.", result)
 
     def test_uncertain_short_definition_is_logged(self):
         sb = _mock_supabase_with_rows([
             {"html": '<span class="tree-def html">Mic obiect decorativ.</span>', "status": "ok"}
         ])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         result = dex.get("BIBEL", "bibel")
         self.assertIn("Mic obiect decorativ.", result)
         self.assertEqual(
             dex.uncertain_short_definitions(),
             [{"word": "BIBEL", "definition": "Mic obiect decorativ."}],
         )
+
+    @patch("generator.core.dex_cache._sb_lookup_single")
+    def test_single_word_gloss_gets_base_sense(self, mock_lookup):
+        html_gloss = '<span class="tree-def html">Corabie.</span>'
+        html_base = '<span class="tree-def html">Navă mare pentru transport pe apă.</span>'
+
+        def lookup_side_effect(_client, normalized):
+            if normalized == "ARCA":
+                return html_gloss, True
+            if normalized == "CORABIE":
+                return html_base, True
+            return None, False
+
+        mock_lookup.side_effect = lookup_side_effect
+        dex = DexProvider(MagicMock(), local_cache_dir=None)
+        result = dex.get("ARCA", "arcă")
+        self.assertIn("Definiție directă DEX pentru „ARCA”: Corabie.", result)
+        self.assertIn("Sens bază pentru „Corabie”", result)
+        self.assertIn("Navă mare", result)
+
+    @patch("generator.core.dex_cache._sb_lookup_single")
+    def test_action_pattern_gets_base_sense(self, mock_lookup):
+        html_action = '<span class="tree-def html">Acțiunea de a (se) abona.</span>'
+        html_base = '<span class="tree-def html">A se înscrie pentru a primi periodic o publicație sau un serviciu.</span>'
+
+        def lookup_side_effect(_client, normalized):
+            if normalized == "ABONARE":
+                return html_action, True
+            if normalized == "ABONA":
+                return html_base, True
+            return None, False
+
+        mock_lookup.side_effect = lookup_side_effect
+        dex = DexProvider(MagicMock(), local_cache_dir=None)
+        result = dex.get("ABONARE", "abonare")
+        self.assertIn("Definiție directă DEX pentru „ABONARE”: Acțiunea de a (se) abona.", result)
+        self.assertIn("Sens bază pentru „abona”", result)
+        self.assertIn("A se înscrie", result)
+
+    @patch("generator.core.dex_cache._sb_lookup_single")
+    def test_fact_pattern_gets_base_sense(self, mock_lookup):
+        html_fact = '<span class="tree-def html">Faptul de a se milostivi.</span>'
+        html_base = '<span class="tree-def html">A arăta milă, a se îndura.</span>'
+
+        def lookup_side_effect(_client, normalized):
+            if normalized == "MILOSTIVIRE":
+                return html_fact, True
+            if normalized == "MILOSTIVI":
+                return html_base, True
+            return None, False
+
+        mock_lookup.side_effect = lookup_side_effect
+        dex = DexProvider(MagicMock(), local_cache_dir=None)
+        result = dex.get("MILOSTIVIRE", "milostivire")
+        self.assertIn("Definiție directă DEX pentru „MILOSTIVIRE”: Faptul de a se milostivi.", result)
+        self.assertIn("Sens bază pentru „milostivi”", result)
+        self.assertIn("A arăta milă", result)
+
+    @patch("generator.core.dex_cache._sb_lookup_single")
+    def test_property_pattern_gets_base_sense(self, mock_lookup):
+        html_property = '<span class="tree-def html">Proprietatea de a fi acru; gust acru, înțepător.</span>'
+        html_base = '<span class="tree-def html">Care are gust înțepător, specific oțetului.</span>'
+
+        def lookup_side_effect(_client, normalized):
+            if normalized == "ACREALA":
+                return html_property, True
+            if normalized == "ACRU":
+                return html_base, True
+            return None, False
+
+        mock_lookup.side_effect = lookup_side_effect
+        dex = DexProvider(MagicMock(), local_cache_dir=None)
+        result = dex.get("ACREALA", "acreală")
+        self.assertIn("Definiție directă DEX pentru „ACREALA”: Proprietatea de a fi acru; gust acru, înțepător.", result)
+        self.assertIn("Sens bază pentru „acru”", result)
+        self.assertIn("gust înțepător", result)
+
+    @patch("generator.core.dex_cache._sb_lookup_single")
+    def test_unit_fraction_pattern_gets_base_sense(self, mock_lookup):
+        html_fraction = '<span class="tree-def html">A zecea parte dintr-un henry.</span>'
+        html_base = '<span class="tree-def html">Unitate de măsură a inductanței electrice.</span>'
+
+        def lookup_side_effect(_client, normalized):
+            if normalized == "DECIHENRI":
+                return html_fraction, True
+            if normalized == "HENRY":
+                return html_base, True
+            return None, False
+
+        mock_lookup.side_effect = lookup_side_effect
+        dex = DexProvider(MagicMock(), local_cache_dir=None)
+        result = dex.get("DECIHENRI", "decihenri")
+        self.assertIn("Definiție directă DEX pentru „DECIHENRI”: A zecea parte dintr-un henry.", result)
+        self.assertIn("Sens bază pentru „henry”", result)
+        self.assertIn("inductanței electrice", result)
+
+
+class DexProviderLocalDiskCacheTests(unittest.TestCase):
+    def test_get_hits_local_disk_before_supabase(self):
+        html = '<span class="tree-def">Din cache local.</span>'
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "CASA.json").write_text(json.dumps({
+                "word": "CASA",
+                "original": "casă",
+                "status": "ok",
+                "html": html,
+            }, ensure_ascii=False), encoding="utf-8")
+            sb = MagicMock()
+            dex = DexProvider(sb, local_cache_dir=temp_dir)
+            with patch("generator.core.dex_cache.fetch_from_dexonline") as mock_fetch:
+                result = dex.get("CASĂ", "casă")
+        self.assertIn("Din cache local.", result)
+        sb.table.assert_not_called()
+        mock_fetch.assert_not_called()
+
+    def test_lookup_uses_local_negative_cache(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "CASA.json").write_text(json.dumps({
+                "word": "CASA",
+                "original": "casă",
+                "status": "not_found",
+                "html": "",
+            }, ensure_ascii=False), encoding="utf-8")
+            sb = MagicMock()
+            dex = DexProvider(sb, local_cache_dir=temp_dir)
+            with patch("generator.core.dex_cache.fetch_from_dexonline") as mock_fetch:
+                result = dex.lookup("CASĂ")
+        self.assertIsNone(result)
+        sb.table.assert_not_called()
+        mock_fetch.assert_not_called()
+
+    def test_prefetch_uses_local_disk_before_supabase(self):
+        html = '<span class="tree-def">Local batch.</span>'
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "CASA.json").write_text(json.dumps({
+                "word": "CASA",
+                "original": "casă",
+                "status": "ok",
+                "html": html,
+            }, ensure_ascii=False), encoding="utf-8")
+            sb = MagicMock()
+            dex = DexProvider(sb, local_cache_dir=temp_dir)
+            result = dex.prefetch(["CASA"], fetch_missing=False)
+        self.assertIn("Local batch.", result["CASA"])
+        sb.table.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +448,7 @@ class DexProviderFetchStoreTests(unittest.TestCase):
     def test_get_stores_in_supabase_after_fetch(self):
         sb = _mock_supabase_with_rows([])  # nothing cached
         sb.table.return_value.upsert.return_value.execute.return_value = SimpleNamespace(data=[])
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         html = '<span class="tree-def">From dexonline.</span>'
         with patch("generator.core.dex_cache.fetch_from_dexonline", return_value=(html, "ok")):
             result = dex.get("CASA", "casă")
@@ -305,6 +458,18 @@ class DexProviderFetchStoreTests(unittest.TestCase):
         upsert_arg = sb.table.return_value.upsert.call_args[0][0]
         self.assertEqual(upsert_arg["word"], "CASA")
         self.assertEqual(upsert_arg["status"], "ok")
+
+    def test_get_stores_in_local_disk_after_fetch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dex = DexProvider(local_cache_dir=temp_dir)
+            html = '<span class="tree-def">From dexonline.</span>'
+            with patch("generator.core.dex_cache.fetch_from_dexonline", return_value=(html, "ok")):
+                result = dex.get("CASA", "casă")
+            cached = json.loads((Path(temp_dir) / "CASA.json").read_text(encoding="utf-8"))
+        self.assertIn("From dexonline.", result)
+        self.assertEqual(cached["status"], "ok")
+        self.assertEqual(cached["original"], "casă")
+        self.assertIn("tree-def", cached["html"])
 
     @patch("generator.core.dex_cache.time.sleep")
     @patch("generator.core.dex_cache.time.monotonic")
@@ -318,7 +483,7 @@ class DexProviderFetchStoreTests(unittest.TestCase):
             1.5,    # 2nd _fetch_and_store: _respect_crawl_delay checks elapsed (0.5s < 3s → sleep)
             4.0,    # 2nd _fetch_and_store: record _last_fetch_time
         ]
-        dex = DexProvider()
+        dex = DexProvider(local_cache_dir=None)
         with patch("generator.core.dex_cache.fetch_from_dexonline", return_value=("", "not_found")):
             dex.get("WORD1", "word1")
             dex.get("WORD2", "word2")
@@ -472,7 +637,8 @@ class LookupBatchTests(unittest.TestCase):
             {"word": "CASA", "html": '<span class="tree-def">O locuință.</span>', "status": "ok"},
         ]
         sb = _mock_supabase_with_rows(rows)
-        result = lookup_batch(sb, ["CASA"])
+        with patch("generator.core.dex_cache._DEFAULT_LOCAL_CACHE_DIR", None):
+            result = lookup_batch(sb, ["CASA"])
         self.assertIn("CASA", result)
         self.assertIn("O locuință.", result["CASA"])
 
@@ -493,7 +659,7 @@ class DexProviderPrefetchBatchTests(unittest.TestCase):
             {"word": "MARE", "html": '<span class="tree-def">Apă multă.</span>', "status": "ok"},
         ]
         sb = _mock_supabase_with_rows(rows)
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         result = dex.prefetch(["CASA", "MARE"], fetch_missing=False)
         self.assertEqual(len(result), 2)
         self.assertIn("Locuință.", result["CASA"])
@@ -504,7 +670,7 @@ class DexProviderPrefetchBatchTests(unittest.TestCase):
             {"word": "CASA", "html": '<span class="tree-def">Def.</span>', "status": "ok"},
         ]
         sb = _mock_supabase_with_rows(rows)
-        dex = DexProvider(sb)
+        dex = DexProvider(sb, local_cache_dir=None)
         result = dex.prefetch(["CASA", "CASA", "CASA"], fetch_missing=False)
         self.assertEqual(len(result), 1)
 

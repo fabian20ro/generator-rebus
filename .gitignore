@@ -7,6 +7,7 @@ build/
 .venv/
 venv/
 logs/
+.cache/
 
 # Generator output
 generator/output/

@@ -79,6 +79,22 @@
 
 <!-- new entries above this line, most recent first -->
 
+### [2026-03-21] Expand DEX semantic-base extraction to short first-definition patterns
+
+**Context:** after reviewing all 540 entries whose first parsed DEX definition has under 10 words, the next task was to extend semantic context beyond pure redirect formulas like `Diminutiv al lui X`.
+**Happened:** Added short-first-definition semantic expansion patterns in `generator/core/dex_cache.py` for five approved families: one-word synonym glosses (`Corabie.`), `Acțiunea de a (se) X`, `Faptul de a (se) X`, `Proprietatea de a fi X`, and generalized unit fractions `A <ordinal> parte dintr-un/dintr-o X`. Tightened target cleanup so extracted base lexemes drop trailing punctuation and parenthetical sense markers. Also narrowed expansion triggering to the first parsed DEX definition, which avoids false positives from later examples/citations. Added targeted unit tests for each family plus the generalized `dintr-un/dintr-o` fraction case.
+**Outcome:** success
+**Insight:** the reliable trigger for this kind of semantic expansion is not “any short definition anywhere in the entry”, but “the first parsed DEX definition is structurally short and points to a base lexeme”
+**Promoted:** yes — see LESSONS_LEARNED "Short first-definition DEX patterns are worth semantic expansion when they expose a clear base lexeme"
+
+### [2026-03-21] Add gitignored local DEX cache layer before Supabase
+
+**Context:** user wanted the code to stop extracting from Supabase on every run and to use a gitignored local cache folder as part of the normal workflow.
+**Happened:** Extended `DexProvider` from a 3-layer cache to a 4-layer cache: memory -> local disk -> Supabase -> dexonline. Added a gitignored default cache directory `.cache/dex_definitions`, with per-word JSON entries storing `status`, `html`, `original`, and `fetched_at`. Wired the local layer into `get()`, `lookup()`, `prefetch()`, redirect dereference lookups, and dexonline fetch storage. Stored negative results locally too (`not_found`) so repeated misses avoid Supabase and HTTP. Added targeted tests for local-disk hit priority, local negative cache, prefetch using local cache, and local persistence after fetch.
+**Outcome:** success
+**Insight:** local-disk caching has to sit in front of Supabase for both normal lookups and redirect dereference lookups; otherwise the “main” path gets faster but the redirect expansion path still chatters against the remote store
+**Promoted:** yes — see LESSONS_LEARNED "DEX cache flow should include a gitignored local disk layer before Supabase"
+
 ### [2026-03-20] Fix DEX redirect parsing and one-hop semantic expansion
 
 **Context:** `FIRISOR` had a Supabase `dex_definitions` row, but no DEX context reached prompts; the stored HTML contained `Diminutiv al lui <i>fir</i>.`, which both exposed a parser bug and showed that redirect-style definitions are semantically too thin on their own.

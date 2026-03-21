@@ -39,6 +39,10 @@
 
 **[2026-03-20]** DEX redirect-style definitions need both parser robustness and one-hop expansion — dexonline often returns entries like `Diminutiv al lui fir.` or `Vezi X.`; inline HTML tags can make a naive parser drop them entirely, and even parsed correctly they are too weak for prompt context unless the base lexeme's sense is also injected. Keep the direct definition, add at most one hop of base-sense context, and flag short unresolved cases separately.
 
+**[2026-03-21]** DEX cache flow should include a gitignored local disk layer before Supabase — repeated local runs should not hit Supabase for the same words, and redirect dereference lookups should reuse the same local cache too. Store both `ok` and `not_found` results locally so `get()`, `lookup()`, and `prefetch()` all stay cheap after the first run.
+
+**[2026-03-21]** Short first-definition DEX patterns are worth semantic expansion when they expose a clear base lexeme — beyond `Diminutiv al lui X`, useful families are `Acțiunea de a (se) X`, `Faptul de a (se) X`, `Proprietatea de a fi X`, `A <ordinal> parte dintr-un/dintr-o X`, and one-word synonym glosses like `Corabie.`. Use the first parsed definition as the trigger, strip trailing punctuation/parenthetical sense markers from the target, then inject the base lexeme's sense alongside the original definition.
+
 **[2026-03-20]** LM Studio unload calls must use loaded `instance_id`, not model key — `/api/v1/models` exposes loaded instances separately from model keys, and switching by key can silently leave the old model loaded. In two-model workflows, always resolve the active instance id before unloading.
 
 **[2026-03-20]** “Publishable” needs an exact-solve floor, not only “no blockers” — otherwise puzzles with weak multistep pass rates can still ship just because every clue cleared loose score thresholds. Gate publication on both blocker-free state and a minimum verification pass rate.
