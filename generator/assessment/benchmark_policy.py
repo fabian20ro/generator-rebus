@@ -42,6 +42,8 @@ DIRECTION_FOLLOWUP_PRESETS = {
     "rewrite-led": ("rewrite-anti-distractor", "definition-rewrite-bundles"),
     "rate-led": ("rate-exactness-calibration", "definition-rate-bundles"),
 }
+CONTROL_WORD_WATCH = ("ADAPOST", "ETAN")
+CONTROL_WORD_REPEAT_FAIL_ACTION = "demote-or-replace"
 
 
 def load_latest_kept_result(results_path: Path = WORKING_RESULTS_PATH) -> dict[str, str]:

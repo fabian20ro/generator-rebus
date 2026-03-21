@@ -3,6 +3,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from generator.assessment.benchmark_policy import (
+    CONTROL_WORD_REPEAT_FAIL_ACTION,
+    CONTROL_WORD_WATCH,
     DIRECTION_FOLLOWUP_PRESETS,
     EXPERIMENT_BLOCK_RANGES,
     FOLLOWUP_PRIORITY,
@@ -86,6 +88,10 @@ class BenchmarkPolicyTests(unittest.TestCase):
             },
             DIRECTION_FOLLOWUP_PRESETS,
         )
+
+    def test_control_watch_policy_tracks_requested_words(self):
+        self.assertEqual(("ADAPOST", "ETAN"), CONTROL_WORD_WATCH)
+        self.assertEqual("demote-or-replace", CONTROL_WORD_REPEAT_FAIL_ACTION)
 
 
 if __name__ == "__main__":

@@ -195,6 +195,60 @@ class RunExperimentsTests(unittest.TestCase):
             ),
         )
 
+    def test_summarize_control_watch_marks_repeat_failures(self):
+        mod = _load_run_experiments_module()
+
+        summary = mod.summarize_control_watch(
+            {
+                "candidates": [
+                    {"word": "ADAPOST", "verified": False},
+                    {"word": "ETAN", "verified": True},
+                ]
+            },
+            {"ADAPOST": False, "ETAN": False},
+        )
+
+        self.assertEqual(
+            {
+                "words": {
+                    "ADAPOST": {"verified": False, "repeated_fail": True},
+                    "ETAN": {"verified": True, "repeated_fail": False},
+                },
+                "demote-or-replace": ["ADAPOST"],
+            },
+            summary,
+        )
+
+    def test_summarize_log_control_watch_uses_logged_summaries(self):
+        mod = _load_run_experiments_module()
+
+        latest, repeated = mod.summarize_log_control_watch(
+            [
+                {
+                    "name": "exp001",
+                    "control_watch": {
+                        "words": {
+                            "ADAPOST": {"verified": False, "repeated_fail": True},
+                            "ETAN": {"verified": False, "repeated_fail": True},
+                        },
+                        "demote-or-replace": ["ADAPOST", "ETAN"],
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(["ADAPOST", "ETAN"], repeated)
+        self.assertEqual(
+            {
+                "words": {
+                    "ADAPOST": {"verified": False, "repeated_fail": True},
+                    "ETAN": {"verified": False, "repeated_fail": True},
+                },
+                "demote-or-replace": ["ADAPOST", "ETAN"],
+            },
+            latest,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

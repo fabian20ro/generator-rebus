@@ -26,6 +26,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from generator.assessment.benchmark_policy import (
+    CONTROL_WORD_REPEAT_FAIL_ACTION,
+    CONTROL_WORD_WATCH,
     DIRECTION_FOLLOWUP_PRESETS,
     EXPERIMENT_BLOCK_RANGES,
     FOLLOWUP_PRIORITY,
@@ -979,9 +981,87 @@ def recommend_next_presets(log: list[dict]) -> list[str]:
     return list(FOLLOWUP_PRIORITY[:3])
 
 
-def print_log_summary(log: list[dict]) -> None:
+def load_assessment_payload(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_control_baseline(path: Path | None) -> dict[str, bool] | None:
+    if path is None:
+        return None
+    return {
+        word: status["verified"]
+        for word, status in summarize_control_watch(load_assessment_payload(path))["words"].items()
+    }
+
+
+def summarize_control_watch(
+    assessment_payload: dict,
+    baseline_status: dict[str, bool] | None = None,
+) -> dict[str, object]:
+    candidate_status = {
+        row.get("word"): bool(row.get("verified"))
+        for row in assessment_payload.get("candidates", [])
+        if row.get("word")
+    }
+    words = {}
+    repeat_failures = []
+    for word in CONTROL_WORD_WATCH:
+        verified = bool(candidate_status.get(word, False))
+        repeated_fail = baseline_status is not None and baseline_status.get(word) is False and not verified
+        words[word] = {
+            "verified": verified,
+            "repeated_fail": repeated_fail,
+        }
+        if repeated_fail:
+            repeat_failures.append(word)
+    return {
+        "words": words,
+        CONTROL_WORD_REPEAT_FAIL_ACTION: repeat_failures,
+    }
+
+
+def summarize_log_control_watch(
+    log: list[dict],
+    baseline_status: dict[str, bool] | None = None,
+) -> tuple[dict[str, object] | None, list[str]]:
+    latest_summary = None
+    repeated_failures = set()
+
+    for entry in log:
+        summary = entry.get("control_watch")
+        if summary is None:
+            assessment_json = entry.get("assessment_json")
+            if not assessment_json:
+                continue
+            assessment_path = Path(assessment_json)
+            if not assessment_path.exists():
+                continue
+            summary = summarize_control_watch(load_assessment_payload(assessment_path), baseline_status)
+        latest_summary = summary
+        repeated_failures.update(summary.get(CONTROL_WORD_REPEAT_FAIL_ACTION, []))
+
+    return latest_summary, sorted(repeated_failures)
+
+
+def print_control_watch_summary(summary: dict[str, object]) -> None:
+    words = summary["words"]
+    status_text = ", ".join(
+        f"{word}={'pass' if words[word]['verified'] else 'fail'}"
+        for word in CONTROL_WORD_WATCH
+    )
+    print(f"  control watch: {status_text}")
+    repeated = summary.get(CONTROL_WORD_REPEAT_FAIL_ACTION, [])
+    if repeated:
+        print(f"  {CONTROL_WORD_REPEAT_FAIL_ACTION}: {', '.join(repeated)}")
+
+
+def print_log_summary(
+    log: list[dict],
+    baseline_status: dict[str, bool] | None = None,
+) -> None:
     cleanup = summarize_cleanup_block(log)
     direction = classify_prompt_direction(log)
+    latest_control, repeated_failures = summarize_log_control_watch(log, baseline_status)
     print("Pilot summary:")
     print(
         "  cleanup:"
@@ -992,6 +1072,10 @@ def print_log_summary(log: list[dict]) -> None:
     )
     print(f"  direction: {direction}")
     print(f"  next presets: {', '.join(recommend_next_presets(log))}")
+    if latest_control is not None:
+        print_control_watch_summary(latest_control)
+    if repeated_failures:
+        print(f"  action: {CONTROL_WORD_REPEAT_FAIL_ACTION} {', '.join(repeated_failures)}")
 
 
 def resolve_experiment_window(
@@ -1185,6 +1269,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run prompt experiments")
     parser.add_argument("--summarize-log", type=Path,
                         help="Read an experiment log JSON and print next-step guidance")
+    parser.add_argument("--control-baseline-json", type=Path,
+                        help="Assessment JSON used as the baseline for watched control words")
     parser.add_argument("--preset", choices=sorted(EXPERIMENT_PRESETS), default="full",
                         help="Named experiment slice to run")
     parser.add_argument("--start-from", type=int,
@@ -1215,8 +1301,9 @@ def main() -> None:
                         help="Branch used by --git-live-push (default: current branch)")
     try:
         args = parser.parse_args()
+        control_baseline_status = load_control_baseline(args.control_baseline_json)
         if args.summarize_log is not None:
-            print_log_summary(load_log(args.summarize_log))
+            print_log_summary(load_log(args.summarize_log), control_baseline_status)
             return
         start_from, end_at = resolve_experiment_window(
             start_from=args.start_from,
@@ -1374,6 +1461,8 @@ def main() -> None:
                 continue
 
             composite = float(result["composite"])
+            control_watch = summarize_control_watch(result, control_baseline_status)
+            print_control_watch_summary(control_watch)
             status, delta, has_regression, pass_regression = classify_experiment_result(
                 result,
                 best_result_summary,
@@ -1408,6 +1497,7 @@ def main() -> None:
                 "delta": round(delta, 1),
                 "protected_regression": has_regression,
                 "pass_regression": pass_regression,
+                "control_watch": control_watch,
             }
             log.append(entry)
             save_log(args.log_path, log)
