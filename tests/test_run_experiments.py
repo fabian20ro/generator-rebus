@@ -119,6 +119,29 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertFalse(has_regression)
         self.assertFalse(pass_regression)
 
+    def test_resolve_experiment_window_defaults_to_full_manifest(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual((1, 100), mod.resolve_experiment_window(
+            start_from=None,
+            end_at=None,
+            preset="full",
+        ))
+
+    def test_resolve_experiment_window_uses_pilot_slice(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual((1, 12), mod.resolve_experiment_window(
+            start_from=None,
+            end_at=None,
+            preset="pilot",
+        ))
+        self.assertEqual((5, 8), mod.resolve_experiment_window(
+            start_from=5,
+            end_at=8,
+            preset="pilot",
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

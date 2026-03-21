@@ -13,6 +13,7 @@ WORKING_DATASET_TIER_COUNTS = {
     "high": 15,
 }
 HISTORICAL_PROMPT_EVIDENCE = ("results4.tsv",)
+PILOT_EXPERIMENT_RANGE = (1, 12)
 
 
 @dataclass(frozen=True)

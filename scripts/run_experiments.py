@@ -7,7 +7,7 @@ with removals/simplifications, alternates prompt files to reduce overfitting,
 and keeps attribution clear with single-file edits.
 
 Usage:
-    python3 scripts/run_experiments.py [--start-from N] [--dry-run]
+    python3 scripts/run_experiments.py [--preset pilot] [--start-from N] [--end-at N] [--dry-run]
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from generator.assessment.benchmark_policy import UNCERTAINTY_DELTA
+from generator.assessment.benchmark_policy import PILOT_EXPERIMENT_RANGE, UNCERTAINTY_DELTA
 from generator.core.runtime_logging import install_process_logging, path_timestamp
 
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
@@ -33,6 +33,10 @@ RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 DEFAULT_EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
 BEST_BACKUP_DIR = Path("/tmp/prompt_experiment_best")
 BEST_ASSESSMENT_JSON = "best_assessment.json"
+EXPERIMENT_PRESETS = {
+    "full": (1, 100),
+    "pilot": PILOT_EXPERIMENT_RANGE,
+}
 
 # ── Prompt file paths ─────────────────────────────────────────────
 SYS_DEFINITION = "system/definition.md"
@@ -905,6 +909,22 @@ def build_assessment_description(prefix: str, exp: Experiment) -> str:
     return f"{base} | {exp.desc} | {exp.file}"
 
 
+def resolve_experiment_window(
+    *,
+    start_from: int | None,
+    end_at: int | None,
+    preset: str,
+) -> tuple[int, int]:
+    preset_start, preset_end = EXPERIMENT_PRESETS[preset]
+    start = preset_start if start_from is None else max(start_from, preset_start)
+    end = preset_end if end_at is None else min(end_at, preset_end)
+    if start < 1 or end > len(EXPERIMENTS):
+        raise ValueError(f"Experiment window out of bounds: {start}-{end}")
+    if start > end:
+        raise ValueError(f"Empty experiment window: {start}-{end}")
+    return start, end
+
+
 def git_current_branch() -> str:
     """Return current branch name, or empty string if unavailable."""
     result = subprocess.run(
@@ -1077,9 +1097,13 @@ def main() -> None:
         component="run_experiments",
         tee_console=True,
     )
-    parser = argparse.ArgumentParser(description="Run 100 prompt experiments")
-    parser.add_argument("--start-from", type=int, default=1,
+    parser = argparse.ArgumentParser(description="Run prompt experiments")
+    parser.add_argument("--preset", choices=sorted(EXPERIMENT_PRESETS), default="full",
+                        help="Named experiment slice to run")
+    parser.add_argument("--start-from", type=int,
                         help="Resume from experiment N (1-indexed)")
+    parser.add_argument("--end-at", type=int,
+                        help="Stop after experiment N (1-indexed)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show experiments without running")
     parser.add_argument("--log-path", type=Path, default=DEFAULT_EXPERIMENT_LOG,
@@ -1104,12 +1128,20 @@ def main() -> None:
                         help="Branch used by --git-live-push (default: current branch)")
     try:
         args = parser.parse_args()
+        start_from, end_at = resolve_experiment_window(
+            start_from=args.start_from,
+            end_at=args.end_at,
+            preset=args.preset,
+        )
 
         if args.dry_run:
             for i, exp in enumerate(EXPERIMENTS, 1):
+                if i < start_from or i > end_at:
+                    continue
                 print(f"{i:3d}. [{exp.name}] {exp.desc}")
                 print(f"     File: {exp.file}")
-            print(f"\nTotal: {len(EXPERIMENTS)} experiments")
+            print(f"\nSelection: experiments {start_from}-{end_at}")
+            print(f"Selected: {end_at - start_from + 1} / {len(EXPERIMENTS)} experiments")
             return
 
         if args.assessment_logs_dir is None:
@@ -1130,7 +1162,8 @@ def main() -> None:
             best_composite = max(best_composite, float(best_result_summary.get("composite", best_composite)))
         print(f"Starting composite: {best_composite:.1f}")
         print(f"Total experiments: {len(EXPERIMENTS)}")
-        print(f"Starting from: experiment {args.start_from}")
+        print(f"Preset: {args.preset}")
+        print(f"Selection: experiments {start_from}-{end_at}")
         print(f"Experiment log: {args.log_path}")
         print(f"Best-prompt backup: {args.backup_dir}")
         print(f"Assessment logs dir: {args.assessment_logs_dir}")
@@ -1151,7 +1184,7 @@ def main() -> None:
         total_start = time.monotonic()
 
         for i, exp in enumerate(EXPERIMENTS, 1):
-            if i < args.start_from:
+            if i < start_from or i > end_at:
                 continue
 
             if exp.name in completed_names:
