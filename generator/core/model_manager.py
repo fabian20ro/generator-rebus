@@ -9,6 +9,7 @@ import urllib.error
 from dataclasses import dataclass
 
 from ..config import LMSTUDIO_BASE_URL
+from .runtime_logging import log
 
 
 @dataclass(frozen=True)
@@ -64,29 +65,29 @@ def get_loaded_models() -> list[str]:
 
 
 def load_model(config: ModelConfig) -> None:
-    print(f"[{time.strftime('%H:%M:%S')}] Loading model: {config.display_name} ({config.model_id})...")
+    log(f"Loading model: {config.display_name} ({config.model_id})...")
     _post_json("/api/v1/models/load", {
         "model": config.model_id,
         "context_length": config.context_length,
     })
     _wait_for_model(config.model_id)
-    print(f"[{time.strftime('%H:%M:%S')}] Model loaded: {config.display_name}")
+    log(f"Model loaded: {config.display_name}")
 
 
 def unload_model(config: ModelConfig) -> None:
-    print(f"[{time.strftime('%H:%M:%S')}] Unloading model: {config.display_name}...")
+    log(f"Unloading model: {config.display_name}...")
     instance_id = get_loaded_model_instances().get(config.model_id)
     if not instance_id:
-        print(f"  Model unload skipped ({config.display_name}): no loaded instance found")
+        log(f"  Model unload skipped ({config.display_name}): no loaded instance found")
         return
     try:
         _post_json("/api/v1/models/unload", {
             "instance_id": instance_id,
         })
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
-        print(f"  Model unload skipped ({config.display_name}): {e}")
+        log(f"  Model unload skipped ({config.display_name}): {e}")
     else:
-        print(f"[{time.strftime('%H:%M:%S')}] Model unloaded: {config.display_name}")
+        log(f"Model unloaded: {config.display_name}")
 
 
 def get_loaded_model_instances() -> dict[str, str]:
@@ -114,20 +115,20 @@ def get_loaded_model_instances() -> dict[str, str]:
 def ensure_model_loaded(config: ModelConfig) -> None:
     instances = get_loaded_model_instances()
     if config.model_id in instances:
-        print(f"[{time.strftime('%H:%M:%S')}] Model already active: {config.display_name}")
+        log(f"Model already active: {config.display_name}")
         return
     for model_key, inst_id in instances.items():
-        print(f"[{time.strftime('%H:%M:%S')}] Unloading model: {model_key} (instance: {inst_id})")
+        log(f"Unloading model: {model_key} (instance: {inst_id})")
         try:
             _post_json("/api/v1/models/unload", {"instance_id": inst_id})
         except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
-            print(f"  Unload skipped ({model_key}): {e}")
+            log(f"  Unload skipped ({model_key}): {e}")
         time.sleep(2)
     load_model(config)
 
 
 def switch_model(from_model: ModelConfig, to_model: ModelConfig) -> None:
-    print(f"[{time.strftime('%H:%M:%S')}] Switching model: {from_model.display_name} -> {to_model.display_name}")
+    log(f"Switching model: {from_model.display_name} -> {to_model.display_name}")
     unload_model(from_model)
     time.sleep(2)
     load_model(to_model)

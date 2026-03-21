@@ -21,11 +21,15 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from generator.assessment.benchmark_policy import UNCERTAINTY_DELTA
+from generator.core.runtime_logging import install_process_logging, path_timestamp
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
 RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 DEFAULT_EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
 BEST_BACKUP_DIR = Path("/tmp/prompt_experiment_best")
+BEST_ASSESSMENT_JSON = "best_assessment.json"
 
 # ── Prompt file paths ─────────────────────────────────────────────
 SYS_DEFINITION = "system/definition.md"
@@ -592,6 +596,53 @@ def append_results_row(description: str, status: str, result: dict) -> None:
         )
 
 
+def load_best_result_summary(backup_dir: Path) -> dict | None:
+    path = backup_dir / BEST_ASSESSMENT_JSON
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_best_result_summary(backup_dir: Path, result: dict) -> None:
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    (backup_dir / BEST_ASSESSMENT_JSON).write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def protected_regression(current: dict, incumbent: dict | None) -> bool:
+    if not incumbent:
+        return False
+    current_controls = current.get("protected_control_summary", {})
+    best_controls = incumbent.get("protected_control_summary", {})
+    for tier_name, best_tier in best_controls.items():
+        current_tier = current_controls.get(tier_name)
+        if not current_tier:
+            continue
+        if float(current_tier.get("pass_rate", 0.0)) < float(best_tier.get("pass_rate", 0.0)):
+            return True
+    return False
+
+
+def classify_experiment_result(
+    current: dict,
+    incumbent: dict | None,
+    best_composite: float,
+) -> tuple[str, float, bool, bool]:
+    composite = float(current["composite"])
+    delta = composite - best_composite
+    has_regression = protected_regression(current, incumbent)
+    pass_regression = bool(
+        incumbent and float(current["pass_rate"]) < float(incumbent.get("pass_rate", 0.0))
+    )
+    if composite > best_composite and not has_regression and not pass_regression:
+        return "keep", delta, has_regression, pass_regression
+    if abs(delta) <= UNCERTAINTY_DELTA or has_regression or pass_regression:
+        return "uncertain", delta, has_regression, pass_regression
+    return "discard", delta, has_regression, pass_regression
+
+
 def apply_experiment(exp: Experiment) -> bool:
     """Apply an experiment's edit. Returns True if the edit was applied."""
     filepath = PROMPTS_DIR / exp.file
@@ -705,13 +756,17 @@ def git_stage_commit_push(
 def run_assessment(
     description: str,
     assessment_log_path: Path | None = None,
+    assessment_json_path: Path | None = None,
     stream_output: bool = False,
 ) -> dict:
     """Run the multi-model assessment and return parsed results."""
     cmd = [
         sys.executable, "-u", "-m", "generator.assessment.run_assessment",
         "--description", description,
+        "--no-append-tsv",
     ]
+    if assessment_json_path is not None:
+        cmd.extend(["--json-out", str(assessment_json_path)])
     print(f"  Running assessment: {description}")
     if assessment_log_path is not None:
         assessment_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -764,8 +819,11 @@ def run_assessment(
     if result != 0:
         print(f"  [ERROR] Assessment failed with exit code {result}")
         return {"composite": 0.0, "pass_rate": 0.0, "avg_semantic": 0.0, "avg_rebus": 0.0, "error": True}
-
-    return get_result_by_description(description)
+    if assessment_json_path is None or not assessment_json_path.exists():
+        return {"composite": 0.0, "pass_rate": 0.0, "avg_semantic": 0.0, "avg_rebus": 0.0, "error": True}
+    payload = json.loads(assessment_json_path.read_text(encoding="utf-8"))
+    payload["error"] = False
+    return payload
 
 
 def load_log(log_path: Path) -> list[dict]:
@@ -782,6 +840,11 @@ def save_log(log_path: Path, log: list[dict]) -> None:
 
 
 def main() -> None:
+    handle = install_process_logging(
+        run_id=f"experiments_{path_timestamp()}",
+        component="run_experiments",
+        tee_console=True,
+    )
     parser = argparse.ArgumentParser(description="Run 100 prompt experiments")
     parser.add_argument("--start-from", type=int, default=1,
                         help="Resume from experiment N (1-indexed)")
@@ -807,221 +870,240 @@ def main() -> None:
                         help="Remote used by --git-live-push")
     parser.add_argument("--git-live-branch",
                         help="Branch used by --git-live-push (default: current branch)")
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
 
-    if args.dry_run:
-        for i, exp in enumerate(EXPERIMENTS, 1):
-            print(f"{i:3d}. [{exp.name}] {exp.desc}")
-            print(f"     File: {exp.file}")
-        print(f"\nTotal: {len(EXPERIMENTS)} experiments")
-        return
+        if args.dry_run:
+            for i, exp in enumerate(EXPERIMENTS, 1):
+                print(f"{i:3d}. [{exp.name}] {exp.desc}")
+                print(f"     File: {exp.file}")
+            print(f"\nTotal: {len(EXPERIMENTS)} experiments")
+            return
 
-    if args.assessment_logs_dir is None:
-        args.assessment_logs_dir = args.log_path.parent / f"{args.log_path.stem}_logs"
-    if args.git_live_push:
-        args.git_live_commit = True
-    if (args.git_live_commit or args.git_live_push) and not args.git_live_branch:
-        args.git_live_branch = git_current_branch()
+        if args.assessment_logs_dir is None:
+            args.assessment_logs_dir = args.log_path.parent / f"{args.log_path.stem}_logs"
+        if args.git_live_push:
+            args.git_live_commit = True
+        if (args.git_live_commit or args.git_live_push) and not args.git_live_branch:
+            args.git_live_branch = git_current_branch()
 
-    # Initialize
-    if args.reset_log and args.log_path.exists():
-        args.log_path.unlink()
-    log = load_log(args.log_path)
-    completed_names = {entry["name"] for entry in log}
+        if args.reset_log and args.log_path.exists():
+            args.log_path.unlink()
+        log = load_log(args.log_path)
+        completed_names = {entry["name"] for entry in log}
 
-    # Get current best composite
-    best_composite = get_last_composite()
-    print(f"Starting composite: {best_composite:.1f}")
-    print(f"Total experiments: {len(EXPERIMENTS)}")
-    print(f"Starting from: experiment {args.start_from}")
-    print(f"Experiment log: {args.log_path}")
-    print(f"Best-prompt backup: {args.backup_dir}")
-    print(f"Assessment logs dir: {args.assessment_logs_dir}")
-    if args.git_live_commit:
-        print(f"Git live commit: enabled")
-    if args.git_live_push:
-        print(f"Git live push: {args.git_live_remote}/{args.git_live_branch}")
-    if args.description_prefix:
-        print(f"Description prefix: {args.description_prefix}")
-
-    # Back up current prompts as "best"
-    backup_prompts(args.backup_dir)
-    print(f"Best prompts backed up to {args.backup_dir}")
-
-    kept = 0
-    skipped = 0
-    discarded = 0
-    total_start = time.monotonic()
-
-    for i, exp in enumerate(EXPERIMENTS, 1):
-        if i < args.start_from:
-            continue
-
-        if exp.name in completed_names:
-            print(f"\n[{i}/{len(EXPERIMENTS)}] {exp.name} — already completed, skipping")
-            skipped += 1
-            continue
-
-        print(f"\n{'='*60}")
-        print(f"[{i}/{len(EXPERIMENTS)}] {exp.name}: {exp.desc}")
-        print(f"{'='*60}")
-
-        # Restore to best state before applying this experiment
-        restore_prompts(args.backup_dir)
-
-        # Apply the experiment edit
-        applied = apply_experiment(exp)
-        assessment_description = build_assessment_description(args.description_prefix, exp)
-        if not applied:
-            entry = {
-                "name": exp.name,
-                "assessment_description": assessment_description,
-                "file": exp.file,
-                "find": exp.find,
-                "replace": exp.replace,
-                "desc": exp.desc,
-                "status": "skipped",
-                "reason": "find text not found",
-                "best_composite": best_composite,
-            }
-            log.append(entry)
-            save_log(args.log_path, log)
-            skipped += 1
-            continue
-
-        results_snapshot = snapshot_results_tsv()
-        assessment_log_path = args.assessment_logs_dir / f"{exp.name}.log"
-        prompt_path = PROMPTS_DIR / exp.file
-
+        best_result_summary = load_best_result_summary(args.backup_dir)
+        best_composite = get_last_composite()
+        if best_result_summary is not None:
+            best_composite = max(best_composite, float(best_result_summary.get("composite", best_composite)))
+        print(f"Starting composite: {best_composite:.1f}")
+        print(f"Total experiments: {len(EXPERIMENTS)}")
+        print(f"Starting from: experiment {args.start_from}")
+        print(f"Experiment log: {args.log_path}")
+        print(f"Best-prompt backup: {args.backup_dir}")
+        print(f"Assessment logs dir: {args.assessment_logs_dir}")
         if args.git_live_commit:
-            git_stage_commit_push(
-                [prompt_path],
-                assessment_description,
-                push=args.git_live_push,
-                remote=args.git_live_remote,
-                branch=args.git_live_branch or "",
-            )
+            print("Git live commit: enabled")
+        if args.git_live_push:
+            print(f"Git live push: {args.git_live_remote}/{args.git_live_branch}")
+        if args.description_prefix:
+            print(f"Description prefix: {args.description_prefix}")
 
-        # Run assessment
-        try:
-            result = run_assessment(
-                assessment_description,
-                assessment_log_path=assessment_log_path,
-                stream_output=args.stream_assessment_output,
-            )
-        except KeyboardInterrupt:
-            print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
+        backup_prompts(args.backup_dir)
+        print(f"Best prompts backed up to {args.backup_dir}")
+
+        kept = 0
+        skipped = 0
+        discarded = 0
+        uncertain = 0
+        total_start = time.monotonic()
+
+        for i, exp in enumerate(EXPERIMENTS, 1):
+            if i < args.start_from:
+                continue
+
+            if exp.name in completed_names:
+                print(f"\n[{i}/{len(EXPERIMENTS)}] {exp.name} — already completed, skipping")
+                skipped += 1
+                continue
+
+            print(f"\n{'='*60}")
+            print(f"[{i}/{len(EXPERIMENTS)}] {exp.name}: {exp.desc}")
+            print(f"{'='*60}")
+
             restore_prompts(args.backup_dir)
-            restore_results_tsv(results_snapshot)
+
+            applied = apply_experiment(exp)
+            assessment_description = build_assessment_description(args.description_prefix, exp)
+            if not applied:
+                entry = {
+                    "name": exp.name,
+                    "assessment_description": assessment_description,
+                    "file": exp.file,
+                    "find": exp.find,
+                    "replace": exp.replace,
+                    "desc": exp.desc,
+                    "status": "skipped",
+                    "reason": "find text not found",
+                    "best_composite": best_composite,
+                }
+                log.append(entry)
+                save_log(args.log_path, log)
+                skipped += 1
+                continue
+
+            results_snapshot = snapshot_results_tsv()
+            assessment_log_path = args.assessment_logs_dir / f"{exp.name}.log"
+            assessment_json_path = args.assessment_logs_dir / f"{exp.name}.json"
+            prompt_path = PROMPTS_DIR / exp.file
+
             if args.git_live_commit:
                 git_stage_commit_push(
                     [prompt_path],
-                    f"restore interrupted | {assessment_description}",
+                    assessment_description,
                     push=args.git_live_push,
                     remote=args.git_live_remote,
                     branch=args.git_live_branch or "",
                 )
-            raise SystemExit(130) from None
 
-        if result.get("error"):
+            try:
+                result = run_assessment(
+                    assessment_description,
+                    assessment_log_path=assessment_log_path,
+                    assessment_json_path=assessment_json_path,
+                    stream_output=args.stream_assessment_output,
+                )
+            except KeyboardInterrupt:
+                print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
+                restore_prompts(args.backup_dir)
+                restore_results_tsv(results_snapshot)
+                if args.git_live_commit:
+                    git_stage_commit_push(
+                        [prompt_path],
+                        f"restore interrupted | {assessment_description}",
+                        push=args.git_live_push,
+                        remote=args.git_live_remote,
+                        branch=args.git_live_branch or "",
+                    )
+                raise SystemExit(130) from None
+
+            if result.get("error"):
+                entry = {
+                    "name": exp.name,
+                    "assessment_description": assessment_description,
+                    "assessment_log": str(assessment_log_path),
+                    "assessment_json": str(assessment_json_path),
+                    "file": exp.file,
+                    "find": exp.find,
+                    "replace": exp.replace,
+                    "desc": exp.desc,
+                    "status": "error",
+                    "best_composite": best_composite,
+                }
+                log.append(entry)
+                save_log(args.log_path, log)
+                skipped += 1
+                restore_prompts(args.backup_dir)
+                restore_results_tsv(results_snapshot)
+                append_results_row(assessment_description, "error", result)
+                if args.git_live_commit:
+                    git_stage_commit_push(
+                        [prompt_path, RESULTS_TSV],
+                        f"error | {assessment_description}",
+                        push=args.git_live_push,
+                        remote=args.git_live_remote,
+                        branch=args.git_live_branch or "",
+                    )
+                continue
+
+            composite = float(result["composite"])
+            status, delta, has_regression, pass_regression = classify_experiment_result(
+                result,
+                best_result_summary,
+                best_composite,
+            )
+            symbol = {
+                "keep": "✓ IMPROVED",
+                "uncertain": "? Uncertain",
+                "discard": "✗ No improvement",
+            }[status]
+            print(
+                f"  {symbol}: {best_composite:.1f} → {composite:.1f} "
+                f"(pass={float(result['pass_rate']):.3f} sem={float(result['avg_semantic']):.1f} reb={float(result['avg_rebus']):.1f})"
+            )
+
             entry = {
                 "name": exp.name,
                 "assessment_description": assessment_description,
                 "assessment_log": str(assessment_log_path),
+                "assessment_json": str(assessment_json_path),
                 "file": exp.file,
                 "find": exp.find,
                 "replace": exp.replace,
                 "desc": exp.desc,
-                "status": "error",
-                "best_composite": best_composite,
+                "status": status,
+                "composite": composite,
+                "pass_rate": float(result["pass_rate"]),
+                "avg_semantic": float(result["avg_semantic"]),
+                "avg_rebus": float(result["avg_rebus"]),
+                "prev_best": best_composite,
+                "delta": round(delta, 1),
+                "protected_regression": has_regression,
+                "pass_regression": pass_regression,
             }
             log.append(entry)
             save_log(args.log_path, log)
-            skipped += 1
-            # Restore best prompts
-            restore_prompts(args.backup_dir)
-            restore_results_tsv(results_snapshot)
-            append_results_row(assessment_description, "error", result)
-            if args.git_live_commit:
-                git_stage_commit_push(
-                    [prompt_path, RESULTS_TSV],
-                    f"error | {assessment_description}",
-                    push=args.git_live_push,
-                    remote=args.git_live_remote,
-                    branch=args.git_live_branch or "",
-                )
-            continue
 
-        composite = result["composite"]
-        improved = composite > best_composite
+            if status == "keep":
+                best_composite = composite
+                best_result_summary = result
+                save_best_prompts(args.backup_dir)
+                save_best_result_summary(args.backup_dir, result)
+                append_results_row(assessment_description, "keep", result)
+                kept += 1
+                print(f"  New best: {best_composite:.1f}")
+                if args.git_live_commit:
+                    git_stage_commit_push(
+                        [RESULTS_TSV, assessment_json_path],
+                        f"keep | {assessment_description}",
+                        push=args.git_live_push,
+                        remote=args.git_live_remote,
+                        branch=args.git_live_branch or "",
+                    )
+            else:
+                restore_prompts(args.backup_dir)
+                restore_results_tsv(results_snapshot)
+                append_results_row(assessment_description, status, result)
+                if status == "uncertain":
+                    uncertain += 1
+                else:
+                    discarded += 1
+                if args.git_live_commit:
+                    git_stage_commit_push(
+                        [RESULTS_TSV, assessment_json_path],
+                        f"{status} | {assessment_description}",
+                        push=args.git_live_push,
+                        remote=args.git_live_remote,
+                        branch=args.git_live_branch or "",
+                    )
 
-        status = "keep" if improved else "discard"
-        symbol = "✓ IMPROVED" if improved else "✗ No improvement"
-        print(f"  {symbol}: {best_composite:.1f} → {composite:.1f} "
-              f"(pass={result['pass_rate']:.3f} sem={result['avg_semantic']:.1f} reb={result['avg_rebus']:.1f})")
+        restore_prompts(args.backup_dir)
 
-        entry = {
-            "name": exp.name,
-            "assessment_description": assessment_description,
-            "assessment_log": str(assessment_log_path),
-            "file": exp.file,
-            "find": exp.find,
-            "replace": exp.replace,
-            "desc": exp.desc,
-            "status": status,
-            "composite": composite,
-            "pass_rate": result["pass_rate"],
-            "avg_semantic": result["avg_semantic"],
-            "avg_rebus": result["avg_rebus"],
-            "prev_best": best_composite,
-        }
-        log.append(entry)
-        save_log(args.log_path, log)
+        total_elapsed = time.monotonic() - total_start
+        print(f"\n{'='*60}")
+        print("EXPERIMENT RUN COMPLETE")
+        print(f"{'='*60}")
+        print(f"Total time: {total_elapsed/3600:.1f}h")
+        print(f"Final best composite: {best_composite:.1f}")
+        print(f"Kept: {kept}, Uncertain: {uncertain}, Discarded: {discarded}, Skipped: {skipped}")
 
-        if improved:
-            best_composite = composite
-            save_best_prompts(args.backup_dir)
-            kept += 1
-            print(f"  New best: {best_composite:.1f}")
-            if args.git_live_commit:
-                git_stage_commit_push(
-                    [RESULTS_TSV],
-                    f"keep | {assessment_description}",
-                    push=args.git_live_push,
-                    remote=args.git_live_remote,
-                    branch=args.git_live_branch or "",
-                )
-        else:
-            restore_prompts(args.backup_dir)
-            restore_results_tsv(results_snapshot)
-            append_results_row(assessment_description, "discard", result)
-            discarded += 1
-            if args.git_live_commit:
-                git_stage_commit_push(
-                    [RESULTS_TSV],
-                    f"discard | {assessment_description}",
-                    push=args.git_live_push,
-                    remote=args.git_live_remote,
-                    branch=args.git_live_branch or "",
-                )
-
-    # Final restore of best prompts
-    restore_prompts(args.backup_dir)
-
-    total_elapsed = time.monotonic() - total_start
-    print(f"\n{'='*60}")
-    print(f"EXPERIMENT RUN COMPLETE")
-    print(f"{'='*60}")
-    print(f"Total time: {total_elapsed/3600:.1f}h")
-    print(f"Final best composite: {best_composite:.1f}")
-    print(f"Kept: {kept}, Discarded: {discarded}, Skipped: {skipped}")
-
-    # Summary of kept experiments
-    kept_entries = [e for e in log if e.get("status") == "keep"]
-    if kept_entries:
-        print(f"\nKept experiments:")
-        for e in kept_entries:
-            print(f"  {e['name']}: {e['desc']} — composite={e['composite']:.1f}")
+        kept_entries = [e for e in log if e.get("status") == "keep"]
+        if kept_entries:
+            print("\nKept experiments:")
+            for e in kept_entries:
+                print(f"  {e['name']}: {e['desc']} — composite={e['composite']:.1f}")
+    finally:
+        handle.restore()
 
 
 if __name__ == "__main__":

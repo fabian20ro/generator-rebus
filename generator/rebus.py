@@ -31,6 +31,7 @@ import argparse
 import sys
 
 from .config import VERIFY_CANDIDATE_COUNT
+from .core.runtime_logging import install_process_logging, path_timestamp
 from .core.size_tuning import SUPPORTED_GRID_SIZES
 
 
@@ -68,44 +69,52 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    handle = install_process_logging(
+        run_id=f"rebus_{path_timestamp()}",
+        component="rebus",
+        tee_console=True,
+    )
     parser = build_parser()
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
 
-    kwargs = {
-        "size": args.size,
-        "words": args.words,
-        "max_rarity": args.max_rarity,
-        "max_backtracks": args.max_backtracks,
-        "force": args.force,
-        "verify_candidates": args.verify_candidates,
-    }
+        kwargs = {
+            "size": args.size,
+            "words": args.words,
+            "max_rarity": args.max_rarity,
+            "max_backtracks": args.max_backtracks,
+            "force": args.force,
+            "verify_candidates": args.verify_candidates,
+        }
 
-    phase = args.phase
+        phase = args.phase
 
-    if phase == "download":
-        from .phases.download import run
-    elif phase == "generate-grid":
-        from .phases.generate_grid import run
-    elif phase == "fill":
-        from .phases.fill import run
-    elif phase == "theme":
-        from .phases.theme import run
-    elif phase == "define":
-        from .phases.define import run
-    elif phase == "verify":
-        from .phases.verify import run
-    elif phase == "upload":
-        from .phases.upload import run
-    elif phase == "activate":
-        from .phases.activate import run
-    elif phase == "deactivate":
-        from .phases.activate import run
-        kwargs["deactivate"] = True
-    else:
-        parser.print_help()
-        sys.exit(1)
+        if phase == "download":
+            from .phases.download import run
+        elif phase == "generate-grid":
+            from .phases.generate_grid import run
+        elif phase == "fill":
+            from .phases.fill import run
+        elif phase == "theme":
+            from .phases.theme import run
+        elif phase == "define":
+            from .phases.define import run
+        elif phase == "verify":
+            from .phases.verify import run
+        elif phase == "upload":
+            from .phases.upload import run
+        elif phase == "activate":
+            from .phases.activate import run
+        elif phase == "deactivate":
+            from .phases.activate import run
+            kwargs["deactivate"] = True
+        else:
+            parser.print_help()
+            sys.exit(1)
 
-    run(args.input_file, args.output_file, **kwargs)
+        run(args.input_file, args.output_file, **kwargs)
+    finally:
+        handle.restore()
 
 
 if __name__ == "__main__":

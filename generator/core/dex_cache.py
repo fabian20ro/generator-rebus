@@ -31,11 +31,11 @@ import re
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 
 from .diacritics import normalize
+from .runtime_logging import audit, log, utc_timestamp
 
 _USER_AGENT = (
     "Mozilla/5.0 (compatible; generator-rebus/1.0; "
@@ -290,7 +290,7 @@ def _sb_lookup_batch(client, words: list[str]) -> dict[str, str | None]:
 
 def _sb_store(client, word: str, original: str, html: str, status: str) -> None:
     """Upsert a definition into Supabase."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = utc_timestamp()
     try:
         client.table("dex_definitions").upsert({
             "word": word,
@@ -333,7 +333,7 @@ def _local_store(cache_dir: Path | None, word: str, original: str, html: str, st
             "original": original,
             "status": status,
             "html": html,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": utc_timestamp(),
         }
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     except Exception:
@@ -357,7 +357,7 @@ class DexProvider:
         self._local_cache_dir = Path(local_cache_dir) if local_cache_dir is not None else None
         # L1: normalized word -> formatted definitions string (or None for known-missing)
         self._memory: dict[str, str | None] = {}
-        self._uncertain_short_definitions: list[dict[str, str]] = []
+        self._uncertain_short_definitions: dict[str, dict[str, str]] = {}
 
     # -- Public API --------------------------------------------------------
 
@@ -464,7 +464,7 @@ class DexProvider:
 
         # L4: fetch missing from dexonline one-by-one
         if fetch_missing and to_query:
-            print(f"  DEX: fetching {len(to_query)} words from dexonline.ro...")
+            log(f"  DEX: fetching {len(to_query)} words from dexonline.ro...")
             for norm in to_query:
                 original = normalized_map.get(norm, norm)
                 self._fetch_and_store(norm, original)
@@ -473,7 +473,7 @@ class DexProvider:
         cached = sum(1 for w in words if self._memory.get(normalize(w)) is not None)
         total_words = len(set(normalize(w) for w in words))
         if cached:
-            print(f"  DEX cache: {cached}/{total_words} words have definitions")
+            log(f"  DEX cache: {cached}/{total_words} words have definitions")
 
         return {
             normalize(w): self._memory[normalize(w)]
@@ -490,7 +490,7 @@ class DexProvider:
 
     def uncertain_short_definitions(self) -> list[dict[str, str]]:
         """Return short single-definition rows that look like unresolved redirects."""
-        return list(self._uncertain_short_definitions)
+        return list(self._uncertain_short_definitions.values())
 
     @classmethod
     def for_puzzle(cls, puzzle) -> DexProvider:
@@ -594,10 +594,15 @@ class DexProvider:
 
     def _remember_uncertain_short_definition(self, norm: str, definition: str) -> None:
         entry = {"word": norm, "definition": definition}
-        if entry in self._uncertain_short_definitions:
+        if norm in self._uncertain_short_definitions:
             return
-        self._uncertain_short_definitions.append(entry)
-        print(f"    [DEX short/uncertain] {norm}: {definition}")
+        self._uncertain_short_definitions[norm] = entry
+        log(f"    [DEX short/uncertain] {norm}: {definition}")
+        audit(
+            "dex_short_definition_detected",
+            component="dex_cache",
+            payload={"word": norm, "definition": definition},
+        )
 
     def _respect_crawl_delay(self) -> None:
         """Sleep if needed to respect robots.txt Crawl-delay."""
@@ -612,8 +617,7 @@ class DexProvider:
         self._respect_crawl_delay()
         html, status = fetch_from_dexonline(original)
         DexProvider._last_fetch_time = time.monotonic()
-        now = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        print(f"    [DEX {now}] {original} -> {status}")
+        log(f"    [DEX] {original} -> {status}")
 
         _local_store(self._local_cache_dir, norm, original, html, status)
 

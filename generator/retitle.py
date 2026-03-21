@@ -11,6 +11,7 @@ from supabase import create_client as create_supabase_client
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from .core.ai_clues import create_client as create_ai_client
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
+from .core.runtime_logging import install_process_logging, path_timestamp
 from .phases.theme import (
     FALLBACK_TITLES,
     generate_creative_title,
@@ -157,72 +158,80 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if not args.date and not args.puzzle_id and not args.all_fallbacks and not args.all:
-        parser.error("Specify --date, --puzzle-id, --all-fallbacks, or --all")
-
-    if args.date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
-        parser.error("--date must be in YYYY-MM-DD format")
-
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
-        sys.exit(1)
-
-    multi_model = args.multi_model
-
-    supabase = create_supabase_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    ai_client = create_ai_client()
-    rate_client = create_ai_client()
-
-    puzzles = fetch_puzzles(
-        supabase,
-        date=args.date,
-        puzzle_id=args.puzzle_id,
-        fallbacks_only=args.all_fallbacks,
+    handle = install_process_logging(
+        run_id=f"retitle_{path_timestamp()}",
+        component="retitle",
+        tee_console=True,
     )
+    parser = build_parser()
+    try:
+        args = parser.parse_args()
 
-    if not puzzles:
-        print("No puzzles found matching the criteria.")
-        return
+        if not args.date and not args.puzzle_id and not args.all_fallbacks and not args.all:
+            parser.error("Specify --date, --puzzle-id, --all-fallbacks, or --all")
 
-    print(f"Found {len(puzzles)} puzzle(s) to retitle")
-    if args.dry_run:
-        print("(dry run — no updates will be made)\n")
-    else:
-        print()
+        if args.date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
+            parser.error("--date must be in YYYY-MM-DD format")
 
-    current_model = None
-    if multi_model:
-        ensure_model_loaded(PRIMARY_MODEL)
-        current_model = PRIMARY_MODEL
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+            sys.exit(1)
 
-    updated = 0
-    unchanged = 0
-    failed = 0
+        multi_model = args.multi_model
 
-    for puzzle_row in puzzles:
-        try:
-            changed = retitle_puzzle(
-                supabase,
-                puzzle_row,
-                ai_client,
-                rate_client,
-                dry_run=args.dry_run,
-                multi_model=multi_model,
-                current_model=current_model,
-            )
-            if changed:
-                updated += 1
-            else:
-                unchanged += 1
-        except Exception as exc:
-            puzzle_id = puzzle_row.get("id", "?")
-            print(f"  [{puzzle_id}] Error: {exc}")
-            failed += 1
+        supabase = create_supabase_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        ai_client = create_ai_client()
+        rate_client = create_ai_client()
 
-    print(f"\nSummary: {updated} updated, {unchanged} unchanged, {failed} failed")
+        puzzles = fetch_puzzles(
+            supabase,
+            date=args.date,
+            puzzle_id=args.puzzle_id,
+            fallbacks_only=args.all_fallbacks,
+        )
+
+        if not puzzles:
+            print("No puzzles found matching the criteria.")
+            return
+
+        print(f"Found {len(puzzles)} puzzle(s) to retitle")
+        if args.dry_run:
+            print("(dry run — no updates will be made)\n")
+        else:
+            print()
+
+        current_model = None
+        if multi_model:
+            ensure_model_loaded(PRIMARY_MODEL)
+            current_model = PRIMARY_MODEL
+
+        updated = 0
+        unchanged = 0
+        failed = 0
+
+        for puzzle_row in puzzles:
+            try:
+                changed = retitle_puzzle(
+                    supabase,
+                    puzzle_row,
+                    ai_client,
+                    rate_client,
+                    dry_run=args.dry_run,
+                    multi_model=multi_model,
+                    current_model=current_model,
+                )
+                if changed:
+                    updated += 1
+                else:
+                    unchanged += 1
+            except Exception as exc:
+                puzzle_id = puzzle_row.get("id", "?")
+                print(f"  [{puzzle_id}] Error: {exc}")
+                failed += 1
+
+        print(f"\nSummary: {updated} updated, {unchanged} unchanged, {failed} failed")
+    finally:
+        handle.restore()
 
 
 if __name__ == "__main__":

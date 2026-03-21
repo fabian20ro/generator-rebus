@@ -7,10 +7,8 @@ import argparse
 import copy
 import json
 import random
-import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
 from .core.ai_clues import (
@@ -30,12 +28,7 @@ from .core.metrics import (
     update_word_difficulty,
     write_metrics,
 )
-from .core.model_manager import (
-    PRIMARY_MODEL,
-    SECONDARY_MODEL,
-    ensure_model_loaded,
-    switch_model,
-)
+from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
 from .core.grid_template import generate_incremental_template, generate_procedural_template, validate_template
 from .core.plateau import has_plateaued
 from .core.markdown_io import (
@@ -87,6 +80,12 @@ from .core.selection_engine import choose_clue_version, choose_puzzle_assessment
 from .core.slot_extractor import Slot, extract_slots
 from .core.word_index import WordEntry, WordIndex
 from .core.constraint_solver import solve
+from .core.runtime_logging import (
+    install_process_logging,
+    path_timestamp,
+    utc_timestamp,
+)
+from .core.rewrite_engine import run_rewrite_loop
 from .phases.activate import set_published
 from .config import VERIFY_CANDIDATE_COUNT
 from .core.dex_cache import DexProvider
@@ -95,23 +94,6 @@ from .phases.download import run as download_words
 from .phases.theme import generate_title_for_final_puzzle
 from .phases.upload import upload_puzzle
 from .phases.verify import rate_working_puzzle, verify_working_puzzle
-
-
-class TeeStream:
-    """Write stdout/stderr both to console and to a log file."""
-
-    def __init__(self, *streams):
-        self.streams = streams
-
-    def write(self, data):
-        for stream in self.streams:
-            stream.write(data)
-            stream.flush()
-        return len(data)
-
-    def flush(self):
-        for stream in self.streams:
-            stream.flush()
 
 
 @dataclass
@@ -550,181 +532,17 @@ def _rewrite_failed_clues(
     dex: DexProvider | None = None,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> tuple[int, int, int]:
-    theme = puzzle.title or "Puzzle intern"
-    if multi_model:
-        ensure_model_loaded(PRIMARY_MODEL)
-        current_model = PRIMARY_MODEL
-        try:
-            switch_model(PRIMARY_MODEL, SECONDARY_MODEL)
-            current_model = SECONDARY_MODEL
-        except Exception as e:
-            print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
-        print(f"  Model activ (evaluare inițială): {current_model.display_name}")
-    else:
-        current_model = PRIMARY_MODEL
-    preset_skip: set[str] = set()
-    initial_passed, total = verify_working_puzzle(
+    result = run_rewrite_loop(
         puzzle,
         client,
-        skip_words=preset_skip,
-        model_label=current_model.display_name,
-        max_guesses=verify_candidates,
+        rounds=rounds,
+        theme=puzzle.title or "Puzzle intern",
+        multi_model=multi_model,
+        dex=dex,
+        verify_candidates=verify_candidates,
     )
-    rate_working_puzzle(
-        puzzle, client, skip_words=preset_skip, dex=dex, model_label=current_model.display_name,
-    )
-    for clue in all_working_clues(puzzle):
-        _update_best_clue_version(clue, client=client)
-
-    consecutive_failures: dict[str, int] = {}
-    stuck_words: set[str] = set()
-    min_rebus_history: list[int] = []
-
-    for round_index in range(1, rounds + 1):
-        current_scores = [
-            _extract_rebus_score(c) or 0
-            for c in all_working_clues(puzzle)
-        ]
-        current_min = min(current_scores) if current_scores else 0
-        min_rebus_history.append(current_min)
-
-        if has_plateaued(min_rebus_history, PLATEAU_LOOKBACK):
-            blockers = _blocking_clues(puzzle)
-            if blockers:
-                blocker_words = [c.word_normalized for c in blockers]
-                print(f"  Plateau after {round_index} rounds with undefinable words: "
-                      f"{', '.join(blocker_words)}")
-            else:
-                print(f"  Plateau after {round_index} rounds (min_rebus={current_min})")
-            break
-
-        round_min_rebus = current_min + 1
-        candidates = [
-            clue for clue in all_working_clues(puzzle)
-            if _needs_rewrite(clue, min_rebus=round_min_rebus)
-            and clue.word_normalized not in stuck_words
-        ]
-
-        if not candidates:
-            break
-
-        if multi_model:
-            print(f"  Model activ (rescriere): {current_model.display_name}")
-        failed_count = sum(1 for c in candidates if c.current.assessment.verified is False)
-        low_rated_count = sum(
-            1 for c in candidates
-            if (
-                c.current.assessment.verified is True
-                and (
-                    (_extract_semantic_score(c) or 0) < RATE_MIN_SEMANTIC
-                    or (_extract_rebus_score(c) or 0) < RATE_MIN_REBUS
-                )
-            )
-        )
-        unrated_count = len(candidates) - failed_count - low_rated_count
-        print(
-            f"Rewrite round {round_index}: {len(candidates)} candidates "
-            f"({failed_count} failed, {low_rated_count} low-rated, {unrated_count} unrated)"
-        )
-
-        changed_words: set[str] = set()
-        for clue in candidates:
-            if _is_locked_clue(clue):
-                print(f"  {clue.word_normalized}: blocat la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
-                continue
-            wrong_guess = clue.current.assessment.wrong_guess
-            wrong_guesses = list(clue.current.assessment.verify_candidates)
-            rating_feedback = clue.current.assessment.feedback
-            bad_example_definition = clue.current.definition if round_index >= 2 else ""
-            bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
-            dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
-            # Build failure history from clue.history
-            failure_history: list[tuple[str, list[str]]] = [
-                (
-                    v.definition,
-                    list(v.assessment.verify_candidates)
-                    if v.assessment.verify_candidates
-                    else ([v.assessment.wrong_guess] if v.assessment.wrong_guess else []),
-                )
-                for v in clue.history
-                if (v.assessment.verify_candidates or v.assessment.wrong_guess) and v.definition
-            ]
-            try:
-                if clue.current.definition.startswith("["):
-                    new_definition = generate_definition(
-                        client, clue.word_normalized, clue.word_original, theme, retries=3,
-                        word_type=clue.word_type, dex_definitions=dex_defs,
-                    )
-                else:
-                    new_definition = rewrite_definition(
-                        client,
-                        clue.word_normalized,
-                        clue.word_original,
-                        theme,
-                        clue.current.definition,
-                        wrong_guess,
-                        wrong_guesses=wrong_guesses or None,
-                        rating_feedback=rating_feedback,
-                        bad_example_definition=bad_example_definition,
-                        bad_example_reason=bad_example_reason,
-                        word_type=clue.word_type,
-                        dex_definitions=dex_defs,
-                        failure_history=failure_history or None,
-                    )
-            except Exception as e:
-                print(f"  Rewrite failed for {clue.word_normalized}: {e}")
-                continue
-            if new_definition and new_definition != clue.current.definition:
-                changed_words.add(clue.word_normalized)
-                consecutive_failures[clue.word_normalized] = 0
-                print(
-                    f"  {clue.word_normalized}: "
-                    f"'{_compact_log_text(clue.current.definition)}' -> "
-                    f"'{_compact_log_text(new_definition)}'"
-                )
-                set_current_definition(
-                    clue,
-                    new_definition,
-                    round_index=round_index,
-                    source="rewrite",
-                    generated_by=current_model.display_name,
-                )
-            else:
-                consecutive_failures[clue.word_normalized] = consecutive_failures.get(clue.word_normalized, 0) + 1
-                if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
-                    stuck_words.add(clue.word_normalized)
-                    print(f"  {clue.word_normalized}: marcată ca blocată după {consecutive_failures[clue.word_normalized]} încercări eșuate consecutive")
-
-        skip_words = ({c.word_normalized for c in all_working_clues(puzzle)} - changed_words) | preset_skip
-        if multi_model:
-            next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
-            try:
-                switch_model(current_model, next_model)
-                current_model = next_model
-            except Exception as e:
-                print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
-            print(f"  Model activ (evaluare): {current_model.display_name}")
-        _, total = verify_working_puzzle(
-            puzzle,
-            client,
-            skip_words=skip_words,
-            model_label=current_model.display_name,
-            max_guesses=verify_candidates,
-        )
-        rate_working_puzzle(
-            puzzle, client, skip_words=skip_words, dex=dex, model_label=current_model.display_name,
-        )
-        for clue in all_working_clues(puzzle):
-            if clue.word_normalized not in changed_words:
-                continue
-            _update_best_clue_version(clue, client=client)
-            if clue.locked:
-                print(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
-
-    _restore_best_versions(puzzle)
-    final_passed = sum(1 for clue in all_working_clues(puzzle) if clue.current.assessment.verified)
-    total = len(all_working_clues(puzzle))
-    return initial_passed, final_passed, total
+    puzzle.metadata["rewrite_model_switches"] = result.model_switches
+    return result.initial_passed, result.final_passed, result.total
 
 
 def _prepare_puzzle_for_publication(
@@ -899,7 +717,7 @@ def run_batch(
     batch_rng = random.Random(rng_seed)
     setattr(client, "_batch_rng", batch_rng)
     if run_dir is None:
-        run_dir = output_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = output_root / path_timestamp()
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict] = []
     seen_7x7_templates: set[str] = set()
@@ -1009,6 +827,7 @@ def run_batch(
             rewrite_rescued_words=rewrite_rescued_words,
             blocker_count=len(prepared.blocking_words),
             blocker_words=prepared.blocking_words,
+            model_switches=int(prepared.puzzle.metadata.get("rewrite_model_switches", 0) or 0),
             total_elapsed_ms=puzzle_elapsed_ms,
         ))
 
@@ -1035,7 +854,7 @@ def run_batch(
     if multi_model:
         models_used.append(SECONDARY_MODEL.display_name)
     batch_metric = BatchMetric(
-        timestamp=datetime.now().isoformat(),
+        timestamp=utc_timestamp(),
         seed=rng_seed,
         models_used=models_used,
         puzzles=puzzle_metrics,
@@ -1107,38 +926,39 @@ def main() -> None:
     args = parser.parse_args()
 
     output_root = Path(args.output_root)
-    preview_run_dir = output_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+    preview_run_dir = output_root / path_timestamp()
     preview_run_dir.mkdir(parents=True, exist_ok=True)
     log_path = preview_run_dir / "run.log"
-
-    original_stdout = sys.stdout
-    original_stderr = sys.stderr
-    with open(log_path, "a", encoding="utf-8") as log_file:
-        tee = TeeStream(original_stdout, log_file)
-        sys.stdout = tee
-        sys.stderr = tee
-        try:
-            print(f"Run log: {log_path}")
-            manifest = run_batch(
-                sizes=args.sizes,
-                output_root=output_root,
-                words_path=Path(args.words),
-                rewrite_rounds=args.rewrite_rounds,
-                preparation_attempts=args.preparation_attempts,
-                seed=args.seed,
-                run_dir=preview_run_dir,
-                multi_model=args.multi_model,
-                verify_candidates=max(1, args.verify_candidates),
+    audit_path = preview_run_dir / "audit.jsonl"
+    handle = install_process_logging(
+        run_id=preview_run_dir.name,
+        component="batch_publish",
+        log_path=log_path,
+        audit_path=audit_path,
+        tee_console=True,
+    )
+    try:
+        print(f"Run log: {log_path}")
+        print(f"Audit log: {audit_path}")
+        manifest = run_batch(
+            sizes=args.sizes,
+            output_root=output_root,
+            words_path=Path(args.words),
+            rewrite_rounds=args.rewrite_rounds,
+            preparation_attempts=args.preparation_attempts,
+            seed=args.seed,
+            run_dir=preview_run_dir,
+            multi_model=args.multi_model,
+            verify_candidates=max(1, args.verify_candidates),
+        )
+        print("\nBatch complete:")
+        for item in manifest:
+            print(
+                f"  {item['title']} -> {item['puzzle_id']} "
+                f"(verify {item['verification_passed']}/{item['verification_total']})"
             )
-            print("\nBatch complete:")
-            for item in manifest:
-                print(
-                    f"  {item['title']} -> {item['puzzle_id']} "
-                    f"(verify {item['verification_passed']}/{item['verification_total']})"
-                )
-        finally:
-            sys.stdout = original_stdout
-            sys.stderr = original_stderr
+    finally:
+        handle.restore()
 
 
 if __name__ == "__main__":

@@ -55,6 +55,34 @@ class RunExperimentsTests(unittest.TestCase):
             first_round_files,
         )
 
+    def test_protected_regression_detects_high_tier_drop(self):
+        mod = _load_run_experiments_module()
+        current = {
+            "protected_control_summary": {
+                "high": {"pass_rate": 0.300},
+            }
+        }
+        incumbent = {
+            "protected_control_summary": {
+                "high": {"pass_rate": 0.400},
+            }
+        }
+
+        self.assertTrue(mod.protected_regression(current, incumbent))
+
+    def test_classify_experiment_result_marks_borderline_as_uncertain(self):
+        mod = _load_run_experiments_module()
+        status, delta, has_regression, pass_regression = mod.classify_experiment_result(
+            {"composite": 74.0, "pass_rate": 0.343, "protected_control_summary": {}},
+            {"composite": 74.2, "pass_rate": 0.343, "protected_control_summary": {}},
+            74.2,
+        )
+
+        self.assertEqual("uncertain", status)
+        self.assertAlmostEqual(-0.2, delta)
+        self.assertFalse(has_regression)
+        self.assertFalse(pass_regression)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -55,6 +55,10 @@
 
 **[2026-03-20]** First-pass and final-pass metrics must be stored separately — if the rewrite loop only returns final verified counts, any reported `definition_first_pass_rate` is fake and churn analysis becomes misleading. Track `first_passed` and `final_passed` explicitly in prepared puzzles and metrics.
 
+**[2026-03-21]** Shared process logging should wrap stdout/stderr instead of rewriting every `print()` call at once — this gives timestamped logs everywhere immediately, avoids a risky big-bang migration, and still allows gradual promotion of high-value signals to structured audit events. Make the wrapper idempotent so already timestamped child-process lines are not prefixed twice.
+
+**[2026-03-21]** Prompt experiment runners should consume machine-readable assessment artifacts, not infer truth from shared TSV append order — TSV is fine as score history, but keep/discard logic needs per-tier/control data and should read a JSON artifact produced by assessment directly.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

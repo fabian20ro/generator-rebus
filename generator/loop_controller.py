@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import VERIFY_CANDIDATE_COUNT
+from .core.runtime_logging import human_timestamp, install_process_logging, path_timestamp
 from .core.size_tuning import OVERNIGHT_LOOP_SIZES
 
 
@@ -91,7 +92,7 @@ def run_size(
     )
     with open(log_path, "a", encoding="utf-8") as log_file:
         log_file.write(
-            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] start size={size} seed={seed}\n"
+            f"[{human_timestamp()}] start size={size} seed={seed}\n"
         )
         log_file.flush()
         result = subprocess.run(
@@ -105,7 +106,7 @@ def run_size(
         )
         latest_run_dir = _latest_batch_dir(output_root)
         log_file.write(
-            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] done size={size} seed={seed} "
+            f"[{human_timestamp()}] done size={size} seed={seed} "
             f"exit={result.returncode} latest_run_dir={latest_run_dir}\n"
         )
         log_file.flush()
@@ -180,33 +181,41 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    handle = install_process_logging(
+        run_id=f"loop_controller_{path_timestamp()}",
+        component="loop_controller",
+        tee_console=True,
+    )
     parser = build_parser()
-    args = parser.parse_args()
-    cwd = Path.cwd()
-    output_root = Path(args.output_root)
-    log_path = Path(args.log_path)
-    output_root.mkdir(parents=True, exist_ok=True)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        args = parser.parse_args()
+        cwd = Path.cwd()
+        output_root = Path(args.output_root)
+        log_path = Path(args.log_path)
+        output_root.mkdir(parents=True, exist_ok=True)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(log_path, "a", encoding="utf-8") as log_file:
-        log_file.write(
-            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] loop started sizes={' '.join(map(str, args.sizes))}\n"
-        )
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(
+                f"[{human_timestamp()}] loop started sizes={' '.join(map(str, args.sizes))}\n"
+            )
 
-    while True:
-        run_cycle(
-            args.sizes,
-            words=args.words,
-            output_root=output_root,
-            rewrite_rounds=args.rewrite_rounds,
-            preparation_attempts=args.preparation_attempts,
-            log_path=log_path,
-            cwd=cwd,
-            env=os.environ.copy(),
-            multi_model=args.multi_model,
-            verify_candidates=max(1, args.verify_candidates),
-        )
-        time.sleep(args.sleep_seconds)
+        while True:
+            run_cycle(
+                args.sizes,
+                words=args.words,
+                output_root=output_root,
+                rewrite_rounds=args.rewrite_rounds,
+                preparation_attempts=args.preparation_attempts,
+                log_path=log_path,
+                cwd=cwd,
+                env=os.environ.copy(),
+                multi_model=args.multi_model,
+                verify_candidates=max(1, args.verify_candidates),
+            )
+            time.sleep(args.sleep_seconds)
+    finally:
+        handle.restore()
 
 
 if __name__ == "__main__":

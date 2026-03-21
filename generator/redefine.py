@@ -9,45 +9,19 @@ import sys
 
 from supabase import create_client as create_supabase_client
 
-from .core.score_helpers import (
-    LOCKED_REBUS,
-    LOCKED_SEMANTIC,
-    MAX_CONSECUTIVE_FAILURES,
-    PLATEAU_LOOKBACK,
-    _compact_log_text,
-    _extract_rebus_score,
-    _extract_semantic_score,
-    _is_locked_clue,
-    _needs_rewrite,
-    _restore_best_versions,
-    _synthesize_failure_reason,
-    _update_best_clue_version,
-)
+from .core.score_helpers import _compact_log_text
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
-from .core.ai_clues import (
-    RATE_MIN_REBUS,
-    RATE_MIN_SEMANTIC,
-    create_client as create_ai_client,
-    generate_definition,
-    rewrite_definition,
-)
-from .core.model_manager import (
-    PRIMARY_MODEL,
-    SECONDARY_MODEL,
-    ensure_model_loaded,
-    switch_model,
-)
+from .core.ai_clues import create_client as create_ai_client
+from .core.model_manager import PRIMARY_MODEL, ensure_model_loaded
 from .core.pipeline_state import (
     ClueCandidateVersion,
     ClueAssessment,
     WorkingClue,
     WorkingPuzzle,
     all_working_clues,
-    set_current_definition,
 )
-from .core.plateau import has_plateaued
-from .core.dex_cache import DexProvider
-from .phases.verify import rate_working_puzzle, verify_working_puzzle
+from .core.rewrite_engine import run_rewrite_loop
+from .core.runtime_logging import install_process_logging, path_timestamp
 
 REDEFINE_ROUNDS = 7
 
@@ -137,181 +111,15 @@ def rewrite_puzzle_definitions(
     Returns a mapping of word_normalized -> best ClueCandidateVersion after
     the rewrite loop completes.
     """
-    theme = puzzle.title or "Puzzle rebus"
-
-    # Load dex definitions for all words in puzzle
-    dex = DexProvider.for_puzzle(puzzle)
-
-    if multi_model:
-        ensure_model_loaded(PRIMARY_MODEL)
-        current_model = PRIMARY_MODEL
-        try:
-            switch_model(PRIMARY_MODEL, SECONDARY_MODEL)
-            current_model = SECONDARY_MODEL
-        except Exception as e:
-            print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
-        print(f"  Model activ (evaluare inițială): {current_model.display_name}")
-    else:
-        current_model = PRIMARY_MODEL
-
-    preset_skip: set[str] = set()
-
-    verify_working_puzzle(
+    result = run_rewrite_loop(
         puzzle,
         client,
-        skip_words=preset_skip,
-        model_label=current_model.display_name,
-        max_guesses=verify_candidates,
+        rounds=rounds,
+        theme=puzzle.title or "Puzzle rebus",
+        multi_model=multi_model,
+        verify_candidates=verify_candidates,
     )
-    rate_working_puzzle(
-        puzzle, client, skip_words=preset_skip, dex=dex, model_label=current_model.display_name,
-    )
-    for clue in all_working_clues(puzzle):
-        _update_best_clue_version(clue, client=client)
-
-    # Save round-0 scores for later comparison
-    initial_scores: dict[str, tuple[int, int]] = {}
-    for clue in all_working_clues(puzzle):
-        sem = _extract_semantic_score(clue) or 0
-        reb = _extract_rebus_score(clue) or 0
-        initial_scores[clue.word_normalized] = (sem, reb)
-
-    consecutive_failures: dict[str, int] = {}
-    stuck_words: set[str] = set()
-    min_rebus_history: list[int] = []
-
-    for round_index in range(1, rounds + 1):
-        current_scores = [
-            _extract_rebus_score(c) or 0
-            for c in all_working_clues(puzzle)
-        ]
-        current_min = min(current_scores) if current_scores else 0
-        min_rebus_history.append(current_min)
-
-        if has_plateaued(min_rebus_history, PLATEAU_LOOKBACK):
-            print(f"  Plateau after {round_index} rounds (min_rebus={current_min})")
-            break
-
-        round_min_rebus = current_min + 1
-        candidates = [
-            clue for clue in all_working_clues(puzzle)
-            if _needs_rewrite(clue, min_rebus=round_min_rebus)
-            and clue.word_normalized not in stuck_words
-        ]
-
-        if not candidates:
-            break
-
-        if multi_model:
-            print(f"  Model activ (rescriere): {current_model.display_name}")
-
-        print(f"  Rewrite round {round_index}: {len(candidates)} candidates")
-
-        changed_words: set[str] = set()
-        for clue in candidates:
-            if _is_locked_clue(clue):
-                continue
-            wrong_guess = clue.current.assessment.wrong_guess
-            wrong_guesses = list(clue.current.assessment.verify_candidates)
-            rating_feedback = clue.current.assessment.feedback
-            bad_example_definition = clue.current.definition if round_index >= 2 else ""
-            bad_example_reason = _synthesize_failure_reason(clue) if round_index >= 2 else ""
-            dex_defs = (dex.get(clue.word_normalized, clue.word_original) or "")
-            failure_history: list[tuple[str, list[str]]] = [
-                (
-                    v.definition,
-                    list(v.assessment.verify_candidates)
-                    if v.assessment.verify_candidates
-                    else ([v.assessment.wrong_guess] if v.assessment.wrong_guess else []),
-                )
-                for v in clue.history
-                if (v.assessment.verify_candidates or v.assessment.wrong_guess) and v.definition
-            ]
-            try:
-                if clue.current.definition.startswith("["):
-                    new_definition = generate_definition(
-                        client, clue.word_normalized, clue.word_original, theme, retries=3,
-                        word_type=clue.word_type, dex_definitions=dex_defs,
-                    )
-                else:
-                    new_definition = rewrite_definition(
-                        client,
-                        clue.word_normalized,
-                        clue.word_original,
-                        theme,
-                        clue.current.definition,
-                        wrong_guess,
-                        wrong_guesses=wrong_guesses or None,
-                        rating_feedback=rating_feedback,
-                        bad_example_definition=bad_example_definition,
-                        bad_example_reason=bad_example_reason,
-                        word_type=clue.word_type,
-                        dex_definitions=dex_defs,
-                        failure_history=failure_history or None,
-                    )
-            except Exception as e:
-                print(f"  Rewrite failed for {clue.word_normalized}: {e}")
-                continue
-
-            if new_definition and new_definition != clue.current.definition:
-                changed_words.add(clue.word_normalized)
-                consecutive_failures[clue.word_normalized] = 0
-                print(
-                    f"  {clue.word_normalized}: "
-                    f"'{_compact_log_text(clue.current.definition)}' -> "
-                    f"'{_compact_log_text(new_definition)}'"
-                )
-                set_current_definition(
-                    clue,
-                    new_definition,
-                    round_index=round_index,
-                    source="rewrite",
-                    generated_by=current_model.display_name,
-                )
-            else:
-                consecutive_failures[clue.word_normalized] = consecutive_failures.get(clue.word_normalized, 0) + 1
-                if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
-                    stuck_words.add(clue.word_normalized)
-                    print(f"  {clue.word_normalized}: stuck after {consecutive_failures[clue.word_normalized]} failures")
-
-        skip_words = ({c.word_normalized for c in all_working_clues(puzzle)} - changed_words) | preset_skip
-        if multi_model:
-            next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
-            try:
-                switch_model(current_model, next_model)
-                current_model = next_model
-            except Exception as e:
-                print(f"  Model switch failed: {e} — continuing with {current_model.display_name}")
-            print(f"  Model activ (evaluare): {current_model.display_name}")
-        verify_working_puzzle(
-            puzzle,
-            client,
-            skip_words=skip_words,
-            model_label=current_model.display_name,
-            max_guesses=verify_candidates,
-        )
-        rate_working_puzzle(
-            puzzle, client, skip_words=skip_words, dex=dex, model_label=current_model.display_name,
-        )
-        for clue in all_working_clues(puzzle):
-            if clue.word_normalized not in changed_words:
-                continue
-            _update_best_clue_version(clue, client=client)
-            if clue.locked:
-                print(f"  {clue.word_normalized}: locked at {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
-
-    _restore_best_versions(puzzle)
-
-    # Build result: only include clues where definition actually improved
-    best_versions: dict[str, ClueCandidateVersion] = {}
-    for clue in all_working_clues(puzzle):
-        old_sem, old_reb = initial_scores.get(clue.word_normalized, (0, 0))
-        new_sem = _extract_semantic_score(clue) or 0
-        new_reb = _extract_rebus_score(clue) or 0
-        if new_reb > old_reb or new_sem > old_sem:
-            best_versions[clue.word_normalized] = copy.deepcopy(clue.active_version())
-
-    return best_versions
+    return result.improved_versions
 
 
 def redefine_puzzle(
@@ -408,67 +216,75 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    handle = install_process_logging(
+        run_id=f"redefine_{path_timestamp()}",
+        component="redefine",
+        tee_console=True,
+    )
     parser = build_parser()
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
 
-    if not args.date and not args.puzzle_id and not args.all:
-        parser.error("Specify --date, --puzzle-id, or --all")
+        if not args.date and not args.puzzle_id and not args.all:
+            parser.error("Specify --date, --puzzle-id, or --all")
 
-    if args.date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
-        parser.error("--date must be in YYYY-MM-DD format")
+        if args.date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
+            parser.error("--date must be in YYYY-MM-DD format")
 
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
-        sys.exit(1)
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+            sys.exit(1)
 
-    supabase = create_supabase_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    client = create_ai_client()
+        supabase = create_supabase_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        client = create_ai_client()
 
-    puzzles = fetch_puzzles(
-        supabase,
-        date=args.date,
-        puzzle_id=args.puzzle_id,
-    )
+        puzzles = fetch_puzzles(
+            supabase,
+            date=args.date,
+            puzzle_id=args.puzzle_id,
+        )
 
-    if not puzzles:
-        print("No puzzles found matching the criteria.")
-        return
+        if not puzzles:
+            print("No puzzles found matching the criteria.")
+            return
 
-    print(f"Found {len(puzzles)} puzzle(s) to redefine")
-    if args.dry_run:
-        print("(dry run — no updates will be made)\n")
-    else:
-        print()
+        print(f"Found {len(puzzles)} puzzle(s) to redefine")
+        if args.dry_run:
+            print("(dry run — no updates will be made)\n")
+        else:
+            print()
 
-    if args.multi_model:
-        ensure_model_loaded(PRIMARY_MODEL)
+        if args.multi_model:
+            ensure_model_loaded(PRIMARY_MODEL)
 
-    total_updated = 0
-    total_puzzles = 0
-    failed = 0
+        total_updated = 0
+        total_puzzles = 0
+        failed = 0
 
-    for puzzle_row in puzzles:
-        try:
-            count = redefine_puzzle(
-                supabase,
-                puzzle_row,
-                client,
-                dry_run=args.dry_run,
-                multi_model=args.multi_model,
-                rounds=args.rounds,
-                verify_candidates=max(1, args.verify_candidates),
-            )
-            total_updated += count
-            total_puzzles += 1
-        except Exception as exc:
-            puzzle_id = puzzle_row.get("id", "?")
-            print(f"  [{puzzle_id}] Error: {exc}")
-            failed += 1
+        for puzzle_row in puzzles:
+            try:
+                count = redefine_puzzle(
+                    supabase,
+                    puzzle_row,
+                    client,
+                    dry_run=args.dry_run,
+                    multi_model=args.multi_model,
+                    rounds=args.rounds,
+                    verify_candidates=max(1, args.verify_candidates),
+                )
+                total_updated += count
+                total_puzzles += 1
+            except Exception as exc:
+                puzzle_id = puzzle_row.get("id", "?")
+                print(f"  [{puzzle_id}] Error: {exc}")
+                failed += 1
 
-    print(
-        f"\nSummary: {total_puzzles} puzzles processed, "
-        f"{total_updated} definitions improved, {failed} failed"
-    )
+        print(
+            f"\nSummary: {total_puzzles} puzzles processed, "
+            f"{total_updated} definitions improved, {failed} failed"
+        )
+    finally:
+        handle.restore()
 
 
 if __name__ == "__main__":

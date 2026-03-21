@@ -30,9 +30,10 @@ from ..core.diacritics import normalize
 from ..core.model_manager import (
     PRIMARY_MODEL,
     SECONDARY_MODEL,
-    ensure_model_loaded,
-    switch_model,
 )
+from ..core.model_session import ModelSession
+from ..core.runtime_logging import install_process_logging, path_timestamp
+from ..core.selection_engine import choose_clue_version
 
 
 DATASET_PATH = Path(__file__).parent / "dataset.json"
@@ -112,9 +113,49 @@ class AssessmentResult:
     def composite(self) -> float:
         return self.pass_rate * 100 + self.avg_semantic * 3 + self.avg_rebus * 2
 
-
-def _candidate_rank(verified: bool, semantic: int, rebus: int) -> tuple:
-    return (int(verified), semantic + rebus, rebus)
+    def to_dict(self) -> dict:
+        protected_tiers = {
+            name: self.tier_results[name]
+            for name in self.tier_results
+            if name in {"high", "easy", "control"}
+        }
+        return {
+            "composite": round(self.composite, 1),
+            "pass_rate": round(self.pass_rate, 3),
+            "avg_semantic": round(self.avg_semantic, 1),
+            "avg_rebus": round(self.avg_rebus, 1),
+            "tiers": {
+                name: {
+                    "pass_rate": round(tr.pass_rate, 3),
+                    "avg_semantic": round(tr.avg_semantic, 1),
+                    "avg_rebus": round(tr.avg_rebus, 1),
+                    "count": tr.total,
+                }
+                for name, tr in sorted(self.tier_results.items())
+            },
+            "protected_control_summary": {
+                name: {
+                    "pass_rate": round(tr.pass_rate, 3),
+                    "avg_semantic": round(tr.avg_semantic, 1),
+                    "avg_rebus": round(tr.avg_rebus, 1),
+                    "count": tr.total,
+                }
+                for name, tr in sorted(protected_tiers.items())
+            },
+            "candidates": [
+                {
+                    "word": c.word,
+                    "tier": c.tier,
+                    "best_source": c.best_source,
+                    "definition": _best_definition(c),
+                    "verified": _best_verified(c),
+                    "guesses": _best_guesses(c),
+                    "semantic": _best_semantic(c),
+                    "rebus": _best_rebus(c),
+                }
+                for c in self.candidates
+            ],
+        }
 
 
 def _best_verified(c: WordCandidate) -> bool:
@@ -142,14 +183,32 @@ def _best_guesses(c: WordCandidate) -> list[str]:
 
 
 def _pick_best(c: WordCandidate) -> None:
-    rank1 = _candidate_rank(c.pass1_verified, c.pass1_semantic, c.pass1_rebus)
-    rank2 = _candidate_rank(c.pass2_verified, c.pass2_semantic, c.pass2_rebus)
-    if rank1 == rank2:
-        has_def1 = bool(c.pass1_definition) and not c.pass1_definition.startswith("[")
-        has_def2 = bool(c.pass2_definition) and not c.pass2_definition.startswith("[")
-        c.best_source = "pass2" if has_def2 and not has_def1 else "pass1"
-    else:
-        c.best_source = "pass2" if rank2 > rank1 else "pass1"
+    from ..core.pipeline_state import ClueAssessment, ClueCandidateVersion, ClueScores
+
+    def _version(source: str) -> ClueCandidateVersion:
+        definition = c.pass1_definition if source == "pass1" else c.pass2_definition
+        verified = c.pass1_verified if source == "pass1" else c.pass2_verified
+        semantic = c.pass1_semantic if source == "pass1" else c.pass2_semantic
+        rebus = c.pass1_rebus if source == "pass1" else c.pass2_rebus
+        guesses = c.pass1_guesses if source == "pass1" else c.pass2_guesses
+        return ClueCandidateVersion(
+            definition=definition,
+            round_index=1 if source == "pass1" else 2,
+            source=source,
+            assessment=ClueAssessment(
+                verified=verified,
+                verify_candidates=list(guesses),
+                scores=ClueScores(
+                    semantic_exactness=semantic,
+                    answer_targeting=rebus,
+                    rebus_score=rebus,
+                    language_integrity=10,
+                ),
+            ),
+        )
+
+    chosen, _decision = choose_clue_version(_version("pass1"), _version("pass2"))
+    c.best_source = "pass2" if chosen.source == "pass2" else "pass1"
 
 
 def _load_dataset(path: Path) -> list[dict]:
@@ -227,6 +286,7 @@ def run_assessment(
     client = create_client()
     result = AssessmentResult()
     phase_times: dict[str, float] = {}
+    session = ModelSession(multi_model=True)
 
     candidates = [
         WordCandidate(
@@ -250,7 +310,7 @@ def run_assessment(
     print(f"PHASE 1: {PRIMARY_MODEL.display_name} generates definitions")
     print(f"{'='*60}")
     phase_start = time.monotonic()
-    ensure_model_loaded(PRIMARY_MODEL)
+    session.start_primary()
 
     for i, c in enumerate(candidates, 1):
         print(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
@@ -268,7 +328,7 @@ def run_assessment(
     print(f"PHASE 2: {SECONDARY_MODEL.display_name} evaluates + generates")
     print(f"{'='*60}")
     phase_start = time.monotonic()
-    switch_model(PRIMARY_MODEL, SECONDARY_MODEL)
+    session.start_secondary()
 
     # 2a: cross-model verify + rate of pass1 definitions
     print(f"\n--- Phase 2a: evaluate pass1 definitions ---")
@@ -310,7 +370,7 @@ def run_assessment(
     print(f"PHASE 3: {PRIMARY_MODEL.display_name} evaluates + selects best")
     print(f"{'='*60}")
     phase_start = time.monotonic()
-    switch_model(SECONDARY_MODEL, PRIMARY_MODEL)
+    session.start_primary()
 
     # 3a: cross-model verify + rate of pass2 definitions
     print(f"\n--- Phase 3a: evaluate pass2 definitions ---")
@@ -412,6 +472,12 @@ def _print_report(result: AssessmentResult) -> None:
             print(f"  {c.word} ({c.tier}, {c.best_source}): '{defn}...' → guessed '{guesses}'")
 
 
+def _write_result_json(result: AssessmentResult, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Assessment JSON written to {path}")
+
+
 def _append_results_tsv(result: AssessmentResult, description: str) -> None:
     commit = _git_short_hash()
     header = "commit\tcomposite\tpass_rate\tavg_semantic\tavg_rebus\tstatus\tdescription\n"
@@ -430,6 +496,11 @@ def _append_results_tsv(result: AssessmentResult, description: str) -> None:
 
 
 def main() -> None:
+    handle = install_process_logging(
+        run_id=f"assessment_{path_timestamp()}",
+        component="assessment",
+        tee_console=True,
+    )
     parser = argparse.ArgumentParser(description="Run multi-model assessment pipeline")
     parser.add_argument(
         "--dataset", default=str(DATASET_PATH),
@@ -447,15 +518,31 @@ def main() -> None:
         "--verify-candidates", type=int, default=VERIFY_CANDIDATE_COUNT,
         help=f"How many verifier candidates to request per definition (default: {VERIFY_CANDIDATE_COUNT})",
     )
-    args = parser.parse_args()
-
-    result = run_assessment(
-        Path(args.dataset),
-        temperature=args.temperature,
-        verify_candidates=max(1, args.verify_candidates),
+    parser.add_argument(
+        "--json-out",
+        help="Optional path for machine-readable assessment JSON",
     )
-    _print_report(result)
-    _append_results_tsv(result, args.description)
+    parser.add_argument(
+        "--append-tsv",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Append assessment summary to results.tsv (default: True)",
+    )
+    try:
+        args = parser.parse_args()
+
+        result = run_assessment(
+            Path(args.dataset),
+            temperature=args.temperature,
+            verify_candidates=max(1, args.verify_candidates),
+        )
+        _print_report(result)
+        if args.json_out:
+            _write_result_json(result, Path(args.json_out))
+        if args.append_tsv:
+            _append_results_tsv(result, args.description)
+    finally:
+        handle.restore()
 
 
 if __name__ == "__main__":
