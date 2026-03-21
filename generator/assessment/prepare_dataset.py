@@ -1,16 +1,17 @@
-"""Build the multistep assessment dataset from March-17 batch mining.
+"""Build the multistep assessment dataset.
 
-Default composition:
-- 30 low words (avg rebus < 5)
-- 25 medium words (avg rebus 6-7, repeated, low variance)
-- 15 high/control words (avg rebus 9-10, stable)
+Default mode uses a curated 70-word set derived from the 2026-03-21 blind
+spots seen in fresh batch runs:
+- 30 low words
+- 25 medium words
+- 15 high/control words
 
-The selection is intentionally length-aware to avoid overfitting the eval set
-to 2-3 letter crossword words just because they appear more often in batches.
+The older mined March-17 builder remains available for comparison or recovery.
 
 Usage:
     python3 -m generator.assessment.prepare_dataset
-    python3 -m generator.assessment.prepare_dataset --source-date 20260317
+    python3 -m generator.assessment.prepare_dataset --selection-mode curated
+    python3 -m generator.assessment.prepare_dataset --selection-mode mined --source-date 20260317
     python3 -m generator.assessment.prepare_dataset --fetch-dex
 """
 
@@ -30,6 +31,29 @@ OUTPUT_PATH = OUTPUT_DIR / "dataset.json"
 WORDS_PATH = Path("generator/output/words.json")
 DEFAULT_SOURCE_DATE = "20260317"
 DEFAULT_CANDIDATES_DIR = Path("build/assessment_candidates")
+DEFAULT_SELECTION_MODE = "curated"
+CURATED_TIER_DEFAULTS = {
+    "low": {"avg_score": 4.0, "min_score": 2, "max_score": 5, "hits": 1},
+    "medium": {"avg_score": 6.8, "min_score": 6, "max_score": 7, "hits": 1},
+    "high": {"avg_score": 9.2, "min_score": 9, "max_score": 10, "hits": 1},
+}
+CURATED_DATASET_TIERS = {
+    "low": [
+        "UZ", "AZ", "OF", "ATU", "FLU", "ITI", "UMEZITOR", "SOCOLATA", "CATA", "STIMULAT",
+        "HOTAR", "TRONARE", "LECTURAT", "EPIGASTRU", "ATAS", "IMN", "RUT", "OSTRACA",
+        "ALAI", "FERMENT", "DEPARTA", "TRAGACI", "CEGA", "ETALARE", "FLIS", "AMETITOR",
+        "CAST", "ARSIN", "CASISOARA", "IN",
+    ],
+    "medium": [
+        "TOR", "DRUSA", "CROAZIERA", "MARMOR", "STAND", "RUIN", "SAN", "NUC", "MIRE", "ZEU",
+        "INNOURAT", "LAN", "OSTIRE", "SADA", "OFIT", "FIR", "FI", "ADEVARA", "TUR",
+        "URATURA", "AUT", "AN", "EU", "DAR", "CAP",
+    ],
+    "high": [
+        "UNU", "AS", "AT", "AER", "ZI", "AR", "ARA", "OS", "STA", "LUP",
+        "TAVA", "ADAPOST", "ATOMA", "MOD", "ETAN",
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -213,8 +237,46 @@ def _reuse_or_fetch_dex(
     return dex_defs
 
 
+def _build_curated_entries(
+    *,
+    curated_tiers: dict[str, list[str]],
+    words_meta: dict[str, dict],
+    existing_dex: dict[str, str],
+    fetch_dex: bool,
+) -> list[DatasetEntry]:
+    chosen_words = [word for tier_words in curated_tiers.values() for word in tier_words]
+    dex_defs = _reuse_or_fetch_dex(
+        chosen_words,
+        words_meta,
+        existing_dex,
+        fetch_dex=fetch_dex,
+    )
+
+    entries: list[DatasetEntry] = []
+    for tier_name in ("low", "medium", "high"):
+        stats = CURATED_TIER_DEFAULTS[tier_name]
+        for word in curated_tiers[tier_name]:
+            meta = words_meta.get(word)
+            if not meta:
+                raise KeyError(f"Missing word metadata for curated dataset word: {word}")
+            entries.append(DatasetEntry(
+                word=word,
+                display_word=meta.get("original", word.lower()),
+                length=meta.get("length", len(meta.get("original", word))),
+                word_type=meta.get("word_type", ""),
+                dex_definitions=dex_defs.get(word, ""),
+                tier=tier_name,
+                avg_rebus_score=stats["avg_score"],
+                appearances=stats["hits"],
+                min_rebus_score=stats["min_score"],
+                max_rebus_score=stats["max_score"],
+            ))
+    return entries
+
+
 def build_dataset(
     *,
+    selection_mode: str = DEFAULT_SELECTION_MODE,
     source_date: str = DEFAULT_SOURCE_DATE,
     candidates_dir: Path = DEFAULT_CANDIDATES_DIR,
     low_count: int = 30,
@@ -227,6 +289,17 @@ def build_dataset(
     medium_max_range: int = 2,
     fetch_dex: bool = False,
 ) -> list[DatasetEntry]:
+    words_meta = _load_words_metadata()
+    existing_dex = _load_existing_dex(OUTPUT_PATH)
+
+    if selection_mode == "curated":
+        return _build_curated_entries(
+            curated_tiers=CURATED_DATASET_TIERS,
+            words_meta=words_meta,
+            existing_dex=existing_dex,
+            fetch_dex=fetch_dex,
+        )
+
     low_path = candidates_dir / f"{source_date}_low_words.tsv"
     high_path = candidates_dir / f"{source_date}_high_words.tsv"
     if not low_path.exists() or not high_path.exists():
@@ -235,8 +308,6 @@ def build_dataset(
             f"Expected {low_path} and {high_path}."
         )
 
-    words_meta = _load_words_metadata()
-    existing_dex = _load_existing_dex(OUTPUT_PATH)
     low_rows = _read_tsv(low_path)
     high_rows = _read_tsv(high_path)
     selection = _build_selection(
@@ -282,7 +353,8 @@ def build_dataset(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build March-17 multistep assessment dataset")
+    parser = argparse.ArgumentParser(description="Build multistep assessment dataset")
+    parser.add_argument("--selection-mode", choices=("curated", "mined"), default=DEFAULT_SELECTION_MODE)
     parser.add_argument("--source-date", default=DEFAULT_SOURCE_DATE)
     parser.add_argument("--candidates-dir", default=str(DEFAULT_CANDIDATES_DIR))
     parser.add_argument("--low-count", type=int, default=30)
@@ -297,6 +369,7 @@ def main() -> None:
     args = parser.parse_args()
 
     entries = build_dataset(
+        selection_mode=args.selection_mode,
         source_date=args.source_date,
         candidates_dir=Path(args.candidates_dir),
         low_count=args.low_count,

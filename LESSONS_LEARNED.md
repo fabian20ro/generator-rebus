@@ -59,6 +59,8 @@
 
 **[2026-03-21]** Prompt experiment runners should consume machine-readable assessment artifacts, not infer truth from shared TSV append order — TSV is fine as score history, but keep/discard logic needs per-tier/control data and should read a JSON artifact produced by assessment directly.
 
+**[2026-03-21]** Prompt campaign manifests need an anchor-existence test against live prompt files — literal `find -> replace` runners will silently skip experiments when prompt text drifts. Keep one regression test that loads current prompt files and asserts every manifest edit anchor still exists before launching a long campaign.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

@@ -21,10 +21,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from generator.assessment.benchmark_policy import UNCERTAINTY_DELTA
 from generator.core.runtime_logging import install_process_logging, path_timestamp
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
 RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 DEFAULT_EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
@@ -43,13 +46,34 @@ USR_REWRITE = "user/rewrite.md"
 
 
 # ── Experiment definition ─────────────────────────────────────────
+@dataclass(frozen=True)
+class PromptEdit:
+    file: str  # relative to PROMPTS_DIR
+    find: str
+    replace: str
+
+
 @dataclass
 class Experiment:
     name: str
     desc: str
-    file: str  # relative to PROMPTS_DIR
-    find: str
-    replace: str
+    edits: list[PromptEdit]
+
+    @property
+    def files(self) -> list[str]:
+        return list(dict.fromkeys(edit.file for edit in self.edits))
+
+    @property
+    def file(self) -> str:
+        return ", ".join(self.files)
+
+    @property
+    def find(self) -> str:
+        return self.edits[0].find if self.edits else ""
+
+    @property
+    def replace(self) -> str:
+        return self.edits[0].replace if self.edits else ""
 
 
 def _insert_before(marker: str, new_line: str) -> tuple[str, str]:
@@ -60,6 +84,24 @@ def _insert_before(marker: str, new_line: str) -> tuple[str, str]:
 def _insert_after(marker: str, new_line: str) -> tuple[str, str]:
     """Helper: returns (find, replace) to insert new_line after marker."""
     return marker, f"{marker}\n{new_line}"
+
+
+def _edit(file: str, find: str, replace: str) -> PromptEdit:
+    return PromptEdit(file=file, find=find, replace=replace)
+
+
+def _edit_remove(file: str, text: str) -> PromptEdit:
+    return _edit(file, text, "")
+
+
+def _edit_before(file: str, marker: str, new_line: str) -> PromptEdit:
+    find, replace = _insert_before(marker, new_line)
+    return _edit(file, find, replace)
+
+
+def _edit_after(file: str, marker: str, new_line: str) -> PromptEdit:
+    find, replace = _insert_after(marker, new_line)
+    return _edit(file, find, replace)
 
 
 # ── 100 Experiments ───────────────────────────────────────────────
@@ -73,7 +115,12 @@ EXPERIMENTS: list[Experiment] = []
 
 def _exp(desc: str, file: str, find: str, replace: str) -> None:
     name = f"exp{len(EXPERIMENTS) + 1:03d}"
-    EXPERIMENTS.append(Experiment(name, desc, file, find, replace))
+    EXPERIMENTS.append(Experiment(name, desc, [_edit(file, find, replace)]))
+
+
+def _exp_multi(desc: str, edits: list[PromptEdit]) -> None:
+    name = f"exp{len(EXPERIMENTS) + 1:03d}"
+    EXPERIMENTS.append(Experiment(name, desc, edits))
 
 
 def _exp_before(desc: str, file: str, marker: str, new_line: str) -> None:
@@ -90,406 +137,584 @@ def _exp_remove(desc: str, file: str, text: str) -> None:
     _exp(desc, file, text, "")
 
 
-# ── ROUND 1-3: removals and simplifications ──────────────────────
+# ── 100 Experiments ───────────────────────────────────────────────
 
-_exp_remove("remove duplicate english-only fallback in definition",
-            SYS_DEFINITION,
-            "- Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].\n")
-_exp_remove("remove low-creativity DEX anchor from rate",
-            SYS_RATE,
-            "- dacă definiția este aproape identică cu o definiție DEX: creativity_score mic (3-4)\n")
-_exp_remove("remove technical-word hint from verify",
-            SYS_VERIFY,
-            "- Dacă definiția pare tehnică sau neobișnuită, gândește-te la termeni de specialitate.\n")
-_exp_remove("remove max-15-words cap from rewrite",
-            SYS_REWRITE,
-            "- Max 15 cuvinte.\n")
-_exp_remove("remove normalized-form line from generate user",
-            USR_GENERATE,
-            "Formă normalizată: {word}\n")
-_exp_remove("remove duplicate length reminder from verify user",
-            USR_VERIFY,
-            "Verifică lungimea înainte de a scrie.\n")
-_exp_remove("remove normalized-form line from rate user",
-            USR_RATE,
-            "Formă normalizată: {word}\n")
-_exp_remove("remove normalized-form line from rewrite user",
-            USR_REWRITE,
-            "Formă normalizată: {word}\n")
+VERIFY_FIRST_EXAMPLE = "Definiție: Domeniul online al Austriei\nRăspuns: AT\n"
+VERIFY_EXAMPLES_HEADER = "Exemple:"
+DEFINITION_EXAMPLES_HEADER = "Exemple corecte:"
+DEFINITION_COUNTEREXAMPLES_HEADER = "Contra-exemple (GREȘIT - sensuri englezești):"
+RATE_FEEDBACK_MARKER = "- feedback-ul este exclusiv în română, scurt și concret"
+RATE_JSON_MARKER = "Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:"
+REWRITE_MAX_WORDS_MARKER = "- Max 15 cuvinte."
+REWRITE_NECLAR_MARKER = "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]"
+USER_VERIFY_RESPONSE_HEADER = "Răspunsuri:"
 
-_exp_remove("remove creative-paraphrase rule from definition",
-            SYS_DEFINITION,
-            "- Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.\n")
-_exp_remove("remove high-creativity dictionary-distance rule from rate",
-            SYS_RATE,
-            "- dacă definiția e creativă și diferită de definițiile de dicționar: creativity_score mare\n")
-_exp_remove("remove domain-switch flexibility line from verify",
-            SYS_VERIFY,
-            "- Definiția poate folosi un sens figurat sau o referință din alt domeniu. Gândește flexibil.\n")
-_exp_remove("remove english-only reminder from rewrite",
-            SYS_REWRITE,
-            "IMPORTANT: Definește cuvintele DOAR cu sensul lor românesc, nu englezesc.\n")
-_exp_remove("remove answer-length line from generate user",
-            USR_GENERATE,
-            "Lungime: {length}\n")
-_exp_remove("remove long length-check sentence from verify user",
-            USR_VERIFY,
-            "Numără literele răspunsului tău înainte de a răspunde. Dacă nu are exact {answer_length} litere, gândește-te la alt cuvânt.\n")
-_exp_remove("remove answer-length line from rate user",
-            USR_RATE,
-            "Lungime răspuns: {answer_length}\n")
-_exp("remove failure-history placeholder from rewrite user",
-     USR_REWRITE,
-     "{bad_example_text}{failure_history_text}\n",
-     "{bad_example_text}\n")
 
-_exp("simplify precision line in definition",
-     SYS_DEFINITION,
-     "- Preferi definiții precise, naturale, maxim 12 cuvinte.\n",
-     "- Preferi definiții precise.\n")
-_exp("shorten creativity-score explanation in rate",
-     SYS_RATE,
-     '- creativity_score: cât de ingenios exploatează definiția un joc de domenii sau o ambiguitate surprinzătoare — o definiție directă de dicționar primește 3-4, o perifrază care face rezolvitorul să se gândească inițial la alt domeniu primește 8-10 (ex: RIAL -> "Se plătește la șah" = surpriză domeniu)',
-     "- creativity_score: cât de ingenios și nebanal este indiciul, fără a sacrifica exactitatea")
-_exp_remove("remove longest verify example",
-            SYS_VERIFY,
-            "Definiție: Se trage un semnal de pericol\nRăspuns: ALARMA\n")
-_exp_remove("remove precision-versus-old-clue line from rewrite",
-            SYS_REWRITE,
-            "- Fă definiția mai precisă decât cea veche.\n")
-_exp("simplify generate user final instruction",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție exactă. Răspunde doar cu definiția.")
-_exp("remove word-type line from verify user",
-     USR_VERIFY,
-     "{word_type_line}Definiție: {definition}\n",
-     "Definiție: {definition}\n")
-_exp("simplify final rate user instruction",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează semantic, ghicibilitate și creativitate. Răspunde STRICT cu JSON.")
-_exp_remove("remove bad-example placeholder from rewrite user",
-            USR_REWRITE,
-            "{bad_example_text}{failure_history_text}\n")
+def _block(*lines: str) -> str:
+    return "\n".join(lines)
 
-# ── ROUND 4-10: light additions, alternating files ───────────────
 
-_exp_before("add exact-form detail to definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- Dacă două forme apropiate sunt posibile, alege detaliul care identifică exact forma din grilă.")
-_exp_before("add lemma-vs-form penalty to rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- dacă definiția ar putea duce la lemmă sau la o altă flexiune: guessability_score mic")
-_exp_before("add exact-sense guard to verify",
-            SYS_VERIFY,
-            "Exemple:",
-            "- Nu alege un cuvânt doar fiindcă e apropiat; sensul trebuie să se potrivească exact definiției.")
-_exp_before("add sure-over-clever rule to rewrite",
-            SYS_REWRITE,
-            "- Max 15 cuvinte.",
-            "- Dacă alegi între o formulare ingenioasă și una sigură, preferi varianta sigură.")
-_exp("add distinctive-sense reminder to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Descrie sensul distinctiv, nu doar categoria largă. Răspunde doar cu definiția.")
-_exp_before("add exact-form reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Dacă definiția cere o formă flexionată, răspunde exact cu acea formă.")
-_exp("add close-form penalty to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Penalizează formele apropiate dar greșite. Răspunde STRICT cu JSON.")
-_exp("add exact-form target to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis și mai scurt, pentru forma exactă.")
+def _verify_example(definition: str, answer: str) -> str:
+    return _block(f"Definiție: {definition}", f"Răspuns: {answer}")
 
-_exp_before("add single-answer detail to definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- Dacă definiția poate duce la mai multe răspunsuri, adaugă un detaliu care lasă unul singur.")
-_exp_before("add uniqueness criterion to rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- dacă două răspunsuri rămân la fel de plauzibile, guessability_score nu trece de 6")
-_exp_after("add tie-break commonness to verify",
-           SYS_VERIFY,
-           "- Răspunsul conține doar litere românești (inclusiv ă, â, î, ș, ț).",
-           "- Dacă două răspunsuri par la fel de plauzibile, alege cuvântul mai uzual.")
-_exp_before("add anti-common-synonym rule to rewrite",
-            SYS_REWRITE,
-            "- Max 15 cuvinte.",
-            "- Elimină formulările care trimit firesc la un sinonim mai comun.")
-_exp("add one-clear-sense reminder to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Alege un singur sens clar. Răspunde doar cu definiția.")
-_exp_before("add anti-first-guess reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Nu răspunde cu primul cuvânt vag potrivit.")
-_exp("add grid-solver framing to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea ca pentru un rezolvitor cu exact {answer_length} căsuțe. Răspunde STRICT cu JSON.")
-_exp("add distinctiveness reminder to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis, mai scurt și mai distinctiv.")
 
-_exp("add broad-clue counterexample to definition",
-     SYS_DEFINITION,
-     "Contra-exemple (GREȘIT - sensuri englezești):",
-     "Contra-exemple (GREȘIT - sensuri englezești și prea largi):\nRIAL -> Monedă [GREȘIT - prea multe răspunsuri]")
-_exp_before("cap vague-but-correct guessability in rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- dacă definiția e prea largă dar corectă, guessability_score nu trece de 6")
-_exp_before("add broad-definition caution to verify",
-            SYS_VERIFY,
-            "Exemple:",
-            "- Dacă definiția este largă, caută termenul cel mai fixat în rebus, nu o aproximare comodă.")
-_exp_before("remove decorative wording in rewrite",
-            SYS_REWRITE,
-            "- Max 15 cuvinte.",
-            "- Taie adjectivele decorative care nu ajută la identificare.")
-_exp("add anti-generic reminder to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Evită formulările prea generale. Răspunde doar cu definiția.")
-_exp_before("add specificity reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Dacă răspunsul nu e clar, caută unul mai specific, nu mai ornamental.")
-_exp("add no-reward-for-vagueness to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Nu recompensa definițiile vagi doar pentru că sunt corecte semantic. Răspunde STRICT cu JSON.")
-_exp("add concrete-detail reminder to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis, mai scurt și cu un detaliu concret.")
+def _exp_add_verify_example(desc: str, definition: str, answer: str) -> None:
+    _exp_before(desc, SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _verify_example(definition, answer))
 
-_exp_before("add honest-[NECLAR]-when-not-distinctive to definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- Dacă nu poți diferenția onest răspunsul de variante apropiate, răspunzi [NECLAR].")
-_exp_before("add invented-sense penalty to rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- dacă definiția pare inventată, forțată sau nesigură: semantic_score mic")
-_exp_before("add real-word-not-improvised reminder to verify",
-            SYS_VERIFY,
-            "Exemple:",
-            "- Dacă definiția pare ciudată, tot cauți un cuvânt românesc real, nu improvizezi.")
-_exp_before("add cannot-save-honestly rule to rewrite",
-            SYS_REWRITE,
-            "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]",
-            "- Dacă nu poți salva definiția onest, răspunzi exact: [NECLAR]")
-_exp("add [NECLAR] fallback to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Dacă nu știi sensul românesc, răspunde [NECLAR].")
-_exp_before("add no-improvisation reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Nu improviza un cuvânt doar ca să iasă lungimea.")
-_exp("add implausible-definition penalty to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Dacă definiția pare neverosimilă pentru cuvânt, scade semantic_score. Răspunde STRICT cu JSON.")
-_exp("add honest-fallback to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis și mai scurt. Dacă nu poate fi reparată onest, răspunde [NECLAR].")
 
-_exp_before("add short-word literal rule to definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- Pentru răspunsuri de 2-3 litere, preferă indiciul exact, nu perifraza spectaculoasă.")
-_exp_before("add short-word ambiguity penalty to rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- pentru răspunsuri de 2-3 litere, o mică ambiguitate scade puternic guessability_score")
-_exp_before("add short-word elimination rule to verify",
-            SYS_VERIFY,
-            "Exemple:",
-            "- La 2-3 litere, exclude rapid variantele mai uzuale care au aceeași lungime.")
-_exp_before("add short-word-sense-first rule to rewrite",
-            SYS_REWRITE,
-            "- Max 15 cuvinte.",
-            "- Pentru răspunsuri scurte, corectează întâi sensul, apoi stilul.")
-_exp("add short-word literal reminder to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Pentru cuvinte scurte, fii foarte literal. Răspunde doar cu definiția.")
-_exp_before("add short-word caution to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "La cuvinte scurte, o literă sau un sens vag schimbă tot.")
-_exp("add short-word near-unique rule to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Pentru răspunsuri scurte, cere potrivire aproape unică. Răspunde STRICT cu JSON.")
-_exp("add short-word exactness to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis și mai scurt. Pentru cuvinte scurte, preferă varianta cea mai literală și exactă.")
+def _exp_add_definition_example(desc: str, answer: str, definition: str) -> None:
+    _exp_before(desc, SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, f"{answer} -> {definition}")
 
-_exp_before("add verb-form naturalness to definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- Dacă răspunsul este verb sau formă gramaticală, definiția trebuie să sune firesc pentru exact acea formă.")
-_exp_before("add grammar-category penalty to rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- dacă definiția descrie altă categorie gramaticală decât răspunsul: semantic_score și guessability_score mici")
-_exp_before("add grammar-category elimination to verify",
-            SYS_VERIFY,
-            "Exemple:",
-            "- Dacă definiția sugerează o categorie gramaticală, elimină variantele din altă categorie.")
-_exp_before("add category-mismatch reset to rewrite",
-            SYS_REWRITE,
-            "- Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.",
-            "- Dacă definiția veche descrie altă categorie gramaticală, rescrii de la zero.")
-_exp("add verb-form reminder to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Dacă e verb sau formă gramaticală, descrie exact acea formă. Răspunde doar cu definiția.")
-_exp_before("add grammar-clue reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Folosește și indiciile de categorie gramaticală, nu doar sensul general.")
-_exp("add grammar-flexion penalty to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Penalizează dacă definiția descrie altă categorie gramaticală sau altă flexiune. Răspunde STRICT cu JSON.")
-_exp("add form-before-style reminder to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis și mai scurt. Repară forma gramaticală înainte de stil.")
 
-_exp_before("retry no-ambiguity wording in definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- Dacă o formulare poate lăsa două răspunsuri naturale, reformulezi înainte să răspunzi.")
-_exp("retry stronger JSON-only wording in rate",
-     SYS_RATE,
-     "Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:",
-     "Răspunzi STRICT cu un singur obiect JSON, fără absolut niciun text în afara JSON-ului:")
-_exp_before("retry compare-candidates wording in verify",
-            SYS_VERIFY,
-            "Exemple:",
-            "- Dacă nu ești sigur, compară mental 2-3 candidate și păstrează doar varianta cea mai exactă.")
-_exp_before("add exact-then-short rule to rewrite",
-            SYS_REWRITE,
-            "- Max 15 cuvinte.",
-            "- După ce devine exactă, mai scurtezi definiția.")
-_exp("retry light specificity in generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Alege detaliul cel mai distinctiv. Răspunde doar cu definiția.")
-_exp_before("add form-plus-length reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Forma și lungimea trebuie să se potrivească simultan.")
-_exp("retry exact-guessing framing in rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea ca pe un test de ghicire exactă. Răspunde STRICT cu JSON.")
-_exp("add guessability emphasis to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis, mai scurt și mai ușor de ghicit exact.")
+def _exp_add_definition_counterexample(desc: str, answer: str, definition: str, note: str) -> None:
+    _exp_after(
+        desc,
+        SYS_DEFINITION,
+        DEFINITION_COUNTEREXAMPLES_HEADER,
+        f"{answer} -> {definition} [GREȘIT - {note}]",
+    )
 
-# ── ROUND 11-13: targeted retries, still alternating ─────────────
 
-_exp_before("add anchored-domain rule to definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- O surpriză de domeniu este bună doar dacă răspunsul rămâne unic și exact.")
-_exp("add lighter guessability-first wording to rate",
-     SYS_RATE,
-     "Întorci trei scoruri distincte:",
-     "Întorci trei scoruri distincte; pentru utilitatea practică, guessability cântărește cel mai mult:")
-_exp("add solver-first phrasing to verify",
-     SYS_VERIFY,
-     "Ești rezolvitor de rebusuri românești.",
-     "Ești rezolvitor de rebusuri românești. Scopul tău este să găsești forma exactă avută în minte de autor.")
-_exp_before("add anti-ambiguity self-check to rewrite",
-            SYS_REWRITE,
-            "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]",
-            "- Dacă noua definiție ar lăsa două răspunsuri naturale, o refaci.")
-_exp("add exact-form reminder to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Verifică să descrie forma exactă. Răspunde doar cu definiția.")
-_exp_before("add compare-candidates reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Dacă eziti, compară 2-3 candidate și păstrează-o pe cea mai exactă.")
-_exp("add single-answer evaluation to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Verifică dacă definiția indică un singur răspuns natural. Răspunde STRICT cu JSON.")
-_exp("add only-useful-words reminder to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis și mai scurt, păstrând doar cuvintele care ajută la ghicire.")
+def _exp_add_rate_rule(desc: str, line: str) -> None:
+    _exp_before(desc, SYS_RATE, RATE_FEEDBACK_MARKER, line)
 
-_exp("add multi-answer counterexample to definition",
-     SYS_DEFINITION,
-     "ARDE -> Ceva care se întâmplă [GREȘIT - prea vag]",
-     "ARDE -> Ceva care se întâmplă [GREȘIT - prea vag]\nAI -> Pronume posesiv [GREȘIT - prea multe răspunsuri]")
-_exp_before("allow simple-but-correct high semantic in rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- o definiție simplă și corectă poate primi semantic_score mare chiar dacă nu e creativă")
-_exp_before("add cell-count framing to verify",
-            SYS_VERIFY,
-            "Exemple:",
-            "- Gândește-te la casetele din grilă: fiecare literă trebuie justificată de definiție.")
-_exp_before("add anti-common-synonym rule to rewrite second pass",
-            SYS_REWRITE,
-            "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]",
-            "- Dacă formularea ar sugera un sinonim mai comun, o faci mai distinctivă.")
-_exp("add anti-category-generic reminder to generate user",
-     USR_GENERATE,
-     "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
-     "Scrie o definiție de rebus scurtă și exactă. Evită definițiile de categorie prea largă. Răspunde doar cu definiția.")
-_exp_before("add exact-meaning-over-length reminder to verify user",
-            USR_VERIFY,
-            "Răspuns:",
-            "Dacă două cuvinte au lungimea bună, alege-l pe cel care respectă exact sensul.")
-_exp("add short-word uniqueness check to rate user",
-     USR_RATE,
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. Răspunde STRICT cu JSON.",
-     "Evaluează separat corectitudinea semantică, ghicibilitatea exactă și creativitatea. La răspunsuri scurte, verifică dacă definiția duce aproape unic la cuvânt. Răspunde STRICT cu JSON.")
-_exp("add remove-dead-words reminder to rewrite user",
-     USR_REWRITE,
-     "Rescrie definiția mai precis și mai scurt.",
-     "Rescrie definiția mai precis și mai scurt. Scoate orice cuvânt care nu ajută la identificare.")
 
-_exp_before("add anti-common-synonym rule to definition",
-            SYS_DEFINITION,
-            "Exemple corecte:",
-            "- Dacă indiciul ar duce mai natural la un sinonim mai comun, îl reformulezi.")
-_exp_before("add common-synonym cap to rate",
-            SYS_RATE,
-            "- feedback-ul este exclusiv în română, scurt și concret",
-            "- dacă un sinonim mai comun pare răspunsul firesc, guessability_score nu poate fi mare")
-_exp_remove("remove first verify example to test leaner examples",
-            SYS_VERIFY,
-            "Definiție: Domeniul online al Austriei\nRăspuns: AT\n")
-_exp_before("add exact-surface-form target to rewrite",
-            SYS_REWRITE,
-            "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]",
-            "- Țintești forma exactă din grilă înainte de orice rafinare stilistică.")
+def _exp_add_rate_example(desc: str, line: str) -> None:
+    _exp_before(desc, SYS_RATE, RATE_JSON_MARKER, line)
 
+
+# ── ROUND 1: cleanup/removal pass ─────────────────────────────────
+
+_exp(
+    "shorten verify user counting sentence",
+    USR_VERIFY,
+    "Numără literele fiecărei variante înainte de a răspunde. Dacă nu are exact {answer_length} litere, nu o include.",
+    "Excluzi orice variantă care nu are exact {answer_length} litere.",
+)
+_exp(
+    "compress Romanian-only line in verify system",
+    SYS_VERIFY,
+    "- Gândești și răspunzi exclusiv în română.\n",
+    "- Gândești și răspunzi numai în română.\n",
+)
+_exp_remove(
+    "remove do-not-rephrase line from verify system",
+    SYS_VERIFY,
+    "- Nu reformulezi definiția.\n",
+)
+_exp(
+    "compress rare-sense lines in definition",
+    SYS_DEFINITION,
+    "- Dacă DEX oferă mai multe sensuri valide, poți alege și un sens mai rar, dar trebuie să fie un sens românesc real și formulat exact.\n- Nu alege automat sensul cel mai comun dacă alt sens valid duce mai exact la cuvântul cerut.\n",
+    "- Dacă există mai multe sensuri românești valide, poți alege unul mai rar dacă duce mai exact la răspuns.\n",
+)
+_exp(
+    "compress rare-sense lines in rewrite",
+    SYS_REWRITE,
+    "- Dacă termenul are mai multe sensuri românești valide, poți trece la un alt sens DEX mai exact sau mai ghicibil; nu rămâi blocat pe sensul cel mai comun.\n- Nu rescrie definiția spre un alt cuvânt mai uzual; rescrie spre același răspuns, chiar dacă sensul lui bun este mai rar.\n",
+    "- Dacă există mai multe sensuri românești valide, poți trece la unul mai rar dacă duce mai exact la răspuns.\n",
+)
+_exp(
+    "shorten creativity explanation in rate but keep RIAL",
+    SYS_RATE,
+    '- creativity_score: cât de ingenios exploatează definiția un joc de domenii sau o ambiguitate surprinzătoare — o definiție directă de dicționar primește 3-4, o perifrază care face rezolvitorul să se gândească inițial la alt domeniu primește 8-10 (ex: RIAL -> "Se plătește la șah" = surpriză domeniu)',
+    '- creativity_score: cât de nebanal dar util este indiciul; o definiție directă primește 3-4, iar o surpriză de domeniu exactă poate primi 8-10 (ex: RIAL -> "Se plătește la șah")',
+)
+_exp(
+    "shorten generate user final instruction",
+    USR_GENERATE,
+    "Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.",
+    "Scrie o definiție exactă. Răspunde doar cu definiția.",
+)
+_exp(
+    "remove alternate-valid-sense sentence from rewrite user",
+    USR_REWRITE,
+    "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+    "Rescrie definiția mai precis și mai scurt.",
+)
+_exp(
+    "fold diacritics counting into verify length step",
+    SYS_VERIFY,
+    "- Diacriticele nu contează la numărarea lungimii.\nProces de rezolvare:\n1. Citește definiția atent.\n2. Gândește la 1-3 cuvinte românești care se potrivesc.\n3. Verifică pentru fiecare: are exact lungimea cerută?\n4. Păstrează doar variantele care respectă lungimea.\n",
+    "Proces de rezolvare:\n1. Citește definiția atent.\n2. Gândește la 1-3 cuvinte românești care se potrivesc.\n3. Verifică pentru fiecare: are exact lungimea cerută, fără să numeri diacriticele separat?\n4. Păstrează doar variantele care respectă lungimea.\n",
+)
+_exp(
+    "shorten precise-natural-max12 line in definition",
+    SYS_DEFINITION,
+    "- Preferi definiții precise, naturale, maxim 12 cuvinte.\n",
+    "- Preferi definiții precise și naturale.\n",
+)
+_exp(
+    "shorten numar variante in verify user",
+    USR_VERIFY,
+    "Număr variante: maximum {max_guesses}",
+    "Variante: maximum {max_guesses}",
+)
+_exp(
+    "replace rewrite more-precise-than-old line with exact",
+    SYS_REWRITE,
+    "- Fă definiția mai precisă decât cea veche.\n",
+    "- Fă definiția mai exactă.\n",
+)
+
+# ── ROUND 2: verify example refresh for short/function words ─────
+
+for answer, definition in [
+    ("OF", "Interjecție de durere ori regret"),
+    ("UZ", "Folosire curentă a unui lucru"),
+    ("AZ", "Astăzi"),
+    ("AN", "Unitate de timp de 12 luni"),
+    ("EU", "Pronumele persoanei care vorbește"),
+    ("AUT", "Minge ieșită din teren"),
+    ("DAR", "Conjuncție adversativă"),
+    ("FI", "A exista"),
+    ("IN", "Plantă textilă cu flori albastre"),
+    ("ATU", "Carte de joc cu valoare maximă"),
+    ("LA", "Prepoziție de direcție sau destinație"),
+    ("AR", "Unitate de suprafață de 100 m²"),
+]:
+    _exp_add_verify_example(f"add verify example {answer}", definition, answer)
+
+# ── ROUND 3: verify example refresh for rare / technical senses ──
+
+for answer, definition in [
+    ("FLU", "Cu contururi estompate"),
+    ("ITI", "A se arăta puțin, pe furiș"),
+    ("CATA", "Băț cu cârlig pentru prins oi"),
+    ("UMEZITOR", "Aparat care crește umiditatea aerului"),
+    ("HOTAR", "Linie de demarcație între proprietăți"),
+    ("TRONARE", "Faptul de a sta pe scaun domnesc"),
+    ("EPIGASTRU", "Partea superioară a abdomenului"),
+    ("IMN", "Cântec solemn de preamărire"),
+    ("RUT", "Perioada împerecherii la animale"),
+    ("OSTRACA", "Ciob atic folosit la vot de exil"),
+    ("STIMULAT", "Îndemnat la randament mai mare"),
+    ("LECTURAT", "Citit pentru pregătirea tiparului"),
+]:
+    _exp_add_verify_example(f"add verify example {answer}", definition, answer)
+
+# ── ROUND 4: rewrite anti-distractor pass ────────────────────────
+
+_exp_before(
+    "add rewrite rule to exclude common grouped distractors",
+    SYS_REWRITE,
+    REWRITE_MAX_WORDS_MARKER,
+    "- Dacă ghicirile greșite se grupează în jurul unui sinonim comun, adaugi un detaliu care îl exclude.",
+)
+_exp_before(
+    "add rewrite rule to beat all proposed candidates",
+    SYS_REWRITE,
+    REWRITE_MAX_WORDS_MARKER,
+    "- Dacă AI a propus 2-3 răspunsuri apropiate, rescrii contra tuturor.",
+)
+_exp_before(
+    "frame failure history as distractors to avoid",
+    USR_REWRITE,
+    "{bad_example_text}{failure_history_text}",
+    "Privește răspunsurile greșite ca distractori de evitat.",
+)
+_exp_before(
+    "add thin-dex-gloss rewrite rule",
+    SYS_REWRITE,
+    REWRITE_NECLAR_MARKER,
+    "- Dacă DEX-ul dă doar o etichetă lexicografică, desfaci sensul concret, nu copiezi eticheta.",
+)
+_exp_before(
+    "add action-fact rewrite rule",
+    SYS_REWRITE,
+    REWRITE_MAX_WORDS_MARKER,
+    "- La substantive de acțiune sau fapt, definești actul ori rezultatul concret, nu formula «faptul de a».",
+)
+_exp_before(
+    "add participle-adjective rewrite rule",
+    SYS_REWRITE,
+    REWRITE_MAX_WORDS_MARKER,
+    "- La participii și adjective rezultate, pornești de la consecința observabilă, nu de la verbul-bază.",
+)
+_exp_before(
+    "add short-word canonical-meaning rewrite rule",
+    SYS_REWRITE,
+    REWRITE_MAX_WORDS_MARKER,
+    "- Pentru răspunsuri scurte, pornești de la sensul rebusistic românesc cel mai fixat.",
+)
+_exp_before(
+    "add empty-guess rewrite fallback",
+    USR_REWRITE,
+    "Rescrie definiția mai precis și mai scurt.",
+    "Dacă toate ghicirile au fost goale, devii mai literal și mai concret.",
+)
+_exp_before(
+    "add rewrite steer-away from english and common competitor guesses",
+    USR_REWRITE,
+    "Rescrie definiția mai precis și mai scurt.",
+    "Eviți formulările care trimit la un concurent englezesc sau mai comun.",
+)
+_exp(
+    "rename rewrite bad-example lead to duce la alt raspuns",
+    USR_REWRITE,
+    "{bad_example_text}{failure_history_text}",
+    "Duce la alt răspuns:\n{bad_example_text}{failure_history_text}",
+)
+_exp_before(
+    "add concrete rewrite pair OF versus AH AI",
+    SYS_REWRITE,
+    REWRITE_MAX_WORDS_MARKER,
+    "- Exemplu: pentru OF, adaugi exact ce exclude AH sau AI.",
+)
+_exp_before(
+    "add concrete rewrite pair UZ versus UT",
+    SYS_REWRITE,
+    REWRITE_MAX_WORDS_MARKER,
+    "- Exemplu: pentru UZ, adaugi exact ce exclude UT.",
+)
+
+# ── ROUND 5: definition counterexamples and positive examples ────
+
+_exp_add_definition_counterexample("add definition negative example UZ", "UZ", "Utilizare", "prea abstract")
+_exp_add_definition_counterexample("add definition negative example ATU", "ATU", "Carte de joc", "prea larg")
+_exp_add_definition_counterexample("add definition negative example FLU", "FLU", "Neclar", "prea vag")
+_exp_add_definition_counterexample("add definition negative example CATA", "CATA", "Persoană rea", "prea larg")
+_exp_add_definition_example("add definition positive example OF", "OF", "Interjecție de durere ori regret")
+_exp_add_definition_example("add definition positive example UZ", "UZ", "Folosire curentă a unui lucru")
+_exp_add_definition_example("add definition positive example ATU", "ATU", "Carte de joc cu valoare maximă")
+_exp_add_definition_example("add definition positive example FLU", "FLU", "Cu contururi estompate")
+_exp_add_definition_example("add definition positive example ITI", "ITI", "A se arăta puțin, pe furiș")
+_exp_before(
+    "add thin-lexicographic-first-def rule to definition",
+    SYS_DEFINITION,
+    DEFINITION_EXAMPLES_HEADER,
+    "- Dacă prima definiție DEX e doar etichetă lexicografică, o reformulezi în sens concret.",
+)
+_exp_before(
+    "add short-word canonical-meaning rule to definition",
+    SYS_DEFINITION,
+    DEFINITION_EXAMPLES_HEADER,
+    "- Pentru răspunsuri de 2-3 litere, țintești mai întâi sensul rebusistic românesc cel mai fixat.",
+)
+_exp(
+    "replace flexion-confusion line with competitor-based form detail",
+    SYS_DEFINITION,
+    "- Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.\n",
+    "- Adaugi detaliu de formă sau domeniu numai când elimină un concurent real.\n",
+)
+
+# ── ROUND 6: rate calibration for exact-bad failures ─────────────
+
+_exp_add_rate_rule(
+    "add OF-type ambiguity counterexample to rate",
+    "- dacă definiția pentru OF lasă la fel de plauzibile AH sau AI: guessability_score mic",
+)
+_exp_add_rate_rule(
+    "add ATU-type broad clue counterexample to rate",
+    "- dacă definiția pentru ATU ar putea descrie orice carte de joc: guessability_score mic",
+)
+_exp_add_rate_rule(
+    "add FLU semantically-right exact-bad counterexample to rate",
+    "- dacă definiția e corectă pentru sensul lui FLU, dar rezolvitorul nu ajunge exact la cuvânt: guessability_score mic",
+)
+_exp_add_rate_rule(
+    "add one-word-synonym UZ UT trap to rate",
+    "- dacă definiția lui UZ trimite mai firesc la UT sau la un sinonim scurt apropiat: guessability_score mic",
+)
+_exp_add_rate_rule(
+    "add near-synonym alternatives rule to rate",
+    "- dacă toate alternativele sunt aproape sinonime dar răspunsul lipsește, guessability_score nu trece de 6",
+)
+_exp_add_rate_rule(
+    "add DEX-correct but common competitor rule to rate",
+    "- dacă definiția este corectă DEX, dar duce mai firesc la un concurent mai comun: guessability_score mic",
+)
+_exp_add_rate_rule(
+    "add lexicographic-transform rule to rate",
+    "- definițiile de tip «faptul de a» sau alte transformări lexicografice primesc guessability_score mic dacă nu spun sensul concret",
+)
+_exp_add_rate_rule(
+    "add empty-verify penalty to rate",
+    "- dacă verify nu propune nimic, guessability_score nu trece de 4",
+)
+_exp_add_rate_rule(
+    "add stricter short-word exactness to rate",
+    "- la 2-3 litere, o ambiguitate mică scade puternic guessability_score",
+)
+_exp_add_rate_example(
+    "add low-score OF ambiguity JSON example to rate",
+    'Exemplu scor mic:\n{"semantic_score": 8, "guessability_score": 3, "creativity_score": 4, "feedback": "Definiția este corectă, dar poate duce la AH, AI sau OF."}\n',
+)
+_exp_add_rate_example(
+    "add medium-score rare technical noun JSON example to rate",
+    'Exemplu scor mediu:\n{"semantic_score": 9, "guessability_score": 6, "creativity_score": 5, "feedback": "Definiția este exactă, dar termenul rămâne greu fără un detaliu distinctiv."}\n',
+)
+_exp_add_rate_rule(
+    "add banal-but-correct rule to rate",
+    "- o definiție banală dar corectă poate avea semantic_score mare și guessability_score doar mediu",
+)
+
+# ── ROUND 7: paired verify bundles ───────────────────────────────
+
+_exp_multi(
+    "paired verify bundle OF UZ AZ",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Interjecție de durere ori regret", "OF"),
+            _verify_example("Folosire curentă a unui lucru", "UZ"),
+            _verify_example("Astăzi", "AZ"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La interjecții și răspunsuri de 2-3 litere, elimini concurenții scurți mai comuni."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle AN EU FI DAR AUT",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Unitate de timp de 12 luni", "AN"),
+            _verify_example("Pronumele persoanei care vorbește", "EU"),
+            _verify_example("A exista", "FI"),
+            _verify_example("Conjuncție adversativă", "DAR"),
+            _verify_example("Minge ieșită din teren", "AUT"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La cuvinte funcționale și forme gramaticale, sensul exact bate asemănarea vagă."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle ATU IMN RUT",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Carte de joc cu valoare maximă", "ATU"),
+            _verify_example("Cântec solemn de preamărire", "IMN"),
+            _verify_example("Perioada împerecherii la animale", "RUT"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La sensuri consacrate dar nu triviale, compari toate variantele înainte să alegi."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle EPIGASTRU OSTRACA",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Partea superioară a abdomenului", "EPIGASTRU"),
+            _verify_example("Ciob atic folosit la vot de exil", "OSTRACA"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La termeni tehnici, păstrezi doar varianta care respectă domeniul exact."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle STIMULAT LECTURAT",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Îndemnat la randament mai mare", "STIMULAT"),
+            _verify_example("Citit pentru pregătirea tiparului", "LECTURAT"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La participii și rezultate, cauți forma exactă, nu verbul sau adjectivul vecin."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle TRONARE ETALARE",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Faptul de a sta pe scaun domnesc", "TRONARE"),
+            _verify_example("Așezare la vedere", "ETALARE"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La substantive de acțiune, cauți actul sau rezultatul, nu verbul gol."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle HOTAR ALAI FERMENT",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Linie de demarcație între proprietăți", "HOTAR"),
+            _verify_example("Procesiune festivă", "ALAI"),
+            _verify_example("Agent al fermentării", "FERMENT"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La substantive comune cu mulți concurenți, alegi sensul cel mai distinctiv."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle FLU AMETITOR",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Cu contururi estompate", "FLU"),
+            _verify_example("Care provoacă amețeală", "AMETITOR"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La adjective și caracterizări, excluzi întâi sinonimul mai uzual."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle CATA CASISOARA",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Băț cu cârlig pentru prins oi", "CATA"),
+            _verify_example("Loc mic pentru brânză sau fructe", "CASISOARA"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La regionalisme și diminutive, nu sari la cuvântul comun dacă definiția cere altceva."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle ATAS UMEZITOR",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Reprezentant diplomatic special", "ATAS"),
+            _verify_example("Aparat care crește umiditatea aerului", "UMEZITOR"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La obiecte și roluri funcționale, păstrezi termenul exact, nu categoria largă."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle FLIS OSTRACA rare nouns",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Fâșie subțire din rocă", "FLIS"),
+            _verify_example("Ciob atic folosit la vot de exil", "OSTRACA"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La substantive rare de domeniu, păstrezi indiciul tehnic și elimini cuvântul comun apropiat."),
+    ],
+)
+_exp_multi(
+    "paired verify bundle AN EU ZI AR short controls",
+    [
+        _edit_before(SYS_VERIFY, VERIFY_FIRST_EXAMPLE, _block(
+            _verify_example("Unitate de timp de 12 luni", "AN"),
+            _verify_example("Pronumele persoanei care vorbește", "EU"),
+            _verify_example("Interval de 24 de ore", "ZI"),
+            _verify_example("Unitate de suprafață de 100 m²", "AR"),
+        )),
+        _edit_before(USR_VERIFY, USER_VERIFY_RESPONSE_HEADER, "La controale scurte, nu inventezi alternative doar pentru că lungimea se potrivește."),
+    ],
+)
+
+# ── ROUND 8: paired definition + rewrite bundles ─────────────────
+
+for desc, definition_line, rewrite_line in [
+    (
+        "paired definition rewrite bundle UZ AN OF EU short glosses",
+        "- Pentru definiții DEX-scurte ca UZ, AN, OF sau EU, transformi eticheta într-un sens concret de rebus.",
+        "- Dacă DEX-ul dă doar o etichetă scurtă, rescrii în sens concret, nu copiezi formula lexicografică.",
+    ),
+    (
+        "paired definition rewrite bundle ADEVARA FI STIMULAT TRONARE action forms",
+        "- La substantive de acțiune sau forme apropiate, descrii actul ori rezultatul concret, nu formula «faptul de a».",
+        "- La substantive de acțiune sau fapt, rescrii spre actul ori rezultatul concret, nu spre formula dicționarului.",
+    ),
+    (
+        "paired definition rewrite bundle ATU FLU ITI short rare senses",
+        "- Pentru sensuri scurte dar rare, alegi detaliul care le separă de concurentul mai comun.",
+        "- Pentru sensuri scurte dar rare, adaugi exact detaliul care scoate concurentul mai comun din joc.",
+    ),
+    (
+        "paired definition rewrite bundle CATA OSTRACA EPIGASTRU obscure nouns",
+        "- La substantive obscure, un detaliu de domeniu ori de poziție e mai util decât categoria largă.",
+        "- La substantive obscure, rescrii cu detaliu de domeniu sau poziție înainte de orice stilizare.",
+    ),
+    (
+        "paired definition rewrite bundle HOTAR ALAI FERMENT common competitors",
+        "- Dacă un cuvânt are concurenți comuni apropiați, adaugi exact detaliul care îi exclude.",
+        "- Dacă definiția ar trimite la un concurent comun, adaugi exact detaliul care îl exclude.",
+    ),
+    (
+        "paired definition rewrite bundle LECTURAT AMETITOR INNOURAT OFIT participles",
+        "- La participii și rezultate, descrii starea finală observabilă, nu verbul-bază.",
+        "- La participii și rezultate, rescrii dinspre starea finală observabilă, nu dinspre verbul-bază.",
+    ),
+    (
+        "paired definition rewrite bundle ATAS UMEZITOR device object nouns",
+        "- La obiecte sau roluri funcționale, numești funcția exactă, nu clasa largă.",
+        "- La obiecte și roluri funcționale, rescrii spre funcția exactă, nu spre categoria largă.",
+    ),
+    (
+        "paired definition rewrite bundle SOCOLATA TOCANITA VAR food material nouns",
+        "- La alimente și materiale, eviți eticheta generică și alegi trăsătura distinctivă.",
+        "- La alimente și materiale, rescrii cu trăsătura distinctivă, nu cu eticheta generică.",
+    ),
+]:
+    _exp_multi(
+        desc,
+        [
+            _edit_before(SYS_DEFINITION, DEFINITION_EXAMPLES_HEADER, definition_line),
+            _edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, rewrite_line),
+        ],
+    )
+
+# ── ROUND 9: paired definition + rate bundles ────────────────────
+
+for desc, definition_line, rate_line in [
+    (
+        "paired definition rate bundle broad category penalties",
+        "- Dacă indiciul numește doar categoria largă, îl strângi până rămâne răspunsul exact.",
+        "- dacă definiția rămâne la categoria largă pentru ATU, OF sau FLU: guessability_score mic",
+    ),
+    (
+        "paired definition rate bundle rare valid sense protection",
+        "- Un sens rar dar real rămâne bun dacă definiția îl face clar și unic.",
+        "- nu cobori semantic_score doar pentru că sensul ales e rar, dacă definiția este exactă și românească",
+    ),
+    (
+        "paired definition rate bundle one-word synonym traps",
+        "- Eviți definițiile de un singur sinonim dacă acel sinonim trimite mai firesc la alt cuvânt.",
+        "- un sinonim de un cuvânt care trimite la alt răspuns mai firesc nu merită guessability_score mare",
+    ),
+    (
+        "paired definition rate bundle short exactness",
+        "- La 2-3 litere, alegi sensul rebusistic fixat, nu o parafrază largă.",
+        "- la 2-3 litere, dacă rămân două opțiuni naturale, guessability_score nu poate fi mare",
+    ),
+]:
+    _exp_multi(
+        desc,
+        [
+            _edit_before(SYS_DEFINITION, DEFINITION_EXAMPLES_HEADER, definition_line),
+            _edit_before(SYS_RATE, RATE_FEEDBACK_MARKER, rate_line),
+        ],
+    )
+
+# ── ROUND 10: confirmatory three-file bundles ────────────────────
+
+for desc, definition_line, verify_line, rewrite_line in [
+    (
+        "three-file confirm bundle OF AZ UZ",
+        "- Pentru OF, AZ și UZ, alegi sensul scurt românesc fixat și excluzi concurentul mai comun.",
+        "- La OF, AZ și UZ, compari toate variantele scurte și păstrezi doar sensul exact cerut.",
+        "- Pentru OF, AZ și UZ, adaugi exact detaliul care scoate concurentul scurt mai comun din joc.",
+    ),
+    (
+        "three-file confirm bundle ADEVARA STIMULAT TRONARE UMEZITOR",
+        "- La substantive de acțiune și participii, formulezi sensul concret al actului, rezultatului ori funcției.",
+        "- La forme de acțiune, participii și funcții, elimini imediat verbul-bază sau categoria largă.",
+        "- La substantive de acțiune și funcții, rescrii spre rezultatul concret, nu spre formula dicționarului.",
+    ),
+    (
+        "three-file confirm bundle EPIGASTRU OSTRACA CATA FLIS",
+        "- La substantive tehnice sau rare, un detaliu de domeniu ori de poziție trebuie să apară în definiție.",
+        "- La termeni tehnici sau rari, nu alegi răspunsul fără domeniul exact.",
+        "- La substantive tehnice sau rare, adaugi domeniul exact înainte de stil sau scurtare.",
+    ),
+    (
+        "three-file confirm bundle HOTAR ALAI FERMENT SOCOLATA",
+        "- Dacă un cuvânt are concurenți naturali apropiați, introduci direct detaliul care îi exclude.",
+        "- La cuvinte cu mulți concurenți apropiați, sensul exact bate varianta mai comună.",
+        "- La cuvinte cu concurenți apropiați, rescrii împotriva sinonimului firesc, nu împotriva unui adversar imaginar.",
+    ),
+]:
+    _exp_multi(
+        desc,
+        [
+            _edit_before(SYS_DEFINITION, DEFINITION_EXAMPLES_HEADER, definition_line),
+            _edit_before(SYS_VERIFY, VERIFY_EXAMPLES_HEADER, verify_line),
+            _edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, rewrite_line),
+        ],
+    )
+
+
+def _validate_experiments() -> None:
+    seen_names = set()
+    for exp in EXPERIMENTS:
+        assert exp.name not in seen_names, exp.name
+        seen_names.add(exp.name)
+        assert exp.edits, exp.name
+        for edit in exp.edits:
+            assert edit.find, f"{exp.name} has empty find text"
+            assert edit.find != edit.replace, f"{exp.name} has no-op replacement"
+            assert (PROMPTS_DIR / edit.file).exists(), f"{exp.name} targets missing file {edit.file}"
+
+
+_validate_experiments()
 assert len(EXPERIMENTS) == 100, len(EXPERIMENTS)
 
 # ── Runner infrastructure ─────────────────────────────────────────
@@ -644,26 +869,33 @@ def classify_experiment_result(
 
 
 def apply_experiment(exp: Experiment) -> bool:
-    """Apply an experiment's edit. Returns True if the edit was applied."""
-    filepath = PROMPTS_DIR / exp.file
-    if not filepath.exists():
-        print(f"  [SKIP] File not found: {filepath}")
-        return False
+    """Apply an experiment's edits atomically. Returns True if applied."""
+    new_contents: dict[Path, str] = {}
 
-    content = filepath.read_text(encoding="utf-8")
-    if exp.find in exp.replace and exp.replace in content:
-        print(f"  [SKIP] Replacement text already present in {exp.file}")
-        return False
-    if exp.find not in content:
-        print(f"  [SKIP] Find text not found in {exp.file}")
-        return False
+    for edit in exp.edits:
+        filepath = PROMPTS_DIR / edit.file
+        if filepath not in new_contents:
+            if not filepath.exists():
+                print(f"  [SKIP] File not found: {filepath}")
+                return False
+            new_contents[filepath] = filepath.read_text(encoding="utf-8")
 
-    new_content = content.replace(exp.find, exp.replace, 1)
-    if new_content == content:
-        print(f"  [SKIP] No change after replacement in {exp.file}")
-        return False
+        content = new_contents[filepath]
+        if edit.find in edit.replace and edit.replace in content:
+            print(f"  [SKIP] Replacement text already present in {edit.file}")
+            return False
+        if edit.find not in content:
+            print(f"  [SKIP] Find text not found in {edit.file}")
+            return False
 
-    filepath.write_text(new_content, encoding="utf-8")
+        updated = content.replace(edit.find, edit.replace, 1)
+        if updated == content:
+            print(f"  [SKIP] No change after replacement in {edit.file}")
+            return False
+        new_contents[filepath] = updated
+
+    for filepath, updated in new_contents.items():
+        filepath.write_text(updated, encoding="utf-8")
     return True
 
 
@@ -940,6 +1172,7 @@ def main() -> None:
                     "name": exp.name,
                     "assessment_description": assessment_description,
                     "file": exp.file,
+                    "files": exp.files,
                     "find": exp.find,
                     "replace": exp.replace,
                     "desc": exp.desc,
@@ -955,11 +1188,11 @@ def main() -> None:
             results_snapshot = snapshot_results_tsv()
             assessment_log_path = args.assessment_logs_dir / f"{exp.name}.log"
             assessment_json_path = args.assessment_logs_dir / f"{exp.name}.json"
-            prompt_path = PROMPTS_DIR / exp.file
+            prompt_paths = [PROMPTS_DIR / file for file in exp.files]
 
             if args.git_live_commit:
                 git_stage_commit_push(
-                    [prompt_path],
+                    prompt_paths,
                     assessment_description,
                     push=args.git_live_push,
                     remote=args.git_live_remote,
@@ -979,7 +1212,7 @@ def main() -> None:
                 restore_results_tsv(results_snapshot)
                 if args.git_live_commit:
                     git_stage_commit_push(
-                        [prompt_path],
+                        prompt_paths,
                         f"restore interrupted | {assessment_description}",
                         push=args.git_live_push,
                         remote=args.git_live_remote,
@@ -994,6 +1227,7 @@ def main() -> None:
                     "assessment_log": str(assessment_log_path),
                     "assessment_json": str(assessment_json_path),
                     "file": exp.file,
+                    "files": exp.files,
                     "find": exp.find,
                     "replace": exp.replace,
                     "desc": exp.desc,
@@ -1008,7 +1242,7 @@ def main() -> None:
                 append_results_row(assessment_description, "error", result)
                 if args.git_live_commit:
                     git_stage_commit_push(
-                        [prompt_path, RESULTS_TSV],
+                        [*prompt_paths, RESULTS_TSV],
                         f"error | {assessment_description}",
                         push=args.git_live_push,
                         remote=args.git_live_remote,
@@ -1038,6 +1272,7 @@ def main() -> None:
                 "assessment_log": str(assessment_log_path),
                 "assessment_json": str(assessment_json_path),
                 "file": exp.file,
+                "files": exp.files,
                 "find": exp.find,
                 "replace": exp.replace,
                 "desc": exp.desc,
