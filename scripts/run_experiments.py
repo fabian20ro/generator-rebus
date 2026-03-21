@@ -25,7 +25,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from generator.assessment.benchmark_policy import PILOT_EXPERIMENT_RANGE, UNCERTAINTY_DELTA
+from generator.assessment.benchmark_policy import (
+    DIRECTION_FOLLOWUP_PRESETS,
+    EXPERIMENT_BLOCK_RANGES,
+    FOLLOWUP_PRIORITY,
+    PILOT_EXPERIMENT_RANGE,
+    UNCERTAINTY_DELTA,
+)
 from generator.core.runtime_logging import install_process_logging, path_timestamp
 
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
@@ -36,6 +42,15 @@ BEST_ASSESSMENT_JSON = "best_assessment.json"
 EXPERIMENT_PRESETS = {
     "full": (1, 100),
     "pilot": PILOT_EXPERIMENT_RANGE,
+    **EXPERIMENT_BLOCK_RANGES,
+}
+TARGET_DIRECTION_BLOCKS = {
+    "verify-examples": "verify",
+    "verify-bundles": "verify",
+    "rewrite-anti-distractor": "rewrite",
+    "definition-rewrite-bundles": "rewrite",
+    "rate-exactness-calibration": "rate",
+    "definition-rate-bundles": "rate",
 }
 
 # ── Prompt file paths ─────────────────────────────────────────────
@@ -909,6 +924,76 @@ def build_assessment_description(prefix: str, exp: Experiment) -> str:
     return f"{base} | {exp.desc} | {exp.file}"
 
 
+def experiment_index(exp_name: str) -> int:
+    if not exp_name.startswith("exp"):
+        raise ValueError(f"Unsupported experiment name: {exp_name}")
+    return int(exp_name[3:])
+
+
+def block_name_for_experiment(exp_name: str) -> str:
+    index = experiment_index(exp_name)
+    for block_name, (start, end) in EXPERIMENT_BLOCK_RANGES.items():
+        if start <= index <= end:
+            return block_name
+    raise ValueError(f"Experiment outside declared block ranges: {exp_name}")
+
+
+def summarize_cleanup_block(log: list[dict]) -> dict[str, int | bool]:
+    summary = {"keep": 0, "uncertain": 0, "discard": 0}
+    for entry in log:
+        if block_name_for_experiment(entry["name"]) != "cleanup":
+            continue
+        status = entry.get("status")
+        if status in summary:
+            summary[status] += 1
+    summary["stop_cleanup"] = (summary["uncertain"] + summary["discard"]) > summary["keep"]
+    return summary
+
+
+def classify_prompt_direction(log: list[dict]) -> str:
+    scores = {"verify": 0.0, "rewrite": 0.0, "rate": 0.0}
+    informative_keeps = {"verify": 0, "rewrite": 0, "rate": 0}
+
+    for entry in log:
+        block_name = block_name_for_experiment(entry["name"])
+        family = TARGET_DIRECTION_BLOCKS.get(block_name)
+        if not family or entry.get("status") != "keep":
+            continue
+        scores[family] += max(float(entry.get("delta", 0.0)), 0.0)
+        informative_keeps[family] += 1
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    top_family, top_score = ranked[0]
+    second_score = ranked[1][1]
+    if informative_keeps[top_family] == 0 or top_score <= 0.0:
+        return "noisy / not yet informative"
+    if top_score - second_score <= UNCERTAINTY_DELTA:
+        return "noisy / not yet informative"
+    return f"{top_family}-led"
+
+
+def recommend_next_presets(log: list[dict]) -> list[str]:
+    direction = classify_prompt_direction(log)
+    if direction in DIRECTION_FOLLOWUP_PRESETS:
+        return list(DIRECTION_FOLLOWUP_PRESETS[direction])
+    return list(FOLLOWUP_PRIORITY[:3])
+
+
+def print_log_summary(log: list[dict]) -> None:
+    cleanup = summarize_cleanup_block(log)
+    direction = classify_prompt_direction(log)
+    print("Pilot summary:")
+    print(
+        "  cleanup:"
+        f" keep={cleanup['keep']}"
+        f" uncertain={cleanup['uncertain']}"
+        f" discard={cleanup['discard']}"
+        f" stop_cleanup={'yes' if cleanup['stop_cleanup'] else 'no'}"
+    )
+    print(f"  direction: {direction}")
+    print(f"  next presets: {', '.join(recommend_next_presets(log))}")
+
+
 def resolve_experiment_window(
     *,
     start_from: int | None,
@@ -1098,6 +1183,8 @@ def main() -> None:
         tee_console=True,
     )
     parser = argparse.ArgumentParser(description="Run prompt experiments")
+    parser.add_argument("--summarize-log", type=Path,
+                        help="Read an experiment log JSON and print next-step guidance")
     parser.add_argument("--preset", choices=sorted(EXPERIMENT_PRESETS), default="full",
                         help="Named experiment slice to run")
     parser.add_argument("--start-from", type=int,
@@ -1128,6 +1215,9 @@ def main() -> None:
                         help="Branch used by --git-live-push (default: current branch)")
     try:
         args = parser.parse_args()
+        if args.summarize_log is not None:
+            print_log_summary(load_log(args.summarize_log))
+            return
         start_from, end_at = resolve_experiment_window(
             start_from=args.start_from,
             end_at=args.end_at,

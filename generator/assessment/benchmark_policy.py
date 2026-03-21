@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pathlib import Path
 
 
 UNCERTAINTY_DELTA = 0.5
@@ -13,28 +13,52 @@ WORKING_DATASET_TIER_COUNTS = {
     "high": 15,
 }
 HISTORICAL_PROMPT_EVIDENCE = ("results4.tsv",)
+WORKING_RESULTS_PATH = Path(__file__).with_name("results.tsv")
+WORKING_BASELINE_DESCRIPTION = "baseline_results_20260321"
 PILOT_EXPERIMENT_RANGE = (1, 12)
-
-
-@dataclass(frozen=True)
-class BenchmarkIncumbent:
-    description: str
-    composite: float
-    pass_rate: float
-    avg_semantic: float
-    avg_rebus: float
-    tier_pass_rates: dict[str, float]
-
-
-WORKING_INCUMBENT = BenchmarkIncumbent(
-    description="baseline_results_20260321",
-    composite=73.3,
-    pass_rate=0.300,
-    avg_semantic=9.1,
-    avg_rebus=8.1,
-    tier_pass_rates={
-        "low": 0.067,
-        "medium": 0.240,
-        "high": 0.867,
-    },
+EXPERIMENT_BLOCK_RANGES = {
+    "cleanup": (1, 12),
+    "verify-examples": (13, 36),
+    "rewrite-anti-distractor": (37, 48),
+    "definition-examples": (49, 60),
+    "rate-exactness-calibration": (61, 72),
+    "verify-bundles": (73, 84),
+    "definition-rewrite-bundles": (85, 92),
+    "definition-rate-bundles": (93, 96),
+    "confirm-bundles": (97, 100),
+}
+FOLLOWUP_PRIORITY = (
+    "verify-examples",
+    "rewrite-anti-distractor",
+    "rate-exactness-calibration",
+    "definition-examples",
+    "verify-bundles",
+    "definition-rewrite-bundles",
+    "definition-rate-bundles",
+    "confirm-bundles",
 )
+DIRECTION_FOLLOWUP_PRESETS = {
+    "verify-led": ("verify-examples", "verify-bundles"),
+    "rewrite-led": ("rewrite-anti-distractor", "definition-rewrite-bundles"),
+    "rate-led": ("rate-exactness-calibration", "definition-rate-bundles"),
+}
+
+
+def load_latest_kept_result(results_path: Path = WORKING_RESULTS_PATH) -> dict[str, str]:
+    lines = results_path.read_text(encoding="utf-8").strip().splitlines()
+    if len(lines) < 2:
+        raise ValueError(f"No benchmark rows in {results_path}")
+    for line in reversed(lines[1:]):
+        fields = line.split("\t")
+        if len(fields) < 7 or fields[5] != "keep":
+            continue
+        return {
+            "commit": fields[0],
+            "composite": fields[1],
+            "pass_rate": fields[2],
+            "avg_semantic": fields[3],
+            "avg_rebus": fields[4],
+            "status": fields[5],
+            "description": fields[6],
+        }
+    raise ValueError(f"No kept benchmark row in {results_path}")

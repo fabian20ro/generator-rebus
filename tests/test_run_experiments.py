@@ -142,6 +142,59 @@ class RunExperimentsTests(unittest.TestCase):
             preset="pilot",
         ))
 
+    def test_resolve_experiment_window_supports_verify_examples_preset(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual((13, 36), mod.resolve_experiment_window(
+            start_from=None,
+            end_at=None,
+            preset="verify-examples",
+        ))
+
+    def test_classify_prompt_direction_prefers_verify_family(self):
+        mod = _load_run_experiments_module()
+
+        direction = mod.classify_prompt_direction(
+            [
+                {"name": "exp013", "status": "keep", "delta": 0.9},
+                {"name": "exp014", "status": "keep", "delta": 0.4},
+                {"name": "exp037", "status": "keep", "delta": 0.2},
+                {"name": "exp061", "status": "discard", "delta": -0.4},
+            ]
+        )
+
+        self.assertEqual("verify-led", direction)
+
+    def test_classify_prompt_direction_stays_noisy_without_target_keeps(self):
+        mod = _load_run_experiments_module()
+
+        direction = mod.classify_prompt_direction(
+            [
+                {"name": "exp001", "status": "discard", "delta": -0.4},
+                {"name": "exp002", "status": "uncertain", "delta": -0.1},
+                {"name": "exp003", "status": "discard", "delta": -0.6},
+            ]
+        )
+
+        self.assertEqual("noisy / not yet informative", direction)
+
+    def test_recommend_next_presets_falls_back_to_priority_order(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(
+            [
+                "verify-examples",
+                "rewrite-anti-distractor",
+                "rate-exactness-calibration",
+            ],
+            mod.recommend_next_presets(
+                [
+                    {"name": "exp001", "status": "discard", "delta": -0.4},
+                    {"name": "exp002", "status": "uncertain", "delta": -0.1},
+                ]
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
