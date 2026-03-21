@@ -61,6 +61,8 @@
 
 **[2026-03-21]** Prompt campaign manifests need an anchor-existence test against live prompt files — literal `find -> replace` runners will silently skip experiments when prompt text drifts. Keep one regression test that loads current prompt files and asserts every manifest edit anchor still exists before launching a long campaign.
 
+**[2026-03-21]** Benchmark incumbent metrics should stay sourced from `generator/assessment/results.tsv`, not duplicated in policy constants — the ledger row is the working score history, while code should only keep labels, ranges, and rules. Read the latest kept row when you need the incumbent numbers; use assessment JSON only for per-word drilldown such as control-word stability.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

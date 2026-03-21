@@ -7,7 +7,7 @@ with removals/simplifications, alternates prompt files to reduce overfitting,
 and keeps attribution clear with single-file edits.
 
 Usage:
-    python3 scripts/run_experiments.py [--start-from N] [--dry-run]
+    python3 scripts/run_experiments.py [--preset pilot] [--start-from N] [--end-at N] [--dry-run]
 """
 
 from __future__ import annotations
@@ -25,7 +25,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from generator.assessment.benchmark_policy import UNCERTAINTY_DELTA
+from generator.assessment.benchmark_policy import (
+    CONTROL_WORD_REPEAT_FAIL_ACTION,
+    CONTROL_WORD_WATCH,
+    DIRECTION_FOLLOWUP_PRESETS,
+    EXPERIMENT_BLOCK_RANGES,
+    FOLLOWUP_PRIORITY,
+    PILOT_EXPERIMENT_RANGE,
+    UNCERTAINTY_DELTA,
+)
 from generator.core.runtime_logging import install_process_logging, path_timestamp
 
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
@@ -33,6 +41,19 @@ RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 DEFAULT_EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
 BEST_BACKUP_DIR = Path("/tmp/prompt_experiment_best")
 BEST_ASSESSMENT_JSON = "best_assessment.json"
+EXPERIMENT_PRESETS = {
+    "full": (1, 100),
+    "pilot": PILOT_EXPERIMENT_RANGE,
+    **EXPERIMENT_BLOCK_RANGES,
+}
+TARGET_DIRECTION_BLOCKS = {
+    "verify-examples": "verify",
+    "verify-bundles": "verify",
+    "rewrite-anti-distractor": "rewrite",
+    "definition-rewrite-bundles": "rewrite",
+    "rate-exactness-calibration": "rate",
+    "definition-rate-bundles": "rate",
+}
 
 # ── Prompt file paths ─────────────────────────────────────────────
 SYS_DEFINITION = "system/definition.md"
@@ -905,6 +926,174 @@ def build_assessment_description(prefix: str, exp: Experiment) -> str:
     return f"{base} | {exp.desc} | {exp.file}"
 
 
+def experiment_index(exp_name: str) -> int:
+    if not exp_name.startswith("exp"):
+        raise ValueError(f"Unsupported experiment name: {exp_name}")
+    return int(exp_name[3:])
+
+
+def block_name_for_experiment(exp_name: str) -> str:
+    index = experiment_index(exp_name)
+    for block_name, (start, end) in EXPERIMENT_BLOCK_RANGES.items():
+        if start <= index <= end:
+            return block_name
+    raise ValueError(f"Experiment outside declared block ranges: {exp_name}")
+
+
+def summarize_cleanup_block(log: list[dict]) -> dict[str, int | bool]:
+    summary = {"keep": 0, "uncertain": 0, "discard": 0}
+    for entry in log:
+        if block_name_for_experiment(entry["name"]) != "cleanup":
+            continue
+        status = entry.get("status")
+        if status in summary:
+            summary[status] += 1
+    summary["stop_cleanup"] = (summary["uncertain"] + summary["discard"]) > summary["keep"]
+    return summary
+
+
+def classify_prompt_direction(log: list[dict]) -> str:
+    scores = {"verify": 0.0, "rewrite": 0.0, "rate": 0.0}
+    informative_keeps = {"verify": 0, "rewrite": 0, "rate": 0}
+
+    for entry in log:
+        block_name = block_name_for_experiment(entry["name"])
+        family = TARGET_DIRECTION_BLOCKS.get(block_name)
+        if not family or entry.get("status") != "keep":
+            continue
+        scores[family] += max(float(entry.get("delta", 0.0)), 0.0)
+        informative_keeps[family] += 1
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    top_family, top_score = ranked[0]
+    second_score = ranked[1][1]
+    if informative_keeps[top_family] == 0 or top_score <= 0.0:
+        return "noisy / not yet informative"
+    if top_score - second_score <= UNCERTAINTY_DELTA:
+        return "noisy / not yet informative"
+    return f"{top_family}-led"
+
+
+def recommend_next_presets(log: list[dict]) -> list[str]:
+    direction = classify_prompt_direction(log)
+    if direction in DIRECTION_FOLLOWUP_PRESETS:
+        return list(DIRECTION_FOLLOWUP_PRESETS[direction])
+    return list(FOLLOWUP_PRIORITY[:3])
+
+
+def load_assessment_payload(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_control_baseline(path: Path | None) -> dict[str, bool] | None:
+    if path is None:
+        return None
+    return {
+        word: status["verified"]
+        for word, status in summarize_control_watch(load_assessment_payload(path))["words"].items()
+    }
+
+
+def summarize_control_watch(
+    assessment_payload: dict,
+    baseline_status: dict[str, bool] | None = None,
+) -> dict[str, object]:
+    candidate_status = {
+        row.get("word"): bool(row.get("verified"))
+        for row in assessment_payload.get("candidates", [])
+        if row.get("word")
+    }
+    words = {}
+    repeat_failures = []
+    for word in CONTROL_WORD_WATCH:
+        verified = bool(candidate_status.get(word, False))
+        repeated_fail = baseline_status is not None and baseline_status.get(word) is False and not verified
+        words[word] = {
+            "verified": verified,
+            "repeated_fail": repeated_fail,
+        }
+        if repeated_fail:
+            repeat_failures.append(word)
+    return {
+        "words": words,
+        CONTROL_WORD_REPEAT_FAIL_ACTION: repeat_failures,
+    }
+
+
+def summarize_log_control_watch(
+    log: list[dict],
+    baseline_status: dict[str, bool] | None = None,
+) -> tuple[dict[str, object] | None, list[str]]:
+    latest_summary = None
+    repeated_failures = set()
+
+    for entry in log:
+        summary = entry.get("control_watch")
+        if summary is None:
+            assessment_json = entry.get("assessment_json")
+            if not assessment_json:
+                continue
+            assessment_path = Path(assessment_json)
+            if not assessment_path.exists():
+                continue
+            summary = summarize_control_watch(load_assessment_payload(assessment_path), baseline_status)
+        latest_summary = summary
+        repeated_failures.update(summary.get(CONTROL_WORD_REPEAT_FAIL_ACTION, []))
+
+    return latest_summary, sorted(repeated_failures)
+
+
+def print_control_watch_summary(summary: dict[str, object]) -> None:
+    words = summary["words"]
+    status_text = ", ".join(
+        f"{word}={'pass' if words[word]['verified'] else 'fail'}"
+        for word in CONTROL_WORD_WATCH
+    )
+    print(f"  control watch: {status_text}")
+    repeated = summary.get(CONTROL_WORD_REPEAT_FAIL_ACTION, [])
+    if repeated:
+        print(f"  {CONTROL_WORD_REPEAT_FAIL_ACTION}: {', '.join(repeated)}")
+
+
+def print_log_summary(
+    log: list[dict],
+    baseline_status: dict[str, bool] | None = None,
+) -> None:
+    cleanup = summarize_cleanup_block(log)
+    direction = classify_prompt_direction(log)
+    latest_control, repeated_failures = summarize_log_control_watch(log, baseline_status)
+    print("Pilot summary:")
+    print(
+        "  cleanup:"
+        f" keep={cleanup['keep']}"
+        f" uncertain={cleanup['uncertain']}"
+        f" discard={cleanup['discard']}"
+        f" stop_cleanup={'yes' if cleanup['stop_cleanup'] else 'no'}"
+    )
+    print(f"  direction: {direction}")
+    print(f"  next presets: {', '.join(recommend_next_presets(log))}")
+    if latest_control is not None:
+        print_control_watch_summary(latest_control)
+    if repeated_failures:
+        print(f"  action: {CONTROL_WORD_REPEAT_FAIL_ACTION} {', '.join(repeated_failures)}")
+
+
+def resolve_experiment_window(
+    *,
+    start_from: int | None,
+    end_at: int | None,
+    preset: str,
+) -> tuple[int, int]:
+    preset_start, preset_end = EXPERIMENT_PRESETS[preset]
+    start = preset_start if start_from is None else max(start_from, preset_start)
+    end = preset_end if end_at is None else min(end_at, preset_end)
+    if start < 1 or end > len(EXPERIMENTS):
+        raise ValueError(f"Experiment window out of bounds: {start}-{end}")
+    if start > end:
+        raise ValueError(f"Empty experiment window: {start}-{end}")
+    return start, end
+
+
 def git_current_branch() -> str:
     """Return current branch name, or empty string if unavailable."""
     result = subprocess.run(
@@ -1077,9 +1266,17 @@ def main() -> None:
         component="run_experiments",
         tee_console=True,
     )
-    parser = argparse.ArgumentParser(description="Run 100 prompt experiments")
-    parser.add_argument("--start-from", type=int, default=1,
+    parser = argparse.ArgumentParser(description="Run prompt experiments")
+    parser.add_argument("--summarize-log", type=Path,
+                        help="Read an experiment log JSON and print next-step guidance")
+    parser.add_argument("--control-baseline-json", type=Path,
+                        help="Assessment JSON used as the baseline for watched control words")
+    parser.add_argument("--preset", choices=sorted(EXPERIMENT_PRESETS), default="full",
+                        help="Named experiment slice to run")
+    parser.add_argument("--start-from", type=int,
                         help="Resume from experiment N (1-indexed)")
+    parser.add_argument("--end-at", type=int,
+                        help="Stop after experiment N (1-indexed)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show experiments without running")
     parser.add_argument("--log-path", type=Path, default=DEFAULT_EXPERIMENT_LOG,
@@ -1104,12 +1301,24 @@ def main() -> None:
                         help="Branch used by --git-live-push (default: current branch)")
     try:
         args = parser.parse_args()
+        control_baseline_status = load_control_baseline(args.control_baseline_json)
+        if args.summarize_log is not None:
+            print_log_summary(load_log(args.summarize_log), control_baseline_status)
+            return
+        start_from, end_at = resolve_experiment_window(
+            start_from=args.start_from,
+            end_at=args.end_at,
+            preset=args.preset,
+        )
 
         if args.dry_run:
             for i, exp in enumerate(EXPERIMENTS, 1):
+                if i < start_from or i > end_at:
+                    continue
                 print(f"{i:3d}. [{exp.name}] {exp.desc}")
                 print(f"     File: {exp.file}")
-            print(f"\nTotal: {len(EXPERIMENTS)} experiments")
+            print(f"\nSelection: experiments {start_from}-{end_at}")
+            print(f"Selected: {end_at - start_from + 1} / {len(EXPERIMENTS)} experiments")
             return
 
         if args.assessment_logs_dir is None:
@@ -1130,7 +1339,8 @@ def main() -> None:
             best_composite = max(best_composite, float(best_result_summary.get("composite", best_composite)))
         print(f"Starting composite: {best_composite:.1f}")
         print(f"Total experiments: {len(EXPERIMENTS)}")
-        print(f"Starting from: experiment {args.start_from}")
+        print(f"Preset: {args.preset}")
+        print(f"Selection: experiments {start_from}-{end_at}")
         print(f"Experiment log: {args.log_path}")
         print(f"Best-prompt backup: {args.backup_dir}")
         print(f"Assessment logs dir: {args.assessment_logs_dir}")
@@ -1151,7 +1361,7 @@ def main() -> None:
         total_start = time.monotonic()
 
         for i, exp in enumerate(EXPERIMENTS, 1):
-            if i < args.start_from:
+            if i < start_from or i > end_at:
                 continue
 
             if exp.name in completed_names:
@@ -1251,6 +1461,8 @@ def main() -> None:
                 continue
 
             composite = float(result["composite"])
+            control_watch = summarize_control_watch(result, control_baseline_status)
+            print_control_watch_summary(control_watch)
             status, delta, has_regression, pass_regression = classify_experiment_result(
                 result,
                 best_result_summary,
@@ -1285,6 +1497,7 @@ def main() -> None:
                 "delta": round(delta, 1),
                 "protected_regression": has_regression,
                 "pass_regression": pass_regression,
+                "control_watch": control_watch,
             }
             log.append(entry)
             save_log(args.log_path, log)

@@ -119,6 +119,136 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertFalse(has_regression)
         self.assertFalse(pass_regression)
 
+    def test_resolve_experiment_window_defaults_to_full_manifest(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual((1, 100), mod.resolve_experiment_window(
+            start_from=None,
+            end_at=None,
+            preset="full",
+        ))
+
+    def test_resolve_experiment_window_uses_pilot_slice(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual((1, 12), mod.resolve_experiment_window(
+            start_from=None,
+            end_at=None,
+            preset="pilot",
+        ))
+        self.assertEqual((5, 8), mod.resolve_experiment_window(
+            start_from=5,
+            end_at=8,
+            preset="pilot",
+        ))
+
+    def test_resolve_experiment_window_supports_verify_examples_preset(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual((13, 36), mod.resolve_experiment_window(
+            start_from=None,
+            end_at=None,
+            preset="verify-examples",
+        ))
+
+    def test_classify_prompt_direction_prefers_verify_family(self):
+        mod = _load_run_experiments_module()
+
+        direction = mod.classify_prompt_direction(
+            [
+                {"name": "exp013", "status": "keep", "delta": 0.9},
+                {"name": "exp014", "status": "keep", "delta": 0.4},
+                {"name": "exp037", "status": "keep", "delta": 0.2},
+                {"name": "exp061", "status": "discard", "delta": -0.4},
+            ]
+        )
+
+        self.assertEqual("verify-led", direction)
+
+    def test_classify_prompt_direction_stays_noisy_without_target_keeps(self):
+        mod = _load_run_experiments_module()
+
+        direction = mod.classify_prompt_direction(
+            [
+                {"name": "exp001", "status": "discard", "delta": -0.4},
+                {"name": "exp002", "status": "uncertain", "delta": -0.1},
+                {"name": "exp003", "status": "discard", "delta": -0.6},
+            ]
+        )
+
+        self.assertEqual("noisy / not yet informative", direction)
+
+    def test_recommend_next_presets_falls_back_to_priority_order(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(
+            [
+                "verify-examples",
+                "rewrite-anti-distractor",
+                "rate-exactness-calibration",
+            ],
+            mod.recommend_next_presets(
+                [
+                    {"name": "exp001", "status": "discard", "delta": -0.4},
+                    {"name": "exp002", "status": "uncertain", "delta": -0.1},
+                ]
+            ),
+        )
+
+    def test_summarize_control_watch_marks_repeat_failures(self):
+        mod = _load_run_experiments_module()
+
+        summary = mod.summarize_control_watch(
+            {
+                "candidates": [
+                    {"word": "ADAPOST", "verified": False},
+                    {"word": "ETAN", "verified": True},
+                ]
+            },
+            {"ADAPOST": False, "ETAN": False},
+        )
+
+        self.assertEqual(
+            {
+                "words": {
+                    "ADAPOST": {"verified": False, "repeated_fail": True},
+                    "ETAN": {"verified": True, "repeated_fail": False},
+                },
+                "demote-or-replace": ["ADAPOST"],
+            },
+            summary,
+        )
+
+    def test_summarize_log_control_watch_uses_logged_summaries(self):
+        mod = _load_run_experiments_module()
+
+        latest, repeated = mod.summarize_log_control_watch(
+            [
+                {
+                    "name": "exp001",
+                    "control_watch": {
+                        "words": {
+                            "ADAPOST": {"verified": False, "repeated_fail": True},
+                            "ETAN": {"verified": False, "repeated_fail": True},
+                        },
+                        "demote-or-replace": ["ADAPOST", "ETAN"],
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(["ADAPOST", "ETAN"], repeated)
+        self.assertEqual(
+            {
+                "words": {
+                    "ADAPOST": {"verified": False, "repeated_fail": True},
+                    "ETAN": {"verified": False, "repeated_fail": True},
+                },
+                "demote-or-replace": ["ADAPOST", "ETAN"],
+            },
+            latest,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

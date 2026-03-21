@@ -1,52 +1,66 @@
-"""Prompt benchmark policy derived from historical ledgers, especially results4.tsv."""
+"""Working prompt benchmark policy for the curated 2026-03-21 reset."""
 
 from __future__ import annotations
 
+from pathlib import Path
 
-INCUMBENT_COMPOSITE = 74.2
-BASELINE_FLOOR_COMPOSITE = 72.0
+
 UNCERTAINTY_DELTA = 0.5
-
-# Protected keep-set: historically helpful or too costly to remove.
-PROTECTED_KEEP_SET = {
-    "verify": [
-        "length scaffold",
-        "technical/rare hint",
-        "domain-flex hint",
-        "word-type line",
-    ],
-    "rewrite": [
-        "failure history context",
-        "bad example context",
-    ],
-    "rate": [
-        "normalized-form line",
-        "positive creativity framing",
-    ],
+WORKING_DATASET_SIZE = 70
+WORKING_DATASET_TIER_COUNTS = {
+    "low": 30,
+    "medium": 25,
+    "high": 15,
 }
+HISTORICAL_PROMPT_EVIDENCE = ("results4.tsv",)
+WORKING_RESULTS_PATH = Path(__file__).with_name("results.tsv")
+WORKING_BASELINE_DESCRIPTION = "baseline_results_20260321"
+PILOT_EXPERIMENT_RANGE = (1, 12)
+EXPERIMENT_BLOCK_RANGES = {
+    "cleanup": (1, 12),
+    "verify-examples": (13, 36),
+    "rewrite-anti-distractor": (37, 48),
+    "definition-examples": (49, 60),
+    "rate-exactness-calibration": (61, 72),
+    "verify-bundles": (73, 84),
+    "definition-rewrite-bundles": (85, 92),
+    "definition-rate-bundles": (93, 96),
+    "confirm-bundles": (97, 100),
+}
+FOLLOWUP_PRIORITY = (
+    "verify-examples",
+    "rewrite-anti-distractor",
+    "rate-exactness-calibration",
+    "definition-examples",
+    "verify-bundles",
+    "definition-rewrite-bundles",
+    "definition-rate-bundles",
+    "confirm-bundles",
+)
+DIRECTION_FOLLOWUP_PRESETS = {
+    "verify-led": ("verify-examples", "verify-bundles"),
+    "rewrite-led": ("rewrite-anti-distractor", "definition-rewrite-bundles"),
+    "rate-led": ("rate-exactness-calibration", "definition-rate-bundles"),
+}
+CONTROL_WORD_WATCH = ("ADAPOST", "ETAN")
+CONTROL_WORD_REPEAT_FAIL_ACTION = "demote-or-replace"
 
-# Themes that should not be retried in the next campaign unless the objective changes.
-HARD_DISCARD_SET = [
-    "common-word bias",
-    "expert framing",
-    "extra length nagging",
-    "exact-sense abstract guards",
-    "DEX-heavy rating anchors/examples",
-    "generate-user meta-instructions",
-    "test-question framing",
-]
 
-# Near-neutral removals worth reconsidering once the refactored benchmark is stable.
-BORDERLINE_CLEANUP_BUCKET = [
-    "duplicate verify length reminder",
-    "rewrite more-precise-than-old-clue line",
-    "generate final instruction simplification",
-]
-
-# Prefer examples and counterexamples over abstract rule accretion.
-PROMPT_EXPERIMENT_PRIORITIES = [
-    "verify examples",
-    "rewrite elimination using failed guesses",
-    "rate broad-but-correct counterexamples",
-    "definition anti-vague negative examples",
-]
+def load_latest_kept_result(results_path: Path = WORKING_RESULTS_PATH) -> dict[str, str]:
+    lines = results_path.read_text(encoding="utf-8").strip().splitlines()
+    if len(lines) < 2:
+        raise ValueError(f"No benchmark rows in {results_path}")
+    for line in reversed(lines[1:]):
+        fields = line.split("\t")
+        if len(fields) < 7 or fields[5] != "keep":
+            continue
+        return {
+            "commit": fields[0],
+            "composite": fields[1],
+            "pass_rate": fields[2],
+            "avg_semantic": fields[3],
+            "avg_rebus": fields[4],
+            "status": fields[5],
+            "description": fields[6],
+        }
+    raise ValueError(f"No kept benchmark row in {results_path}")
