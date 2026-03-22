@@ -67,6 +67,8 @@
 
 **[2026-03-22]** Prompt experiment runners/tests should accept “replacement already present” as a valid already-landed state — when baseline prompt text absorbs a prior cleanup edit, strict “find anchor must exist” checks create false CI failures even though the manifest is semantically aligned. Treat either the original anchor or the replacement text as acceptable, and have apply logic no-op cleanly when the replacement is already present.
 
+**[2026-03-22]** Overnight prompt optimization must externalize all state — chat context and sub-agents are not durable enough for long campaigns. Store incumbent snapshot, trial records, family stats, and replayable events on disk; recovery should restore prompts from the incumbent snapshot, not from conversational memory.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

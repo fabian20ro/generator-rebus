@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,11 +27,18 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from generator.assessment.benchmark_policy import (
+    CAMPAIGN_STOP_STALE_FAMILIES,
     CONTROL_WORD_REPEAT_FAIL_ACTION,
     CONTROL_WORD_WATCH,
     DIRECTION_FOLLOWUP_PRESETS,
+    EXPERIMENT_FAMILY_PRIORITY,
     EXPERIMENT_BLOCK_RANGES,
+    FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
+    FAMILY_STOP_REPEAT_COLLATERAL,
+    FAMILY_STOP_TOTAL_NON_KEEPS,
     FOLLOWUP_PRIORITY,
+    NEAR_MISS_PASS_DELTA,
+    RESEARCH_SIGNAL_MIN_GAINED_WORDS,
     PILOT_EXPERIMENT_RANGE,
     UNCERTAINTY_DELTA,
 )
@@ -53,6 +61,18 @@ TARGET_DIRECTION_BLOCKS = {
     "definition-rewrite-bundles": "rewrite",
     "rate-exactness-calibration": "rate",
     "definition-rate-bundles": "rate",
+}
+FAMILY_UNLOCK_REQUIREMENTS = {
+    "verify_bundles": ("verify_examples_short", "verify_examples_rare"),
+    "definition_rewrite_bundles": ("definition_examples", "rewrite_anti_distractor"),
+    "definition_rate_bundles": ("definition_examples", "rate_exactness"),
+    "confirm_bundles": (
+        "definition_examples",
+        "definition_rewrite_bundles",
+        "definition_rate_bundles",
+        "rewrite_anti_distractor",
+        "rate_exactness",
+    ),
 }
 
 # ── Prompt file paths ─────────────────────────────────────────────
@@ -79,6 +99,12 @@ class Experiment:
     name: str
     desc: str
     edits: list[PromptEdit]
+    family: str = "other"
+    priority: int = 999
+    tags: tuple[str, ...] = ()
+    risk_words: tuple[str, ...] = ()
+    target_words: tuple[str, ...] = ()
+    prerequisites: tuple[str, ...] = ()
 
     @property
     def files(self) -> list[str]:
@@ -125,6 +151,58 @@ def _edit_after(file: str, marker: str, new_line: str) -> PromptEdit:
     return _edit(file, find, replace)
 
 
+def _family_priority(family: str) -> int:
+    try:
+        return EXPERIMENT_FAMILY_PRIORITY.index(family) + 1
+    except ValueError:
+        return len(EXPERIMENT_FAMILY_PRIORITY) + 1
+
+
+def _extract_upper_tokens(desc: str) -> tuple[str, ...]:
+    tokens = []
+    for token in desc.replace("/", " ").replace(",", " ").split():
+        token = token.strip("()[]:;.")
+        if token.isupper() and any(ch.isalpha() for ch in token):
+            tokens.append(token)
+    return tuple(dict.fromkeys(tokens))
+
+
+def _family_for_index(index: int) -> str:
+    if 1 <= index <= 12:
+        return "cleanup"
+    if 13 <= index <= 24:
+        return "verify_examples_short"
+    if 25 <= index <= 36:
+        return "verify_examples_rare"
+    if 37 <= index <= 48:
+        return "rewrite_anti_distractor"
+    if 49 <= index <= 60:
+        return "definition_examples"
+    if 61 <= index <= 72:
+        return "rate_exactness"
+    if 73 <= index <= 84:
+        return "verify_bundles"
+    if 85 <= index <= 92:
+        return "definition_rewrite_bundles"
+    if 93 <= index <= 96:
+        return "definition_rate_bundles"
+    if 97 <= index <= 100:
+        return "confirm_bundles"
+    return "other"
+
+
+def _metadata_for_experiment(index: int, desc: str) -> dict[str, object]:
+    family = _family_for_index(index)
+    return {
+        "family": family,
+        "priority": _family_priority(family),
+        "tags": (family,),
+        "risk_words": (),
+        "target_words": _extract_upper_tokens(desc),
+        "prerequisites": tuple(FAMILY_UNLOCK_REQUIREMENTS.get(family, ())),
+    }
+
+
 # ── 100 Experiments ───────────────────────────────────────────────
 # Design:
 # - removal / simplification experiments first
@@ -135,13 +213,17 @@ EXPERIMENTS: list[Experiment] = []
 
 
 def _exp(desc: str, file: str, find: str, replace: str) -> None:
-    name = f"exp{len(EXPERIMENTS) + 1:03d}"
-    EXPERIMENTS.append(Experiment(name, desc, [_edit(file, find, replace)]))
+    index = len(EXPERIMENTS) + 1
+    name = f"exp{index:03d}"
+    EXPERIMENTS.append(
+        Experiment(name, desc, [_edit(file, find, replace)], **_metadata_for_experiment(index, desc))
+    )
 
 
 def _exp_multi(desc: str, edits: list[PromptEdit]) -> None:
-    name = f"exp{len(EXPERIMENTS) + 1:03d}"
-    EXPERIMENTS.append(Experiment(name, desc, edits))
+    index = len(EXPERIMENTS) + 1
+    name = f"exp{index:03d}"
+    EXPERIMENTS.append(Experiment(name, desc, edits, **_metadata_for_experiment(index, desc)))
 
 
 def _exp_before(desc: str, file: str, marker: str, new_line: str) -> None:
@@ -857,6 +939,85 @@ def save_best_result_summary(backup_dir: Path, result: dict) -> None:
     )
 
 
+@dataclass(frozen=True)
+class WordSignal:
+    gained_low_medium: tuple[str, ...] = ()
+    lost_low_medium: tuple[str, ...] = ()
+    gained_high: tuple[str, ...] = ()
+    lost_high: tuple[str, ...] = ()
+    lost_protected_controls: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "gained_low_medium": list(self.gained_low_medium),
+            "lost_low_medium": list(self.lost_low_medium),
+            "gained_high": list(self.gained_high),
+            "lost_high": list(self.lost_high),
+            "lost_protected_controls": list(self.lost_protected_controls),
+        }
+
+
+@dataclass(frozen=True)
+class ClassificationDecision:
+    status: str
+    delta: float
+    protected_regression: bool
+    pass_regression: bool
+    uncertain_reason: str | None
+    research_signal: bool
+    signal: WordSignal
+
+
+def candidate_map(result: dict) -> dict[str, dict]:
+    return {
+        row.get("word"): row
+        for row in result.get("candidates", [])
+        if row.get("word")
+    }
+
+
+def summarize_word_signal(current: dict, incumbent: dict | None) -> WordSignal:
+    if not incumbent:
+        return WordSignal()
+
+    current_rows = candidate_map(current)
+    incumbent_rows = candidate_map(incumbent)
+    gained_low_medium: list[str] = []
+    lost_low_medium: list[str] = []
+    gained_high: list[str] = []
+    lost_high: list[str] = []
+    lost_protected_controls: list[str] = []
+
+    for word, old_row in incumbent_rows.items():
+        new_row = current_rows.get(word)
+        if not new_row:
+            continue
+        old_verified = bool(old_row.get("verified"))
+        new_verified = bool(new_row.get("verified"))
+        tier = str(new_row.get("tier") or old_row.get("tier") or "")
+
+        if not old_verified and new_verified:
+            if tier in {"low", "medium"}:
+                gained_low_medium.append(word)
+            elif tier == "high":
+                gained_high.append(word)
+        elif old_verified and not new_verified:
+            if tier in {"low", "medium"}:
+                lost_low_medium.append(word)
+            elif tier == "high":
+                lost_high.append(word)
+            if word in CONTROL_WORD_WATCH:
+                lost_protected_controls.append(word)
+
+    return WordSignal(
+        gained_low_medium=tuple(sorted(gained_low_medium)),
+        lost_low_medium=tuple(sorted(lost_low_medium)),
+        gained_high=tuple(sorted(gained_high)),
+        lost_high=tuple(sorted(lost_high)),
+        lost_protected_controls=tuple(sorted(lost_protected_controls)),
+    )
+
+
 def protected_regression(current: dict, incumbent: dict | None) -> bool:
     if not incumbent:
         return False
@@ -875,18 +1036,71 @@ def classify_experiment_result(
     current: dict,
     incumbent: dict | None,
     best_composite: float,
-) -> tuple[str, float, bool, bool]:
+) -> ClassificationDecision:
     composite = float(current["composite"])
     delta = composite - best_composite
     has_regression = protected_regression(current, incumbent)
-    pass_regression = bool(
-        incumbent and float(current["pass_rate"]) < float(incumbent.get("pass_rate", 0.0))
-    )
+    incumbent_pass = float(incumbent.get("pass_rate", 0.0)) if incumbent else 0.0
+    current_pass = float(current["pass_rate"])
+    pass_regression = bool(incumbent and current_pass < incumbent_pass)
+    signal = summarize_word_signal(current, incumbent)
+
     if composite > best_composite and not has_regression and not pass_regression:
-        return "keep", delta, has_regression, pass_regression
-    if abs(delta) <= UNCERTAINTY_DELTA or has_regression or pass_regression:
-        return "uncertain", delta, has_regression, pass_regression
-    return "discard", delta, has_regression, pass_regression
+        return ClassificationDecision(
+            "keep",
+            delta,
+            has_regression,
+            pass_regression,
+            None,
+            False,
+            signal,
+        )
+
+    near_miss = (
+        incumbent is not None
+        and delta >= -UNCERTAINTY_DELTA
+        and (current_pass - incumbent_pass) >= NEAR_MISS_PASS_DELTA
+        and not has_regression
+        and not signal.lost_protected_controls
+        and not signal.lost_high
+    )
+    research_signal = (
+        incumbent is not None
+        and len(signal.gained_low_medium) >= RESEARCH_SIGNAL_MIN_GAINED_WORDS
+        and not has_regression
+        and not signal.lost_protected_controls
+        and not signal.lost_high
+        and len(signal.lost_low_medium) <= len(signal.gained_low_medium)
+    )
+    if near_miss:
+        return ClassificationDecision(
+            "uncertain",
+            delta,
+            has_regression,
+            pass_regression,
+            "near_miss",
+            False,
+            signal,
+        )
+    if research_signal:
+        return ClassificationDecision(
+            "uncertain",
+            delta,
+            has_regression,
+            pass_regression,
+            "research_signal",
+            True,
+            signal,
+        )
+    return ClassificationDecision(
+        "discard",
+        delta,
+        has_regression,
+        pass_regression,
+        None,
+        False,
+        signal,
+    )
 
 
 def apply_experiment(exp: Experiment) -> bool:
@@ -943,6 +1157,17 @@ def block_name_for_experiment(exp_name: str) -> str:
     raise ValueError(f"Experiment outside declared block ranges: {exp_name}")
 
 
+def get_experiment(name: str) -> Experiment:
+    for exp in EXPERIMENTS:
+        if exp.name == name:
+            return exp
+    raise KeyError(name)
+
+
+def experiments_for_family(family: str) -> list[Experiment]:
+    return [exp for exp in EXPERIMENTS if exp.family == family]
+
+
 def summarize_cleanup_block(log: list[dict]) -> dict[str, int | bool]:
     summary = {"keep": 0, "uncertain": 0, "discard": 0}
     for entry in log:
@@ -952,6 +1177,61 @@ def summarize_cleanup_block(log: list[dict]) -> dict[str, int | bool]:
         if status in summary:
             summary[status] += 1
     summary["stop_cleanup"] = (summary["uncertain"] + summary["discard"]) > summary["keep"]
+    return summary
+
+
+def summarize_family_outcomes(log: list[dict], family: str) -> dict[str, object]:
+    entries = [entry for entry in log if entry.get("family") == family]
+    summary = {
+        "attempts": len(entries),
+        "keeps": 0,
+        "uncertains": 0,
+        "discards": 0,
+        "consecutive_non_keeps": 0,
+        "total_non_keeps_since_last_keep": 0,
+        "best_delta": 0.0,
+        "repeated_collateral_losers": [],
+        "stale": False,
+        "stale_reason": None,
+        "has_signal": False,
+    }
+    collateral_counter: Counter[str] = Counter()
+
+    for entry in entries:
+        status = entry.get("status")
+        if status == "keep":
+            summary["keeps"] += 1
+            summary["consecutive_non_keeps"] = 0
+            summary["total_non_keeps_since_last_keep"] = 0
+            summary["best_delta"] = max(summary["best_delta"], float(entry.get("delta", 0.0)))
+            summary["has_signal"] = True
+            continue
+
+        if status == "uncertain":
+            summary["uncertains"] += 1
+            if entry.get("research_signal"):
+                summary["has_signal"] = True
+        elif status == "discard":
+            summary["discards"] += 1
+
+        summary["consecutive_non_keeps"] += 1
+        summary["total_non_keeps_since_last_keep"] += 1
+        for word in entry.get("word_signal", {}).get("lost_low_medium", []):
+            collateral_counter[word] += 1
+        for word in entry.get("word_signal", {}).get("lost_high", []):
+            collateral_counter[word] += 1
+
+    repeated = sorted(word for word, count in collateral_counter.items() if count >= FAMILY_STOP_REPEAT_COLLATERAL)
+    summary["repeated_collateral_losers"] = repeated
+    if summary["consecutive_non_keeps"] >= FAMILY_STOP_CONSECUTIVE_NON_KEEPS:
+        summary["stale"] = True
+        summary["stale_reason"] = "consecutive_non_keeps"
+    elif summary["total_non_keeps_since_last_keep"] >= FAMILY_STOP_TOTAL_NON_KEEPS:
+        summary["stale"] = True
+        summary["stale_reason"] = "total_non_keeps"
+    elif repeated:
+        summary["stale"] = True
+        summary["stale_reason"] = "repeated_collateral_losers"
     return summary
 
 
@@ -1466,11 +1746,12 @@ def main() -> None:
             composite = float(result["composite"])
             control_watch = summarize_control_watch(result, control_baseline_status)
             print_control_watch_summary(control_watch)
-            status, delta, has_regression, pass_regression = classify_experiment_result(
+            decision = classify_experiment_result(
                 result,
                 best_result_summary,
                 best_composite,
             )
+            status = decision.status
             symbol = {
                 "keep": "✓ IMPROVED",
                 "uncertain": "? Uncertain",
@@ -1497,9 +1778,16 @@ def main() -> None:
                 "avg_semantic": float(result["avg_semantic"]),
                 "avg_rebus": float(result["avg_rebus"]),
                 "prev_best": best_composite,
-                "delta": round(delta, 1),
-                "protected_regression": has_regression,
-                "pass_regression": pass_regression,
+                "delta": round(decision.delta, 1),
+                "protected_regression": decision.protected_regression,
+                "pass_regression": decision.pass_regression,
+                "uncertain_reason": decision.uncertain_reason,
+                "research_signal": decision.research_signal,
+                "family": exp.family,
+                "priority": exp.priority,
+                "target_words": list(exp.target_words),
+                "prerequisites": list(exp.prerequisites),
+                "word_signal": decision.signal.to_dict(),
                 "control_watch": control_watch,
             }
             log.append(entry)

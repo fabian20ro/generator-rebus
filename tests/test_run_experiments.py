@@ -53,6 +53,9 @@ class RunExperimentsTests(unittest.TestCase):
 
         self.assertEqual(100, len(mod.EXPERIMENTS))
         self.assertEqual(100, len({exp.name for exp in mod.EXPERIMENTS}))
+        self.assertEqual("cleanup", mod.EXPERIMENTS[0].family)
+        self.assertEqual("verify_examples_short", mod.EXPERIMENTS[12].family)
+        self.assertEqual("confirm_bundles", mod.EXPERIMENTS[-1].family)
 
     def test_cleanup_round_matches_requested_file_order(self):
         mod = _load_run_experiments_module()
@@ -142,16 +145,83 @@ class RunExperimentsTests(unittest.TestCase):
 
     def test_classify_experiment_result_marks_borderline_as_uncertain(self):
         mod = _load_run_experiments_module()
-        status, delta, has_regression, pass_regression = mod.classify_experiment_result(
-            {"composite": 74.0, "pass_rate": 0.343, "protected_control_summary": {}},
-            {"composite": 74.2, "pass_rate": 0.343, "protected_control_summary": {}},
+        decision = mod.classify_experiment_result(
+            {
+                "composite": 74.0,
+                "pass_rate": 0.343,
+                "protected_control_summary": {},
+                "candidates": [],
+            },
+            {
+                "composite": 74.2,
+                "pass_rate": 0.343,
+                "protected_control_summary": {},
+                "candidates": [],
+            },
             74.2,
         )
 
-        self.assertEqual("uncertain", status)
-        self.assertAlmostEqual(-0.2, delta)
-        self.assertFalse(has_regression)
-        self.assertFalse(pass_regression)
+        self.assertEqual("uncertain", decision.status)
+        self.assertAlmostEqual(-0.2, decision.delta)
+        self.assertFalse(decision.protected_regression)
+        self.assertFalse(decision.pass_regression)
+        self.assertEqual("near_miss", decision.uncertain_reason)
+
+    def test_classify_experiment_result_marks_research_signal_uncertain(self):
+        mod = _load_run_experiments_module()
+        decision = mod.classify_experiment_result(
+            {
+                "composite": 73.0,
+                "pass_rate": 0.300,
+                "protected_control_summary": {"high": {"pass_rate": 0.900}},
+                "candidates": [
+                    {"word": "A", "tier": "low", "verified": True},
+                    {"word": "B", "tier": "medium", "verified": True},
+                    {"word": "C", "tier": "medium", "verified": True},
+                    {"word": "ADAPOST", "tier": "high", "verified": True},
+                ],
+            },
+            {
+                "composite": 74.0,
+                "pass_rate": 0.314,
+                "protected_control_summary": {"high": {"pass_rate": 0.900}},
+                "candidates": [
+                    {"word": "A", "tier": "low", "verified": False},
+                    {"word": "B", "tier": "medium", "verified": False},
+                    {"word": "C", "tier": "medium", "verified": False},
+                    {"word": "ADAPOST", "tier": "high", "verified": True},
+                ],
+            },
+            74.0,
+        )
+
+        self.assertEqual("uncertain", decision.status)
+        self.assertEqual("research_signal", decision.uncertain_reason)
+        self.assertTrue(decision.research_signal)
+
+    def test_classify_experiment_result_marks_control_loss_as_discard(self):
+        mod = _load_run_experiments_module()
+        decision = mod.classify_experiment_result(
+            {
+                "composite": 74.1,
+                "pass_rate": 0.343,
+                "protected_control_summary": {"high": {"pass_rate": 0.800}},
+                "candidates": [
+                    {"word": "ADAPOST", "tier": "high", "verified": False},
+                ],
+            },
+            {
+                "composite": 74.2,
+                "pass_rate": 0.343,
+                "protected_control_summary": {"high": {"pass_rate": 0.900}},
+                "candidates": [
+                    {"word": "ADAPOST", "tier": "high", "verified": True},
+                ],
+            },
+            74.2,
+        )
+
+        self.assertEqual("discard", decision.status)
 
     def test_resolve_experiment_window_defaults_to_full_manifest(self):
         mod = _load_run_experiments_module()
@@ -184,6 +254,35 @@ class RunExperimentsTests(unittest.TestCase):
             end_at=None,
             preset="verify-examples",
         ))
+
+    def test_summarize_family_outcomes_marks_family_stale_after_repeated_non_keeps(self):
+        mod = _load_run_experiments_module()
+        summary = mod.summarize_family_outcomes(
+            [
+                {
+                    "name": "exp013",
+                    "family": "verify_examples_short",
+                    "status": "discard",
+                    "word_signal": {"lost_low_medium": ["SAN"], "lost_high": []},
+                },
+                {
+                    "name": "exp014",
+                    "family": "verify_examples_short",
+                    "status": "uncertain",
+                    "word_signal": {"lost_low_medium": ["SAN"], "lost_high": []},
+                },
+                {
+                    "name": "exp015",
+                    "family": "verify_examples_short",
+                    "status": "discard",
+                    "word_signal": {"lost_low_medium": ["SAN"], "lost_high": []},
+                },
+            ],
+            "verify_examples_short",
+        )
+
+        self.assertTrue(summary["stale"])
+        self.assertEqual("repeated_collateral_losers", summary["stale_reason"])
 
     def test_classify_prompt_direction_prefers_verify_family(self):
         mod = _load_run_experiments_module()
