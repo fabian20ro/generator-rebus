@@ -12,3 +12,29 @@ c933099	76.5	0.329	9.1	8.2	uncertain	pilot_20260321/exp009 | fold diacritics cou
 c933099	76.6	0.329	9.1	8.3	uncertain	pilot_20260321/exp010 | shorten precise-natural-max12 line in definition | system/definition.md
 c933099	70.3	0.271	9.0	8.1	uncertain	pilot_20260321/exp011 | shorten numar variante in verify user | user/verify.md
 c933099	76.2	0.329	9.0	8.1	uncertain	pilot_20260321/exp012 | replace rewrite more-precise-than-old line with exact | system/rewrite.md
+ea0471c	77.7	0.343	9.1	8.0	uncertain	pilot_20260321/exp013 | add verify example OF | system/verify.md
+ea0471c	77.4	0.343	9.0	8.0	uncertain	pilot_20260321/exp014 | add verify example UZ | system/verify.md
+ea0471c	74.8	0.314	9.1	8.1	uncertain	pilot_20260321/exp015 | add verify example AZ | system/verify.md
+ea0471c	73.6	0.300	9.1	8.2	uncertain	pilot_20260321/exp016 | add verify example AN | system/verify.md
+ea0471c	76.0	0.329	9.0	8.0	uncertain	pilot_20260321/exp017 | add verify example EU | system/verify.md
+ea0471c	74.4	0.314	9.0	8.0	uncertain	pilot_20260321/exp018 | add verify example AUT | system/verify.md
+ea0471c	75.7	0.329	9.0	7.9	uncertain	pilot_20260321/exp019 | add verify example DAR | system/verify.md
+ea0471c	73.3	0.300	9.0	8.1	uncertain	pilot_20260321/exp020 | add verify example FI | system/verify.md
+ea0471c	75.9	0.329	9.0	7.9	uncertain	pilot_20260321/exp021 | add verify example IN | system/verify.md
+ea0471c	69.0	0.257	9.0	8.1	uncertain	pilot_20260321/exp022 | add verify example ATU | system/verify.md
+ea0471c	74.8	0.314	9.1	8.1	uncertain	pilot_20260321/exp023 | add verify example LA | system/verify.md
+ea0471c	81.9	0.386	9.0	8.1	uncertain	pilot_20260321/exp024 | add verify example AR | system/verify.md
+ea0471c	71.8	0.286	9.0	8.1	uncertain	pilot_20260321/exp025 | add verify example FLU | system/verify.md
+ea0471c	77.5	0.343	9.1	8.0	uncertain	pilot_20260321/exp026 | add verify example ITI | system/verify.md
+ea0471c	74.8	0.314	9.1	8.1	uncertain	pilot_20260321/exp027 | add verify example CATA | system/verify.md
+ea0471c	77.5	0.343	9.1	8.0	uncertain	pilot_20260321/exp028 | add verify example UMEZITOR | system/verify.md
+ea0471c	73.4	0.300	9.0	8.2	uncertain	pilot_20260321/exp029 | add verify example HOTAR | system/verify.md
+ea0471c	72.9	0.300	9.0	7.9	uncertain	pilot_20260321/exp030 | add verify example TRONARE | system/verify.md
+ea0471c	72.1	0.286	9.1	8.2	uncertain	pilot_20260321/exp031 | add verify example EPIGASTRU | system/verify.md
+ea0471c	77.5	0.343	9.0	8.1	uncertain	pilot_20260321/exp032 | add verify example IMN | system/verify.md
+ea0471c	78.8	0.357	9.1	8.0	uncertain	pilot_20260321/exp033 | add verify example RUT | system/verify.md
+ea0471c	77.6	0.343	9.0	8.1	uncertain	pilot_20260321/exp034 | add verify example OSTRACA | system/verify.md
+ea0471c	68.9	0.257	9.0	8.1	uncertain	pilot_20260321/exp035 | add verify example STIMULAT | system/verify.md
+ea0471c	78.2	0.357	8.9	7.9	uncertain	pilot_20260321/exp036 | add verify example LECTURAT | system/verify.md
+ea0471c	72.1	0.286	9.0	8.2	uncertain	pilot_20260321/exp037 | add rewrite rule to exclude common grouped distractors | system/rewrite.md
+ea0471c	76.3	0.329	9.1	8.1	uncertain	pilot_20260321/exp038 | add rewrite rule to beat all proposed candidates | system/rewrite.md
