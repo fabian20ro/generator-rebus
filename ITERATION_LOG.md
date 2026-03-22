@@ -176,4 +176,12 @@
 **Insight:** manifest drift checks should enforce semantic applicability, not literal historical wording only; otherwise harmless baseline prompt cleanups become false-negative CI failures
 **Promoted:** yes — see LESSONS_LEARNED "Prompt experiment runners/tests should accept replacement already present as a valid already-landed state"
 
+### [2026-03-22] — Fix prompt autoresearch incumbent persistence and safe rebuild semantics
+**Context:** first `prompt_autoresearch.py` tmux run executed one trial as intended with `--max-trials 1`, but durable state drifted: `state.json` still pointed at incumbent `81.9/0.386` while `incumbent.json` had regressed to the baseline `73.3/0.300`, making resume unsafe.
+**Happened:** Audited `scripts/prompt_autoresearch.py`. Root cause: bootstrap replay produced the correct incumbent in memory, but a later persistence path could overwrite `incumbent.json` with stale baseline data. Refactored startup into explicit bootstrap/resume/rebuild flows, kept `persist_campaign_state()` as the only durable-write helper, and added validator-driven hybrid resume. Hardened `rebuild_state_from_campaign()` to rebuild in a temp directory and swap in only after success, then refresh the absolute incumbent snapshot path after the move. Added runtime error handling for rebuild failure, `--rebuild-state`, `--continuous`, richer `--status`, and tests covering mismatch detection, auto-rebuild, non-keep incumbent preservation, keep incumbent update, one-trial idle pointer semantics, and continuous run stop behavior. Rebuilt live `build/prompt_research/` from `logs/pilot_20260321.json` plus `build/assessment_runs/baseline_results_20260321_20260321_142651.json`.
+**Verification:** `python3 -m py_compile scripts/prompt_autoresearch.py tests/test_prompt_autoresearch.py`; `python3 -m pytest tests/test_prompt_autoresearch.py tests/test_run_experiments.py tests/test_runtime_logging.py -q` (`34 passed`); `python3 scripts/prompt_autoresearch.py --rebuild-state --campaign-log logs/pilot_20260321.json --baseline-json build/assessment_runs/baseline_results_20260321_20260321_142651.json --dry-run`; `python3 scripts/prompt_autoresearch.py --status`.
+**Outcome:** success
+**Insight:** durable-state repair must be atomic; rebuilding in place can destroy the last good autoresearch state before replay succeeds.
+**Promoted:** yes — see LESSONS_LEARNED entry on staged temporary rebuilds for durable state.
+
 <!-- new entries above this line, most recent first -->

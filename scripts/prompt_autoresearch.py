@@ -35,6 +35,7 @@ SNAPSHOTS_DIRNAME = "snapshots"
 INCUMBENT_PROMPTS_DIRNAME = "incumbent_prompts"
 TRIAL_PROMPTS_DIRNAME = "trial_prompts"
 RUN_LOG_FILENAME = "current_run.log"
+VALID_STATUSES = {"idle", "running", "stopped", "interrupted"}
 
 
 def write_text_atomic(path: Path, text: str) -> None:
@@ -68,6 +69,19 @@ def load_json(path: Path, default=None):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def prompt_tree_matches_snapshot(snapshot_dir: Path) -> bool:
+    if not snapshot_dir.exists():
+        return False
+    for prompt in runner.PROMPTS_DIR.rglob("*.md"):
+        rel = prompt.relative_to(runner.PROMPTS_DIR)
+        snap = snapshot_dir / rel
+        if not snap.exists():
+            return False
+        if prompt.read_text(encoding="utf-8") != snap.read_text(encoding="utf-8"):
+            return False
+    return True
+
+
 def family_paths(state_dir: Path) -> dict[str, Path]:
     return {
         "state": state_dir / STATE_FILENAME,
@@ -99,6 +113,20 @@ def default_family_state(name: str) -> dict[str, object]:
         "stale_reason": None,
         "has_signal": False,
     }
+
+
+def resolve_campaign_log_path(state: dict, campaign_log: Path | None) -> Path | None:
+    if campaign_log is not None:
+        return campaign_log
+    value = state.get("campaign_log")
+    return Path(value) if value else None
+
+
+def resolve_baseline_json_path(state: dict, baseline_json: Path | None) -> Path | None:
+    if baseline_json is not None:
+        return baseline_json
+    value = state.get("baseline_json")
+    return Path(value) if value else None
 
 
 def default_families() -> dict[str, dict[str, object]]:
@@ -323,7 +351,8 @@ def initialize_state(
     state_dir: Path,
     incumbent_payload: dict,
     campaign_log: Path | None,
-) -> tuple[dict, dict[str, dict[str, object]]]:
+    baseline_json: Path | None,
+) -> tuple[dict, dict[str, dict[str, object]], dict]:
     paths = family_paths(state_dir)
     copy_prompt_tree(paths["incumbent_prompts"])
     attempted_experiments: list[str] = []
@@ -352,6 +381,8 @@ def initialize_state(
         "incumbent_prompt_snapshot": str(paths["incumbent_prompts"]),
         "active_trial": None,
         "stop_reason": None,
+        "campaign_log": str(campaign_log) if campaign_log is not None else None,
+        "baseline_json": str(baseline_json) if baseline_json is not None else None,
         "attempted_experiments": attempted_experiments,
         "stale_family_streak": 0,
         "heartbeat_ts": None,
@@ -359,7 +390,7 @@ def initialize_state(
     write_json_atomic(paths["state"], state)
     write_json_atomic(paths["families"], families)
     write_json_atomic(paths["incumbent"], incumbent_payload)
-    return state, families
+    return state, families, incumbent_payload
 
 
 def load_or_initialize_state(
@@ -370,22 +401,24 @@ def load_or_initialize_state(
 ) -> tuple[dict, dict[str, dict[str, object]], dict]:
     paths = family_paths(state_dir)
     if paths["state"].exists():
-        return (
-            load_json(paths["state"], {}),
-            load_json(paths["families"], default_families()),
-            load_json(paths["incumbent"], {}),
+        return resume_existing_state(
+            state_dir=state_dir,
+            campaign_log=campaign_log,
+            baseline_json=baseline_json,
         )
-
-    incumbent_payload = current_incumbent_payload(campaign_log, baseline_json)
-    state, families = initialize_state(
+    return bootstrap_from_campaign(
         state_dir=state_dir,
-        incumbent_payload=incumbent_payload,
         campaign_log=campaign_log,
+        baseline_json=baseline_json,
     )
-    return state, families, incumbent_payload
 
 
-def persist_state(state_dir: Path, state: dict, families: dict[str, dict[str, object]], incumbent: dict) -> None:
+def persist_campaign_state(
+    state_dir: Path,
+    state: dict,
+    families: dict[str, dict[str, object]],
+    incumbent: dict,
+) -> None:
     paths = family_paths(state_dir)
     write_json_atomic(paths["state"], state)
     write_json_atomic(paths["families"], families)
@@ -405,6 +438,139 @@ def recover_if_interrupted(state_dir: Path, state: dict) -> None:
     state["active_trial"] = None
     state["current_experiment"] = None
     audit("prompt_autoresearch_recovered", payload={"trial": active_trial["id"]})
+
+
+def validate_state(
+    *,
+    state_dir: Path,
+    state: dict,
+    families: dict[str, dict[str, object]],
+    incumbent: dict,
+    campaign_log: Path | None,
+) -> tuple[bool, str | None]:
+    paths = family_paths(state_dir)
+    campaign_log = resolve_campaign_log_path(state, campaign_log)
+
+    required = [paths["state"], paths["families"], paths["incumbent"], paths["incumbent_prompts"]]
+    for path in required:
+        if not path.exists():
+            return False, f"missing durable artifact: {path.name}"
+
+    if state.get("status") not in VALID_STATUSES:
+        return False, f"invalid status: {state.get('status')}"
+
+    state_comp = float(state.get("incumbent_composite", -1))
+    incumbent_comp = float(incumbent.get("composite", -2))
+    state_pass = float(state.get("incumbent_pass_rate", -1))
+    incumbent_pass = float(incumbent.get("pass_rate", -2))
+    if state_comp != incumbent_comp or state_pass != incumbent_pass:
+        return False, "incumbent metrics mismatch"
+
+    if state.get("status") in {"idle", "stopped"} and not prompt_tree_matches_snapshot(paths["incumbent_prompts"]):
+        return False, "prompt tree does not match incumbent snapshot"
+
+    attempted = set(state.get("attempted_experiments", []))
+    logged = set()
+    if campaign_log and campaign_log.exists():
+        logged = {entry["name"] for entry in load_json(campaign_log, []) if entry.get("name")}
+
+    for exp_name in attempted:
+        trial_path = paths["trials"] / f"{exp_name}.json"
+        if not trial_path.exists() and exp_name not in logged:
+            return False, f"missing trial or log record for {exp_name}"
+
+    current_experiment = state.get("current_experiment")
+    active_trial = state.get("active_trial")
+    if state.get("status") == "running":
+        if not current_experiment or not active_trial:
+            return False, "running state missing active trial"
+    else:
+        if active_trial is not None:
+            return False, "non-running state has active trial"
+
+    return True, None
+
+
+def bootstrap_from_campaign(
+    *,
+    state_dir: Path,
+    campaign_log: Path | None,
+    baseline_json: Path | None,
+) -> tuple[dict, dict[str, dict[str, object]], dict]:
+    incumbent_payload = current_incumbent_payload(campaign_log, baseline_json)
+    return initialize_state(
+        state_dir=state_dir,
+        incumbent_payload=incumbent_payload,
+        campaign_log=campaign_log,
+        baseline_json=baseline_json,
+    )
+
+
+def rebuild_state_from_campaign(
+    *,
+    state_dir: Path,
+    campaign_log: Path | None,
+    baseline_json: Path | None,
+) -> tuple[dict, dict[str, dict[str, object]], dict]:
+    tmp_dir = state_dir.with_name(f"{state_dir.name}.rebuild_tmp")
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    bootstrap_from_campaign(
+        state_dir=tmp_dir,
+        campaign_log=campaign_log,
+        baseline_json=baseline_json,
+    )
+    if state_dir.exists():
+        shutil.rmtree(state_dir)
+    shutil.move(str(tmp_dir), str(state_dir))
+    paths = family_paths(state_dir)
+    state = load_json(paths["state"], {})
+    families = load_json(paths["families"], default_families())
+    incumbent = load_json(paths["incumbent"], {})
+    state["incumbent_prompt_snapshot"] = str(paths["incumbent_prompts"])
+    persist_campaign_state(state_dir, state, families, incumbent)
+    return state, families, incumbent
+
+
+def resume_existing_state(
+    *,
+    state_dir: Path,
+    campaign_log: Path | None,
+    baseline_json: Path | None,
+) -> tuple[dict, dict[str, dict[str, object]], dict]:
+    paths = family_paths(state_dir)
+    state = load_json(paths["state"], {})
+    campaign_log = resolve_campaign_log_path(state, campaign_log)
+    baseline_json = resolve_baseline_json_path(state, baseline_json)
+    families = load_json(paths["families"], default_families())
+    incumbent = load_json(paths["incumbent"], {})
+    valid, reason = validate_state(
+        state_dir=state_dir,
+        state=state,
+        families=families,
+        incumbent=incumbent,
+        campaign_log=campaign_log,
+    )
+    if valid:
+        return state, families, incumbent
+
+    audit("state_rebuild_required", payload={"reason": reason or "invalid_state"})
+    try:
+        rebuilt = rebuild_state_from_campaign(
+            state_dir=state_dir,
+            campaign_log=campaign_log,
+            baseline_json=baseline_json,
+        )
+    except Exception as exc:
+        state["status"] = "stopped"
+        state["stop_reason"] = f"state validation failed and rebuild failed: {reason}; {exc}"
+        state["active_trial"] = None
+        persist_campaign_state(state_dir, state, families, incumbent)
+        raise RuntimeError(state["stop_reason"]) from exc
+    rebuilt_state, rebuilt_families, rebuilt_incumbent = rebuilt
+    rebuilt_state["stop_reason"] = f"rebuilt state after validation failure: {reason}"
+    persist_campaign_state(state_dir, rebuilt_state, rebuilt_families, rebuilt_incumbent)
+    return rebuilt
 
 
 def family_has_signal(families: dict[str, dict[str, object]], family: str) -> bool:
@@ -475,13 +641,25 @@ def run_supervisor(
         baseline_json=baseline_json,
     )
     recover_if_interrupted(state_dir, state)
-    persist_state(state_dir, state, families, incumbent)
+    persist_campaign_state(state_dir, state, families, incumbent)
 
     exp = select_next_experiment(state, families)
     if dry_run:
+        valid, reason = validate_state(
+            state_dir=state_dir,
+            state=state,
+            families=families,
+            incumbent=incumbent,
+            campaign_log=campaign_log,
+        )
         if exp is None:
             print("No viable experiment available.")
             return 0
+        print(
+            f"State valid: {'yes' if valid else 'no'}"
+            + (f" ({reason})" if reason else "")
+        )
+        print(f"Incumbent: {state['incumbent_composite']:.1f} / {state['incumbent_pass_rate']:.3f}")
         print(f"Next experiment: {exp.name} ({exp.family}) — {exp.desc}")
         return 0
 
@@ -505,7 +683,7 @@ def run_supervisor(
             "assessment_log": str(assessment_log_path),
             "assessment_json": str(assessment_json_path),
         }
-        persist_state(state_dir, state, families, incumbent)
+        persist_campaign_state(state_dir, state, families, incumbent)
         audit("trial_started", payload={"experiment": exp.name, "family": exp.family})
 
         applied = runner.apply_experiment(exp)
@@ -516,7 +694,7 @@ def run_supervisor(
             state["attempted_experiments"].append(exp.name)
             state["active_trial"] = None
             state["heartbeat_ts"] = runner.path_timestamp()
-            persist_state(state_dir, state, families, incumbent)
+            persist_campaign_state(state_dir, state, families, incumbent)
             audit("trial_skipped", payload={"experiment": exp.name})
             exp = select_next_experiment(state, families)
             continue
@@ -536,7 +714,7 @@ def run_supervisor(
             state["status"] = "interrupted"
             state["stop_reason"] = f"keyboard interrupt during {exp.name}"
             state["active_trial"] = None
-            persist_state(state_dir, state, families, incumbent)
+            persist_campaign_state(state_dir, state, families, incumbent)
             audit("trial_interrupted", payload={"experiment": exp.name})
             return 130
 
@@ -544,7 +722,7 @@ def run_supervisor(
             restore_prompt_tree(paths["incumbent_prompts"])
             runner.restore_results_tsv(result_snapshot)
             safe_stop(state, reason=f"assessment error in {exp.name}")
-            persist_state(state_dir, state, families, incumbent)
+            persist_campaign_state(state_dir, state, families, incumbent)
             audit("trial_error", payload={"experiment": exp.name})
             return 1
 
@@ -614,11 +792,11 @@ def run_supervisor(
             )
         if int(state.get("stale_family_streak", 0)) >= CAMPAIGN_STOP_STALE_FAMILIES:
             safe_stop(state, reason="three consecutive stale families")
-            persist_state(state_dir, state, families, incumbent)
+            persist_campaign_state(state_dir, state, families, incumbent)
             audit("campaign_stopped", payload={"reason": state["stop_reason"]})
             return 0
 
-        persist_state(state_dir, state, families, incumbent)
+        persist_campaign_state(state_dir, state, families, incumbent)
         audit(
             "trial_finished",
             payload={
@@ -634,10 +812,13 @@ def run_supervisor(
 
     if exp is None:
         safe_stop(state, reason="no viable families remaining")
+        state["current_family"] = None
     else:
         state["status"] = "idle"
         state["stop_reason"] = "max trials reached"
-    persist_state(state_dir, state, families, incumbent)
+        state["current_experiment"] = exp.name
+        state["current_family"] = exp.family
+    persist_campaign_state(state_dir, state, families, incumbent)
     audit("campaign_stopped", payload={"reason": state["stop_reason"]})
     return 0
 
@@ -648,10 +829,14 @@ def main() -> None:
     parser.add_argument("--campaign-log", type=Path, help="Existing experiment log to import/reclassify")
     parser.add_argument("--baseline-json", type=Path, help="Baseline/incumbent assessment JSON")
     parser.add_argument("--max-trials", type=int, help="Run at most N new trials")
+    parser.add_argument("--continuous", action="store_true", help="Run until safe-stop instead of stopping after N trials")
+    parser.add_argument("--rebuild-state", action="store_true", help="Rebuild durable state from campaign log and baseline JSON")
     parser.add_argument("--description-prefix", default=DEFAULT_DESCRIPTION_PREFIX)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--status", action="store_true", help="Print current durable state and exit")
     args = parser.parse_args()
+    if args.continuous and args.max_trials is not None:
+        parser.error("--continuous and --max-trials are mutually exclusive")
 
     paths = family_paths(args.state_dir)
     handle = install_process_logging(
@@ -662,18 +847,66 @@ def main() -> None:
         tee_console=True,
     )
     try:
-        if args.status and paths["state"].exists():
-            print(json.dumps(load_json(paths["state"], {}), ensure_ascii=False, indent=2))
-            return
-        exit_code = run_supervisor(
-            state_dir=args.state_dir,
-            campaign_log=args.campaign_log,
-            baseline_json=args.baseline_json,
-            max_trials=args.max_trials,
-            description_prefix=args.description_prefix,
-            dry_run=args.dry_run,
-        )
-        raise SystemExit(exit_code)
+        try:
+            if args.rebuild_state:
+                state, families, incumbent = rebuild_state_from_campaign(
+                    state_dir=args.state_dir,
+                    campaign_log=args.campaign_log,
+                    baseline_json=args.baseline_json,
+                )
+                valid, reason = validate_state(
+                    state_dir=args.state_dir,
+                    state=state,
+                    families=families,
+                    incumbent=incumbent,
+                    campaign_log=args.campaign_log,
+                )
+                print(
+                    f"Rebuilt state: incumbent={state['incumbent_composite']:.1f}/{state['incumbent_pass_rate']:.3f} "
+                    f"valid={'yes' if valid else 'no'}"
+                    + (f" ({reason})" if reason else "")
+                )
+                if args.status or args.dry_run:
+                    if args.status:
+                        print(json.dumps(state, ensure_ascii=False, indent=2))
+                    if args.dry_run:
+                        next_exp = select_next_experiment(state, families)
+                        if next_exp is None:
+                            print("No viable experiment available.")
+                        else:
+                            print(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
+                    return
+            if args.status and paths["state"].exists():
+                state = load_json(paths["state"], {})
+                families = load_json(paths["families"], default_families())
+                incumbent = load_json(paths["incumbent"], {})
+                valid, reason = validate_state(
+                    state_dir=args.state_dir,
+                    state=state,
+                    families=families,
+                    incumbent=incumbent,
+                    campaign_log=args.campaign_log,
+                )
+                payload = dict(state)
+                payload["state_valid"] = valid
+                payload["state_validation_reason"] = reason
+                next_exp = select_next_experiment(state, families)
+                payload["next_experiment"] = next_exp.name if next_exp else None
+                payload["next_family"] = next_exp.family if next_exp else None
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                return
+            exit_code = run_supervisor(
+                state_dir=args.state_dir,
+                campaign_log=args.campaign_log,
+                baseline_json=args.baseline_json,
+                max_trials=None if args.continuous else args.max_trials,
+                description_prefix=args.description_prefix,
+                dry_run=args.dry_run,
+            )
+            raise SystemExit(exit_code)
+        except RuntimeError as exc:
+            print(str(exc))
+            raise SystemExit(1) from exc
     finally:
         handle.restore()
 

@@ -69,6 +69,8 @@
 
 **[2026-03-22]** Overnight prompt optimization must externalize all state — chat context and sub-agents are not durable enough for long campaigns. Store incumbent snapshot, trial records, family stats, and replayable events on disk; recovery should restore prompts from the incumbent snapshot, not from conversational memory.
 
+**[2026-03-22]** Durable-state rebuilds should be staged in a temporary directory, then swapped in only after success — deleting the live state dir before replay/bootstrap finishes can turn a recoverable inconsistency into total state loss. Rebuild off to the side, then atomically replace the durable state and refresh any stored absolute snapshot paths.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 
