@@ -103,7 +103,7 @@ class Candidate:
     report: QualityReport
     template: list[list[bool]]
     markdown: str
-    metadata: dict[str, dict] = field(default_factory=dict)
+    metadata: dict[str, list[dict]] = field(default_factory=dict)
     stats: dict[str, int | float] = field(default_factory=dict)
 
 
@@ -136,8 +136,28 @@ def _load_words(words_path: Path) -> list[dict]:
         return json.load(f)
 
 
-def _metadata_by_word(raw_words: list[dict]) -> dict[str, dict]:
-    return {word["normalized"]: word for word in raw_words}
+def _metadata_by_word(raw_words: list[dict]) -> dict[str, list[dict]]:
+    metadata: dict[str, list[dict]] = {}
+    for word in raw_words:
+        normalized = word.get("normalized", "")
+        if not normalized:
+            continue
+        metadata.setdefault(normalized, []).append(word)
+    return metadata
+
+
+def _normalize_metadata_pool(
+    metadata: dict[str, dict] | dict[str, list[dict]] | None,
+) -> dict[str, list[dict]]:
+    if not metadata:
+        return {}
+    normalized: dict[str, list[dict]] = {}
+    for word, value in metadata.items():
+        if isinstance(value, list):
+            normalized[word] = [dict(entry) for entry in value]
+        else:
+            normalized[word] = [dict(value)]
+    return normalized
 
 
 def _rust_binary_path() -> Path:
@@ -193,12 +213,13 @@ def _render_markdown_from_rust_payload(
     for slot in slots_payload:
         slot_id = int(slot["id"])
         word = word_by_slot[slot_id]
+        original = word.get("normalized", "")
         if slot["direction"] == "H":
             h_words[int(slot["start_row"])].append(word["normalized"])
-            h_originals[int(slot["start_row"])].append(word["original"])
+            h_originals[int(slot["start_row"])].append(original)
         else:
             v_words[int(slot["start_col"])].append(word["normalized"])
-            v_originals[int(slot["start_col"])].append(word["original"])
+            v_originals[int(slot["start_col"])].append(original)
 
     return write_filled_grid(size, grid_out, h_words, v_words, h_originals, v_originals, title=title)
 
@@ -208,7 +229,7 @@ def _best_candidate_rust(
     title: str,
     *,
     words_path: Path,
-    metadata: dict[str, dict],
+    metadata: dict[str, list[dict]],
     rng: random.Random,
     preparation_attempts: int = 1,
 ) -> Candidate:
@@ -265,7 +286,7 @@ def _best_candidate_rust(
         report=report,
         template=template,
         markdown=markdown,
-        metadata=metadata,
+        metadata=_normalize_metadata_pool(metadata),
         stats=stats,
     )
 
@@ -278,7 +299,7 @@ def _best_candidate(
     seen_template_fingerprints: set[str] | None = None,
     *,
     words_path: Path | None = None,
-    word_metadata: dict[str, dict] | None = None,
+    word_metadata: dict[str, dict] | dict[str, list[dict]] | None = None,
     preparation_attempts: int = 1,
 ) -> Candidate:
     if words_path is None:
@@ -287,7 +308,7 @@ def _best_candidate(
         size,
         title,
         words_path=words_path,
-        metadata=word_metadata or _metadata_by_word(raw_words),
+        metadata=_normalize_metadata_pool(word_metadata) or _metadata_by_word(raw_words),
         rng=rng,
         preparation_attempts=preparation_attempts,
     )
@@ -319,10 +340,31 @@ def _template_fingerprint(template: list[list[bool]]) -> str:
     return "|".join("".join("." if cell else "#" for cell in row) for row in template)
 
 
-def _inject_word_types(state: WorkingPuzzle, metadata: dict[str, dict]) -> None:
+def _choose_metadata_variants_for_puzzle(puzzle, metadata: dict[str, list[dict]]) -> dict[str, dict]:
+    resolved: dict[str, dict] = {}
+    clues = list(getattr(puzzle, "horizontal_clues", [])) + list(getattr(puzzle, "vertical_clues", []))
+    for clue in clues:
+        normalized = clue.word_normalized
+        if normalized not in resolved:
+            options = metadata.get(normalized) or []
+            if options:
+                resolved[normalized] = copy.deepcopy(random.choice(options))
+            else:
+                resolved[normalized] = {
+                    "normalized": normalized,
+                    "original": normalized.lower(),
+                    "word_type": "",
+                }
+        clue.word_original = resolved[normalized].get("original") or normalized.lower()
+    return resolved
+
+
+def _inject_word_metadata(state: WorkingPuzzle, metadata: dict[str, dict]) -> None:
     for clue in all_working_clues(state):
         word_meta = metadata.get(clue.word_normalized, {})
         clue.word_type = word_meta.get("word_type", "")
+        clue.word_original = word_meta.get("original") or clue.word_normalized.lower()
+    state.metadata["resolved_word_metadata"] = copy.deepcopy(metadata)
 
 
 def _preparation_attempts_for_size(size: int, requested_attempts: int) -> int:
@@ -511,16 +553,17 @@ def _prepare_puzzle_for_publication(
         )
         puzzle = parse_markdown(candidate.markdown)
         puzzle.title = ""
+        resolved_metadata = _choose_metadata_variants_for_puzzle(puzzle, candidate.metadata)
         generate_definitions_for_puzzle(
             puzzle,
             client,
-            metadata=candidate.metadata,
+            metadata=resolved_metadata,
             runtime=runtime,
             model_config=PRIMARY_MODEL,
         )
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
         _backfill_generated_model(state, PRIMARY_MODEL.display_name)
-        _inject_word_types(state, candidate.metadata)
+        _inject_word_metadata(state, resolved_metadata)
         # Load dex definitions for rewrite rounds
         _dex = DexProvider.for_puzzle(state)
         first_passed, final_passed, total = _rewrite_failed_clues(

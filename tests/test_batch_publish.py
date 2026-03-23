@@ -17,6 +17,7 @@ from generator.batch_publish import (
     _clear_verification_state,
     _collect_word_metrics,
     _compute_difficulty,
+    _choose_metadata_variants_for_puzzle,
     _is_publishable,
     _merge_best_clue_variants,
     _needs_rewrite,
@@ -387,10 +388,10 @@ class BatchPublishTests(unittest.TestCase):
                 '{"id":3,"direction":"V","start_row":0,"start_col":1,"length":2,"cells":[[0,1],[1,1]],"intersections":[]}'
                 '],'
                 '"words":['
-                '{"slot_id":0,"normalized":"AB","original":"ab"},'
-                '{"slot_id":1,"normalized":"CD","original":"cd"},'
-                '{"slot_id":2,"normalized":"AC","original":"ac"},'
-                '{"slot_id":3,"normalized":"BD","original":"bd"}'
+                '{"slot_id":0,"normalized":"AB"},'
+                '{"slot_id":1,"normalized":"CD"},'
+                '{"slot_id":2,"normalized":"AC"},'
+                '{"slot_id":3,"normalized":"BD"}'
                 '],'
                 '"quality":{"score":321.0,"word_count":4,"average_length":2.0,'
                 '"average_rarity":0.0,"two_letter_words":4,"three_letter_words":0,'
@@ -412,6 +413,27 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual(321.0, candidate.score)
         self.assertEqual(12, candidate.stats["elapsed_ms"])
         mock_run.assert_called_once()
+
+    @patch("generator.batch_publish.random.choice")
+    def test_metadata_variants_are_pinned_once_per_normalized_word(self, mock_choice):
+        mock_choice.return_value = {"normalized": "AER", "original": "aer", "word_type": "N"}
+        puzzle = SimpleNamespace(
+            horizontal_clues=[ClueEntry(1, "AER", "", "")],
+            vertical_clues=[ClueEntry(1, "AER", "", "")],
+        )
+
+        resolved = _choose_metadata_variants_for_puzzle(
+            puzzle,
+            {"AER": [
+                {"normalized": "AER", "original": "aer", "word_type": "N"},
+                {"normalized": "AER", "original": "aerul", "word_type": "N"},
+            ]},
+        )
+
+        self.assertEqual("aer", puzzle.horizontal_clues[0].word_original)
+        self.assertEqual("aer", puzzle.vertical_clues[0].word_original)
+        self.assertEqual("N", resolved["AER"]["word_type"])
+        mock_choice.assert_called_once()
 
     def test_best_candidate_requires_words_path(self):
         with self.assertRaises(ValueError):

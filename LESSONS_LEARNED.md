@@ -28,6 +28,8 @@
 
 **[2026-03-20]** `locked` state must follow exact verification, not only score thresholds — a 9/8 clue that still guesses wrong can get skipped forever in rewrite rounds if lock logic only checks semantic/rebus. Keep lock semantics aligned with `_needs_rewrite()`.
 
+**[2026-03-24]** If phase-1 fills only normalized answers, later stages must pin one concrete variant per clue before generation starts — grouping metadata by normalized word is not enough. If `word_type` / `word_original` / DEX context are re-selected on each access, the same clue can drift across define/verify/rewrite/title steps. Resolve one variant once per puzzle clue, then carry that pinned choice through the rest of the pipeline.
+
 ## Testing & Quality
 **[2026-03-18]** `rate_puzzle()` tests must mock `DexProvider.for_puzzle()` — otherwise `tests/test_verify.py` can hang or become environment-dependent during DEX prefetch. Unit tests for verify/rate flow should stub DEX access explicitly.
 
@@ -86,6 +88,8 @@
 **[2026-03-23]** Autoresearch rebuilds must refresh both snapshot paths and the live prompt tree after swapping temp state into place — if `seed_prompt_snapshot` still points at the temporary rebuild dir, or if `generator/prompts/` is not restored from the rebuilt incumbent snapshot, the next validator run reports a false incumbent mismatch even though the durable state itself is correct.
 
 **[2026-03-23]** Supabase clue directions must accept persisted `H`/`V` codes, not only spelled-out names — upload stores `crossword_clues.direction` as `H`/`V`, so any DB-to-working-state adapter that only checks `"vertical"` silently routes every clue into the horizontal list. Treat both compact DB codes and verbose strings as valid inputs before running redefine/repair flows.
+
+**[2026-03-24]** Crossword phase-1 size tuning should derive from dictionary length histograms, not board size alone — the usable normalized-word buckets peak around medium lengths and thin sharply at the long end (for example current corpus: `8-letter = 12481`, `15-letter = 546`). Large-grid black density, template budget, and slot-capacity floors should react to that long-word scarcity; a smooth size formula helps readability, but top-end failures can still come from template/search topology after the histogram pressure is accounted for.
 
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.

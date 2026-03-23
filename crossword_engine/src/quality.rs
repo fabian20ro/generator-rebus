@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::words::{RawWord, WordEntry};
+use crate::words::WordEntry;
 
 const FOREIGN_SHORTLIST_BLOCKLIST: &[&str] =
     &["AIR", "BIG", "CAT", "DIG", "DOG", "GET", "LAW", "TEN"];
@@ -31,24 +31,12 @@ pub struct QualityReport {
     pub average_definability: f64,
 }
 
-pub fn is_toxic_short_loanword(word: &RawWord) -> bool {
-    if !FOREIGN_SHORTLIST_BLOCKLIST.contains(&word.normalized.as_str()) {
-        return false;
-    }
-    word.original.is_ascii()
-        && word
-            .original
-            .chars()
-            .all(|ch| !ch.is_ascii_alphabetic() || ch.is_ascii_lowercase())
+pub fn is_toxic_short_loanword(normalized: &str) -> bool {
+    FOREIGN_SHORTLIST_BLOCKLIST.contains(&normalized)
 }
 
-pub fn assess_word_quality(word: &RawWord) -> WordQualityProfile {
-    let length = word.normalized.chars().count();
-    let original = if word.original.is_empty() {
-        word.normalized.to_lowercase()
-    } else {
-        word.original.clone()
-    };
+pub fn assess_word_quality(normalized: &str, min_rarity: i32) -> WordQualityProfile {
+    let length = normalized.chars().count();
     let short_fragility = if length <= 2 {
         4
     } else if length == 3 {
@@ -70,33 +58,25 @@ pub fn assess_word_quality(word: &RawWord) -> WordQualityProfile {
     let family_leak_risk = if length >= 6
         && ["ARE", "IRE", "ATE", "ISM"]
             .iter()
-            .any(|suffix| word.normalized.ends_with(suffix))
+            .any(|suffix| normalized.ends_with(suffix))
     {
         2
     } else {
         0
     };
-    let foreign_risk = if is_toxic_short_loanword(word) {
+    let foreign_risk = if is_toxic_short_loanword(normalized) {
         3
-    } else if original.is_ascii()
-        && original
-            .chars()
-            .all(|ch| !ch.is_ascii_alphabetic() || ch.is_ascii_lowercase())
-    {
-        1
     } else {
         0
     };
-    let abbreviation_like = length <= 3
-        && original.is_ascii()
-        && original
-            .chars()
-            .all(|ch| !ch.is_ascii_alphabetic() || ch.is_ascii_lowercase());
-    let definability_score = (10.0
+    let abbreviation_like = length <= 3 && normalized.chars().all(|ch| ch.is_ascii_uppercase());
+    let rarity_penalty = min_rarity.clamp(1, 5) - 1;
+    let definability_score = (12.0
         - short_fragility as f64
         - ambiguity_risk as f64
         - family_leak_risk as f64
-        - foreign_risk as f64)
+        - foreign_risk as f64
+        - rarity_penalty as f64)
         .max(0.0);
     WordQualityProfile {
         short_fragility,
@@ -115,6 +95,13 @@ pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
     } else {
         lengths.iter().sum::<usize>() as f64 / lengths.len() as f64
     };
+    let avg_rarity = if words.is_empty() {
+        0.0
+    } else {
+        words.iter().map(|word| word.min_rarity as f64).sum::<f64>() / words.len() as f64
+    };
+    let max_rarity = words.iter().map(|word| word.min_rarity).max().unwrap_or(0);
+    let high_rarity = words.iter().filter(|word| word.min_rarity >= 4).count();
     let two_letter = lengths.iter().filter(|length| **length == 2).count();
     let three_letter = lengths.iter().filter(|length| **length == 3).count();
     let uncommon = words
@@ -155,6 +142,8 @@ pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
     score += avg_length * 14.0;
     score += friendly as f64 * 4.0;
     score += avg_definability * 9.0;
+    score -= avg_rarity * 6.0;
+    score -= high_rarity as f64 * 3.0;
     score -= two_letter as f64 * two_letter_penalty;
     score -= three_letter as f64 * three_letter_penalty;
     score -= uncommon as f64 * 10.0;
@@ -164,13 +153,13 @@ pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
         score,
         word_count: words.len(),
         average_length: avg_length,
-        average_rarity: 0.0,
+        average_rarity: avg_rarity,
         two_letter_words: two_letter,
         three_letter_words: three_letter,
-        high_rarity_words: 0,
+        high_rarity_words: high_rarity,
         uncommon_letter_words: uncommon,
         friendly_words: friendly,
-        max_rarity: 0,
+        max_rarity,
         average_definability: avg_definability,
     }
 }
@@ -178,29 +167,11 @@ pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::words::RawWord;
 
     #[test]
-    fn quality_ignores_rarity() {
-        let low = RawWord {
-            normalized: "AER".to_string(),
-            original: "aer".to_string(),
-            rarity_level: Some(1),
-            length: Some(3),
-            word_type: None,
-        };
-        let high = RawWord {
-            normalized: "AER".to_string(),
-            original: "aer".to_string(),
-            rarity_level: Some(5),
-            length: Some(3),
-            word_type: None,
-        };
-        let low_profile = assess_word_quality(&low);
-        let high_profile = assess_word_quality(&high);
-        assert_eq!(
-            low_profile.definability_score,
-            high_profile.definability_score
-        );
+    fn quality_uses_min_rarity() {
+        let low = assess_word_quality("AER", 1);
+        let high = assess_word_quality("AER", 5);
+        assert!(low.definability_score > high.definability_score);
     }
 }

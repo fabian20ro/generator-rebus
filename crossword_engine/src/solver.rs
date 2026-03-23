@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -204,9 +205,11 @@ impl<'a> SolveState<'a> {
         }
     }
 
-    fn assign_word(&mut self, slot_id: usize, word_idx: usize) {
+    fn assign_word(&mut self, slot_id: usize, word_idx: usize) -> bool {
         let slot = &self.slots[slot_id];
-        let bucket = self.index.bucket(slot.length).expect("bucket");
+        let Some(bucket) = self.index.bucket(slot.length) else {
+            return false;
+        };
         let word = &bucket.words[word_idx];
         self.assignment[slot_id] = Some(word_idx);
         if !self.allow_reuse {
@@ -219,6 +222,7 @@ impl<'a> SolveState<'a> {
             self.grid[*r][*c] = Some(word.chars[pos]);
             self.cell_use_count[*r][*c] += 1;
         }
+        true
     }
 
     fn unassign_word(&mut self, slot_id: usize, word_idx: usize) {
@@ -296,9 +300,14 @@ impl<'a> SolveState<'a> {
         if candidates.len() <= 1 {
             return candidates;
         }
+        let Some(bucket) = self.index.bucket(slot.length) else {
+            return Vec::new();
+        };
         let mut scored: Vec<(usize, usize, f64)> = Vec::with_capacity(candidates.len());
         for candidate_idx in candidates.drain(..) {
-            self.assign_word(slot_id, candidate_idx);
+            if !self.assign_word(slot_id, candidate_idx) {
+                continue;
+            }
             let mut impact = 0usize;
             for ix in &slot.intersections {
                 if self.assignment[ix.other_slot_id].is_some() {
@@ -310,7 +319,6 @@ impl<'a> SolveState<'a> {
                     .index
                     .count_matching(&other_pattern, self.exclude_for_length(other_slot.length));
             }
-            let bucket = self.index.bucket(slot.length).expect("bucket");
             let quality = bucket.words[candidate_idx].quality.definability_score;
             self.unassign_word(slot_id, candidate_idx);
             scored.push((candidate_idx, impact, quality));
@@ -332,8 +340,12 @@ fn solve_recursive<R: Rng + ?Sized>(
     state: &mut SolveState<'_>,
     stats: &mut SolveStats,
     max_nodes: usize,
+    cancel: &AtomicBool,
     rng: &mut R,
 ) -> bool {
+    if cancel.load(Ordering::Relaxed) {
+        return false;
+    }
     if state.assignment.iter().all(Option::is_some) {
         return true;
     }
@@ -342,12 +354,17 @@ fn solve_recursive<R: Rng + ?Sized>(
     };
     let candidates = state.order_candidates(slot_id, rng);
     for candidate_idx in candidates {
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
         stats.nodes += 1;
         if stats.nodes > max_nodes {
             return false;
         }
-        state.assign_word(slot_id, candidate_idx);
-        if state.forward_check(slot_id) && solve_recursive(state, stats, max_nodes, rng) {
+        if !state.assign_word(slot_id, candidate_idx) {
+            continue;
+        }
+        if state.forward_check(slot_id) && solve_recursive(state, stats, max_nodes, cancel, rng) {
             return true;
         }
         state.unassign_word(slot_id, candidate_idx);
@@ -361,6 +378,7 @@ pub fn solve_grid<R: Rng + ?Sized>(
     index: &WordIndex,
     max_nodes: usize,
     allow_reuse: bool,
+    cancel: &AtomicBool,
     rng: &mut R,
 ) -> Option<(Vec<Option<usize>>, Vec<Vec<Option<char>>>, SolveStats)> {
     let rows = template.len();
@@ -381,7 +399,7 @@ pub fn solve_grid<R: Rng + ?Sized>(
         allow_reuse,
     };
     let mut stats = SolveStats::default();
-    if solve_recursive(&mut state, &mut stats, max_nodes, rng) {
+    if solve_recursive(&mut state, &mut stats, max_nodes, cancel, rng) {
         Some((state.assignment, state.grid, stats))
     } else {
         None
@@ -395,6 +413,7 @@ mod tests {
     use crate::slots::extract_slots;
     use crate::words::{RawWord, filter_word_records};
     use rand::{SeedableRng, rngs::StdRng};
+    use std::sync::atomic::AtomicBool;
 
     fn words(rows: &[&str]) -> Vec<WordEntry> {
         filter_word_records(
@@ -410,6 +429,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             8,
         )
+        .0
     }
 
     #[test]
@@ -427,14 +447,15 @@ mod tests {
         let template = vec![vec![true, true], vec![true, true]];
         let slots = extract_slots(&template);
         let mut rng = StdRng::seed_from_u64(42);
-        let solved = solve_grid(&template, &slots, &index, 1_000, false, &mut rng);
+        let cancel = AtomicBool::new(false);
+        let solved = solve_grid(&template, &slots, &index, 1_000, false, &cancel, &mut rng);
         assert!(solved.is_some());
         let (assignment, _, _) = solved.expect("solution");
         let solved_words: Vec<&WordEntry> = slots
             .iter()
             .map(|slot| {
                 let idx = assignment[slot.id].expect("assigned");
-                &index.bucket(slot.length).expect("bucket").words[idx]
+                &index.bucket(slot.length).unwrap().words[idx]
             })
             .collect();
         let report = score_words(&solved_words, 2);

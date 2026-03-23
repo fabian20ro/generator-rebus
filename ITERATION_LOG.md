@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-03-24] Implement normalized-only Rust engine and pinned Python variant hydration
+
+**Context:** user wanted the Rust phase-1 engine to own only normalized grid fill, dedupe input by normalized word before search, forbid duplicate normalized answers in solved grids, use minimum rarity across variants for normalized-word quality, and move concrete variant resolution (`word_original`, `word_type`, later metadata) fully outside Rust while keeping that choice fixed once selected.
+**Happened:** Refactored `crossword_engine` into a normalized-answer engine: `words.rs` now groups source rows by normalized key, dedupes before indexing, aggregates min rarity per normalized word, and drops original-word ownership from `WordEntry`; `quality.rs` now computes rarity-aware definability from the normalized key + min rarity and reports nonzero rarity metrics; `engine.rs` now returns explicit `EngineError`s instead of panicking on invalid size/input, removes answer reuse for all sizes, switches from the old relaxed-variant search to a monotonic black-dot ladder, stops after the first valid solution via cooperative cancellation, emits normalized words only, and adds dictionary/relaxation status stats; `solver.rs` now threads cancellation through recursion and removes runtime `expect` assumptions. On the Python side, `generator/batch_publish.py` now groups metadata rows by normalized word, randomly chooses one concrete variant once per puzzle clue after Rust fill hydration, rewrites clue originals from that pinned choice, and injects pinned `word_type`/`word_original` into the later state so define/verify/rewrite/title use a stable variant instead of last-row-wins metadata lookups. Updated Rust CLI tests and batch tests for the new output/metadata behavior.
+**Verification:** `cargo test --manifest-path crossword_engine/Cargo.toml`; `python3 -m pytest tests/test_batch_publish.py -q`; `python3 -m pytest -q`; direct smoke run `cargo run --quiet --manifest-path crossword_engine/Cargo.toml --bin crossword_phase1 -- --size 7 --words generator/output/words.json --seed 42 --preparation-attempts 1`.
+**Outcome:** success
+**Insight:** normalized-only fill is only stable if the later pipeline pins one concrete variant per clue immediately after hydration; otherwise metadata randomization leaks into downstream behavior.
+**Promoted:** yes — see LESSONS_LEARNED entry on pinning one concrete variant per clue after normalized-only fill.
+
+---
+
 ### [2026-03-23] Repair regressions after Python phase-1 removal
 
 **Context:** after deleting the legacy Python phase-1 stack, full CI still failed in `test_ai_clues` and `test_verify`, and an old manual size sweep had left native `crossword_phase1` processes running in the terminal.
@@ -250,6 +261,14 @@
 **Outcome:** success
 **Insight:** durable-state repair must be atomic; rebuilding in place can destroy the last good autoresearch state before replay succeeds.
 **Promoted:** yes — see LESSONS_LEARNED entry on staged temporary rebuilds for durable state.
+
+### [2026-03-24] — Replace hardcoded Rust size table with formula + dictionary-length pressure
+**Context:** user challenged the strange `settings_for_size()` progression and explicitly called out word density by character count as another likely driver. Goal: stop hand-tuned jumps; make the scaling explainable from `7x7` upward; check whether length-bucket scarcity explains large-grid failures.
+**Happened:** Replaced the Rust size match-table with formula-based scaling for target black density, node budget, attempt budget, two-letter tolerance, candidate-floor, and template attempts. Added dictionary-length pressure after loading filtered words: compare dense `5..8` buckets against the board's long-word buckets and nudge black budget / template budget / candidate floor accordingly. Added tests for monotonic settings and for sparse long buckets raising the black budget. Measured unique normalized counts by length from `generator/output/words.json` (`8-letter = 12481`, `15-letter = 546`) and ran a real `15x15` release probe on seed `42`.
+**Verification:** `cargo test --manifest-path crossword_engine/Cargo.toml`; `cargo build --release --manifest-path crossword_engine/Cargo.toml`; direct release probe `crossword_engine/target/release/crossword_phase1 --size 15 --words generator/output/words.json --seed 42 --preparation-attempts 1`.
+**Outcome:** partial
+**Insight:** size-only settings were indeed misleading, and long-word scarcity is real, but the live `15x15` probe still failed quickly through black counts `44..52`; remaining top-end bottleneck is template/search topology, not just bad black-count scaling.
+**Promoted:** yes — see LESSONS_LEARNED entry on size settings using dictionary length histograms, not board size alone.
 
 ### [2026-03-22] — Regroup prompt autoresearch families so stale-stop does not kill unrelated hypothesis classes
 **Context:** after one autonomous continuation, supervisor safe-stopped with `three consecutive stale families` even though only negative definition examples, early rate counterexamples, and one rewrite framing edit had actually been tested. Positive definition examples and rule/guidance variants were still untouched but hidden inside the same coarse family names.
