@@ -71,6 +71,10 @@
 
 **[2026-03-22]** Durable-state rebuilds should be staged in a temporary directory, then swapped in only after success — deleting the live state dir before replay/bootstrap finishes can turn a recoverable inconsistency into total state loss. Rebuild off to the side, then atomically replace the durable state and refresh any stored absolute snapshot paths.
 
+**[2026-03-22]** Prompt autoresearch families must match hypothesis classes, not broad file blocks — early-stop on a coarse family like `definition_examples` can wrongly kill untested positive-example or guidance variants just because negative-example edits failed first. Split families by experiment type before enabling stale-family stop logic.
+
+**[2026-03-23]** Repeated collateral losers deserve their own watchlist, distinct from high-tier controls — a prompt change can keep headline controls stable while still repeatedly breaking the same medium/common words (`AZ`, `MIRE`, `SAN`, etc.). Track those fragile words explicitly in classifier and family-stop logic so prompt research stops on recurring regressions earlier.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

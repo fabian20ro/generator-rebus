@@ -55,7 +55,22 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertEqual(100, len({exp.name for exp in mod.EXPERIMENTS}))
         self.assertEqual("cleanup", mod.EXPERIMENTS[0].family)
         self.assertEqual("verify_examples_short", mod.EXPERIMENTS[12].family)
+        self.assertEqual("rewrite_structural_guidance", mod.EXPERIMENTS[36].family)
+        self.assertEqual("rewrite_framing", mod.EXPERIMENTS[38].family)
+        self.assertEqual("definition_negative_examples", mod.EXPERIMENTS[48].family)
+        self.assertEqual("definition_positive_examples", mod.EXPERIMENTS[52].family)
+        self.assertEqual("definition_guidance", mod.EXPERIMENTS[57].family)
+        self.assertEqual("rate_counterexamples", mod.EXPERIMENTS[60].family)
+        self.assertEqual("rate_rules", mod.EXPERIMENTS[64].family)
         self.assertEqual("confirm_bundles", mod.EXPERIMENTS[-1].family)
+
+    def test_v2_campaign_has_12_unique_experiments(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(12, len(mod.V2_EXPERIMENTS))
+        self.assertEqual(12, len({exp.name for exp in mod.V2_EXPERIMENTS}))
+        self.assertEqual("micro_rewrite_pairs", mod.V2_EXPERIMENTS[0].family)
+        self.assertEqual("micro_confirm_bundles", mod.V2_EXPERIMENTS[-1].family)
 
     def test_cleanup_round_matches_requested_file_order(self):
         mod = _load_run_experiments_module()
@@ -222,6 +237,31 @@ class RunExperimentsTests(unittest.TestCase):
         )
 
         self.assertEqual("discard", decision.status)
+
+    def test_classify_experiment_result_marks_primary_fragile_loss_as_discard(self):
+        mod = _load_run_experiments_module()
+        decision = mod.classify_experiment_result(
+            {
+                "composite": 74.1,
+                "pass_rate": 0.343,
+                "protected_control_summary": {"high": {"pass_rate": 0.900}},
+                "candidates": [
+                    {"word": "AZ", "tier": "low", "verified": False},
+                ],
+            },
+            {
+                "composite": 74.0,
+                "pass_rate": 0.343,
+                "protected_control_summary": {"high": {"pass_rate": 0.900}},
+                "candidates": [
+                    {"word": "AZ", "tier": "low", "verified": True},
+                ],
+            },
+            74.0,
+        )
+
+        self.assertEqual("discard", decision.status)
+        self.assertEqual(("AZ",), decision.signal.lost_primary_fragile)
 
     def test_resolve_experiment_window_defaults_to_full_manifest(self):
         mod = _load_run_experiments_module()

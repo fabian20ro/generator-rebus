@@ -118,13 +118,27 @@ class PromptAutoresearchTests(unittest.TestCase):
 
         next_exp = mod.select_next_experiment(state, families)
 
-        self.assertEqual("definition_examples", next_exp.family)
-        self.assertEqual("exp049", next_exp.name)
+        self.assertEqual("definition_positive_examples", next_exp.family)
+        self.assertEqual("exp053", next_exp.name)
+
+    def test_select_next_experiment_respects_v2_family_priority(self):
+        mod = _load_module()
+        families = mod.default_families("v2")
+        state = {
+            "attempted_experiments": [],
+            "current_family": None,
+            "experiment_set": "v2",
+        }
+
+        next_exp = mod.select_next_experiment(state, families)
+
+        self.assertEqual("micro_rewrite_pairs", next_exp.family)
+        self.assertEqual("v2exp001", next_exp.name)
 
     def test_select_next_experiment_unlocks_bundles_only_after_signal(self):
         mod = _load_module()
         families = mod.default_families()
-        for name in ("definition_examples", "definition_rewrite_bundles"):
+        for name in ("definition_positive_examples", "definition_guidance", "definition_rewrite_bundles"):
             families[name]["stale"] = True
         state = {
             "attempted_experiments": [f"exp{i:03d}" for i in range(1, 85)],
@@ -133,8 +147,8 @@ class PromptAutoresearchTests(unittest.TestCase):
 
         self.assertIsNone(mod.select_next_experiment(state, families))
 
-        families["definition_examples"]["has_signal"] = True
-        families["rate_exactness"]["has_signal"] = True
+        families["definition_positive_examples"]["has_signal"] = True
+        families["rate_rules"]["has_signal"] = True
         families["definition_rate_bundles"]["stale"] = False
         state["attempted_experiments"] = [f"exp{i:03d}" for i in range(1, 93)]
 
@@ -233,7 +247,7 @@ class PromptAutoresearchTests(unittest.TestCase):
             self.assertEqual("keep", reclassified[0]["status"])
             self.assertEqual("discard", reclassified[1]["status"])
             self.assertEqual(81.0, incumbent["composite"])
-            self.assertEqual(1, families["definition_examples"]["keeps"])
+            self.assertEqual(1, families["definition_negative_examples"]["keeps"])
 
     def test_persist_campaign_state_writes_matching_state_and_incumbent(self):
         mod = _load_module()
@@ -385,7 +399,7 @@ class PromptAutoresearchTests(unittest.TestCase):
             self.assertEqual(81.9, written_state["incumbent_composite"])
             self.assertEqual("idle", written_state["status"])
             self.assertEqual("max trials reached", written_state["stop_reason"])
-            self.assertEqual("exp050", written_state["current_experiment"])
+            self.assertEqual("exp054", written_state["current_experiment"])
 
     def test_run_supervisor_keep_updates_incumbent(self):
         mod = _load_module()

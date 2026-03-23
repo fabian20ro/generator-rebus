@@ -154,6 +154,12 @@
 **Verification:** `python3 -m py_compile generator/assessment/prepare_dataset.py scripts/run_experiments.py`; `python3 -m pytest tests/test_prepare_dataset.py tests/test_run_experiments.py -q` (`11 passed`); `python3 -m generator.assessment.prepare_dataset`; `python3 scripts/run_experiments.py --dry-run`.
 **Promoted:** yes — see LESSONS_LEARNED entry on prompt campaign manifests needing anchor-existence tests.
 
+### [2026-03-22] — Analyze latest prompt autoresearch block after exp053
+**Context:** user asked for concise analysis of the newest autoresearch trials under `build/prompt_research/`, specifically repeated patterns after `exp053`, consistent per-word gains/regressions, and whether the next unrun families still look justified.
+**Happened:** Read `LESSONS_LEARNED.md`, then audited `build/prompt_research/current_run.log`, `events.jsonl`, `state.json`, `families.json`, and trial artifacts `exp054`, `exp055`, `exp058`, `exp059`, `exp060`, `exp065`, `exp066`, `exp067`. Counted repeated gain/loss words across the block and compared them to family stale-state and unlock/priority rules in the runner. Found eight straight discards post-`exp053`; three consecutive stale families (`definition_positive_examples`, `definition_guidance`, `rate_rules`) all died on repeated collateral losers. `EPIGASTRU` was the only universal gainer; `ETAN`, `OSTRACA`, and `SAN` regressed in every trial. Immediate next family on resume would be `rewrite_structural_guidance` (`exp040`), while bundle families remain unjustified because all relevant upstream `has_signal` flags are still false.
+**Outcome:** success
+**Insight:** none promoted; analysis only
+
 ### [2026-03-21] Implement pilot-first benchmark workflow around baseline_results_20260321
 
 **Context:** user wanted the new March 21 curated benchmark locked in as the working target, the runner limited to a 10-12 experiment pilot first, follow-up block priorities encoded in code, and explicit handling for unstable high-tier controls `ADAPOST` / `ETAN`, with a git commit after each implementation step.
@@ -183,5 +189,21 @@
 **Outcome:** success
 **Insight:** durable-state repair must be atomic; rebuilding in place can destroy the last good autoresearch state before replay succeeds.
 **Promoted:** yes — see LESSONS_LEARNED entry on staged temporary rebuilds for durable state.
+
+### [2026-03-22] — Regroup prompt autoresearch families so stale-stop does not kill unrelated hypothesis classes
+**Context:** after one autonomous continuation, supervisor safe-stopped with `three consecutive stale families` even though only negative definition examples, early rate counterexamples, and one rewrite framing edit had actually been tested. Positive definition examples and rule/guidance variants were still untouched but hidden inside the same coarse family names.
+**Happened:** Split experiment-family mapping in `scripts/run_experiments.py`: `rewrite_anti_distractor` into `rewrite_framing` vs `rewrite_structural_guidance`; `definition_examples` into `definition_negative_examples`, `definition_positive_examples`, `definition_guidance`; `rate_exactness` into `rate_counterexamples`, `rate_rules`. Updated family priorities in `generator/assessment/benchmark_policy.py` so the next live candidate is `definition_positive_examples`, not more negative examples or old verify work. Updated bundle unlock prerequisites to depend on the new finer-grained signal buckets. Adjusted autoresearch tests to assert the new first family/next experiment and rebuilt durable state from the same pilot log + baseline JSON.
+**Verification:** `python3 -m py_compile scripts/run_experiments.py scripts/prompt_autoresearch.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py generator/assessment/benchmark_policy.py`; `python3 -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_runtime_logging.py -q` (`34 passed`); `python3 scripts/prompt_autoresearch.py --rebuild-state --campaign-log logs/pilot_20260321.json --baseline-json build/assessment_runs/baseline_results_20260321_20260321_142651.json --dry-run`; `python3 scripts/prompt_autoresearch.py --status`.
+**Outcome:** success
+**Insight:** stale-family logic only works if families correspond to hypothesis classes, not arbitrary contiguous manifest chunks.
+**Promoted:** yes — see LESSONS_LEARNED entry on splitting prompt autoresearch families by hypothesis class.
+
+### [2026-03-23] — Archive v1 prompt campaign, add fragile-word guardrails, bootstrap narrow v2 campaign
+**Context:** user asked to freeze the current v1 campaign, save the active ledger as `results5.tsv`, keep the `exp002` incumbent as seed, add fragile-word guardrails to evaluation, and start a separate narrow v2 prompt campaign with a new state dir and a 12-experiment manifest.
+**Happened:** Extended `generator/assessment/benchmark_policy.py` with primary/secondary fragile-word watchlists plus tighter v2 family stop thresholds. Refactored `scripts/run_experiments.py` to support experiment namespaces: preserved the original 100-experiment v1 manifest, added a separate 12-experiment `v2` manifest (`v2exp001..v2exp012`), added `--experiment-set`, and made the classifier mark primary fragile-word losses as immediate `discard`. Refactored `scripts/prompt_autoresearch.py` to store `experiment_set` in durable state, build family graphs per set, and use set-specific stale thresholds. Archived `generator/assessment/results.tsv` to `generator/assessment/results5.tsv`, reset `results.tsv` to header plus the incumbent `exp002` keep row, restored live prompts from the v1 incumbent snapshot, and bootstrapped `build/prompt_research_v2/` from `build/prompt_research/incumbent.json`. Verified that v2 status is valid and next experiment is `v2exp001`.
+**Verification:** `python3 -m py_compile scripts/run_experiments.py scripts/prompt_autoresearch.py generator/assessment/benchmark_policy.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py`; `python3 -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_runtime_logging.py -q` (`37 passed`); `python3 scripts/run_experiments.py --experiment-set v2 --dry-run`; `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v2 --baseline-json build/prompt_research/incumbent.json --experiment-set v2 --description-prefix autoresearch_v2/ --dry-run`; `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v2 --status`.
+**Outcome:** success
+**Insight:** once the repeated loser cluster is known, it should move from postmortem knowledge into the live classifier and family-stop policy before the next prompt campaign starts.
+**Promoted:** yes — see LESSONS_LEARNED entry on explicit fragile-word watchlists.
 
 <!-- new entries above this line, most recent first -->

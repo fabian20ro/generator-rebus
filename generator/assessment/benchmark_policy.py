@@ -13,6 +13,9 @@ FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 4
 FAMILY_STOP_TOTAL_NON_KEEPS = 6
 FAMILY_STOP_REPEAT_COLLATERAL = 3
 CAMPAIGN_STOP_STALE_FAMILIES = 3
+V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 3
+V2_FAMILY_STOP_TOTAL_NON_KEEPS = 3
+V2_FAMILY_STOP_REPEAT_PRIMARY = 2
 WORKING_DATASET_TIER_COUNTS = {
     "low": 30,
     "medium": 25,
@@ -50,17 +53,29 @@ DIRECTION_FOLLOWUP_PRESETS = {
 }
 CONTROL_WORD_WATCH = ("ADAPOST", "ETAN")
 CONTROL_WORD_REPEAT_FAIL_ACTION = "demote-or-replace"
+PRIMARY_FRAGILE_WORD_WATCH = ("AZ", "FERMENT", "MIRE", "OSTRACA", "SAN", "ETAN")
+SECONDARY_FRAGILE_WORD_WATCH = ("STIMULAT", "NUC", "ADAPOST", "ATOMA")
 EXPERIMENT_FAMILY_PRIORITY = (
-    "definition_examples",
+    "definition_positive_examples",
+    "definition_guidance",
     "definition_rewrite_bundles",
-    "rate_exactness",
-    "rewrite_anti_distractor",
+    "rate_rules",
+    "rewrite_structural_guidance",
+    "definition_negative_examples",
+    "rate_counterexamples",
+    "rewrite_framing",
     "verify_examples_short",
     "verify_examples_rare",
     "verify_bundles",
     "definition_rate_bundles",
     "confirm_bundles",
     "cleanup",
+)
+V2_EXPERIMENT_FAMILY_PRIORITY = (
+    "micro_rewrite_pairs",
+    "blank_output_concretizers",
+    "action_result_disambiguators",
+    "micro_confirm_bundles",
 )
 
 

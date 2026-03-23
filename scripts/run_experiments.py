@@ -38,9 +38,15 @@ from generator.assessment.benchmark_policy import (
     FAMILY_STOP_TOTAL_NON_KEEPS,
     FOLLOWUP_PRIORITY,
     NEAR_MISS_PASS_DELTA,
+    PRIMARY_FRAGILE_WORD_WATCH,
     RESEARCH_SIGNAL_MIN_GAINED_WORDS,
+    SECONDARY_FRAGILE_WORD_WATCH,
     PILOT_EXPERIMENT_RANGE,
     UNCERTAINTY_DELTA,
+    V2_EXPERIMENT_FAMILY_PRIORITY,
+    V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
+    V2_FAMILY_STOP_REPEAT_PRIMARY,
+    V2_FAMILY_STOP_TOTAL_NON_KEEPS,
 )
 from generator.core.runtime_logging import install_process_logging, path_timestamp
 
@@ -54,6 +60,16 @@ EXPERIMENT_PRESETS = {
     "pilot": PILOT_EXPERIMENT_RANGE,
     **EXPERIMENT_BLOCK_RANGES,
 }
+V2_EXPERIMENT_PRESETS = {
+    "full": (1, 12),
+    "micro-rewrite-pairs": (1, 6),
+    "blank-output-concretizers": (7, 10),
+    "micro-confirm-bundles": (11, 12),
+}
+EXPERIMENT_PRESETS_BY_SET = {
+    "v1": EXPERIMENT_PRESETS,
+    "v2": V2_EXPERIMENT_PRESETS,
+}
 TARGET_DIRECTION_BLOCKS = {
     "verify-examples": "verify",
     "verify-bundles": "verify",
@@ -64,15 +80,31 @@ TARGET_DIRECTION_BLOCKS = {
 }
 FAMILY_UNLOCK_REQUIREMENTS = {
     "verify_bundles": ("verify_examples_short", "verify_examples_rare"),
-    "definition_rewrite_bundles": ("definition_examples", "rewrite_anti_distractor"),
-    "definition_rate_bundles": ("definition_examples", "rate_exactness"),
+    "definition_rewrite_bundles": (
+        "definition_positive_examples",
+        "definition_guidance",
+        "rewrite_structural_guidance",
+        "rewrite_framing",
+    ),
+    "definition_rate_bundles": (
+        "definition_positive_examples",
+        "definition_guidance",
+        "rate_rules",
+        "rate_counterexamples",
+    ),
     "confirm_bundles": (
-        "definition_examples",
+        "definition_positive_examples",
+        "definition_guidance",
         "definition_rewrite_bundles",
         "definition_rate_bundles",
-        "rewrite_anti_distractor",
-        "rate_exactness",
+        "rewrite_structural_guidance",
+        "rewrite_framing",
+        "rate_rules",
+        "rate_counterexamples",
     ),
+}
+V2_FAMILY_UNLOCK_REQUIREMENTS = {
+    "micro_confirm_bundles": ("micro_rewrite_pairs", "blank_output_concretizers", "action_result_disambiguators"),
 }
 
 # ── Prompt file paths ─────────────────────────────────────────────
@@ -151,11 +183,12 @@ def _edit_after(file: str, marker: str, new_line: str) -> PromptEdit:
     return _edit(file, find, replace)
 
 
-def _family_priority(family: str) -> int:
+def _family_priority(family: str, experiment_set: str = "v1") -> int:
+    priority_order = V2_EXPERIMENT_FAMILY_PRIORITY if experiment_set == "v2" else EXPERIMENT_FAMILY_PRIORITY
     try:
-        return EXPERIMENT_FAMILY_PRIORITY.index(family) + 1
+        return priority_order.index(family) + 1
     except ValueError:
-        return len(EXPERIMENT_FAMILY_PRIORITY) + 1
+        return len(priority_order) + 1
 
 
 def _extract_upper_tokens(desc: str) -> tuple[str, ...]:
@@ -174,12 +207,20 @@ def _family_for_index(index: int) -> str:
         return "verify_examples_short"
     if 25 <= index <= 36:
         return "verify_examples_rare"
+    if index == 39:
+        return "rewrite_framing"
     if 37 <= index <= 48:
-        return "rewrite_anti_distractor"
-    if 49 <= index <= 60:
-        return "definition_examples"
-    if 61 <= index <= 72:
-        return "rate_exactness"
+        return "rewrite_structural_guidance"
+    if 49 <= index <= 52:
+        return "definition_negative_examples"
+    if 53 <= index <= 57:
+        return "definition_positive_examples"
+    if 58 <= index <= 60:
+        return "definition_guidance"
+    if 61 <= index <= 64:
+        return "rate_counterexamples"
+    if 65 <= index <= 72:
+        return "rate_rules"
     if 73 <= index <= 84:
         return "verify_bundles"
     if 85 <= index <= 92:
@@ -195,7 +236,7 @@ def _metadata_for_experiment(index: int, desc: str) -> dict[str, object]:
     family = _family_for_index(index)
     return {
         "family": family,
-        "priority": _family_priority(family),
+        "priority": _family_priority(family, "v1"),
         "tags": (family,),
         "risk_words": (),
         "target_words": _extract_upper_tokens(desc),
@@ -819,6 +860,150 @@ def _validate_experiments() -> None:
 
 _validate_experiments()
 assert len(EXPERIMENTS) == 100, len(EXPERIMENTS)
+V1_EXPERIMENTS = list(EXPERIMENTS)
+
+V2_EXPERIMENTS = [
+    Experiment(
+        "v2exp001",
+        "add rewrite pair OF excludes AH",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru OF, excluzi răspunsuri de tip AH și păstrezi interjecția de durere ori regret.")],
+        family="micro_rewrite_pairs",
+        priority=_family_priority("micro_rewrite_pairs", "v2"),
+        tags=("micro_rewrite_pairs",),
+        target_words=("OF", "AH"),
+    ),
+    Experiment(
+        "v2exp002",
+        "add rewrite pair UZ excludes UT",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru UZ, păstrezi folosirea practică și excluzi ideea de utilitate sau avantaj.")],
+        family="micro_rewrite_pairs",
+        priority=_family_priority("micro_rewrite_pairs", "v2"),
+        tags=("micro_rewrite_pairs",),
+        target_words=("UZ", "UT"),
+    ),
+    Experiment(
+        "v2exp003",
+        "add rewrite pair TAVA excludes VASA",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru TAVA, păstrezi suprafața plată cu margine ridicată și excluzi vasul generic.")],
+        family="micro_rewrite_pairs",
+        priority=_family_priority("micro_rewrite_pairs", "v2"),
+        tags=("micro_rewrite_pairs",),
+        target_words=("TAVA", "VASA"),
+    ),
+    Experiment(
+        "v2exp004",
+        "add rewrite pair MARMOR excludes MARMUR",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru MARMOR, formulezi sensul materialului fără a aluneca spre forma mai uzuală MARMUR.")],
+        family="micro_rewrite_pairs",
+        priority=_family_priority("micro_rewrite_pairs", "v2"),
+        tags=("micro_rewrite_pairs",),
+        target_words=("MARMOR", "MARMUR"),
+    ),
+    Experiment(
+        "v2exp005",
+        "add near-neighbor exclusion instruction to user rewrite",
+        [_edit(
+            USR_REWRITE,
+            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie definiția mai precis și mai scurt. Dacă verificatorul propune un vecin apropiat, adaugi un singur detaliu care îl exclude. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+        )],
+        family="blank_output_concretizers",
+        priority=_family_priority("blank_output_concretizers", "v2"),
+        tags=("blank_output_concretizers",),
+    ),
+    Experiment(
+        "v2exp006",
+        "add blank-output concretizer rule to rewrite",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă verificatorul nu propune nimic, înlocuiești abstracția cu un reper fizic, locativ sau funcțional.")],
+        family="blank_output_concretizers",
+        priority=_family_priority("blank_output_concretizers", "v2"),
+        tags=("blank_output_concretizers",),
+    ),
+    Experiment(
+        "v2exp007",
+        "add definition positive example EPIGASTRU",
+        [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "EPIGASTRU -> Regiune superioară a abdomenului")],
+        family="action_result_disambiguators",
+        priority=_family_priority("action_result_disambiguators", "v2"),
+        tags=("action_result_disambiguators",),
+        target_words=("EPIGASTRU",),
+    ),
+    Experiment(
+        "v2exp008",
+        "add definition positive example RUT",
+        [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "RUT -> Perioadă de împerechere la animale")],
+        family="action_result_disambiguators",
+        priority=_family_priority("action_result_disambiguators", "v2"),
+        tags=("action_result_disambiguators",),
+        target_words=("RUT",),
+    ),
+    Experiment(
+        "v2exp009",
+        "add definition positive example ATAS",
+        [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "ATAS -> Vehicul lateral atașat unei motociclete")],
+        family="action_result_disambiguators",
+        priority=_family_priority("action_result_disambiguators", "v2"),
+        tags=("action_result_disambiguators",),
+        target_words=("ATAS",),
+    ),
+    Experiment(
+        "v2exp010",
+        "add definition positive example ZEU",
+        [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "ZEU -> Divinitate din credințele antice")],
+        family="action_result_disambiguators",
+        priority=_family_priority("action_result_disambiguators", "v2"),
+        tags=("action_result_disambiguators",),
+        target_words=("ZEU",),
+    ),
+    Experiment(
+        "v2exp011",
+        "bundle OF rewrite pair with EPIGASTRU example",
+        [
+            _edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru OF, excluzi răspunsuri de tip AH și păstrezi interjecția de durere ori regret."),
+            _edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "EPIGASTRU -> Regiune superioară a abdomenului"),
+        ],
+        family="micro_confirm_bundles",
+        priority=_family_priority("micro_confirm_bundles", "v2"),
+        tags=("micro_confirm_bundles",),
+        prerequisites=V2_FAMILY_UNLOCK_REQUIREMENTS["micro_confirm_bundles"],
+        target_words=("OF", "EPIGASTRU"),
+    ),
+    Experiment(
+        "v2exp012",
+        "bundle blank-output rewrite rule with ATAS example",
+        [
+            _edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă verificatorul nu propune nimic, înlocuiești abstracția cu un reper fizic, locativ sau funcțional."),
+            _edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "ATAS -> Vehicul lateral atașat unei motociclete"),
+        ],
+        family="micro_confirm_bundles",
+        priority=_family_priority("micro_confirm_bundles", "v2"),
+        tags=("micro_confirm_bundles",),
+        prerequisites=V2_FAMILY_UNLOCK_REQUIREMENTS["micro_confirm_bundles"],
+        target_words=("ATAS",),
+    ),
+]
+
+
+def _validate_experiment_list(experiments: list[Experiment]) -> None:
+    seen_names = set()
+    for exp in experiments:
+        assert exp.name not in seen_names, exp.name
+        seen_names.add(exp.name)
+        assert exp.edits, exp.name
+        for edit in exp.edits:
+            assert edit.find, f"{exp.name} has empty find text"
+            assert edit.find != edit.replace, f"{exp.name} has no-op replacement"
+            assert (PROMPTS_DIR / edit.file).exists(), f"{exp.name} targets missing file {edit.file}"
+
+
+_validate_experiment_list(V2_EXPERIMENTS)
+assert len(V2_EXPERIMENTS) == 12, len(V2_EXPERIMENTS)
+
+EXPERIMENT_SETS = {
+    "v1": V1_EXPERIMENTS,
+    "v2": V2_EXPERIMENTS,
+}
+EXPERIMENTS = V1_EXPERIMENTS
 
 # ── Runner infrastructure ─────────────────────────────────────────
 
@@ -946,6 +1131,8 @@ class WordSignal:
     gained_high: tuple[str, ...] = ()
     lost_high: tuple[str, ...] = ()
     lost_protected_controls: tuple[str, ...] = ()
+    lost_primary_fragile: tuple[str, ...] = ()
+    lost_secondary_fragile: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -954,6 +1141,8 @@ class WordSignal:
             "gained_high": list(self.gained_high),
             "lost_high": list(self.lost_high),
             "lost_protected_controls": list(self.lost_protected_controls),
+            "lost_primary_fragile": list(self.lost_primary_fragile),
+            "lost_secondary_fragile": list(self.lost_secondary_fragile),
         }
 
 
@@ -987,6 +1176,8 @@ def summarize_word_signal(current: dict, incumbent: dict | None) -> WordSignal:
     gained_high: list[str] = []
     lost_high: list[str] = []
     lost_protected_controls: list[str] = []
+    lost_primary_fragile: list[str] = []
+    lost_secondary_fragile: list[str] = []
 
     for word, old_row in incumbent_rows.items():
         new_row = current_rows.get(word)
@@ -1008,6 +1199,10 @@ def summarize_word_signal(current: dict, incumbent: dict | None) -> WordSignal:
                 lost_high.append(word)
             if word in CONTROL_WORD_WATCH:
                 lost_protected_controls.append(word)
+            if word in PRIMARY_FRAGILE_WORD_WATCH:
+                lost_primary_fragile.append(word)
+            elif word in SECONDARY_FRAGILE_WORD_WATCH:
+                lost_secondary_fragile.append(word)
 
     return WordSignal(
         gained_low_medium=tuple(sorted(gained_low_medium)),
@@ -1015,6 +1210,8 @@ def summarize_word_signal(current: dict, incumbent: dict | None) -> WordSignal:
         gained_high=tuple(sorted(gained_high)),
         lost_high=tuple(sorted(lost_high)),
         lost_protected_controls=tuple(sorted(lost_protected_controls)),
+        lost_primary_fragile=tuple(sorted(lost_primary_fragile)),
+        lost_secondary_fragile=tuple(sorted(lost_secondary_fragile)),
     )
 
 
@@ -1046,6 +1243,16 @@ def classify_experiment_result(
     signal = summarize_word_signal(current, incumbent)
 
     if composite > best_composite and not has_regression and not pass_regression:
+        if signal.lost_primary_fragile:
+            return ClassificationDecision(
+                "discard",
+                delta,
+                has_regression,
+                pass_regression,
+                None,
+                False,
+                signal,
+            )
         return ClassificationDecision(
             "keep",
             delta,
@@ -1063,6 +1270,7 @@ def classify_experiment_result(
         and not has_regression
         and not signal.lost_protected_controls
         and not signal.lost_high
+        and not signal.lost_primary_fragile
     )
     research_signal = (
         incumbent is not None
@@ -1070,6 +1278,7 @@ def classify_experiment_result(
         and not has_regression
         and not signal.lost_protected_controls
         and not signal.lost_high
+        and not signal.lost_primary_fragile
         and len(signal.lost_low_medium) <= len(signal.gained_low_medium)
     )
     if near_miss:
@@ -1144,12 +1353,16 @@ def build_assessment_description(prefix: str, exp: Experiment) -> str:
 
 
 def experiment_index(exp_name: str) -> int:
+    if exp_name.startswith("v2exp"):
+        return int(exp_name[5:])
     if not exp_name.startswith("exp"):
         raise ValueError(f"Unsupported experiment name: {exp_name}")
     return int(exp_name[3:])
 
 
 def block_name_for_experiment(exp_name: str) -> str:
+    if exp_name.startswith("v2exp"):
+        return get_experiment(exp_name, "v2").family
     index = experiment_index(exp_name)
     for block_name, (start, end) in EXPERIMENT_BLOCK_RANGES.items():
         if start <= index <= end:
@@ -1157,15 +1370,29 @@ def block_name_for_experiment(exp_name: str) -> str:
     raise ValueError(f"Experiment outside declared block ranges: {exp_name}")
 
 
-def get_experiment(name: str) -> Experiment:
-    for exp in EXPERIMENTS:
+def experiments_for_set(experiment_set: str) -> list[Experiment]:
+    return EXPERIMENT_SETS[experiment_set]
+
+
+def get_experiment(name: str, experiment_set: str | None = None) -> Experiment:
+    if experiment_set is None:
+        experiment_set = "v2" if name.startswith("v2exp") else "v1"
+    for exp in experiments_for_set(experiment_set):
         if exp.name == name:
             return exp
     raise KeyError(name)
 
 
-def experiments_for_family(family: str) -> list[Experiment]:
-    return [exp for exp in EXPERIMENTS if exp.family == family]
+def experiments_for_family(family: str, experiment_set: str = "v1") -> list[Experiment]:
+    return [exp for exp in experiments_for_set(experiment_set) if exp.family == family]
+
+
+def family_stop_consecutive_non_keeps(experiment_set: str) -> int:
+    return V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS if experiment_set == "v2" else FAMILY_STOP_CONSECUTIVE_NON_KEEPS
+
+
+def family_stop_total_non_keeps(experiment_set: str) -> int:
+    return V2_FAMILY_STOP_TOTAL_NON_KEEPS if experiment_set == "v2" else FAMILY_STOP_TOTAL_NON_KEEPS
 
 
 def summarize_cleanup_block(log: list[dict]) -> dict[str, int | bool]:
@@ -1180,7 +1407,7 @@ def summarize_cleanup_block(log: list[dict]) -> dict[str, int | bool]:
     return summary
 
 
-def summarize_family_outcomes(log: list[dict], family: str) -> dict[str, object]:
+def summarize_family_outcomes(log: list[dict], family: str, experiment_set: str = "v1") -> dict[str, object]:
     entries = [entry for entry in log if entry.get("family") == family]
     summary = {
         "attempts": len(entries),
@@ -1196,6 +1423,7 @@ def summarize_family_outcomes(log: list[dict], family: str) -> dict[str, object]
         "has_signal": False,
     }
     collateral_counter: Counter[str] = Counter()
+    primary_fragile_counter: Counter[str] = Counter()
 
     for entry in entries:
         status = entry.get("status")
@@ -1220,15 +1448,21 @@ def summarize_family_outcomes(log: list[dict], family: str) -> dict[str, object]
             collateral_counter[word] += 1
         for word in entry.get("word_signal", {}).get("lost_high", []):
             collateral_counter[word] += 1
+        for word in entry.get("word_signal", {}).get("lost_primary_fragile", []):
+            primary_fragile_counter[word] += 1
 
     repeated = sorted(word for word, count in collateral_counter.items() if count >= FAMILY_STOP_REPEAT_COLLATERAL)
     summary["repeated_collateral_losers"] = repeated
-    if summary["consecutive_non_keeps"] >= FAMILY_STOP_CONSECUTIVE_NON_KEEPS:
+    repeated_primary = sorted(word for word, count in primary_fragile_counter.items() if count >= V2_FAMILY_STOP_REPEAT_PRIMARY)
+    if summary["consecutive_non_keeps"] >= family_stop_consecutive_non_keeps(experiment_set):
         summary["stale"] = True
         summary["stale_reason"] = "consecutive_non_keeps"
-    elif summary["total_non_keeps_since_last_keep"] >= FAMILY_STOP_TOTAL_NON_KEEPS:
+    elif summary["total_non_keeps_since_last_keep"] >= family_stop_total_non_keeps(experiment_set):
         summary["stale"] = True
         summary["stale_reason"] = "total_non_keeps"
+    elif experiment_set == "v2" and repeated_primary:
+        summary["stale"] = True
+        summary["stale_reason"] = "repeated_primary_fragile_losers"
     elif repeated:
         summary["stale"] = True
         summary["stale_reason"] = "repeated_collateral_losers"
@@ -1366,11 +1600,14 @@ def resolve_experiment_window(
     start_from: int | None,
     end_at: int | None,
     preset: str,
+    experiment_set: str = "v1",
 ) -> tuple[int, int]:
-    preset_start, preset_end = EXPERIMENT_PRESETS[preset]
+    preset_map = EXPERIMENT_PRESETS_BY_SET[experiment_set]
+    preset_start, preset_end = preset_map[preset]
     start = preset_start if start_from is None else max(start_from, preset_start)
     end = preset_end if end_at is None else min(end_at, preset_end)
-    if start < 1 or end > len(EXPERIMENTS):
+    experiments = experiments_for_set(experiment_set)
+    if start < 1 or end > len(experiments):
         raise ValueError(f"Experiment window out of bounds: {start}-{end}")
     if start > end:
         raise ValueError(f"Empty experiment window: {start}-{end}")
@@ -1550,11 +1787,13 @@ def main() -> None:
         tee_console=True,
     )
     parser = argparse.ArgumentParser(description="Run prompt experiments")
+    parser.add_argument("--experiment-set", choices=sorted(EXPERIMENT_SETS), default="v1",
+                        help="Experiment manifest namespace to run")
     parser.add_argument("--summarize-log", type=Path,
                         help="Read an experiment log JSON and print next-step guidance")
     parser.add_argument("--control-baseline-json", type=Path,
                         help="Assessment JSON used as the baseline for watched control words")
-    parser.add_argument("--preset", choices=sorted(EXPERIMENT_PRESETS), default="full",
+    parser.add_argument("--preset", default="full",
                         help="Named experiment slice to run")
     parser.add_argument("--start-from", type=int,
                         help="Resume from experiment N (1-indexed)")
@@ -1584,24 +1823,29 @@ def main() -> None:
                         help="Branch used by --git-live-push (default: current branch)")
     try:
         args = parser.parse_args()
+        preset_map = EXPERIMENT_PRESETS_BY_SET[args.experiment_set]
+        if args.preset not in preset_map:
+            raise ValueError(f"Unknown preset for {args.experiment_set}: {args.preset}")
         control_baseline_status = load_control_baseline(args.control_baseline_json)
         if args.summarize_log is not None:
             print_log_summary(load_log(args.summarize_log), control_baseline_status)
             return
+        selected_experiments = experiments_for_set(args.experiment_set)
         start_from, end_at = resolve_experiment_window(
             start_from=args.start_from,
             end_at=args.end_at,
             preset=args.preset,
+            experiment_set=args.experiment_set,
         )
 
         if args.dry_run:
-            for i, exp in enumerate(EXPERIMENTS, 1):
+            for i, exp in enumerate(selected_experiments, 1):
                 if i < start_from or i > end_at:
                     continue
                 print(f"{i:3d}. [{exp.name}] {exp.desc}")
                 print(f"     File: {exp.file}")
             print(f"\nSelection: experiments {start_from}-{end_at}")
-            print(f"Selected: {end_at - start_from + 1} / {len(EXPERIMENTS)} experiments")
+            print(f"Selected: {end_at - start_from + 1} / {len(selected_experiments)} experiments")
             return
 
         if args.assessment_logs_dir is None:
@@ -1621,7 +1865,8 @@ def main() -> None:
         if best_result_summary is not None:
             best_composite = max(best_composite, float(best_result_summary.get("composite", best_composite)))
         print(f"Starting composite: {best_composite:.1f}")
-        print(f"Total experiments: {len(EXPERIMENTS)}")
+        print(f"Experiment set: {args.experiment_set}")
+        print(f"Total experiments: {len(selected_experiments)}")
         print(f"Preset: {args.preset}")
         print(f"Selection: experiments {start_from}-{end_at}")
         print(f"Experiment log: {args.log_path}")
@@ -1643,17 +1888,17 @@ def main() -> None:
         uncertain = 0
         total_start = time.monotonic()
 
-        for i, exp in enumerate(EXPERIMENTS, 1):
+        for i, exp in enumerate(selected_experiments, 1):
             if i < start_from or i > end_at:
                 continue
 
             if exp.name in completed_names:
-                print(f"\n[{i}/{len(EXPERIMENTS)}] {exp.name} — already completed, skipping")
+                print(f"\n[{i}/{len(selected_experiments)}] {exp.name} — already completed, skipping")
                 skipped += 1
                 continue
 
             print(f"\n{'='*60}")
-            print(f"[{i}/{len(EXPERIMENTS)}] {exp.name}: {exp.desc}")
+            print(f"[{i}/{len(selected_experiments)}] {exp.name}: {exp.desc}")
             print(f"{'='*60}")
 
             restore_prompts(args.backup_dir)
