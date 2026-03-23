@@ -5,6 +5,8 @@ from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.ai_clues import create_client, generate_definition
 from ..core.dex_cache import DexProvider
+from ..core.lm_runtime import LmRuntime
+from ..core.model_manager import ModelConfig, PRIMARY_MODEL
 from ..core.pipeline_state import (
     WorkingClue,
     WorkingPuzzle,
@@ -14,8 +16,12 @@ from ..core.pipeline_state import (
 )
 
 
-def _split_and_define(clues: list[ClueEntry], client: OpenAI,
-                      theme: str) -> list[ClueEntry]:
+def _split_and_define(
+    clues: list[ClueEntry],
+    client: OpenAI,
+    theme: str,
+    model_config: ModelConfig = PRIMARY_MODEL,
+) -> list[ClueEntry]:
     """Split compound clue entries and generate definitions for each word."""
     result = []
     for clue in clues:
@@ -39,7 +45,13 @@ def _split_and_define(clues: list[ClueEntry], client: OpenAI,
             else:
                 print(f"  Defining: {word} ({original or '?'})...")
                 try:
-                    definition = generate_definition(client, word, original, theme)
+                    definition = generate_definition(
+                        client,
+                        word,
+                        original,
+                        theme,
+                        model=model_config.model_id,
+                    )
                 except Exception as e:
                     definition = f"[Definiție lipsă: {e}]"
                 print(f"    → {definition}")
@@ -58,10 +70,14 @@ def generate_definitions_for_state(
     client: OpenAI,
     dex: DexProvider | None = None,
     *,
-    generated_model: str = "",
+    runtime: LmRuntime | None = None,
+    model_config: ModelConfig | None = None,
 ) -> None:
     theme = state.title or "Rebus Românesc"
     print(f"Theme: {theme}")
+    selected_model = model_config or PRIMARY_MODEL
+    if runtime is not None:
+        selected_model = runtime.activate(selected_model)
 
     for label, clues in (("horizontal", state.horizontal_clues), ("vertical", state.vertical_clues)):
         print(f"Generating {label} definitions...")
@@ -77,7 +93,9 @@ def generate_definitions_for_state(
             try:
                 definition = generate_definition(
                     client, clue.word_normalized, clue.word_original, theme,
-                    word_type=clue.word_type, dex_definitions=dex_defs, model=generated_model or "default",
+                    word_type=clue.word_type,
+                    dex_definitions=dex_defs,
+                    model=selected_model.model_id,
                 )
             except Exception as e:
                 definition = f"[Definiție lipsă: {e}]"
@@ -87,7 +105,7 @@ def generate_definitions_for_state(
                 definition,
                 round_index=0,
                 source="generate",
-                generated_by=generated_model,
+                generated_by=selected_model.display_name,
             )
             if clue.best is None:
                 clue.best = clue.current
@@ -98,7 +116,8 @@ def generate_definitions_for_puzzle(
     client: OpenAI,
     metadata: dict[str, dict] | None = None,
     *,
-    generated_model: str = "",
+    runtime: LmRuntime | None = None,
+    model_config: ModelConfig | None = None,
 ) -> None:
     """Expand clues and generate definitions in-place for the whole puzzle."""
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
@@ -108,7 +127,13 @@ def generate_definitions_for_puzzle(
             word_meta = metadata.get(clue.word_normalized, {})
             clue.word_type = word_meta.get("word_type", "")
     dex = DexProvider.for_puzzle(state)
-    generate_definitions_for_state(state, client, dex=dex, generated_model=generated_model)
+    generate_definitions_for_state(
+        state,
+        client,
+        dex=dex,
+        runtime=runtime,
+        model_config=model_config,
+    )
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues
@@ -123,7 +148,8 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     client = create_client()
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
     dex = DexProvider.for_puzzle(state)
-    generate_definitions_for_state(state, client, dex=dex)
+    runtime = LmRuntime(multi_model=False)
+    generate_definitions_for_state(state, client, dex=dex, runtime=runtime, model_config=PRIMARY_MODEL)
     puzzle = puzzle_from_working_state(state)
 
     md = write_with_definitions(puzzle)

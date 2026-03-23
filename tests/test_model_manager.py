@@ -3,12 +3,14 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from generator.core.model_manager import (
+    LoadedModelInstance,
     ModelConfig,
     PRIMARY_MODEL,
     SECONDARY_MODEL,
     ensure_model_loaded,
     get_loaded_models,
     get_loaded_model_instances,
+    list_loaded_model_instances,
     _post_json,
     switch_model,
     unload_model,
@@ -142,7 +144,7 @@ class GetLoadedModelInstancesTests(unittest.TestCase):
         self.assertEqual(result, {"test/model": "fallback-id"})
 
     @patch("generator.core.model_manager._get_json")
-    def test_dict_style_falls_back_to_key(self, mock_get):
+    def test_dict_style_skips_missing_instance_id(self, mock_get):
         mock_get.return_value = {
             "models": [
                 {
@@ -152,7 +154,7 @@ class GetLoadedModelInstancesTests(unittest.TestCase):
             ]
         }
         result = get_loaded_model_instances()
-        self.assertEqual(result, {"test/model": "test/model"})
+        self.assertEqual(result, {})
 
     @patch("generator.core.model_manager._get_json")
     def test_string_style_instances(self, mock_get):
@@ -177,6 +179,19 @@ class GetLoadedModelInstancesTests(unittest.TestCase):
         }
         result = get_loaded_model_instances()
         self.assertEqual(result, {"loaded/model": "inst-1"})
+
+    @patch("generator.core.model_manager._get_json")
+    def test_list_loaded_model_instances_returns_dataclasses(self, mock_get):
+        mock_get.return_value = {
+            "models": [
+                {
+                    "key": "loaded/model",
+                    "loaded_instances": [{"identifier": "inst-1"}],
+                }
+            ]
+        }
+        result = list_loaded_model_instances()
+        self.assertEqual([LoadedModelInstance(model_id="loaded/model", instance_id="inst-1")], result)
 
 
 if __name__ == "__main__":

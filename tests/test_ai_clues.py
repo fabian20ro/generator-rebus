@@ -14,6 +14,7 @@ from generator.core.ai_clues import (
     rewrite_definition,
     verify_definition_candidates,
 )
+from generator.core.model_manager import PRIMARY_MODEL
 
 
 class _RecordingClient:
@@ -49,6 +50,7 @@ class AiCluesTests(unittest.TestCase):
             previous_definition="Prezintă un fapt în mod clar și convingător.",
             wrong_guess="",
             rating_feedback="Prea vagă pentru răspunsul exact.",
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertNotIn("Exemplu de definiție rea de evitat", client.prompts[0])
@@ -66,6 +68,7 @@ class AiCluesTests(unittest.TestCase):
             rating_feedback="Duce la alt răspuns.",
             bad_example_definition="Prezintă un fapt în mod clar și convingător.",
             bad_example_reason="Duce la alt răspuns: ALTUL.",
+            model=PRIMARY_MODEL.model_id,
         )
 
         prompt = client.prompts[0]
@@ -88,6 +91,7 @@ class AiCluesTests(unittest.TestCase):
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual(9, rating.semantic_score)
@@ -110,6 +114,7 @@ class AiCluesTests(unittest.TestCase):
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual(4, rating.guessability_score)
@@ -132,6 +137,7 @@ class AiCluesTests(unittest.TestCase):
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertIsNotNone(rating)
@@ -201,6 +207,7 @@ class AiCluesTests(unittest.TestCase):
             original="an",
             definition="Articol nehotărât în limba engleză",
             answer_length=2,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual(1, rating.semantic_score)
@@ -237,6 +244,7 @@ class AiCluesTests(unittest.TestCase):
             original="rial",
             definition="Se plătește la șah",
             answer_length=4,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual(9, rating.creativity_score)
@@ -276,6 +284,7 @@ class AiCluesTests(unittest.TestCase):
             "Recipient mare pentru vin",
             answer_length=3,
             max_guesses=3,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual(["BAR", "TUN", "ARC"], result.candidates)
@@ -334,6 +343,7 @@ class AiCluesTests(unittest.TestCase):
             "Recipient mare pentru vin",
             answer_length=3,
             max_guesses=3,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual(["TUN", "ARC"], result.candidates)
@@ -361,6 +371,7 @@ class AiCluesTests(unittest.TestCase):
             original="casă",
             definition="Locuință",
             answer_length=4,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertIsNone(rating)
@@ -381,6 +392,7 @@ class AiCluesTests(unittest.TestCase):
             original="casă",
             definition="Locuință",
             answer_length=4,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertIsNotNone(rating)
@@ -404,6 +416,7 @@ class AiCluesTests(unittest.TestCase):
                 ("Auxiliar verbal", ["AL"]),
                 ("Verb auxiliar", ["DE", "A"]),
             ],
+            model=PRIMARY_MODEL.model_id,
         )
 
         prompt = client.prompts[0]
@@ -422,6 +435,7 @@ class AiCluesTests(unittest.TestCase):
             previous_definition="Verb auxiliar",
             wrong_guess="DE",
             wrong_guesses=["DE", "LA", "PE"],
+            model=PRIMARY_MODEL.model_id,
         )
 
         prompt = client.prompts[0]
@@ -438,6 +452,7 @@ class AiCluesTests(unittest.TestCase):
             theme="",
             previous_definition="Locuință",
             wrong_guess="",
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertNotIn("Încercări anterioare eșuate", client.prompts[0])
@@ -454,6 +469,7 @@ class AiCluesTests(unittest.TestCase):
             original="mul",
             theme="",
             retries=2,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual("Pământ fertil, brun-închis și afânat.", definition)
@@ -475,6 +491,7 @@ class AiCluesTests(unittest.TestCase):
             previous_definition="Pământ",
             wrong_guess="ARG",
             retries=2,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual("Pământ fertil, brun-închis și afânat.", definition)
@@ -494,6 +511,7 @@ class AiCluesTests(unittest.TestCase):
             original="amuțare",
             theme="",
             retries=2,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual("Îndemnarea unui câine să atace o persoană.", definition)
@@ -514,6 +532,7 @@ class AiCluesTests(unittest.TestCase):
             previous_definition="Împușcarea unui câine.",
             wrong_guess="ÎMPUSCARE",
             retries=2,
+            model=PRIMARY_MODEL.model_id,
         )
 
         self.assertEqual("Îndemnarea unui câine să atace o persoană.", definition)

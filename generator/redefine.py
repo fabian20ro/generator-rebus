@@ -12,7 +12,7 @@ from supabase import create_client as create_supabase_client
 from .core.score_helpers import _compact_log_text
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from .core.ai_clues import create_client as create_ai_client
-from .core.model_manager import PRIMARY_MODEL, ensure_model_loaded
+from .core.lm_runtime import LmRuntime
 from .core.pipeline_state import (
     ClueCandidateVersion,
     ClueAssessment,
@@ -105,6 +105,7 @@ def rewrite_puzzle_definitions(
     rounds: int = REDEFINE_ROUNDS,
     multi_model: bool = True,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    runtime: LmRuntime | None = None,
 ) -> dict[str, ClueCandidateVersion]:
     """Run the verify-rate-rewrite loop and return best versions per word.
 
@@ -119,6 +120,7 @@ def rewrite_puzzle_definitions(
         multi_model=multi_model,
         verify_candidates=verify_candidates,
         hybrid_deanchor=True,
+        runtime=runtime,
     )
     return result.improved_versions
 
@@ -132,6 +134,7 @@ def redefine_puzzle(
     multi_model: bool = True,
     rounds: int = REDEFINE_ROUNDS,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    runtime: LmRuntime | None = None,
 ) -> int:
     """Redefine definitions for one puzzle. Returns count of updated clues."""
     puzzle_id = puzzle_row["id"]
@@ -149,6 +152,7 @@ def redefine_puzzle(
         rounds=rounds,
         multi_model=multi_model,
         verify_candidates=verify_candidates,
+        runtime=runtime,
     )
 
     if not improved:
@@ -255,8 +259,8 @@ def main() -> None:
         else:
             print()
 
-        if args.multi_model:
-            ensure_model_loaded(PRIMARY_MODEL)
+        runtime = LmRuntime(multi_model=args.multi_model)
+        runtime.activate_primary()
 
         total_updated = 0
         total_puzzles = 0
@@ -272,6 +276,7 @@ def main() -> None:
                     multi_model=args.multi_model,
                     rounds=args.rounds,
                     verify_candidates=max(1, args.verify_candidates),
+                    runtime=runtime,
                 )
                 total_updated += count
                 total_puzzles += 1

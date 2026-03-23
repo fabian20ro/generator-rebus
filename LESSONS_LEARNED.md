@@ -39,6 +39,8 @@
 ## Dependencies & External Services
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
+**[2026-03-23]** LM Studio orchestration must separate transport ids from audit labels and forbid implicit model routing — `display_name` is for logs/metrics, `model_id` is for API calls. If generation/title/tiebreak code falls back to `"default"` or passes labels like `gpt-oss-20b` where LM Studio expects the exact downloaded id, live state drift turns into hard-to-reproduce 400/500 load failures. Keep one runtime that reconciles against `/api/v1/models`, and pass explicit `model_id` on every chat completion call.
+
 **[2026-03-20]** Top-k verifier changes need pipeline-wide semantics, not just a prompt tweak — if verify starts returning 2-3 candidates, pass/fail, exported notes, metrics, and assessment all need to treat “any candidate matches” as success. Otherwise near-miss data is lost and benchmark semantics drift from production.
 
 **[2026-03-20]** DEX redirect-style definitions need both parser robustness and one-hop expansion — dexonline often returns entries like `Diminutiv al lui fir.` or `Vezi X.`; inline HTML tags can make a naive parser drop them entirely, and even parsed correctly they are too weak for prompt context unless the base lexeme's sense is also injected. Keep the direct definition, add at most one hop of base-sense context, and flag short unresolved cases separately.

@@ -1,4 +1,4 @@
-"""LM Studio model load/unload via REST API for multi-model workflows."""
+"""Low-level LM Studio REST helpers."""
 
 from __future__ import annotations
 
@@ -17,6 +17,12 @@ class ModelConfig:
     model_id: str
     display_name: str
     context_length: int = 8192
+
+
+@dataclass(frozen=True)
+class LoadedModelInstance:
+    model_id: str
+    instance_id: str
 
 
 PRIMARY_MODEL = ModelConfig(
@@ -74,6 +80,50 @@ def load_model(config: ModelConfig) -> None:
     log(f"Model loaded: {config.display_name}")
 
 
+def unload_instance(instance_id: str, *, model_id: str = "") -> None:
+    label = model_id or instance_id
+    log(f"Unloading model: {label} (instance: {instance_id})")
+    _post_json("/api/v1/models/unload", {"instance_id": instance_id})
+    log(f"Model unloaded: {label}")
+
+
+def list_loaded_model_instances() -> list[LoadedModelInstance]:
+    """Return loaded LM Studio instances with usable instance IDs only."""
+    try:
+        data = _get_json("/api/v1/models")
+    except Exception:
+        return []
+
+    result: list[LoadedModelInstance] = []
+    for model in data.get("models", []):
+        model_id = str(model.get("key") or "").strip()
+        if not model_id:
+            continue
+        for raw_instance in model.get("loaded_instances", []) or []:
+            instance_id = ""
+            if isinstance(raw_instance, dict):
+                instance_id = str(
+                    raw_instance.get("identifier")
+                    or raw_instance.get("id")
+                    or ""
+                ).strip()
+            elif isinstance(raw_instance, str):
+                instance_id = raw_instance.strip()
+            if not instance_id:
+                log(f"Skipping loaded model without instance id: {model_id}")
+                continue
+            result.append(LoadedModelInstance(model_id=model_id, instance_id=instance_id))
+    return result
+
+
+def get_loaded_model_instances() -> dict[str, str]:
+    """Return {model_key: instance_id} for loaded models."""
+    return {
+        entry.model_id: entry.instance_id
+        for entry in list_loaded_model_instances()
+    }
+
+
 def unload_model(config: ModelConfig) -> None:
     log(f"Unloading model: {config.display_name}...")
     instance_id = get_loaded_model_instances().get(config.model_id)
@@ -81,35 +131,9 @@ def unload_model(config: ModelConfig) -> None:
         log(f"  Model unload skipped ({config.display_name}): no loaded instance found")
         return
     try:
-        _post_json("/api/v1/models/unload", {
-            "instance_id": instance_id,
-        })
+        unload_instance(instance_id, model_id=config.model_id)
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
         log(f"  Model unload skipped ({config.display_name}): {e}")
-    else:
-        log(f"Model unloaded: {config.display_name}")
-
-
-def get_loaded_model_instances() -> dict[str, str]:
-    """Return {model_key: instance_id} for loaded models."""
-    try:
-        data = _get_json("/api/v1/models")
-    except Exception:
-        return {}
-    result = {}
-    for m in data.get("models", []):
-        instances = m.get("loaded_instances", [])
-        if not instances:
-            continue
-        first = instances[0]
-        if isinstance(first, dict):
-            inst_id = first.get("identifier") or first.get("id") or m["key"]
-        elif isinstance(first, str):
-            inst_id = first
-        else:
-            inst_id = m["key"]
-        result[m["key"]] = inst_id
-    return result
 
 
 def ensure_model_loaded(config: ModelConfig) -> None:
@@ -118,9 +142,8 @@ def ensure_model_loaded(config: ModelConfig) -> None:
         log(f"Model already active: {config.display_name}")
         return
     for model_key, inst_id in instances.items():
-        log(f"Unloading model: {model_key} (instance: {inst_id})")
         try:
-            _post_json("/api/v1/models/unload", {"instance_id": inst_id})
+            unload_instance(inst_id, model_id=model_key)
         except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
             log(f"  Unload skipped ({model_key}): {e}")
         time.sleep(2)

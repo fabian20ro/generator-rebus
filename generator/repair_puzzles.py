@@ -11,6 +11,7 @@ from supabase import create_client as create_supabase_client
 
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from .core.ai_clues import create_client as create_ai_client
+from .core.lm_runtime import LmRuntime
 from .core.pipeline_state import all_working_clues, puzzle_from_working_state
 from .core.prompt_runtime import preload_runtime_prompts, prompt_runtime_audit
 from .core.puzzle_metrics import (
@@ -112,7 +113,7 @@ def _build_description(assessment, *, multi_model: bool) -> str:
     return build_puzzle_description(assessment, _models_used(multi_model))
 
 
-def _generate_title(puzzle, ai_client, rate_client, *, multi_model: bool) -> str:
+def _generate_title(puzzle, ai_client, rate_client, *, multi_model: bool, runtime: LmRuntime) -> str:
     words, definitions = _collect_title_inputs(puzzle)
     if not words or not definitions:
         return puzzle.title or "Rebus"
@@ -121,6 +122,7 @@ def _generate_title(puzzle, ai_client, rate_client, *, multi_model: bool) -> str
         definitions,
         client=ai_client,
         rate_client=rate_client,
+        runtime=runtime,
         multi_model=multi_model,
     )
 
@@ -164,6 +166,7 @@ def repair_puzzle(
     multi_model: bool = True,
     rounds: int = REPAIR_ROUNDS,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    runtime: LmRuntime | None = None,
 ) -> str:
     puzzle_id = puzzle_row["id"]
     clue_rows = fetch_clues(supabase, puzzle_id)
@@ -171,12 +174,14 @@ def repair_puzzle(
         print(f"  [{puzzle_id}] No clues found, skipping")
         return "skipped"
 
+    runtime = runtime or LmRuntime(multi_model=multi_model)
     baseline_puzzle = build_working_puzzle(puzzle_row, clue_rows)
     baseline_eval = evaluate_puzzle_state(
         baseline_puzzle,
         ai_client,
         multi_model=multi_model,
         verify_candidates=verify_candidates,
+        runtime=runtime,
     )
     baseline_puzzle.assessment = baseline_eval.assessment
     baseline_description = _build_description(baseline_eval.assessment, multi_model=multi_model)
@@ -203,6 +208,7 @@ def repair_puzzle(
         multi_model=multi_model,
         verify_candidates=verify_candidates,
         hybrid_deanchor=True,
+        runtime=runtime,
     )
     candidate_puzzle.assessment = score_puzzle_state(candidate_puzzle)
     print(
@@ -215,7 +221,13 @@ def repair_puzzle(
         print(f"  [{puzzle_id}] rejected — score not better")
         return "rejected"
 
-    new_title = _generate_title(candidate_puzzle, ai_client, rate_client, multi_model=multi_model)
+    new_title = _generate_title(
+        candidate_puzzle,
+        ai_client,
+        rate_client,
+        multi_model=multi_model,
+        runtime=runtime,
+    )
     candidate_puzzle.title = new_title or candidate_puzzle.title or puzzle_row.get("title") or "Rebus"
     repaired_at = _now_iso()
     description = _build_description(candidate_puzzle.assessment, multi_model=multi_model)
@@ -302,6 +314,8 @@ def main() -> None:
             print()
 
         counters = {"accepted": 0, "rejected": 0, "skipped": 0, "failed": 0}
+        runtime = LmRuntime(multi_model=args.multi_model)
+        runtime.activate_primary()
         for puzzle_row in selected:
             try:
                 status = repair_puzzle(
@@ -313,6 +327,7 @@ def main() -> None:
                     multi_model=args.multi_model,
                     rounds=args.rounds,
                     verify_candidates=max(1, args.verify_candidates),
+                    runtime=runtime,
                 )
                 counters[status] = counters.get(status, 0) + 1
             except Exception as exc:

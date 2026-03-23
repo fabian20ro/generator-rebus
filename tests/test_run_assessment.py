@@ -8,14 +8,14 @@ from generator.assessment import run_assessment as mod
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 
 
-class _DummySession:
+class _DummyRuntime:
     def __init__(self, multi_model: bool = True):
         self.multi_model = multi_model
 
-    def start_primary(self) -> None:
+    def activate_primary(self) -> None:
         return None
 
-    def start_secondary(self) -> None:
+    def activate_secondary(self) -> None:
         return None
 
 
@@ -56,7 +56,7 @@ class RunAssessmentTests(unittest.TestCase):
                 return (8, 7, True)
 
             with mock.patch.object(mod, "create_client", return_value=object()), \
-                 mock.patch.object(mod, "ModelSession", _DummySession), \
+                 mock.patch.object(mod, "LmRuntime", _DummyRuntime), \
                  mock.patch.object(mod, "_generate_for_word", side_effect=fake_generate), \
                  mock.patch.object(mod, "_verify_for_word", side_effect=fake_verify), \
                  mock.patch.object(mod, "_rate_for_word", side_effect=fake_rate):

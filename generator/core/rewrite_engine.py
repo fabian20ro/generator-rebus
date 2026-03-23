@@ -6,7 +6,7 @@ import copy
 from dataclasses import dataclass, field
 
 from .ai_clues import choose_better_clue_variant, generate_definition, rewrite_definition
-from .model_session import ModelSession
+from .lm_runtime import LmRuntime
 from .pipeline_state import (
     ClueCandidateVersion,
     WorkingClue,
@@ -232,6 +232,7 @@ def _select_hybrid_candidate(
     candidates: list[tuple[PendingCandidate, ClueCandidateVersion]],
     *,
     client,
+    model_name: str,
 ) -> tuple[PendingCandidate, ClueCandidateVersion]:
     if len(candidates) == 1:
         return candidates[0]
@@ -245,6 +246,7 @@ def _select_hybrid_candidate(
             len(clue.word_normalized),
             a_text,
             b_text,
+            model=model_name,
         )
 
     chosen_version, _decision = choose_clue_version(version_a, version_b, tiebreaker=_tiebreak)
@@ -263,13 +265,14 @@ def run_rewrite_loop(
     dex: DexProvider | None = None,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
     hybrid_deanchor: bool = False,
+    runtime: LmRuntime | None = None,
 ) -> RewriteLoopResult:
     """Verify, rate, rewrite, and restore best clue versions for a puzzle."""
     if dex is None:
         dex = DexProvider.for_puzzle(puzzle)
 
-    session = ModelSession(multi_model=multi_model)
-    current_model = session.activate_initial_evaluator()
+    runtime = runtime or LmRuntime(multi_model=multi_model)
+    current_model = runtime.activate_initial_evaluator()
     if multi_model:
         print(f"  Model activ (evaluare inițială): {current_model.display_name}")
 
@@ -291,7 +294,7 @@ def run_rewrite_loop(
         model_name=current_model.model_id,
     )
     for clue in all_working_clues(puzzle):
-        _update_best_clue_version(clue, client=client)
+        _update_best_clue_version(clue, client=client, model_name=current_model.model_id)
 
     initial_scores: dict[str, tuple[int, int]] = {}
     outcomes: dict[str, RewriteWordOutcome] = {}
@@ -426,7 +429,7 @@ def run_rewrite_loop(
                         f"{consecutive_failures[clue.word_normalized]} încercări eșuate consecutive"
                     )
 
-        current_model = session.alternate()
+        current_model = runtime.alternate()
         if multi_model:
             print(f"  Model activ (evaluare): {current_model.display_name}")
 
@@ -473,6 +476,7 @@ def run_rewrite_loop(
                 clue,
                 evaluated_versions,
                 client=client,
+                model_name=current_model.model_id,
             )
             clue.current = copy.deepcopy(chosen_version)
             evaluated_words.add(clue.word_normalized)
@@ -504,7 +508,7 @@ def run_rewrite_loop(
         for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:
                 continue
-            _update_best_clue_version(clue, client=client)
+            _update_best_clue_version(clue, client=client, model_name=current_model.model_id)
             if clue.locked:
                 print(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
 
@@ -553,7 +557,7 @@ def run_rewrite_loop(
         initial_passed=sum(1 for clue in all_working_clues(puzzle) if clue.history and clue.history[0].assessment.verified),
         final_passed=final_passed,
         total=total,
-        model_switches=session.switch_count,
+        model_switches=runtime.switch_count,
         outcomes=outcomes,
         improved_versions=improved_versions,
     )

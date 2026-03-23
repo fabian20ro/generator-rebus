@@ -17,6 +17,8 @@ from ..core.ai_clues import (
 )
 from ..core.clue_family import words_share_family
 from ..core.dex_cache import DexProvider
+from ..core.lm_runtime import LmRuntime
+from ..core.model_manager import PRIMARY_MODEL
 from ..core.pipeline_state import (
     ClueAssessment,
     ClueFailureReason,
@@ -312,7 +314,15 @@ def rate_working_puzzle(
 
 def verify_puzzle(puzzle, client: OpenAI, *, max_guesses: int = VERIFY_CANDIDATE_COUNT) -> tuple[int, int]:
     state = working_puzzle_from_puzzle(puzzle, split_compound=False)
-    passed, total = verify_working_puzzle(state, client, max_guesses=max_guesses)
+    runtime = LmRuntime(multi_model=False)
+    model = runtime.activate_primary()
+    passed, total = verify_working_puzzle(
+        state,
+        client,
+        model_label=model.display_name,
+        model_name=model.model_id,
+        max_guesses=max_guesses,
+    )
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues
@@ -322,7 +332,15 @@ def verify_puzzle(puzzle, client: OpenAI, *, max_guesses: int = VERIFY_CANDIDATE
 def rate_puzzle(puzzle, client: OpenAI) -> tuple[float, float, int]:
     state = working_puzzle_from_puzzle(puzzle, split_compound=False)
     dex = DexProvider.for_puzzle(state)
-    avg_semantic, avg_guessability, rated = rate_working_puzzle(state, client, dex=dex)
+    runtime = LmRuntime(multi_model=False)
+    model = runtime.activate_primary()
+    avg_semantic, avg_guessability, rated = rate_working_puzzle(
+        state,
+        client,
+        dex=dex,
+        model_label=model.display_name,
+        model_name=model.model_id,
+    )
     rendered = puzzle_from_working_state(state)
     puzzle.horizontal_clues = rendered.horizontal_clues
     puzzle.vertical_clues = rendered.vertical_clues
@@ -339,8 +357,22 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     state = working_puzzle_from_puzzle(puzzle, split_compound=False)
     dex = DexProvider.for_puzzle(state)
     max_guesses = max(1, int(kwargs.get("verify_candidates", VERIFY_CANDIDATE_COUNT)))
-    passed, total = verify_working_puzzle(state, client, max_guesses=max_guesses)
-    avg_semantic, avg_guessability, rated = rate_working_puzzle(state, client, dex=dex)
+    runtime = LmRuntime(multi_model=False)
+    model = runtime.activate_primary()
+    passed, total = verify_working_puzzle(
+        state,
+        client,
+        model_label=model.display_name,
+        model_name=model.model_id,
+        max_guesses=max_guesses,
+    )
+    avg_semantic, avg_guessability, rated = rate_working_puzzle(
+        state,
+        client,
+        dex=dex,
+        model_label=model.display_name,
+        model_name=model.model_id,
+    )
     puzzle = puzzle_from_working_state(state)
 
     md = write_with_definitions(puzzle)

@@ -83,7 +83,7 @@ class RewriteEngineTests(unittest.TestCase):
     @patch("generator.core.rewrite_engine.rate_working_puzzle")
     @patch("generator.core.rewrite_engine.verify_working_puzzle")
     @patch("generator.core.rewrite_engine.rewrite_definition")
-    @patch("generator.core.rewrite_engine.ModelSession")
+    @patch("generator.core.rewrite_engine.LmRuntime")
     def test_unresolved_short_definition_emits_terminal_audit(
         self,
         mock_session_cls,
@@ -128,7 +128,7 @@ class RewriteEngineTests(unittest.TestCase):
             },
         )
 
-    @patch("generator.core.rewrite_engine.ModelSession")
+    @patch("generator.core.rewrite_engine.LmRuntime")
     @patch("generator.core.rewrite_engine.generate_definition")
     @patch("generator.core.rewrite_engine.rewrite_definition")
     @patch("generator.core.rewrite_engine.rate_working_puzzle")
@@ -173,7 +173,7 @@ class RewriteEngineTests(unittest.TestCase):
         self.assertEqual(1, mock_rewrite_definition.call_count)
         self.assertEqual(1, mock_generate_definition.call_count)
 
-    @patch("generator.core.rewrite_engine.ModelSession")
+    @patch("generator.core.rewrite_engine.LmRuntime")
     @patch("generator.core.rewrite_engine.generate_definition")
     @patch("generator.core.rewrite_engine.rewrite_definition")
     @patch("generator.core.rewrite_engine.rate_working_puzzle")
@@ -220,7 +220,7 @@ class RewriteEngineTests(unittest.TestCase):
         self.assertEqual(1, mock_rewrite_definition.call_count)
         self.assertEqual(1, mock_generate_definition.call_count)
 
-    @patch("generator.core.rewrite_engine.ModelSession")
+    @patch("generator.core.rewrite_engine.LmRuntime")
     @patch("generator.core.rewrite_engine.generate_definition")
     @patch("generator.core.rewrite_engine.rewrite_definition")
     @patch("generator.core.rewrite_engine.rate_working_puzzle")
@@ -266,7 +266,7 @@ class RewriteEngineTests(unittest.TestCase):
         self.assertEqual(0, mock_generate_definition.call_count)
         self.assertEqual("rewrite_only", result.outcomes["FIRISOR"].selected_strategy)
 
-    @patch("generator.core.rewrite_engine.ModelSession")
+    @patch("generator.core.rewrite_engine.LmRuntime")
     @patch("generator.core.rewrite_engine.generate_definition")
     @patch("generator.core.rewrite_engine.rewrite_definition")
     @patch("generator.core.rewrite_engine.rate_working_puzzle")
@@ -312,7 +312,7 @@ class RewriteEngineTests(unittest.TestCase):
         self.assertEqual("bun rewrite", puzzle.horizontal_clues[0].current.definition)
         self.assertEqual("rewrite_only", result.outcomes["FIRISOR"].selected_strategy)
 
-    @patch("generator.core.rewrite_engine.ModelSession")
+    @patch("generator.core.rewrite_engine.LmRuntime")
     @patch("generator.core.rewrite_engine.generate_definition")
     @patch("generator.core.rewrite_engine.rewrite_definition")
     @patch("generator.core.rewrite_engine.rate_working_puzzle")
@@ -354,7 +354,7 @@ class RewriteEngineTests(unittest.TestCase):
         self.assertEqual("variantă fresh", puzzle.horizontal_clues[0].current.definition)
         self.assertEqual("fresh_only", result.outcomes["FIRISOR"].selected_strategy)
 
-    @patch("generator.core.rewrite_engine.ModelSession")
+    @patch("generator.core.rewrite_engine.LmRuntime")
     @patch("generator.core.rewrite_engine.generate_definition")
     @patch("generator.core.rewrite_engine.rewrite_definition")
     @patch("generator.core.rewrite_engine.rate_working_puzzle")

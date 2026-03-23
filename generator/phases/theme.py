@@ -8,7 +8,9 @@ import sys
 
 from ..core.ai_clues import create_client
 from ..core.diacritics import normalize
+from ..core.lm_runtime import LmRuntime
 from ..core.markdown_io import parse_markdown, write_with_definitions
+from ..core.model_manager import ModelConfig, PRIMARY_MODEL, SECONDARY_MODEL
 from ..prompts.loader import load_system_prompt, load_user_template
 
 
@@ -130,21 +132,13 @@ def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
 
     return cleaned
 
-
-def _try_switch_model(current_model, multi_model: bool):
-    """Switch to the other model if multi_model is enabled. Returns new current_model."""
-    if not multi_model or current_model is None:
-        return current_model
-    from ..core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
-    next_model = SECONDARY_MODEL if current_model == PRIMARY_MODEL else PRIMARY_MODEL
-    try:
-        ensure_model_loaded(next_model)
-        return next_model
-    except Exception:
-        return current_model
-
-
-def rate_title_creativity(title: str, words: list[str], client) -> tuple[int, str]:
+def rate_title_creativity(
+    title: str,
+    words: list[str],
+    client,
+    *,
+    model_config: ModelConfig,
+) -> tuple[int, str]:
     """Rate title creativity. Returns (score, feedback)."""
     prompt = load_user_template("title_rate").format(
         title=title,
@@ -152,7 +146,7 @@ def rate_title_creativity(title: str, words: list[str], client) -> tuple[int, st
     )
     try:
         response = client.chat.completions.create(
-            model="default",
+            model=model_config.model_id,
             messages=[
                 {"role": "system", "content": load_system_prompt("title_rate")},
                 {"role": "user", "content": prompt},
@@ -176,6 +170,8 @@ def rate_title_creativity(title: str, words: list[str], client) -> tuple[int, st
 def _generate_single_title(
     definitions: list[str],
     client,
+    *,
+    model_config: ModelConfig,
     rejected_context: str = "",
     temperature: float = 0.9,
     words: list[str] | None = None,
@@ -202,7 +198,7 @@ def _generate_single_title(
 
     try:
         response = client.chat.completions.create(
-            model="default",
+            model=model_config.model_id,
             messages=[
                 {"role": "system", "content": load_system_prompt("theme")},
                 {"role": "user", "content": prompt},
@@ -224,8 +220,8 @@ def generate_creative_title(
     definitions: list[str],
     client,
     rate_client=None,
+    runtime: LmRuntime | None = None,
     multi_model: bool = False,
-    current_model=None,
 ) -> str:
     """Generate a creative title with quality evaluation loop."""
     if not words:
@@ -233,6 +229,8 @@ def generate_creative_title(
 
     if rate_client is None:
         rate_client = client
+    if runtime is None:
+        runtime = LmRuntime(multi_model=multi_model)
 
     best_title: str | None = None
     best_score = 0
@@ -249,17 +247,26 @@ def generate_creative_title(
                 f"{rejected_lines}"
             )
 
+        generator_model = runtime.activate_primary()
         raw_title = _generate_single_title(
-            definitions, client, rejected_context, words=words,
+            definitions,
+            client,
+            model_config=generator_model,
+            rejected_context=rejected_context,
+            words=words,
         )
 
         sanitized = _sanitize_title(raw_title, input_words=words)
         if sanitized in [t for t, _ in rejected] or sanitized in FALLBACK_TITLES:
             continue
 
-        current_model = _try_switch_model(current_model, multi_model)
-
-        score, feedback = rate_title_creativity(sanitized, words, rate_client)
+        rating_model = runtime.activate_secondary() if multi_model else generator_model
+        score, feedback = rate_title_creativity(
+            sanitized,
+            words,
+            rate_client,
+            model_config=rating_model,
+        )
         print(f"  Title round {round_idx}: \"{sanitized}\" -> creativity={score}/10 ({feedback})")
 
         if score > best_score or (score == best_score and best_title and len(sanitized.split()) < len(best_title.split())):
@@ -267,11 +274,9 @@ def generate_creative_title(
             best_title = sanitized
 
         if score >= TITLE_MIN_CREATIVITY:
-            _try_switch_model(current_model, multi_model)
             return sanitized
 
         rejected.append((sanitized, feedback))
-        current_model = _try_switch_model(current_model, multi_model)
 
     return best_title if best_title is not None else _fallback_title()
 
@@ -284,8 +289,8 @@ def generate_title_for_final_puzzle(
     puzzle,
     client=None,
     rate_client=None,
+    runtime: LmRuntime | None = None,
     multi_model: bool = False,
-    current_model=None,
 ) -> str:
     all_words = _collect_words(puzzle)
     definitions = _collect_definitions(puzzle)
@@ -298,8 +303,8 @@ def generate_title_for_final_puzzle(
         definitions,
         client=client,
         rate_client=rate_client or client,
+        runtime=runtime,
         multi_model=multi_model,
-        current_model=current_model,
     )
 
 
@@ -320,7 +325,14 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     client = create_client()
 
     print("Generating title with LM Studio...")
-    theme = generate_creative_title(words, definitions, client=client, rate_client=client)
+    runtime = LmRuntime(multi_model=False)
+    theme = generate_creative_title(
+        words,
+        definitions,
+        client=client,
+        rate_client=client,
+        runtime=runtime,
+    )
 
     print(f"Theme: {theme}")
     puzzle.title = theme

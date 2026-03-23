@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .ai_clues import RATE_MIN_REBUS
 from .dex_cache import DexProvider
-from .model_session import ModelSession
+from .lm_runtime import LmRuntime
 from .pipeline_state import PuzzleAssessment, WorkingPuzzle, all_working_clues
 from .quality import QualityReport
 from .score_helpers import _needs_rewrite
@@ -69,12 +69,13 @@ def evaluate_puzzle_state(
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
     dex: DexProvider | None = None,
     candidate_report: QualityReport | None = None,
+    runtime: LmRuntime | None = None,
 ) -> PuzzleEvaluationResult:
     if dex is None:
         dex = DexProvider.for_puzzle(puzzle)
 
-    session = ModelSession(multi_model=multi_model)
-    current_model = session.activate_initial_evaluator()
+    runtime = runtime or LmRuntime(multi_model=multi_model)
+    current_model = runtime.activate_initial_evaluator()
     passed, total = verify_working_puzzle(
         puzzle,
         client,

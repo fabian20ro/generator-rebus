@@ -10,6 +10,7 @@ from .ai_clues import (
     choose_better_clue_variant,
 )
 from .markdown_io import ClueEntry
+from .model_manager import PRIMARY_MODEL
 from .pipeline_state import (
     WorkingClue,
     WorkingPuzzle,
@@ -120,7 +121,7 @@ def _synthesize_failure_reason(clue: WorkingClue) -> str:
     return "Definiția trebuie făcută mai exactă."
 
 
-def _update_best_clue_version(clue: WorkingClue, client=None) -> None:
+def _update_best_clue_version(clue: WorkingClue, client=None, model_name: str | None = None) -> None:
     if clue.best is None:
         clue.best = copy.deepcopy(clue.current)
     elif clue.current.definition:
@@ -133,6 +134,7 @@ def _update_best_clue_version(clue: WorkingClue, client=None) -> None:
                 len(clue.word_normalized),
                 a_text,
                 b_text,
+                model=model_name or PRIMARY_MODEL.model_id,
             )
 
         chosen, decision = choose_clue_version(clue.best, clue.current, tiebreaker=_tiebreak)

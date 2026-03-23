@@ -516,14 +516,14 @@ class BatchPublishTests(unittest.TestCase):
         )
         mock_parse_markdown.return_value = puzzle
 
-        def _fill_defs(puzzle_obj, client, metadata=None, generated_model=""):
+        def _fill_defs(puzzle_obj, client, metadata=None, runtime=None, model_config=None):
             puzzle_obj.horizontal_clues[0].definition = "Gaz din atmosferă"
 
         def _rewrite(puzzle_obj, client, rounds, **kwargs):
             puzzle_obj.horizontal_clues[0].current.definition = "Substanță gazoasă din atmosferă"
             return (0, 1, 1)
 
-        def _title_from_final(puzzle_obj, client=None, rate_client=None, multi_model=False, current_model=None):
+        def _title_from_final(puzzle_obj, client=None, rate_client=None, runtime=None, multi_model=False):
             return puzzle_obj.horizontal_clues[0].definition
 
         mock_generate_definitions.side_effect = _fill_defs
@@ -583,7 +583,7 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertIn("exactă", reason)
 
-    @patch("generator.batch_publish.ensure_model_loaded")
+    @patch("generator.batch_publish.LmRuntime")
     @patch("generator.batch_publish.upload_puzzle")
     @patch("generator.batch_publish._prepare_puzzle_for_publication")
     @patch("generator.batch_publish._load_words")
@@ -592,8 +592,10 @@ class BatchPublishTests(unittest.TestCase):
         mock_load_words,
         mock_prepare,
         mock_upload,
-        mock_ensure_model,
+        mock_runtime_cls,
     ):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = object()
         mock_load_words.return_value = []
         mock_prepare.return_value = PreparedPuzzle(
             title="Titlu de Test",

@@ -31,7 +31,7 @@ from ..core.model_manager import (
     PRIMARY_MODEL,
     SECONDARY_MODEL,
 )
-from ..core.model_session import ModelSession
+from ..core.lm_runtime import LmRuntime
 from ..core.runtime_logging import install_process_logging, path_timestamp
 from ..core.selection_engine import choose_clue_version
 
@@ -289,7 +289,7 @@ def run_assessment(
     client = create_client()
     result = AssessmentResult()
     phase_times: dict[str, float] = {}
-    session = ModelSession(multi_model=True)
+    runtime = LmRuntime(multi_model=True)
 
     candidates = [
         WordCandidate(
@@ -315,7 +315,7 @@ def run_assessment(
     print(f"PHASE 1: {PRIMARY_MODEL.display_name} generates definitions")
     print(f"{'='*60}")
     phase_start = time.monotonic()
-    session.start_primary()
+    runtime.activate_primary()
 
     for i, c in enumerate(candidates, 1):
         print(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
@@ -333,7 +333,7 @@ def run_assessment(
     print(f"PHASE 2: {SECONDARY_MODEL.display_name} evaluates + generates")
     print(f"{'='*60}")
     phase_start = time.monotonic()
-    session.start_secondary()
+    runtime.activate_secondary()
 
     # 2a: cross-model verify + rate of pass1 definitions
     print(f"\n--- Phase 2a: evaluate pass1 definitions ---")
@@ -375,7 +375,7 @@ def run_assessment(
     print(f"PHASE 3: {PRIMARY_MODEL.display_name} evaluates + selects best")
     print(f"{'='*60}")
     phase_start = time.monotonic()
-    session.start_primary()
+    runtime.activate_primary()
 
     # 3a: cross-model verify + rate of pass2 definitions
     print(f"\n--- Phase 3a: evaluate pass2 definitions ---")

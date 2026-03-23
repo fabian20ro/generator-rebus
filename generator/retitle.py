@@ -10,7 +10,7 @@ from supabase import create_client as create_supabase_client
 
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from .core.ai_clues import create_client as create_ai_client
-from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
+from .core.lm_runtime import LmRuntime
 from .core.runtime_logging import install_process_logging, path_timestamp
 from .phases.theme import (
     FALLBACK_TITLES,
@@ -65,7 +65,7 @@ def retitle_puzzle(
     *,
     dry_run: bool = False,
     multi_model: bool = True,
-    current_model=None,
+    runtime: LmRuntime | None = None,
 ) -> bool:
     """Generate a new title for a puzzle. Returns True if title changed."""
     puzzle_id = puzzle_row["id"]
@@ -88,8 +88,8 @@ def retitle_puzzle(
         definitions,
         client=ai_client,
         rate_client=rate_client,
+        runtime=runtime,
         multi_model=multi_model,
-        current_model=current_model,
     )
 
     if new_title == old_title:
@@ -97,12 +97,12 @@ def retitle_puzzle(
         return False
 
     is_fallback = old_title in FALLBACK_TITLES
+    runtime = runtime or LmRuntime(multi_model=multi_model)
 
     if not is_fallback:
-        if multi_model:
-            ensure_model_loaded(SECONDARY_MODEL)
-        old_score, _ = rate_title_creativity(old_title, words, rate_client)
-        new_score, _ = rate_title_creativity(new_title, words, rate_client)
+        score_model = runtime.activate_secondary() if multi_model else runtime.activate_primary()
+        old_score, _ = rate_title_creativity(old_title, words, rate_client, model_config=score_model)
+        new_score, _ = rate_title_creativity(new_title, words, rate_client, model_config=score_model)
         if new_score <= old_score:
             print(
                 f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
@@ -115,9 +115,6 @@ def retitle_puzzle(
         )
     else:
         print(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}"')
-
-    if multi_model:
-        ensure_model_loaded(PRIMARY_MODEL)
 
     if not dry_run:
         supabase.table("crossword_puzzles").update({"title": new_title}).eq(
@@ -200,10 +197,8 @@ def main() -> None:
         else:
             print()
 
-        current_model = None
-        if multi_model:
-            ensure_model_loaded(PRIMARY_MODEL)
-            current_model = PRIMARY_MODEL
+        runtime = LmRuntime(multi_model=multi_model)
+        runtime.activate_primary()
 
         updated = 0
         unchanged = 0
@@ -218,7 +213,7 @@ def main() -> None:
                     rate_client,
                     dry_run=args.dry_run,
                     multi_model=multi_model,
-                    current_model=current_model,
+                    runtime=runtime,
                 )
                 if changed:
                     updated += 1

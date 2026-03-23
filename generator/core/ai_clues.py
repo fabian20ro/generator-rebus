@@ -14,6 +14,7 @@ from ..config import LMSTUDIO_BASE_URL, VERIFY_CANDIDATE_COUNT
 from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
+from .model_manager import PRIMARY_MODEL
 from .quality import ENGLISH_HOMOGRAPH_HINTS
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
@@ -149,7 +150,9 @@ def create_client() -> OpenAI:
 
 
 def _resolve_model_name(model: str | None) -> str:
-    return model or "default"
+    if not model or not str(model).strip():
+        raise ValueError("Explicit LM Studio model_id required")
+    return str(model).strip()
 
 
 def _clean_response(text: str | None) -> str:
@@ -653,7 +656,13 @@ def verify_definition_candidates(
     return VerifyResult(last_candidates)
 
 
-def verify_definition(client: OpenAI, definition: str, answer_length: int, word_type: str = "") -> str:
+def verify_definition(
+    client: OpenAI,
+    definition: str,
+    answer_length: int,
+    word_type: str = "",
+    model: str | None = None,
+) -> str:
     """Backward-compatible single-guess wrapper over the multi-candidate verifier."""
     return verify_definition_candidates(
         client,
@@ -661,7 +670,7 @@ def verify_definition(client: OpenAI, definition: str, answer_length: int, word_
         answer_length,
         word_type=word_type,
         max_guesses=1,
-        model=None,
+        model=model or PRIMARY_MODEL.model_id,
     ).primary_guess
 
 

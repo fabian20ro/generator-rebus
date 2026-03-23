@@ -110,9 +110,12 @@ class FetchCluesTests(unittest.TestCase):
 
 
 class RetitlePuzzleTests(unittest.TestCase):
-    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title", return_value="Orizont Verde")
-    def test_retitle_dry_run_skips_update(self, _mock_gen, _mock_ensure):
+    def test_retitle_dry_run_skips_update(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
         mock_supabase = MagicMock()
         # fetch_clues mock
         clue_query = MagicMock()
@@ -137,9 +140,12 @@ class RetitlePuzzleTests(unittest.TestCase):
         # update should NOT have been called
         mock_supabase.table.return_value.update.assert_not_called()
 
-    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title", return_value="Orizont Verde")
-    def test_retitle_updates_supabase(self, _mock_gen, _mock_ensure):
+    def test_retitle_updates_supabase(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
         mock_supabase = MagicMock()
         clue_query = MagicMock()
         mock_supabase.table.return_value.select.return_value = clue_query
@@ -186,9 +192,12 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         update_chain.eq.return_value = update_chain
         return mock_supabase
 
-    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title", return_value="Titlu Mediocru")
-    def test_skips_when_old_scores_higher(self, _mock_gen, _mock_ensure):
+    def test_skips_when_old_scores_higher(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Excelent Unic"}
         ai_client = _fake_ai_client("unused")
@@ -202,9 +211,12 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertFalse(changed)
         mock_supabase.table.return_value.update.assert_not_called()
 
-    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title", return_value="Titlu Nou Superior")
-    def test_replaces_when_new_scores_higher(self, _mock_gen, _mock_ensure):
+    def test_replaces_when_new_scores_higher(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Vechi Slab"}
         ai_client = _fake_ai_client("unused")
@@ -218,9 +230,12 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertTrue(changed)
         mock_supabase.table.return_value.update.assert_called_once()
 
-    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title", return_value="Titlu Egal Nou")
-    def test_skips_when_scores_equal(self, _mock_gen, _mock_ensure):
+    def test_skips_when_scores_equal(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Egal Vechi"}
         ai_client = _fake_ai_client("unused")
@@ -234,9 +249,12 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertFalse(changed)
         mock_supabase.table.return_value.update.assert_not_called()
 
-    @patch("generator.retitle.ensure_model_loaded")
+    @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title", return_value="Orice Titlu Nou")
-    def test_always_replaces_fallback_title(self, _mock_gen, _mock_ensure):
+    def test_always_replaces_fallback_title(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
         mock_supabase = self._make_supabase_mock()
         # "Sensuri Comune" is in FALLBACK_TITLES — should bypass score check
         puzzle_row = {"id": "abc", "title": "Sensuri Comune"}

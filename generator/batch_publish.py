@@ -29,7 +29,8 @@ from .core.metrics import (
     update_word_difficulty,
     write_metrics,
 )
-from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
+from .core.lm_runtime import LmRuntime
+from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from .core.plateau import has_plateaued
 from .core.markdown_io import (
     ClueEntry,
@@ -332,6 +333,7 @@ def _merge_best_clue_variants(
     best_clues: list[ClueEntry],
     current_clues: list[ClueEntry],
     client=None,
+    model_name: str | None = None,
 ) -> list[ClueEntry]:
     merged: list[ClueEntry] = []
     for best_clue, current_clue in zip(best_clues, current_clues):
@@ -347,6 +349,7 @@ def _merge_best_clue_variants(
                 len(best_working.word_normalized),
                 a_text,
                 b_text,
+                model=model_name or PRIMARY_MODEL.model_id,
             )
 
         chosen, _ = choose_clue_version(
@@ -402,6 +405,7 @@ def _better_prepared_puzzle(
     best: PreparedPuzzle | None,
     candidate: PreparedPuzzle,
     client=None,
+    runtime: LmRuntime | None = None,
 ) -> PreparedPuzzle:
     if best is None:
         return candidate
@@ -423,7 +427,12 @@ def _better_prepared_puzzle(
     def _tiebreak(a_summary: str, b_summary: str) -> str:
         if client is None:
             return "A"
-        return choose_better_puzzle_variant(client, a_summary, b_summary)
+        if runtime is not None:
+            model = runtime.activate_primary()
+            model_id = model.model_id
+        else:
+            model_id = PRIMARY_MODEL.model_id
+        return choose_better_puzzle_variant(client, a_summary, b_summary, model=model_id)
 
     winner, decision = choose_puzzle_assessment(best.assessment, candidate.assessment, tiebreaker=_tiebreak)
     if decision.used_tiebreak:
@@ -447,6 +456,7 @@ def _rewrite_failed_clues(
     multi_model: bool = False,
     dex: DexProvider | None = None,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    runtime: LmRuntime | None = None,
 ) -> tuple[int, int, int]:
     result = run_rewrite_loop(
         puzzle,
@@ -456,6 +466,7 @@ def _rewrite_failed_clues(
         multi_model=multi_model,
         dex=dex,
         verify_candidates=verify_candidates,
+        runtime=runtime,
     )
     puzzle.metadata["rewrite_model_switches"] = result.model_switches
     return result.initial_passed, result.final_passed, result.total
@@ -474,6 +485,7 @@ def _prepare_puzzle_for_publication(
     multi_model: bool = False,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
     word_metadata: dict[str, dict] | None = None,
+    runtime: LmRuntime | None = None,
 ) -> PreparedPuzzle:
     best_prepared: PreparedPuzzle | None = None
     effective_attempts = _preparation_attempts_for_size(size, preparation_attempts)
@@ -499,13 +511,12 @@ def _prepare_puzzle_for_publication(
         )
         puzzle = parse_markdown(candidate.markdown)
         puzzle.title = ""
-        if multi_model:
-            ensure_model_loaded(PRIMARY_MODEL)
         generate_definitions_for_puzzle(
             puzzle,
             client,
             metadata=candidate.metadata,
-            generated_model=PRIMARY_MODEL.display_name,
+            runtime=runtime,
+            model_config=PRIMARY_MODEL,
         )
         state = working_puzzle_from_puzzle(puzzle, split_compound=False)
         _backfill_generated_model(state, PRIMARY_MODEL.display_name)
@@ -519,6 +530,7 @@ def _prepare_puzzle_for_publication(
             multi_model=multi_model,
             dex=_dex,
             verify_candidates=verify_candidates,
+            runtime=runtime,
         )
         _restore_best_versions(state)
         state.assessment = score_puzzle_state(state, candidate.report)
@@ -528,6 +540,7 @@ def _prepare_puzzle_for_publication(
             rendered_for_title,
             client=client,
             rate_client=client,
+            runtime=runtime,
             multi_model=multi_model,
         )
         state.title = title
@@ -543,7 +556,7 @@ def _prepare_puzzle_for_publication(
             blocking_words=[clue.word_normalized for clue in blockers],
             assessment=copy.deepcopy(state.assessment),
         )
-        best_prepared = _better_prepared_puzzle(best_prepared, prepared, client=client)
+        best_prepared = _better_prepared_puzzle(best_prepared, prepared, client=client, runtime=runtime)
 
         if blockers:
             print(
@@ -647,7 +660,8 @@ def run_batch(
     all_word_metrics: list[WordMetric] = []
     puzzle_metrics: list[PuzzleMetric] = []
     print(f"Batch seed: {rng_seed}")
-    ensure_model_loaded(PRIMARY_MODEL)
+    runtime = LmRuntime(multi_model=multi_model)
+    runtime.activate_primary()
     if multi_model:
         print(f"Multi-model mode: {PRIMARY_MODEL.display_name} + {SECONDARY_MODEL.display_name}")
 
@@ -669,6 +683,7 @@ def run_batch(
             multi_model=multi_model,
             verify_candidates=verify_candidates,
             word_metadata=word_metadata,
+            runtime=runtime,
         )
         if prepared.blocking_words:
             print("\n--- Detailed rejection report ---")
