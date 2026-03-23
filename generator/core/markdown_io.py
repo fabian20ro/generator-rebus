@@ -1,8 +1,8 @@
 """Read and write the rebus markdown format.
 
 The markdown format is progressive — each phase adds information:
-- generate-grid: Grid with '.' and '#'
-- fill: Grid with letters + H/V word lists
+- template export: Grid with '.' and '#'
+- filled export: Grid with letters + H/V word lists
 - theme: Title added
 - define: Definitions added (word [original] - definition)
 - verify: Checkmarks ✓/✗ added

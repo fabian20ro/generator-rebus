@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark Python vs Rust phase-1 candidate generation."""
+"""Benchmark Rust phase-1 candidate generation."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from generator.batch_publish import _best_candidate, _best_candidate_python, _metadata_by_word
+from generator.batch_publish import _best_candidate, _metadata_by_word
 
 
 def _ensure_rust_binary(repo_root: Path) -> None:
@@ -39,7 +39,7 @@ def _time_call(fn) -> tuple[float, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark phase-1 Rust engine against Python baseline.")
+    parser = argparse.ArgumentParser(description="Benchmark Rust phase-1 candidate generation.")
     parser.add_argument("--sizes", nargs="+", type=int, default=[7, 9, 11])
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--words", default="generator/output/words.json")
@@ -54,9 +54,6 @@ def main() -> None:
 
     rows = []
     for size in args.sizes:
-        py_elapsed, py_candidate = _time_call(
-            lambda: _best_candidate_python(size, "Benchmark", raw_words, random.Random(args.seed))
-        )
         rust_elapsed, rust_candidate = _time_call(
             lambda: _best_candidate(
                 size,
@@ -67,15 +64,11 @@ def main() -> None:
                 word_metadata=metadata,
             )
         )
-        speedup = py_elapsed / rust_elapsed if rust_elapsed else None
         row = {
             "size": size,
-            "python_elapsed_sec": round(py_elapsed, 3),
-            "python_score": round(py_candidate.score, 2),
             "rust_elapsed_sec": round(rust_elapsed, 3),
             "rust_score": round(rust_candidate.score, 2),
             "rust_phase1_stats": rust_candidate.stats,
-            "speedup": round(speedup, 3) if speedup is not None else None,
         }
         rows.append(row)
         print(json.dumps(row, ensure_ascii=False))

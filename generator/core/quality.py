@@ -1,8 +1,12 @@
-"""Shared quality report types for phase-1 output."""
+"""Shared quality report types and lexical hints."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+
+
+# Shared with clue prompts to steer obvious Romanian/English homographs.
+ENGLISH_HOMOGRAPH_HINTS: dict[str, str] = {}
 
 
 @dataclass
@@ -21,4 +25,3 @@ class QualityReport:
 
     def to_dict(self) -> dict:
         return asdict(self)
-

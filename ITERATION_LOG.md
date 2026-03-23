@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-03-23] Remove legacy Python phase-1 generator path after Rust migration
+
+**Context:** user explicitly wanted the old Python phase-1 crossword-generation code gone after the Rust engine takeover; no dead fallback, no standalone Python template/fill commands left around.
+**Happened:** Removed the Python phase-1 implementation from `generator/batch_publish.py` (`_build_index`, `_generate_candidate`, `_best_candidate_python`, template-generation hooks, solver/index imports) and made `_best_candidate(...)` Rust-only with required `words_path`. Deleted obsolete Python modules `generator/core/constraint_solver.py`, `generator/core/grid_template.py`, `generator/core/word_index.py`, `generator/phases/generate_grid.py`, and `generator/phases/fill.py`. Simplified `generator/core/size_tuning.py` down to size lists plus batch retry floors, since the old Python-specific backtrack/rarity/template settings were no longer used. Removed `generate-grid`/`fill` from `generator/rebus.py`, updated `scripts/benchmark_phase1.py` to benchmark Rust only, and trimmed tests accordingly by deleting `tests/test_constraint_solver.py`, `tests/test_grid_template.py`, and `tests/test_quality.py` plus removing Python-phase-1-specific assertions from `tests/test_batch_publish.py`. Restored a minimal shared `ENGLISH_HOMOGRAPH_HINTS` constant in `generator/core/quality.py` after test collection revealed `ai_clues.py` still imports it for prompt hints.
+**Verification:** `python3 -m py_compile generator/core/quality.py generator/batch_publish.py generator/rebus.py scripts/benchmark_phase1.py generator/core/size_tuning.py generator/core/markdown_io.py tests/test_batch_publish.py tests/test_loop_controller.py`; `python3 -m pytest tests/test_batch_publish.py tests/test_loop_controller.py -q` (`47 passed`); `cargo test --manifest-path crossword_engine/Cargo.toml`
+**Outcome:** success
+**Insight:** when ripping out a legacy implementation, separate shared lexical helpers from implementation-specific code first; otherwise unrelated runtime imports can fail at test collection.
+**Promoted:** no
+
+---
+
 ### [2026-03-20] Archive results3 and redesign next 100-experiment campaign
 
 **Context:** user stopped the live 150-experiment campaign after 99 completed runs and wanted a forensic read of what worked, what almost worked, what failed badly, then a fresh 100-experiment plan starting with removals and alternating prompt files.

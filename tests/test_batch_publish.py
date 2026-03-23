@@ -11,14 +11,12 @@ from generator.batch_publish import (
     MAX_REWRITE_ROUNDS,
     PLATEAU_LOOKBACK,
     PreparedPuzzle,
-    SizeSettings,
     _backfill_generated_model,
     _best_candidate,
     _better_prepared_puzzle,
     _clear_verification_state,
     _collect_word_metrics,
     _compute_difficulty,
-    _generate_candidate,
     _is_publishable,
     _merge_best_clue_variants,
     _needs_rewrite,
@@ -27,7 +25,6 @@ from generator.batch_publish import (
     _prepare_puzzle_for_publication,
     _synthesize_failure_reason,
     _template_fingerprint,
-    _try_incremental_template,
     build_parser as build_batch_parser,
     run_batch,
 )
@@ -43,7 +40,6 @@ from generator.core.pipeline_state import (
     working_clue_from_entry,
 )
 from generator.core.quality import QualityReport
-from generator.core.size_tuning import get_size_settings
 from generator.rebus import build_parser as build_rebus_parser
 
 
@@ -351,18 +347,10 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertEqual([8, 9, 11], args.sizes)
 
-    def test_rebus_cli_accepts_all_supported_mid_sizes(self):
+    def test_rebus_cli_rejects_removed_phase1_commands(self):
         parser = build_rebus_parser()
-        args = parser.parse_args(["generate-grid", "-", "out.md", "--size", "11"])
-
-        self.assertEqual(11, args.size)
-
-    def test_central_size_settings_cover_all_supported_overnight_sizes(self):
-        for size in (7, 8, 9, 10, 11, 12):
-            settings = get_size_settings(size)
-            self.assertGreater(settings.max_backtracks, 0)
-            self.assertGreater(settings.template_attempts, 0)
-            self.assertGreater(settings.min_preparation_attempts, 0)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["generate-grid", "-", "out.md"])
 
     @patch("generator.batch_publish.choose_better_puzzle_variant")
     def test_prepared_puzzle_tiebreak_uses_llm_for_near_equal_scores(self, mock_tiebreak):
@@ -425,6 +413,15 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual(12, candidate.stats["elapsed_ms"])
         mock_run.assert_called_once()
 
+    def test_best_candidate_requires_words_path(self):
+        with self.assertRaises(ValueError):
+            _best_candidate(
+                7,
+                "Test",
+                raw_words=[],
+                rng=SimpleNamespace(randint=lambda *_: 123),
+            )
+
     def test_prepared_puzzle_prefers_more_verified_clues_before_score(self):
         best = _prepared_puzzle(title="A", definition_score=8.0, blocking_words=[], verified_count=5, total_clues=6)
         candidate = _prepared_puzzle(title="B", definition_score=9.5, blocking_words=[], verified_count=4, total_clues=6)
@@ -432,224 +429,6 @@ class BatchPublishTests(unittest.TestCase):
         winner = _better_prepared_puzzle(best, candidate, client=object())
 
         self.assertEqual("A", winner.title)
-
-    @patch("generator.batch_publish.score_words")
-    @patch("generator.batch_publish.solve")
-    @patch("generator.batch_publish._slot_capacity_ok")
-    @patch("generator.batch_publish.extract_slots")
-    @patch("generator.batch_publish.generate_procedural_template")
-    @patch("generator.batch_publish.validate_template", return_value=(True, ""))
-    def test_generate_candidate_uses_prebuilt_template(
-        self,
-        mock_validate,
-        mock_procedural,
-        mock_extract_slots,
-        mock_slot_ok,
-        mock_solve,
-        mock_score_words,
-    ):
-        template = [
-            [True, True, True, False, True, True, True],
-            [True, True, True, True, True, True, True],
-            [True, True, True, False, True, True, True],
-            [False, True, True, True, True, True, False],
-            [True, True, True, False, True, True, True],
-            [True, True, True, True, True, True, True],
-            [True, True, True, False, True, True, True],
-        ]
-        settings = SizeSettings(3, 50000, 6, 1, 1, 4, 16, template_attempts=777)
-        slot = type("Slot", (), {
-            "id": 1,
-            "direction": "H",
-            "length": 3,
-            "start_row": 0,
-            "start_col": 0,
-            "cells": [(0, 0), (0, 1), (0, 2)],
-        })()
-        word = type("WordEntry", (), {"normalized": "AER", "original": "aer"})()
-
-        mock_extract_slots.return_value = [slot]
-        mock_slot_ok.return_value = True
-        mock_solve.return_value = {1: word}
-        mock_score_words.return_value = QualityReport(
-            score=10.0,
-            word_count=1,
-            average_length=3.0,
-            average_rarity=1.0,
-            two_letter_words=0,
-            three_letter_words=1,
-            high_rarity_words=0,
-            uncommon_letter_words=0,
-            friendly_words=1,
-        )
-
-        candidate = _generate_candidate(
-            7,
-            settings,
-            word_index=object(),
-            metadata={"AER": {"rarity_level": 1}},
-            title="Test",
-            seen_template_fingerprints=set(),
-            template=template,
-        )
-
-        self.assertIsNotNone(candidate)
-        mock_procedural.assert_not_called()
-
-    def test_duplicate_seven_template_fingerprint_is_rejected(self):
-        template = [
-            [True, True, True],
-            [True, False, True],
-            [True, True, True],
-        ]
-        settings = SizeSettings(3, 50000, 1, 1, 1, 4, 16)
-
-        seen = {_template_fingerprint(template)}
-        candidate = _generate_candidate(
-            7,
-            settings,
-            word_index=object(),
-            metadata={"AER": {"rarity_level": 1}},
-            title="Test",
-            seen_template_fingerprints=seen,
-            template=template,
-        )
-
-        self.assertIsNone(candidate)
-
-    @patch("generator.batch_publish._try_incremental_template", return_value=None)
-    @patch("generator.batch_publish._generate_candidate")
-    @patch("generator.batch_publish._build_index")
-    @patch("generator.batch_publish.build_relaxed_variants")
-    def test_best_candidate_checks_full_budget_and_keeps_best_solved(
-        self,
-        mock_variants,
-        mock_build_index,
-        mock_generate_candidate,
-        mock_try_incr,
-    ):
-        settings_a = SizeSettings(3, 80_000, 6, 3, 3, 4, 16, template_attempts=500)
-        mock_variants.return_value = [settings_a]
-        mock_build_index.return_value = (object(), {})
-        candidate_a = Candidate(
-            score=10.0,
-            report=QualityReport(
-                score=10.0,
-                word_count=1,
-                average_length=3.0,
-                average_rarity=1.0,
-                two_letter_words=0,
-                three_letter_words=1,
-                high_rarity_words=0,
-                uncommon_letter_words=0,
-                friendly_words=1,
-            ),
-            template=[[True]],
-            markdown="# A\n",
-        )
-        candidate_b = Candidate(
-            score=25.0,
-            report=QualityReport(
-                score=25.0,
-                word_count=1,
-                average_length=4.0,
-                average_rarity=1.0,
-                two_letter_words=0,
-                three_letter_words=0,
-                high_rarity_words=0,
-                uncommon_letter_words=0,
-                friendly_words=1,
-            ),
-            template=[[True]],
-            markdown="# B\n",
-        )
-        candidate_c = Candidate(
-            score=12.0,
-            report=QualityReport(
-                score=12.0,
-                word_count=1,
-                average_length=3.0,
-                average_rarity=1.0,
-                two_letter_words=0,
-                three_letter_words=1,
-                high_rarity_words=0,
-                uncommon_letter_words=0,
-                friendly_words=1,
-            ),
-            template=[[True]],
-            markdown="# C\n",
-        )
-        mock_generate_candidate.side_effect = [candidate_a, candidate_b, candidate_c]
-
-        best = _best_candidate(
-            7,
-            "Test",
-            raw_words=[],
-            rng=SimpleNamespace(),
-            seen_template_fingerprints=set(),
-        )
-
-        self.assertEqual(25.0, best.score)
-        self.assertEqual(3, mock_generate_candidate.call_count)
-
-    @patch("generator.batch_publish._try_incremental_template", return_value=None)
-    @patch("generator.batch_publish._generate_candidate")
-    @patch("generator.batch_publish._build_index")
-    @patch("generator.batch_publish.build_relaxed_variants")
-    def test_best_candidate_skips_none_and_still_checks_remaining_attempts(
-        self,
-        mock_variants,
-        mock_build_index,
-        mock_generate_candidate,
-        mock_try_incr,
-    ):
-        settings_a = SizeSettings(3, 80_000, 6, 3, 3, 4, 16, template_attempts=500)
-        mock_variants.return_value = [settings_a]
-        mock_build_index.return_value = (object(), {})
-        candidate_b = Candidate(
-            score=25.0,
-            report=QualityReport(
-                score=25.0,
-                word_count=1,
-                average_length=4.0,
-                average_rarity=1.0,
-                two_letter_words=0,
-                three_letter_words=0,
-                high_rarity_words=0,
-                uncommon_letter_words=0,
-                friendly_words=1,
-            ),
-            template=[[True]],
-            markdown="# B\n",
-        )
-        candidate_c = Candidate(
-            score=20.0,
-            report=QualityReport(
-                score=20.0,
-                word_count=1,
-                average_length=4.0,
-                average_rarity=1.0,
-                two_letter_words=0,
-                three_letter_words=0,
-                high_rarity_words=0,
-                uncommon_letter_words=0,
-                friendly_words=1,
-            ),
-            template=[[True]],
-            markdown="# C\n",
-        )
-        mock_generate_candidate.side_effect = [None, candidate_b, candidate_c]
-
-        best = _best_candidate(
-            7,
-            "Test",
-            raw_words=[],
-            rng=SimpleNamespace(),
-            seen_template_fingerprints=set(),
-        )
-
-        self.assertEqual(25.0, best.score)
-        self.assertEqual(3, mock_generate_candidate.call_count)
 
     def test_clear_verification_state_removes_exported_scores_and_notes(self):
         clue = working_clue_from_entry(ClueEntry(
@@ -700,52 +479,6 @@ class BatchPublishTests(unittest.TestCase):
         _backfill_generated_model(puzzle, "gpt-oss-20b")
 
         self.assertEqual("gpt-oss-20b", puzzle.horizontal_clues[0].current.generated_by)
-
-    @patch("generator.batch_publish.generate_incremental_template")
-    @patch("generator.batch_publish._generate_candidate")
-    @patch("generator.batch_publish._build_index")
-    @patch("generator.batch_publish.build_relaxed_variants")
-    def test_incremental_template_built_once_per_variant(
-        self,
-        mock_variants,
-        mock_build_index,
-        mock_generate_candidate,
-        mock_incr_template,
-    ):
-        template = [[True, True, True], [True, False, True], [True, True, True]]
-        settings = SizeSettings(3, 80_000, 6, 3, 2, 4, 16, template_attempts=500)
-        mock_variants.return_value = [settings]
-        mock_build_index.return_value = (object(), {})
-        mock_incr_template.return_value = template
-        candidate = Candidate(
-            score=10.0,
-            report=QualityReport(
-                score=10.0,
-                word_count=1,
-                average_length=3.0,
-                average_rarity=1.0,
-                two_letter_words=0,
-                three_letter_words=1,
-                high_rarity_words=0,
-                uncommon_letter_words=0,
-                friendly_words=1,
-            ),
-            template=template,
-            markdown="# T\n",
-        )
-        mock_generate_candidate.return_value = candidate
-
-        _best_candidate(
-            7,
-            "Test",
-            raw_words=[],
-            rng=SimpleNamespace(),
-            seen_template_fingerprints=set(),
-        )
-
-        mock_incr_template.assert_called_once()
-        call_kwargs = mock_generate_candidate.call_args
-        self.assertIs(template, call_kwargs.kwargs.get("template") or call_kwargs[1].get("template"))
 
     @patch("generator.batch_publish.generate_title_for_final_puzzle")
     @patch("generator.batch_publish._rewrite_failed_clues")
@@ -802,7 +535,7 @@ class BatchPublishTests(unittest.TestCase):
             total_puzzles=1,
             size=7,
             raw_words=[],
-            words_path=None,
+            words_path=Path("generator/output/words.json"),
             client=object(),
             rewrite_rounds=1,
             preparation_attempts=1,
@@ -1022,35 +755,6 @@ class BatchPublishTests(unittest.TestCase):
         )
 
         self.assertEqual(_compute_difficulty(9, low_rarity), _compute_difficulty(9, high_rarity))
-
-    def test_size_11_settings(self):
-        settings = get_size_settings(11)
-        self.assertEqual(18, settings.max_two_letter_slots)
-        self.assertEqual(5, settings.max_full_width_slots)
-
-    def test_size_12_max_two_letter_slots_increased(self):
-        settings = get_size_settings(12)
-        self.assertEqual(22, settings.max_two_letter_slots)
-
-    def test_size_11_has_full_width_slot_limit(self):
-        settings = get_size_settings(11)
-        self.assertEqual(5, settings.max_full_width_slots)
-
-    def test_size_12_has_full_width_slot_limit(self):
-        settings = get_size_settings(12)
-        self.assertEqual(5, settings.max_full_width_slots)
-
-    def test_size_13_has_full_width_slot_limit(self):
-        settings = get_size_settings(13)
-        self.assertEqual(6, settings.max_full_width_slots)
-
-    def test_size_14_has_full_width_slot_limit(self):
-        settings = get_size_settings(14)
-        self.assertEqual(7, settings.max_full_width_slots)
-
-    def test_size_7_has_no_full_width_slot_limit(self):
-        settings = get_size_settings(7)
-        self.assertIsNone(settings.max_full_width_slots)
 
     def test_overnight_loop_sizes_include_fifteen(self):
         from generator.core.size_tuning import OVERNIGHT_LOOP_SIZES

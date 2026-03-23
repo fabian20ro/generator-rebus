@@ -30,7 +30,6 @@ from .core.metrics import (
     write_metrics,
 )
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ensure_model_loaded
-from .core.grid_template import generate_incremental_template, generate_procedural_template, validate_template
 from .core.plateau import has_plateaued
 from .core.markdown_io import (
     ClueEntry,
@@ -39,12 +38,10 @@ from .core.markdown_io import (
     write_grid_template,
     write_with_definitions,
 )
-from .core.quality import QualityReport, filter_word_records, score_words
+from .core.quality import QualityReport
 from .core.size_tuning import (
     DEFAULT_BATCH_SIZES,
     SUPPORTED_GRID_SIZES,
-    SizeSettings,
-    build_relaxed_variants,
     get_min_preparation_attempts,
 )
 from .core.pipeline_state import (
@@ -83,9 +80,6 @@ from .core.score_helpers import (
     _update_best_clue_version,
 )
 from .core.selection_engine import choose_clue_version, choose_puzzle_assessment
-from .core.slot_extractor import Slot, extract_slots
-from .core.word_index import WordEntry, WordIndex
-from .core.constraint_solver import solve
 from .core.runtime_logging import (
     install_process_logging,
     path_timestamp,
@@ -275,218 +269,6 @@ def _best_candidate_rust(
     )
 
 
-def _build_index(raw_words: list[dict], size: int, settings: SizeSettings) -> tuple[WordIndex, dict[str, dict]]:
-    filtered = filter_word_records(raw_words, max_rarity=settings.max_rarity, max_length=size)
-    metadata = {word["normalized"]: word for word in filtered}
-    entries = [WordEntry(word["normalized"], word["original"]) for word in filtered]
-    return WordIndex(entries), metadata
-
-
-def _slot_capacity_ok(slots: list[Slot], word_index: WordIndex, settings: SizeSettings) -> bool:
-    if sum(1 for slot in slots if slot.length == 2) > settings.max_two_letter_slots:
-        return False
-    for slot in slots:
-        required = 1 if slot.length >= 10 else settings.min_candidates_per_slot
-        if word_index.count_matching([None] * slot.length) < required:
-            return False
-    return True
-
-
-def _render_filled_markdown(
-    size: int,
-    template: list[list[bool]],
-    slots: list[Slot],
-    assignment: dict[int, WordEntry],
-    title: str,
-) -> str:
-    grid_out: list[list[str | None]] = []
-    for row in range(size):
-        rendered_row = []
-        for col in range(size):
-            rendered_row.append(None)
-        grid_out.append(rendered_row)
-
-    h_words: list[list[str]] = [[] for _ in range(size)]
-    h_originals: list[list[str]] = [[] for _ in range(size)]
-    v_words: list[list[str]] = [[] for _ in range(size)]
-    v_originals: list[list[str]] = [[] for _ in range(size)]
-
-    for slot in slots:
-        word = assignment[slot.id]
-        for index, (row, col) in enumerate(slot.cells):
-            grid_out[row][col] = word.normalized[index]
-        if slot.direction == "H":
-            h_words[slot.start_row].append(word.normalized)
-            h_originals[slot.start_row].append(word.original)
-        else:
-            v_words[slot.start_col].append(word.normalized)
-            v_originals[slot.start_col].append(word.original)
-
-    return write_filled_grid(size, grid_out, h_words, v_words, h_originals, v_originals, title=title)
-
-
-def _generate_candidate(
-    size: int,
-    settings: SizeSettings,
-    word_index: WordIndex,
-    metadata: dict[str, dict],
-    title: str,
-    rng: random.Random | None = None,
-    seen_template_fingerprints: set[str] | None = None,
-    template: list[list[bool]] | None = None,
-) -> Candidate | None:
-    if rng is None:
-        rng = random.Random(0)
-    if template is None:
-        template = _choose_template(size, settings, rng)
-    if template is None:
-        return None
-    valid, _reason = validate_template(template)
-    if not valid:
-        return None
-    if seen_template_fingerprints is not None:
-        fingerprint = _template_fingerprint(template)
-        if fingerprint in seen_template_fingerprints:
-            return None
-        if size == 7:
-            seen_template_fingerprints.add(fingerprint)
-
-    slots = extract_slots(template)
-    if not _slot_capacity_ok(slots, word_index, settings):
-        return None
-    if settings.max_full_width_slots is not None:
-        full_width = sum(1 for s in slots if s.length == size)
-        if full_width > settings.max_full_width_slots:
-            return None
-
-    grid: list[list[str | None]] = [
-        [None if template[row][col] else "#" for col in range(size)]
-        for row in range(size)
-    ]
-    assignment: dict[int, WordEntry] = {}
-    used_words: set[str] = set()
-    result = solve(
-        slots,
-        word_index,
-        assignment,
-        used_words,
-        grid,
-        settings.max_backtracks,
-        allow_reuse=size >= 15,
-        rng=rng,
-    )
-    if result is None:
-        return None
-
-    words = [result[slot.id].normalized for slot in slots]
-    report = score_words(words, metadata, size)
-    markdown = _render_filled_markdown(size, template, slots, result, title)
-    return Candidate(score=report.score, report=report, template=template, markdown=markdown, metadata=metadata)
-
-
-def _try_incremental_template(
-    size: int,
-    settings: SizeSettings,
-    rng: random.Random,
-    word_index: WordIndex,
-) -> list[list[bool]] | None:
-    """Build an incremental template once — expensive, so call once per variant."""
-    effective_max = settings.target_blacks + 4
-    probe_backtracks = settings.max_backtracks // 3
-
-    def solver_fn(template):
-        slots = extract_slots(template)
-        if not _slot_capacity_ok(slots, word_index, settings):
-            return False
-        if settings.max_full_width_slots is not None:
-            full_width = sum(1 for s in slots if s.length == size)
-            if full_width > settings.max_full_width_slots:
-                return False
-        grid = [[None if t else "#" for t in row] for row in template]
-        return solve(slots, word_index, {}, set(), grid, probe_backtracks, rng=rng) is not None
-
-    min_solver_step = max(1, effective_max - 6)
-
-    return generate_incremental_template(
-        size, solver_fn, max_blacks=effective_max,
-        min_solver_step=min_solver_step, rng=rng,
-    )
-
-
-def _choose_template(
-    size: int,
-    settings: SizeSettings,
-    rng: random.Random,
-) -> list[list[bool]] | None:
-    """Cheap procedural fallback — safe to call per attempt."""
-    blacks = rng.choice([
-        settings.target_blacks - 2,
-        settings.target_blacks - 1,
-        settings.target_blacks,
-        settings.target_blacks + 1,
-        settings.target_blacks + 2,
-    ])
-    return generate_procedural_template(
-        size,
-        target_blacks=max(1, blacks),
-        max_attempts=settings.template_attempts,
-        rng=rng,
-    )
-
-
-def _best_candidate_python(
-    size: int,
-    title: str,
-    raw_words: list[dict],
-    rng: random.Random,
-    seen_template_fingerprints: set[str] | None = None,
-) -> Candidate:
-    best: Candidate | None = None
-
-    for variant_index, settings in enumerate(build_relaxed_variants(size), start=1):
-        word_index, metadata = _build_index(raw_words, size, settings)
-
-        incremental_template = _try_incremental_template(size, settings, rng, word_index)
-        if incremental_template is not None:
-            print(f"  Incremental template found for variant {variant_index}")
-
-        solved = 0
-        print(
-            f"Selecting best {size}x{size} candidate "
-            f"(variant {variant_index}, target solved: {settings.solved_candidates}, "
-            f"attempt budget: {settings.attempt_budget}, max_rarity: {settings.max_rarity})..."
-        )
-        for attempt in range(1, settings.attempt_budget + 1):
-            candidate = _generate_candidate(
-                size,
-                settings,
-                word_index,
-                metadata,
-                title,
-                rng,
-                seen_template_fingerprints=seen_template_fingerprints if size == 7 else None,
-                template=incremental_template,
-            )
-            if candidate is None:
-                print(f"  Attempt {attempt}: no solution")
-                if solved == 0 and attempt >= 25:
-                    print("  No solved candidates yet; relaxing settings")
-                    break
-                continue
-            solved += 1
-            print(
-                f"  Attempt {attempt}: score={candidate.score:.1f} "
-                f"two={candidate.report.two_letter_words} "
-                f"avg_rarity={candidate.report.average_rarity:.2f}"
-            )
-            if best is None or candidate.score > best.score:
-                best = candidate
-
-    if best is not None:
-        return best
-    raise RuntimeError(f"Could not generate a valid filled grid for {size}x{size}")
-
-
 def _best_candidate(
     size: int,
     title: str,
@@ -499,14 +281,8 @@ def _best_candidate(
     preparation_attempts: int = 1,
 ) -> Candidate:
     if words_path is None:
-        return _best_candidate_python(
-            size,
-            title,
-            raw_words,
-            rng=rng,
-            seen_template_fingerprints=seen_template_fingerprints,
-        )
-    return _best_candidate_rust(
+        raise ValueError("Rust phase-1 requires `words_path`.")
+    candidate = _best_candidate_rust(
         size,
         title,
         words_path=words_path,
@@ -514,6 +290,9 @@ def _best_candidate(
         rng=rng,
         preparation_attempts=preparation_attempts,
     )
+    if seen_template_fingerprints is not None and size == 7:
+        seen_template_fingerprints.add(_template_fingerprint(candidate.template))
+    return candidate
 
 
 
