@@ -183,5 +183,6 @@ def audit(event: str, *, component: str | None = None, payload: dict | None = No
     }
     line = json.dumps(record, ensure_ascii=False)
     with state.lock:
+        state.audit_path.parent.mkdir(parents=True, exist_ok=True)
         with state.audit_path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")

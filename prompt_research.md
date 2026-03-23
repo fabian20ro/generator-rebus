@@ -1,10 +1,10 @@
 # Prompt Research Program
 
-Goal: improve exact multistep benchmark performance through prompt edits only.
+Goal: improve exact multistep benchmark performance through prompt edits and a small set of system-factor trials.
 
 Rules:
-- mutate only files under `generator/prompts/`
-- never mutate pipeline code during autonomous runs
+- mutate prompt files only during autonomous prompt trials
+- system-factor trials may change assessment temperatures only
 - benchmark dataset fixed during one campaign
 - restore incumbent prompt snapshot after every non-keep
 - safe-stop on stale families; no auto-restart
@@ -14,30 +14,25 @@ Statuses:
 - `uncertain`: reusable signal; possible future bundle or rewrite
 - `discard`: bad idea in current form
 
-Current family priority:
-1. `definition_examples`
-2. `definition_rewrite_bundles`
-3. `rate_exactness`
-4. `rewrite_anti_distractor`
-5. `verify_examples_short`
-6. `verify_examples_rare`
-7. `verify_bundles`
-8. `definition_rate_bundles`
-9. `confirm_bundles`
-10. `cleanup`
+Current experiment families:
+1. `system_factor_temperatures`
+2. `verify_minimal_procedural`
+3. `rewrite_generic_exclusion`
+4. `prompt_dedup_cleanup`
 
 Family stop rules:
-- stop after 4 consecutive non-keeps
-- or 6 total non-keeps since last keep
-- or repeated collateral losers 3+ times
-- stop whole campaign after 3 stale families in a row
+- stop after 3 consecutive non-keeps
+- or 3 total non-keeps since last keep
+- or repeated primary fragile-word losses 3+ times
+- stop whole campaign after 4 stale families in a row
 
 Selection rules:
-- single-file experiments before bundles
-- bundle families unlock only after related families show keep or research-signal uncertain
-- skip stale families
+- system-factor lane first
+- single-file prompt experiments only
+- no word-specific examples in this batch
+- no multi-file bundles before a clear `keep`
 
 Interpretation rules:
-- prioritize low/medium-word gains
-- reject edits that break protected controls
+- exact-answer recovery beats creativity
+- reject edits that break primary fragile words: `AZ`, `FERMENT`, `MIRE`, `OSTRACA`, `SAN`, `ETAN`
 - reject verifier overfitting that fixes one target and harms many unrelated words

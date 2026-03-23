@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+import io
 from unittest import mock
 from pathlib import Path
 
@@ -99,6 +100,7 @@ class PromptAutoresearchTests(unittest.TestCase):
                     state_dir=root / "state_dir",
                     campaign_log=log_path,
                     baseline_json=baseline_json,
+                    seed_prompts_dir=None,
                 )
             finally:
                 mod.runner.PROMPTS_DIR = original_prompts_dir
@@ -132,8 +134,46 @@ class PromptAutoresearchTests(unittest.TestCase):
 
         next_exp = mod.select_next_experiment(state, families)
 
-        self.assertEqual("micro_rewrite_pairs", next_exp.family)
+        self.assertEqual("short_word_exactness", next_exp.family)
         self.assertEqual("v2exp001", next_exp.name)
+
+    def test_select_next_experiment_respects_v3_family_priority(self):
+        mod = _load_module()
+        families = mod.default_families("v3")
+        state = {
+            "attempted_experiments": [],
+            "current_family": None,
+            "experiment_set": "v3",
+        }
+
+        next_exp = mod.select_next_experiment(state, families)
+
+        self.assertEqual("system_factor_temperatures", next_exp.family)
+        self.assertEqual("v3exp001", next_exp.name)
+
+    def test_main_rebuild_state_exits_without_running_trials(self):
+        mod = _load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir) / "state"
+            state = {
+                "campaign_id": "x",
+                "status": "idle",
+                "current_family": None,
+                "current_experiment": None,
+                "incumbent_composite": 81.9,
+                "incumbent_pass_rate": 0.386,
+                "attempted_experiments": [],
+            }
+            families = mod.default_families("v2")
+            incumbent = {"composite": 81.9, "pass_rate": 0.386}
+            with mock.patch.object(sys, "argv", ["prompt_autoresearch.py", "--state-dir", str(state_dir), "--experiment-set", "v2", "--rebuild-state"]), \
+                 mock.patch.object(mod, "rebuild_state_from_campaign", return_value=(state, families, incumbent)), \
+                 mock.patch.object(mod, "validate_state", return_value=(True, None)), \
+                 mock.patch.object(mod, "run_supervisor") as run_supervisor, \
+                 mock.patch("sys.stdout", new_callable=io.StringIO):
+                mod.main()
+
+        run_supervisor.assert_not_called()
 
     def test_select_next_experiment_unlocks_bundles_only_after_signal(self):
         mod = _load_module()
@@ -322,6 +362,7 @@ class PromptAutoresearchTests(unittest.TestCase):
                     state_dir=state_dir,
                     campaign_log=log_path,
                     baseline_json=baseline_json,
+                    seed_prompts_dir=None,
                 )
             finally:
                 mod.runner.PROMPTS_DIR = original_prompts_dir
@@ -385,6 +426,7 @@ class PromptAutoresearchTests(unittest.TestCase):
                         state_dir=state_dir,
                         campaign_log=None,
                         baseline_json=None,
+                        seed_prompts_dir=None,
                         max_trials=1,
                         description_prefix="autoresearch/",
                         dry_run=False,
@@ -454,6 +496,7 @@ class PromptAutoresearchTests(unittest.TestCase):
                         state_dir=state_dir,
                         campaign_log=None,
                         baseline_json=None,
+                        seed_prompts_dir=None,
                         max_trials=1,
                         description_prefix="autoresearch/",
                         dry_run=False,
@@ -522,6 +565,7 @@ class PromptAutoresearchTests(unittest.TestCase):
                         state_dir=state_dir,
                         campaign_log=None,
                         baseline_json=None,
+                        seed_prompts_dir=None,
                         max_trials=None,
                         description_prefix="autoresearch/",
                         dry_run=False,
@@ -533,6 +577,67 @@ class PromptAutoresearchTests(unittest.TestCase):
             written_state = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
             self.assertEqual("stopped", written_state["status"])
             self.assertEqual("no viable families remaining", written_state["stop_reason"])
+
+    def test_validate_state_detects_skipped_experiment_leakage(self):
+        mod = _load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            state_dir = root / "state"
+            paths = mod.family_paths(state_dir)
+            seed = paths["seed_prompts"] / "system"
+            incumbent = paths["incumbent_prompts"] / "system"
+            prompts = root / "prompts" / "system"
+            seed.mkdir(parents=True, exist_ok=True)
+            incumbent.mkdir(parents=True, exist_ok=True)
+            prompts.mkdir(parents=True, exist_ok=True)
+            base_text = (mod.runner.PROMPTS_DIR / "system" / "rewrite.md").read_text(encoding="utf-8")
+            seed_text = base_text.replace(
+                "- Pentru OF, păstrezi interjecția de durere ori regret și excluzi exclamația vagă de tip AH.\n",
+                "",
+            )
+            seed_file = seed / "rewrite.md"
+            incumbent_file = incumbent / "rewrite.md"
+            prompt_file = prompts / "rewrite.md"
+            seed_file.write_text(seed_text, encoding="utf-8")
+            leaked_text = seed_text.replace(
+                "- Max 15 cuvinte.\n",
+                "- Pentru OF, păstrezi interjecția de durere ori regret și excluzi exclamația vagă de tip AH.\n- Max 15 cuvinte.\n",
+                1,
+            )
+            incumbent_file.write_text(leaked_text, encoding="utf-8")
+            prompt_file.write_text(leaked_text, encoding="utf-8")
+            paths["state"].parent.mkdir(parents=True, exist_ok=True)
+            paths["state"].write_text(
+                json.dumps(
+                    {
+                        "status": "idle",
+                        "incumbent_composite": 81.9,
+                        "incumbent_pass_rate": 0.386,
+                        "attempted_experiments": ["v2exp001"],
+                        "experiment_set": "v2",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths["families"].write_text(json.dumps(mod.default_families("v2")), encoding="utf-8")
+            paths["incumbent"].write_text(json.dumps({"composite": 81.9, "pass_rate": 0.386}), encoding="utf-8")
+            paths["trials"].mkdir(parents=True, exist_ok=True)
+            (paths["trials"] / "v2exp001.json").write_text(json.dumps({"status": "skipped"}), encoding="utf-8")
+            original_prompts_dir = mod.runner.PROMPTS_DIR
+            mod.runner.PROMPTS_DIR = root / "prompts"
+            try:
+                valid, reason = mod.validate_state(
+                    state_dir=state_dir,
+                    state=json.loads(paths["state"].read_text(encoding="utf-8")),
+                    families=mod.default_families("v2"),
+                    incumbent={"composite": 81.9, "pass_rate": 0.386},
+                    campaign_log=None,
+                )
+            finally:
+                mod.runner.PROMPTS_DIR = original_prompts_dir
+
+        self.assertFalse(valid)
+        self.assertIn("skipped experiment leakage", reason)
 
 
 if __name__ == "__main__":

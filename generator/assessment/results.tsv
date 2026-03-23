@@ -1,2 +1,14 @@
 commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
 0bdd9d0	81.9	0.386	9.0	8.1	keep	pilot_20260321/exp002 | compress Romanian-only line in verify system | system/verify.md
+afbf4e8	76.3	0.329	9.1	8.1	discard	autoresearch_v2/v2exp002 | rewrite pair UZ excludes UT | system/rewrite.md
+afbf4e8	74.9	0.314	9.1	8.2	discard	autoresearch_v2/v2exp003 | rewrite pair AZ excludes AC | system/rewrite.md
+afbf4e8	74.9	0.314	9.1	8.1	discard	autoresearch_v2/v2exp004 | rewrite pair ATU excludes generic advantage | system/rewrite.md
+afbf4e8	76.3	0.329	9.1	8.1	discard	autoresearch_v2/v2exp011 | rewrite pair TAVA excludes VASA | system/rewrite.md
+afbf4e8	78.9	0.357	9.0	8.1	discard	autoresearch_v2/v2exp012 | rewrite pair MARMOR excludes MARMUR | system/rewrite.md
+afbf4e8	75.8	0.329	8.9	8.0	discard	autoresearch_v2/v2exp013 | rewrite pair HOTAR excludes LIMITA | system/rewrite.md
+afbf4e8	75.1	0.314	9.1	8.2	discard	autoresearch_v2/v2exp021 | rewrite rule blank output uses physical locative functional anchor | system/rewrite.md
+afbf4e8	74.8	0.314	9.1	8.1	discard	autoresearch_v2/v2exp022 | user rewrite blank output becomes object place part role action | user/rewrite.md
+afbf4e8	76.0	0.329	9.0	8.1	discard	autoresearch_v2/v2exp023 | rewrite rule anatomy blanks need body position | system/rewrite.md
+afbf4e8	70.6	0.271	9.0	8.2	discard	autoresearch_v2/v2exp031 | definition example ATAS sidecar object | system/definition.md
+afbf4e8	75.0	0.314	9.1	8.2	discard	autoresearch_v2/v2exp032 | definition example DRUSA crystal cluster | system/definition.md
+afbf4e8	76.3	0.329	9.1	8.1	discard	autoresearch_v2/v2exp033 | definition example TOR architectural molding | system/definition.md

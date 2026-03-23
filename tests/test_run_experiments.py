@@ -64,13 +64,26 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertEqual("rate_rules", mod.EXPERIMENTS[64].family)
         self.assertEqual("confirm_bundles", mod.EXPERIMENTS[-1].family)
 
-    def test_v2_campaign_has_12_unique_experiments(self):
+    def test_v2_campaign_has_40_unique_experiments(self):
         mod = _load_run_experiments_module()
 
-        self.assertEqual(12, len(mod.V2_EXPERIMENTS))
-        self.assertEqual(12, len({exp.name for exp in mod.V2_EXPERIMENTS}))
-        self.assertEqual("micro_rewrite_pairs", mod.V2_EXPERIMENTS[0].family)
-        self.assertEqual("micro_confirm_bundles", mod.V2_EXPERIMENTS[-1].family)
+        self.assertEqual(40, len(mod.V2_EXPERIMENTS))
+        self.assertEqual(40, len({exp.name for exp in mod.V2_EXPERIMENTS}))
+        self.assertEqual("short_word_exactness", mod.V2_EXPERIMENTS[0].family)
+        self.assertEqual("rare_technical_noun_rescue", mod.V2_EXPERIMENTS[-1].family)
+
+    def test_v3_campaign_has_16_unique_experiments(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(16, len(mod.V3_EXPERIMENTS))
+        self.assertEqual(16, len({exp.name for exp in mod.V3_EXPERIMENTS}))
+        self.assertEqual("system_factor_temperatures", mod.V3_EXPERIMENTS[0].family)
+        self.assertEqual("prompt_dedup_cleanup", mod.V3_EXPERIMENTS[-1].family)
+        self.assertEqual("[system]", mod.V3_EXPERIMENTS[0].file)
+        self.assertEqual(
+            {"generate_temperature": 0.20, "rewrite_temperature": 0.30},
+            mod.V3_EXPERIMENTS[0].assessment_overrides,
+        )
 
     def test_cleanup_round_matches_requested_file_order(self):
         mod = _load_run_experiments_module()
@@ -142,6 +155,32 @@ class RunExperimentsTests(unittest.TestCase):
                 mod.PROMPTS_DIR = original_prompts_dir
 
         self.assertFalse(applied)
+
+    def test_best_result_summary_path_lives_under_build_state_root(self):
+        mod = _load_run_experiments_module()
+
+        path = mod.best_result_summary_path(Path("generator/prompts"))
+
+        self.assertEqual(
+            mod.PROJECT_ROOT / "build" / "prompt_experiment_state" / "prompts" / "best_assessment.json",
+            path,
+        )
+
+    def test_load_best_result_summary_falls_back_to_legacy_backup_dir_file(self):
+        mod = _load_run_experiments_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_dir = Path(temp_dir) / "legacy_backup"
+            backup_dir.mkdir(parents=True)
+            payload = {"composite": 81.9}
+            (backup_dir / mod.BEST_ASSESSMENT_JSON).write_text(
+                mod.json.dumps(payload),
+                encoding="utf-8",
+            )
+
+            loaded = mod.load_best_result_summary(backup_dir)
+
+        self.assertEqual(payload, loaded)
 
     def test_protected_regression_detects_high_tier_drop(self):
         mod = _load_run_experiments_module()
@@ -294,6 +333,19 @@ class RunExperimentsTests(unittest.TestCase):
             end_at=None,
             preset="verify-examples",
         ))
+
+    def test_resolve_experiment_window_supports_v3_preset(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(
+            (1, 4),
+            mod.resolve_experiment_window(
+                start_from=None,
+                end_at=None,
+                preset="system-factor-temperatures",
+                experiment_set="v3",
+            ),
+        )
 
     def test_summarize_family_outcomes_marks_family_stale_after_repeated_non_keeps(self):
         mod = _load_run_experiments_module()

@@ -6,7 +6,7 @@ Simulates production two-model workflow:
   Phase 3: PRIMARY evaluates pass2, picks best per word, computes composite
 
 Usage:
-    python3 -m generator.assessment.run_assessment [--description "label"] [--temperature 0.1]
+    python3 -m generator.assessment.run_assessment [--description "label"] [--generate-temperature 0.2] [--rewrite-temperature 0.3]
 """
 
 from __future__ import annotations
@@ -229,20 +229,20 @@ def _git_short_hash() -> str:
 
 def _generate_for_word(
     client, word: str, display_word: str, word_type: str,
-    dex_definitions: str, temperature: float | None,
+    dex_definitions: str, temperature: float | None, model_name: str,
 ) -> str:
     try:
         return generate_definition(
             client, word, display_word, "assessment",
             retries=3, word_type=word_type, dex_definitions=dex_definitions,
-            temperature=temperature,
+            temperature=temperature, model=model_name,
         )
     except Exception as e:
         print(f"  Generate failed: {e}")
         return "[Definiție negenerată]"
 
 
-def _verify_for_word(client, definition: str, length: int, word_type: str, max_guesses: int) -> list[str]:
+def _verify_for_word(client, definition: str, length: int, word_type: str, max_guesses: int, model_name: str) -> list[str]:
     """Returns candidate guessed words, or an empty list on failure."""
     try:
         return verify_definition_candidates(
@@ -251,6 +251,7 @@ def _verify_for_word(client, definition: str, length: int, word_type: str, max_g
             length,
             word_type=word_type,
             max_guesses=max_guesses,
+            model=model_name,
         ).candidates
     except Exception as e:
         print(f"  Verify failed: {e}")
@@ -259,13 +260,13 @@ def _verify_for_word(client, definition: str, length: int, word_type: str, max_g
 
 def _rate_for_word(
     client, word: str, display_word: str, definition: str,
-    length: int, word_type: str, dex_definitions: str,
+    length: int, word_type: str, dex_definitions: str, model_name: str,
 ) -> tuple[int, int, bool]:
     """Returns (semantic, rebus, rated)."""
     try:
         rating = rate_definition(
             client, word, display_word, definition, length,
-            word_type=word_type, dex_definitions=dex_definitions,
+            word_type=word_type, dex_definitions=dex_definitions, model=model_name,
         )
         if rating is not None:
             rebus = compute_rebus_score(rating.guessability_score, rating.creativity_score)
@@ -279,6 +280,8 @@ def _rate_for_word(
 def run_assessment(
     dataset_path: Path = DATASET_PATH,
     temperature: float | None = None,
+    generate_temperature: float | None = None,
+    rewrite_temperature: float | None = None,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> AssessmentResult:
     """Run the multi-model generate → cross-verify → cross-rate pipeline."""
@@ -303,6 +306,8 @@ def run_assessment(
     n = len(candidates)
 
     print(f"Running multi-model assessment on {n} words...")
+    generate_temperature = generate_temperature if generate_temperature is not None else temperature
+    rewrite_temperature = rewrite_temperature if rewrite_temperature is not None else temperature
     total_start = time.monotonic()
 
     # ── Phase 1: PRIMARY generates ────────────────────────────────
@@ -316,7 +321,7 @@ def run_assessment(
         print(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
         c.pass1_definition = _generate_for_word(
             client, c.word, c.display_word, c.word_type,
-            c.dex_definitions, temperature,
+            c.dex_definitions, generate_temperature, PRIMARY_MODEL.model_id,
         )
         if c.pass1_definition.startswith("["):
             print(f"  Skipping — no definition generated")
@@ -336,7 +341,7 @@ def run_assessment(
         if c.pass1_definition.startswith("["):
             continue
         print(f"\n[{i}/{n}] {c.word} — verify+rate pass1")
-        guesses = _verify_for_word(client, c.pass1_definition, c.length, c.word_type, verify_candidates)
+        guesses = _verify_for_word(client, c.pass1_definition, c.length, c.word_type, verify_candidates, SECONDARY_MODEL.model_id)
         c.pass1_guesses = guesses
         c.pass1_verified = c.word in {normalize(guess) for guess in guesses}
         symbol = "✓" if c.pass1_verified else "✗"
@@ -344,7 +349,7 @@ def run_assessment(
 
         semantic, rebus, rated = _rate_for_word(
             client, c.word, c.display_word, c.pass1_definition,
-            c.length, c.word_type, c.dex_definitions,
+            c.length, c.word_type, c.dex_definitions, SECONDARY_MODEL.model_id,
         )
         c.pass1_semantic = semantic
         c.pass1_rebus = rebus
@@ -358,7 +363,7 @@ def run_assessment(
         print(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
         c.pass2_definition = _generate_for_word(
             client, c.word, c.display_word, c.word_type,
-            c.dex_definitions, temperature,
+            c.dex_definitions, rewrite_temperature, SECONDARY_MODEL.model_id,
         )
         if c.pass2_definition.startswith("["):
             print(f"  Skipping — no definition generated")
@@ -378,7 +383,7 @@ def run_assessment(
         if c.pass2_definition.startswith("["):
             continue
         print(f"\n[{i}/{n}] {c.word} — verify+rate pass2")
-        guesses = _verify_for_word(client, c.pass2_definition, c.length, c.word_type, verify_candidates)
+        guesses = _verify_for_word(client, c.pass2_definition, c.length, c.word_type, verify_candidates, PRIMARY_MODEL.model_id)
         c.pass2_guesses = guesses
         c.pass2_verified = c.word in {normalize(guess) for guess in guesses}
         symbol = "✓" if c.pass2_verified else "✗"
@@ -386,7 +391,7 @@ def run_assessment(
 
         semantic, rebus, rated = _rate_for_word(
             client, c.word, c.display_word, c.pass2_definition,
-            c.length, c.word_type, c.dex_definitions,
+            c.length, c.word_type, c.dex_definitions, PRIMARY_MODEL.model_id,
         )
         c.pass2_semantic = semantic
         c.pass2_rebus = rebus
@@ -515,6 +520,14 @@ def main() -> None:
         help="Override generate temperature (default: use function default 0.2)",
     )
     parser.add_argument(
+        "--generate-temperature", type=float, default=None,
+        help="Override pass1 generate temperature (default: --temperature or function default 0.2)",
+    )
+    parser.add_argument(
+        "--rewrite-temperature", type=float, default=None,
+        help="Override pass2 generate temperature (default: --temperature or function default 0.2)",
+    )
+    parser.add_argument(
         "--verify-candidates", type=int, default=VERIFY_CANDIDATE_COUNT,
         help=f"How many verifier candidates to request per definition (default: {VERIFY_CANDIDATE_COUNT})",
     )
@@ -534,6 +547,8 @@ def main() -> None:
         result = run_assessment(
             Path(args.dataset),
             temperature=args.temperature,
+            generate_temperature=args.generate_temperature,
+            rewrite_temperature=args.rewrite_temperature,
             verify_candidates=max(1, args.verify_candidates),
         )
         _print_report(result)

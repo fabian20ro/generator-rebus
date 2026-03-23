@@ -19,9 +19,11 @@ from generator.core.ai_clues import (
 class _RecordingClient:
     def __init__(self, responses):
         self.prompts = []
+        self.calls = []
         queue = list(responses)
 
         def _create(**kwargs):
+            self.calls.append(kwargs)
             self.prompts.append(kwargs["messages"][-1]["content"])
             content = queue.pop(0)
             return SimpleNamespace(
@@ -277,6 +279,52 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(["BAR", "TUN", "ARC"], result.candidates)
+
+    def test_generate_definition_passes_explicit_model(self):
+        client = _RecordingClient(["Locuință obișnuită"])
+
+        generate_definition(
+            client,
+            word="CASA",
+            original="casă",
+            theme="",
+            model="openai/gpt-oss-20b",
+        )
+
+        self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
+
+    def test_verify_definition_candidates_passes_explicit_model(self):
+        client = _RecordingClient(["1. BAR\n2. TUN"])
+
+        verify_definition_candidates(
+            client,
+            "Recipient mare pentru vin",
+            answer_length=3,
+            model="openai/gpt-oss-20b",
+        )
+
+        self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
+
+    def test_rate_definition_passes_explicit_model(self):
+        client = _RecordingClient([
+            json.dumps({
+                "semantic_score": 8,
+                "guessability_score": 7,
+                "creativity_score": 6,
+                "feedback": "Corect.",
+            })
+        ])
+
+        rate_definition(
+            client,
+            word="CASA",
+            original="casă",
+            definition="Locuință",
+            answer_length=4,
+            model="openai/gpt-oss-20b",
+        )
+
+        self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
 
     def test_verify_definition_candidates_filters_wrong_lengths(self):
         client = _RecordingClient(["1. BARIL\n2. TUN\n3. ARC"])

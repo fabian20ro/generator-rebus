@@ -82,6 +82,7 @@ def run_rewrite_loop(
         client,
         skip_words=preset_skip,
         model_label=current_model.display_name,
+        model_name=current_model.model_id,
         max_guesses=verify_candidates,
     )
     rate_working_puzzle(
@@ -90,6 +91,7 @@ def run_rewrite_loop(
         skip_words=preset_skip,
         dex=dex,
         model_label=current_model.display_name,
+        model_name=current_model.model_id,
     )
     for clue in all_working_clues(puzzle):
         _update_best_clue_version(clue, client=client)
@@ -184,6 +186,7 @@ def run_rewrite_loop(
                         retries=3,
                         word_type=clue.word_type,
                         dex_definitions=dex_defs,
+                        model=current_model.model_id,
                     )
                 else:
                     new_definition = rewrite_definition(
@@ -200,6 +203,7 @@ def run_rewrite_loop(
                         word_type=clue.word_type,
                         dex_definitions=dex_defs,
                         failure_history=failure_history or None,
+                        model=current_model.model_id,
                     )
             except Exception as exc:
                 outcome.had_error = True
@@ -240,6 +244,7 @@ def run_rewrite_loop(
             client,
             skip_words=skip_words,
             model_label=current_model.display_name,
+            model_name=current_model.model_id,
             max_guesses=verify_candidates,
         )
         rate_working_puzzle(
@@ -248,6 +253,7 @@ def run_rewrite_loop(
             skip_words=skip_words,
             dex=dex,
             model_label=current_model.display_name,
+            model_name=current_model.model_id,
         )
         for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:

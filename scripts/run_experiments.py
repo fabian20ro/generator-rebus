@@ -42,11 +42,17 @@ from generator.assessment.benchmark_policy import (
     RESEARCH_SIGNAL_MIN_GAINED_WORDS,
     SECONDARY_FRAGILE_WORD_WATCH,
     PILOT_EXPERIMENT_RANGE,
+    V2_CAMPAIGN_STOP_STALE_FAMILIES,
     UNCERTAINTY_DELTA,
     V2_EXPERIMENT_FAMILY_PRIORITY,
     V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
     V2_FAMILY_STOP_REPEAT_PRIMARY,
     V2_FAMILY_STOP_TOTAL_NON_KEEPS,
+    V3_CAMPAIGN_STOP_STALE_FAMILIES,
+    V3_EXPERIMENT_FAMILY_PRIORITY,
+    V3_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
+    V3_FAMILY_STOP_REPEAT_PRIMARY,
+    V3_FAMILY_STOP_TOTAL_NON_KEEPS,
 )
 from generator.core.runtime_logging import install_process_logging, path_timestamp
 
@@ -55,20 +61,30 @@ RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 DEFAULT_EXPERIMENT_LOG = PROJECT_ROOT / "generator" / "assessment" / "experiment_log.json"
 BEST_BACKUP_DIR = Path("/tmp/prompt_experiment_best")
 BEST_ASSESSMENT_JSON = "best_assessment.json"
+BEST_RESULT_STATE_ROOT = PROJECT_ROOT / "build" / "prompt_experiment_state"
 EXPERIMENT_PRESETS = {
     "full": (1, 100),
     "pilot": PILOT_EXPERIMENT_RANGE,
     **EXPERIMENT_BLOCK_RANGES,
 }
 V2_EXPERIMENT_PRESETS = {
-    "full": (1, 12),
-    "micro-rewrite-pairs": (1, 6),
-    "blank-output-concretizers": (7, 10),
-    "micro-confirm-bundles": (11, 12),
+    "full": (1, 40),
+    "short-word-exactness": (1, 10),
+    "near-neighbor-exclusion": (11, 20),
+    "blank-output-concretization": (21, 30),
+    "rare-technical-noun-rescue": (31, 40),
+}
+V3_EXPERIMENT_PRESETS = {
+    "full": (1, 16),
+    "system-factor-temperatures": (1, 4),
+    "verify-minimal-procedural": (5, 8),
+    "rewrite-generic-exclusion": (9, 12),
+    "prompt-dedup-cleanup": (13, 16),
 }
 EXPERIMENT_PRESETS_BY_SET = {
     "v1": EXPERIMENT_PRESETS,
     "v2": V2_EXPERIMENT_PRESETS,
+    "v3": V3_EXPERIMENT_PRESETS,
 }
 TARGET_DIRECTION_BLOCKS = {
     "verify-examples": "verify",
@@ -103,9 +119,7 @@ FAMILY_UNLOCK_REQUIREMENTS = {
         "rate_counterexamples",
     ),
 }
-V2_FAMILY_UNLOCK_REQUIREMENTS = {
-    "micro_confirm_bundles": ("micro_rewrite_pairs", "blank_output_concretizers", "action_result_disambiguators"),
-}
+V2_FAMILY_UNLOCK_REQUIREMENTS: dict[str, tuple[str, ...]] = {}
 
 # ── Prompt file paths ─────────────────────────────────────────────
 SYS_DEFINITION = "system/definition.md"
@@ -137,10 +151,17 @@ class Experiment:
     risk_words: tuple[str, ...] = ()
     target_words: tuple[str, ...] = ()
     prerequisites: tuple[str, ...] = ()
+    assessment_overrides: dict[str, float | int | str] | None = None
+    scope_label: str = ""
 
     @property
     def files(self) -> list[str]:
-        return list(dict.fromkeys(edit.file for edit in self.edits))
+        files = list(dict.fromkeys(edit.file for edit in self.edits))
+        if files:
+            return files
+        if self.scope_label:
+            return [self.scope_label]
+        return ["[system]"]
 
     @property
     def file(self) -> str:
@@ -184,7 +205,12 @@ def _edit_after(file: str, marker: str, new_line: str) -> PromptEdit:
 
 
 def _family_priority(family: str, experiment_set: str = "v1") -> int:
-    priority_order = V2_EXPERIMENT_FAMILY_PRIORITY if experiment_set == "v2" else EXPERIMENT_FAMILY_PRIORITY
+    if experiment_set == "v2":
+        priority_order = V2_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v3":
+        priority_order = V3_EXPERIMENT_FAMILY_PRIORITY
+    else:
+        priority_order = EXPERIMENT_FAMILY_PRIORITY
     try:
         return priority_order.index(family) + 1
     except ValueError:
@@ -862,126 +888,211 @@ _validate_experiments()
 assert len(EXPERIMENTS) == 100, len(EXPERIMENTS)
 V1_EXPERIMENTS = list(EXPERIMENTS)
 
-V2_EXPERIMENTS = [
-    Experiment(
-        "v2exp001",
-        "add rewrite pair OF excludes AH",
-        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru OF, excluzi răspunsuri de tip AH și păstrezi interjecția de durere ori regret.")],
-        family="micro_rewrite_pairs",
-        priority=_family_priority("micro_rewrite_pairs", "v2"),
-        tags=("micro_rewrite_pairs",),
-        target_words=("OF", "AH"),
-    ),
-    Experiment(
-        "v2exp002",
-        "add rewrite pair UZ excludes UT",
-        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru UZ, păstrezi folosirea practică și excluzi ideea de utilitate sau avantaj.")],
-        family="micro_rewrite_pairs",
-        priority=_family_priority("micro_rewrite_pairs", "v2"),
-        tags=("micro_rewrite_pairs",),
-        target_words=("UZ", "UT"),
-    ),
-    Experiment(
-        "v2exp003",
-        "add rewrite pair TAVA excludes VASA",
-        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru TAVA, păstrezi suprafața plată cu margine ridicată și excluzi vasul generic.")],
-        family="micro_rewrite_pairs",
-        priority=_family_priority("micro_rewrite_pairs", "v2"),
-        tags=("micro_rewrite_pairs",),
-        target_words=("TAVA", "VASA"),
-    ),
-    Experiment(
-        "v2exp004",
-        "add rewrite pair MARMOR excludes MARMUR",
-        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru MARMOR, formulezi sensul materialului fără a aluneca spre forma mai uzuală MARMUR.")],
-        family="micro_rewrite_pairs",
-        priority=_family_priority("micro_rewrite_pairs", "v2"),
-        tags=("micro_rewrite_pairs",),
-        target_words=("MARMOR", "MARMUR"),
-    ),
-    Experiment(
-        "v2exp005",
-        "add near-neighbor exclusion instruction to user rewrite",
+def _v2_exp(
+    name: str,
+    desc: str,
+    family: str,
+    edits: list[PromptEdit],
+    *,
+    target_words: tuple[str, ...] = (),
+    risk_words: tuple[str, ...] = (),
+    prerequisites: tuple[str, ...] = (),
+    assessment_overrides: dict[str, float | int | str] | None = None,
+    scope_label: str = "",
+) -> Experiment:
+    return Experiment(
+        name,
+        desc,
+        edits,
+        family=family,
+        priority=_family_priority(family, "v2"),
+        tags=(family,),
+        risk_words=risk_words,
+        target_words=target_words,
+        prerequisites=prerequisites,
+        assessment_overrides=assessment_overrides,
+        scope_label=scope_label,
+    )
+
+
+V2_EXPERIMENTS: list[Experiment] = []
+
+for name, desc, line, targets in [
+    ("v2exp001", "rewrite pair OF excludes AH", "- Pentru OF, păstrezi interjecția de durere ori regret și excluzi exclamația vagă de tip AH.", ("OF", "AH")),
+    ("v2exp002", "rewrite pair UZ excludes UT", "- Pentru UZ, păstrezi folosirea practică și excluzi utilitatea ori avantajul generic.", ("UZ", "UT")),
+    ("v2exp003", "rewrite pair AZ excludes AC", "- Pentru AZ, fixezi ideea de zi de acum și excluzi silaba fără sens temporal.", ("AZ", "AC")),
+    ("v2exp004", "rewrite pair ATU excludes generic advantage", "- Pentru ATU, păstrezi cartea decisivă din joc, nu avantajul generic.", ("ATU",)),
+    ("v2exp005", "rewrite pair IMN excludes ODA", "- Pentru IMN, păstrezi cântecul solemn colectiv, nu oda literară.", ("IMN", "ODA")),
+    ("v2exp006", "rewrite pair AUT excludes automobil abbreviation", "- Pentru AUT, fixezi ieșirea în afara terenului, nu abrevierea pentru automobil.", ("AUT",)),
+    ("v2exp007", "rewrite pair FLU excludes vague descriptor", "- Pentru FLU, păstrezi sensul românesc fixat și excluzi eticheta vagă ori neclară.", ("FLU",)),
+]:
+    V2_EXPERIMENTS.append(
+        _v2_exp(
+            name,
+            desc,
+            "short_word_exactness",
+            [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, line)],
+            target_words=targets,
+        )
+    )
+
+for name, desc, line, targets in [
+    ("v2exp008", "definition example OF exact short sense", "OF -> Interjecție care exprimă durere sau regret", ("OF",)),
+    ("v2exp009", "definition example UZ exact short sense", "UZ -> Faptul de a folosi ceva", ("UZ",)),
+    ("v2exp010", "definition example AZ exact short sense", "AZ -> Ziua de acum", ("AZ",)),
+]:
+    V2_EXPERIMENTS.append(
+        _v2_exp(
+            name,
+            desc,
+            "short_word_exactness",
+            [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, line)],
+            target_words=targets,
+        )
+    )
+
+for name, desc, line, targets in [
+    ("v2exp011", "rewrite pair TAVA excludes VASA", "- Pentru TAVA, păstrezi piesa plată cu margine ridicată și excluzi vasul generic.", ("TAVA", "VASA")),
+    ("v2exp012", "rewrite pair MARMOR excludes MARMUR", "- Pentru MARMOR, formulezi sensul pietrei ornamentale fără a aluneca spre MARMUR.", ("MARMOR", "MARMUR")),
+    ("v2exp013", "rewrite pair HOTAR excludes LIMITA", "- Pentru HOTAR, păstrezi linia de despărțire între locuri, nu limita abstractă generică.", ("HOTAR", "LIMITA")),
+    ("v2exp014", "rewrite pair TRAGACI excludes BUTON", "- Pentru TRAGACI, păstrezi piesa care declanșează focul armei, nu butonul generic.", ("TRAGACI", "BUTON")),
+    ("v2exp015", "rewrite pair FERMENT excludes DROJDIE", "- Pentru FERMENT, păstrezi substanța ori procesul fermentării, nu doar drojdia concretă.", ("FERMENT", "DROJDIE")),
+    ("v2exp016", "rewrite pair UMEZITOR excludes UMEDITAR", "- Pentru UMEZITOR, păstrezi aparatul ori obiectul care face mai umed, nu adjectivul derivat.", ("UMEZITOR",)),
+    ("v2exp017", "rewrite pair STAND excludes BIROU", "- Pentru STAND, păstrezi spațiul de prezentare ori expunere, nu biroul sau masa de lucru.", ("STAND", "BIROU")),
+    ("v2exp018", "rewrite pair DEPARTA excludes RETRAGE", "- Pentru DEPARTA, păstrezi îndepărtarea propriu-zisă, nu retragerea generică.", ("DEPARTA", "RETRAGE")),
+]:
+    V2_EXPERIMENTS.append(
+        _v2_exp(
+            name,
+            desc,
+            "near_neighbor_exclusion",
+            [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, line)],
+            target_words=targets,
+        )
+    )
+
+V2_EXPERIMENTS.append(
+    _v2_exp(
+        "v2exp019",
+        "user rewrite excludes one near neighbor without broadening",
+        "near_neighbor_exclusion",
         [_edit(
             USR_REWRITE,
             "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
-            "Rescrie definiția mai precis și mai scurt. Dacă verificatorul propune un vecin apropiat, adaugi un singur detaliu care îl exclude. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie definiția mai precis și mai scurt. Dacă primul candidat e aproape corect, excluzi doar acel concurent și nu lărgești definiția. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
         )],
-        family="blank_output_concretizers",
-        priority=_family_priority("blank_output_concretizers", "v2"),
-        tags=("blank_output_concretizers",),
-    ),
-    Experiment(
-        "v2exp006",
-        "add blank-output concretizer rule to rewrite",
+    )
+)
+V2_EXPERIMENTS.append(
+    _v2_exp(
+        "v2exp020",
+        "rewrite rule adds one distinctive near-neighbor detail",
+        "near_neighbor_exclusion",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă verificatorul propune un vecin apropiat, adaugi un singur detaliu distinctiv: funcție, material, epocă sau parte anatomică.")],
+    )
+)
+
+for name, desc, edits, targets in [
+    (
+        "v2exp021",
+        "rewrite rule blank output uses physical locative functional anchor",
         [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă verificatorul nu propune nimic, înlocuiești abstracția cu un reper fizic, locativ sau funcțional.")],
-        family="blank_output_concretizers",
-        priority=_family_priority("blank_output_concretizers", "v2"),
-        tags=("blank_output_concretizers",),
+        (),
     ),
-    Experiment(
-        "v2exp007",
-        "add definition positive example EPIGASTRU",
+    (
+        "v2exp022",
+        "user rewrite blank output becomes object place part role action",
+        [_edit(
+            USR_REWRITE,
+            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie definiția mai precis și mai scurt. Dacă verificatorul nu propune nimic, fă definiția mai concretă: obiect, loc, parte, rol sau acțiune vizibilă. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+        )],
+        (),
+    ),
+    (
+        "v2exp023",
+        "rewrite rule anatomy blanks need body position",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- La anatomie și părți de corp, pui poziția exactă în corp înainte de orice stilizare.")],
+        ("EPIGASTRU",),
+    ),
+    (
+        "v2exp024",
+        "rewrite rule rare noun blanks need domain or context",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- La substantive rare fără răspuns, pui domeniul ori contextul concret înaintea oricărei perifraze elegante.")],
+        ("ATAS", "RUT", "DRUSA", "FLIS"),
+    ),
+    (
+        "v2exp025",
+        "rewrite rule action result avoids fapt de a formula",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- La substantive de acțiune, spui actul sau rezultatul concret, nu formula de dicționar «faptul de a».")],
+        ("TRONARE", "ETALARE", "ADEVARA"),
+    ),
+    (
+        "v2exp026",
+        "rewrite rule participles use observable consequence",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- La participii și adjective rezultate, numești consecința observabilă, nu operația abstractă.")],
+        ("LECTURAT", "OFIT"),
+    ),
+    (
+        "v2exp027",
+        "rewrite rule short dex glosses unpack meaning not label",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă sursa dă doar o etichetă scurtă ori meta-definiție, desfaci sensul concret, nu repeți eticheta.")],
+        (),
+    ),
+    (
+        "v2exp028",
+        "user rewrite replaces dictionary formula with visible trait",
+        [_edit(
+            USR_REWRITE,
+            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie definiția mai precis și mai scurt. Dacă totul sună ca o formulă de dicționar, schimbă spre o trăsătură, poziție sau funcție vizibilă. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+        )],
+        (),
+    ),
+    (
+        "v2exp029",
+        "definition example EPIGASTRU with strict body location",
         [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "EPIGASTRU -> Regiune superioară a abdomenului")],
-        family="action_result_disambiguators",
-        priority=_family_priority("action_result_disambiguators", "v2"),
-        tags=("action_result_disambiguators",),
-        target_words=("EPIGASTRU",),
+        ("EPIGASTRU",),
     ),
-    Experiment(
-        "v2exp008",
-        "add definition positive example RUT",
+    (
+        "v2exp030",
+        "definition example RUT with animal breeding period",
         [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "RUT -> Perioadă de împerechere la animale")],
-        family="action_result_disambiguators",
-        priority=_family_priority("action_result_disambiguators", "v2"),
-        tags=("action_result_disambiguators",),
-        target_words=("RUT",),
+        ("RUT",),
     ),
-    Experiment(
-        "v2exp009",
-        "add definition positive example ATAS",
-        [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "ATAS -> Vehicul lateral atașat unei motociclete")],
-        family="action_result_disambiguators",
-        priority=_family_priority("action_result_disambiguators", "v2"),
-        tags=("action_result_disambiguators",),
-        target_words=("ATAS",),
-    ),
-    Experiment(
-        "v2exp010",
-        "add definition positive example ZEU",
-        [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "ZEU -> Divinitate din credințele antice")],
-        family="action_result_disambiguators",
-        priority=_family_priority("action_result_disambiguators", "v2"),
-        tags=("action_result_disambiguators",),
-        target_words=("ZEU",),
-    ),
-    Experiment(
-        "v2exp011",
-        "bundle OF rewrite pair with EPIGASTRU example",
-        [
-            _edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Pentru OF, excluzi răspunsuri de tip AH și păstrezi interjecția de durere ori regret."),
-            _edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "EPIGASTRU -> Regiune superioară a abdomenului"),
-        ],
-        family="micro_confirm_bundles",
-        priority=_family_priority("micro_confirm_bundles", "v2"),
-        tags=("micro_confirm_bundles",),
-        prerequisites=V2_FAMILY_UNLOCK_REQUIREMENTS["micro_confirm_bundles"],
-        target_words=("OF", "EPIGASTRU"),
-    ),
-    Experiment(
-        "v2exp012",
-        "bundle blank-output rewrite rule with ATAS example",
-        [
-            _edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă verificatorul nu propune nimic, înlocuiești abstracția cu un reper fizic, locativ sau funcțional."),
-            _edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, "ATAS -> Vehicul lateral atașat unei motociclete"),
-        ],
-        family="micro_confirm_bundles",
-        priority=_family_priority("micro_confirm_bundles", "v2"),
-        tags=("micro_confirm_bundles",),
-        prerequisites=V2_FAMILY_UNLOCK_REQUIREMENTS["micro_confirm_bundles"],
-        target_words=("ATAS",),
-    ),
-]
+]:
+    V2_EXPERIMENTS.append(
+        _v2_exp(
+            name,
+            desc,
+            "blank_output_concretization",
+            edits,
+            target_words=targets,
+        )
+    )
+
+for name, desc, line, targets in [
+    ("v2exp031", "definition example ATAS sidecar object", "ATAS -> Vehicul lateral atașat unei motociclete", ("ATAS",)),
+    ("v2exp032", "definition example DRUSA crystal cluster", "DRUSA -> Grup natural de cristale pe aceeași rocă", ("DRUSA",)),
+    ("v2exp033", "definition example TOR architectural molding", "TOR -> Mulură convexă la baza unei coloane", ("TOR",)),
+    ("v2exp034", "definition example OFIT dark green ornamental rock", "OFIT -> Rocă ornamentală verde-închis", ("OFIT",)),
+    ("v2exp035", "definition example CEGA sturgeon fish", "CEGA -> Pește de apă dulce din familia sturionilor", ("CEGA",)),
+    ("v2exp036", "definition example OSTIRE army host", "OSTIRE -> Totalitatea ostașilor unei țări", ("OSTIRE",)),
+    ("v2exp037", "definition example FLIS decorative fringe", "FLIS -> Franjură îngustă decorativă de pe o țesătură", ("FLIS",)),
+    ("v2exp038", "definition example ZEU deity sense", "ZEU -> Divinitate din credințele antice", ("ZEU",)),
+    ("v2exp039", "definition example TUR organized visit route", "TUR -> Deplasare organizată pentru vizitare", ("TUR",)),
+    ("v2exp040", "definition example URATURA New Year recitation", "URATURA -> Text ritmat rostit la Anul Nou", ("URATURA",)),
+]:
+    V2_EXPERIMENTS.append(
+        _v2_exp(
+            name,
+            desc,
+            "rare_technical_noun_rescue",
+            [_edit_before(SYS_DEFINITION, DEFINITION_COUNTEREXAMPLES_HEADER, line)],
+            target_words=targets,
+        )
+    )
 
 
 def _validate_experiment_list(experiments: list[Experiment]) -> None:
@@ -989,7 +1100,7 @@ def _validate_experiment_list(experiments: list[Experiment]) -> None:
     for exp in experiments:
         assert exp.name not in seen_names, exp.name
         seen_names.add(exp.name)
-        assert exp.edits, exp.name
+        assert exp.edits or exp.assessment_overrides, exp.name
         for edit in exp.edits:
             assert edit.find, f"{exp.name} has empty find text"
             assert edit.find != edit.replace, f"{exp.name} has no-op replacement"
@@ -997,11 +1108,158 @@ def _validate_experiment_list(experiments: list[Experiment]) -> None:
 
 
 _validate_experiment_list(V2_EXPERIMENTS)
-assert len(V2_EXPERIMENTS) == 12, len(V2_EXPERIMENTS)
+assert len(V2_EXPERIMENTS) == 40, len(V2_EXPERIMENTS)
+
+V3_EXPERIMENTS = [
+    _v2_exp(
+        "v3exp001",
+        "system baseline temperatures generate 0.20 rewrite 0.30",
+        "system_factor_temperatures",
+        [],
+        scope_label="[system]",
+        assessment_overrides={"generate_temperature": 0.20, "rewrite_temperature": 0.30},
+    ),
+    _v2_exp(
+        "v3exp002",
+        "system temperatures generate 0.15 rewrite 0.15",
+        "system_factor_temperatures",
+        [],
+        scope_label="[system]",
+        assessment_overrides={"generate_temperature": 0.15, "rewrite_temperature": 0.15},
+    ),
+    _v2_exp(
+        "v3exp003",
+        "system temperatures generate 0.20 rewrite 0.15",
+        "system_factor_temperatures",
+        [],
+        scope_label="[system]",
+        assessment_overrides={"generate_temperature": 0.20, "rewrite_temperature": 0.15},
+    ),
+    _v2_exp(
+        "v3exp004",
+        "system temperatures generate 0.15 rewrite 0.20",
+        "system_factor_temperatures",
+        [],
+        scope_label="[system]",
+        assessment_overrides={"generate_temperature": 0.15, "rewrite_temperature": 0.20},
+    ),
+    _v2_exp(
+        "v3exp005",
+        "verify compress Romanian-only and remove mental translation line",
+        "verify_minimal_procedural",
+        [_edit(
+            SYS_VERIFY,
+            "- Gândești și răspunzi numai în română.\n- Dacă primul cuvânt care îți vine este în engleză, îl traduci mental și răspunzi în română.\n",
+            "- Lucrezi doar în română.\n",
+        )],
+    ),
+    _v2_exp(
+        "v3exp006",
+        "verify remove broad flexibility guidance",
+        "verify_minimal_procedural",
+        [_edit(
+            SYS_VERIFY,
+            "- Definiția poate folosi un sens figurat sau o referință din alt domeniu. Gândește flexibil.\n",
+            "",
+        )],
+    ),
+    _v2_exp(
+        "v3exp007",
+        "verify shorten process to shortlist and elimination",
+        "verify_minimal_procedural",
+        [_edit(
+            SYS_VERIFY,
+            "Proces de rezolvare:\n1. Citește definiția atent.\n2. Gândește la 1-3 cuvinte românești care se potrivesc.\n3. Verifică pentru fiecare: are exact lungimea cerută?\n4. Păstrează doar variantele care respectă lungimea.\n",
+            "Proces de rezolvare:\n1. Propui 1-3 variante românești.\n2. Elimini formele cu lungime sau flexiune incompatibilă.\n3. Păstrezi doar variantele care se potrivesc exact.\n",
+        )],
+    ),
+    _v2_exp(
+        "v3exp008",
+        "verify trim examples to two short canonical cases",
+        "verify_minimal_procedural",
+        [_edit(
+            SYS_VERIFY,
+            "Exemple:\nDefiniție: Domeniul online al Austriei\nRăspuns: AT\nDefiniție: Țesut dur al scheletului\nRăspuns: OS\nDefiniție: Formă a verbului a avea\nRăspuns: AI\nDefiniție: Substanță gazoasă pe care o respirăm\nRăspuns: AER\nDefiniție: Se trage un semnal de pericol\nRăspuns: ALARMA\n",
+            "Exemple:\nDefiniție: Domeniul online al Austriei\nRăspuns: AT\nDefiniție: Țesut dur al scheletului\nRăspuns: OS\n",
+        )],
+    ),
+    _v2_exp(
+        "v3exp009",
+        "rewrite add universal near-neighbor exclusion rule",
+        "rewrite_generic_exclusion",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă verificatorul propune un vecin apropiat, adaugi un singur detaliu distinctiv și nu lărgești definiția.")],
+    ),
+    _v2_exp(
+        "v3exp010",
+        "rewrite add blank-output concretizer rule",
+        "rewrite_generic_exclusion",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Dacă verificatorul nu propune nimic, concretizezi prin obiect, loc, funcție sau parte.")],
+    ),
+    _v2_exp(
+        "v3exp011",
+        "rewrite add action-result anti-dictionary rule",
+        "rewrite_generic_exclusion",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- La substantive de acțiune sau rezultat, eviți formula de dicționar și numești efectul concret.")],
+    ),
+    _v2_exp(
+        "v3exp012",
+        "user rewrite exclude one competitor only",
+        "rewrite_generic_exclusion",
+        [_edit(
+            USR_REWRITE,
+            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie definiția mai precis și mai scurt. Dacă apare un concurent apropiat, îl excluzi printr-un singur detaliu, fără să lărgești definiția. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+        )],
+    ),
+    _v2_exp(
+        "v3exp013",
+        "definition compress Romanian-only lines",
+        "prompt_dedup_cleanup",
+        [_edit(
+            SYS_DEFINITION,
+            "Ești autor de definiții de rebus în limba română.\nIMPORTANT: Toate cuvintele sunt exclusiv în limba ROMÂNĂ. Chiar dacă arată ca un cuvânt englezesc, definește-l DOAR cu sensul românesc.\n",
+            "Ești autor de definiții de rebus în limba română.\nIMPORTANT: Lucrezi doar cu sensuri românești reale, nu englezești.\n",
+        )],
+    ),
+    _v2_exp(
+        "v3exp014",
+        "definition compress exact-form guidance",
+        "prompt_dedup_cleanup",
+        [_edit(
+            SYS_DEFINITION,
+            "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.\n- Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.\n",
+            "- Pentru cuvinte scurte sau forme gramaticale, formulezi exact forma cerută.\n",
+        )],
+    ),
+    _v2_exp(
+        "v3exp015",
+        "rewrite compress rare-valid-sense guidance",
+        "prompt_dedup_cleanup",
+        [_edit(
+            SYS_REWRITE,
+            "- Dacă termenul are mai multe sensuri românești valide, poți trece la un alt sens DEX mai exact sau mai ghicibil; nu rămâi blocat pe sensul cel mai comun.\n- Nu rescrie definiția spre un alt cuvânt mai uzual; rescrie spre același răspuns, chiar dacă sensul lui bun este mai rar.\n",
+            "- Dacă există mai multe sensuri românești valide, alegi sensul care duce mai exact la același răspuns.\n",
+        )],
+    ),
+    _v2_exp(
+        "v3exp016",
+        "rewrite compress Romanian-only and family rules",
+        "prompt_dedup_cleanup",
+        [_edit(
+            SYS_REWRITE,
+            "IMPORTANT: Definește cuvintele DOAR cu sensul lor românesc, nu englezesc.\nReguli:\n- Răspunzi doar cu definiția finală.\n- Tot textul este exclusiv în română. Nu folosești engleză.\n- Nu incluzi răspunsul și nici derivate evidente ale lui.\n- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n",
+            "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- Răspunzi doar cu definiția finală.\n",
+        )],
+    ),
+]
+
+_validate_experiment_list(V3_EXPERIMENTS)
+assert len(V3_EXPERIMENTS) == 16, len(V3_EXPERIMENTS)
 
 EXPERIMENT_SETS = {
     "v1": V1_EXPERIMENTS,
     "v2": V2_EXPERIMENTS,
+    "v3": V3_EXPERIMENTS,
 }
 EXPERIMENTS = V1_EXPERIMENTS
 
@@ -1109,16 +1367,25 @@ def append_results_row(description: str, status: str, result: dict) -> None:
         )
 
 
+def best_result_summary_path(backup_dir: Path) -> Path:
+    safe_name = backup_dir.name or "default"
+    return BEST_RESULT_STATE_ROOT / safe_name / BEST_ASSESSMENT_JSON
+
+
 def load_best_result_summary(backup_dir: Path) -> dict | None:
-    path = backup_dir / BEST_ASSESSMENT_JSON
-    if not path.exists():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    new_path = best_result_summary_path(backup_dir)
+    if new_path.exists():
+        return json.loads(new_path.read_text(encoding="utf-8"))
+    legacy_path = backup_dir / BEST_ASSESSMENT_JSON
+    if legacy_path.exists():
+        return json.loads(legacy_path.read_text(encoding="utf-8"))
+    return None
 
 
 def save_best_result_summary(backup_dir: Path, result: dict) -> None:
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    (backup_dir / BEST_ASSESSMENT_JSON).write_text(
+    path = best_result_summary_path(backup_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps(result, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -1314,6 +1581,8 @@ def classify_experiment_result(
 
 def apply_experiment(exp: Experiment) -> bool:
     """Apply an experiment's edits atomically. Returns True if applied."""
+    if not exp.edits:
+        return True
     new_contents: dict[Path, str] = {}
 
     for edit in exp.edits:
@@ -1355,6 +1624,8 @@ def build_assessment_description(prefix: str, exp: Experiment) -> str:
 def experiment_index(exp_name: str) -> int:
     if exp_name.startswith("v2exp"):
         return int(exp_name[5:])
+    if exp_name.startswith("v3exp"):
+        return int(exp_name[5:])
     if not exp_name.startswith("exp"):
         raise ValueError(f"Unsupported experiment name: {exp_name}")
     return int(exp_name[3:])
@@ -1363,6 +1634,8 @@ def experiment_index(exp_name: str) -> int:
 def block_name_for_experiment(exp_name: str) -> str:
     if exp_name.startswith("v2exp"):
         return get_experiment(exp_name, "v2").family
+    if exp_name.startswith("v3exp"):
+        return get_experiment(exp_name, "v3").family
     index = experiment_index(exp_name)
     for block_name, (start, end) in EXPERIMENT_BLOCK_RANGES.items():
         if start <= index <= end:
@@ -1376,7 +1649,12 @@ def experiments_for_set(experiment_set: str) -> list[Experiment]:
 
 def get_experiment(name: str, experiment_set: str | None = None) -> Experiment:
     if experiment_set is None:
-        experiment_set = "v2" if name.startswith("v2exp") else "v1"
+        if name.startswith("v2exp"):
+            experiment_set = "v2"
+        elif name.startswith("v3exp"):
+            experiment_set = "v3"
+        else:
+            experiment_set = "v1"
     for exp in experiments_for_set(experiment_set):
         if exp.name == name:
             return exp
@@ -1388,11 +1666,35 @@ def experiments_for_family(family: str, experiment_set: str = "v1") -> list[Expe
 
 
 def family_stop_consecutive_non_keeps(experiment_set: str) -> int:
-    return V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS if experiment_set == "v2" else FAMILY_STOP_CONSECUTIVE_NON_KEEPS
+    if experiment_set == "v2":
+        return V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
+    if experiment_set == "v3":
+        return V3_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
+    return FAMILY_STOP_CONSECUTIVE_NON_KEEPS
 
 
 def family_stop_total_non_keeps(experiment_set: str) -> int:
-    return V2_FAMILY_STOP_TOTAL_NON_KEEPS if experiment_set == "v2" else FAMILY_STOP_TOTAL_NON_KEEPS
+    if experiment_set == "v2":
+        return V2_FAMILY_STOP_TOTAL_NON_KEEPS
+    if experiment_set == "v3":
+        return V3_FAMILY_STOP_TOTAL_NON_KEEPS
+    return FAMILY_STOP_TOTAL_NON_KEEPS
+
+
+def campaign_stop_stale_families(experiment_set: str) -> int:
+    if experiment_set == "v2":
+        return V2_CAMPAIGN_STOP_STALE_FAMILIES
+    if experiment_set == "v3":
+        return V3_CAMPAIGN_STOP_STALE_FAMILIES
+    return CAMPAIGN_STOP_STALE_FAMILIES
+
+
+def family_stop_repeat_primary(experiment_set: str) -> int:
+    if experiment_set == "v2":
+        return V2_FAMILY_STOP_REPEAT_PRIMARY
+    if experiment_set == "v3":
+        return V3_FAMILY_STOP_REPEAT_PRIMARY
+    return V2_FAMILY_STOP_REPEAT_PRIMARY
 
 
 def summarize_cleanup_block(log: list[dict]) -> dict[str, int | bool]:
@@ -1453,14 +1755,14 @@ def summarize_family_outcomes(log: list[dict], family: str, experiment_set: str 
 
     repeated = sorted(word for word, count in collateral_counter.items() if count >= FAMILY_STOP_REPEAT_COLLATERAL)
     summary["repeated_collateral_losers"] = repeated
-    repeated_primary = sorted(word for word, count in primary_fragile_counter.items() if count >= V2_FAMILY_STOP_REPEAT_PRIMARY)
+    repeated_primary = sorted(word for word, count in primary_fragile_counter.items() if count >= family_stop_repeat_primary(experiment_set))
     if summary["consecutive_non_keeps"] >= family_stop_consecutive_non_keeps(experiment_set):
         summary["stale"] = True
         summary["stale_reason"] = "consecutive_non_keeps"
     elif summary["total_non_keeps_since_last_keep"] >= family_stop_total_non_keeps(experiment_set):
         summary["stale"] = True
         summary["stale_reason"] = "total_non_keeps"
-    elif experiment_set == "v2" and repeated_primary:
+    elif experiment_set in {"v2", "v3"} and repeated_primary:
         summary["stale"] = True
         summary["stale_reason"] = "repeated_primary_fragile_losers"
     elif repeated:
@@ -1699,6 +2001,7 @@ def run_assessment(
     assessment_log_path: Path | None = None,
     assessment_json_path: Path | None = None,
     stream_output: bool = False,
+    assessment_overrides: dict[str, float | int | str] | None = None,
 ) -> dict:
     """Run the multi-model assessment and return parsed results."""
     cmd = [
@@ -1708,6 +2011,9 @@ def run_assessment(
     ]
     if assessment_json_path is not None:
         cmd.extend(["--json-out", str(assessment_json_path)])
+    for key, value in (assessment_overrides or {}).items():
+        flag = f"--{str(key).replace('_', '-')}"
+        cmd.extend([flag, str(value)])
     print(f"  Running assessment: {description}")
     if assessment_log_path is not None:
         assessment_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1943,6 +2249,7 @@ def main() -> None:
                     assessment_log_path=assessment_log_path,
                     assessment_json_path=assessment_json_path,
                     stream_output=args.stream_assessment_output,
+                    assessment_overrides=exp.assessment_overrides,
                 )
             except KeyboardInterrupt:
                 print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
@@ -2032,6 +2339,7 @@ def main() -> None:
                 "priority": exp.priority,
                 "target_words": list(exp.target_words),
                 "prerequisites": list(exp.prerequisites),
+                "assessment_overrides": dict(exp.assessment_overrides or {}),
                 "word_signal": decision.signal.to_dict(),
                 "control_watch": control_watch,
             }

@@ -75,6 +75,12 @@
 
 **[2026-03-23]** Repeated collateral losers deserve their own watchlist, distinct from high-tier controls — a prompt change can keep headline controls stable while still repeatedly breaking the same medium/common words (`AZ`, `MIRE`, `SAN`, etc.). Track those fragile words explicitly in classifier and family-stop logic so prompt research stops on recurring regressions earlier.
 
+**[2026-03-23]** Maintenance-only autoresearch commands must stay side-effect free — flags like `--rebuild-state` and `--status` are recovery tools, not trial launchers. If a repair/status path can also start assessments, a “safe resume” tool becomes a source of accidental prompt drift and wasted benchmark runs. Return immediately after rebuild/status work, and make audit writers create parent directories lazily so these maintenance paths also work in isolated temp-state tests.
+
+**[2026-03-23]** Benchmark runner state artifacts should live under a gitignored build/state root, never beside live prompt source — files like `best_assessment.json` are experiment cache, not prompt inputs. If they sit under `generator/prompts/`, they look committable and can confuse prompt diffs. Save them under `build/` and keep only read-only fallback support for legacy locations.
+
+**[2026-03-23]** Autoresearch rebuilds must refresh both snapshot paths and the live prompt tree after swapping temp state into place — if `seed_prompt_snapshot` still points at the temporary rebuild dir, or if `generator/prompts/` is not restored from the rebuilt incumbent snapshot, the next validator run reports a false incumbent mismatch even though the durable state itself is correct.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

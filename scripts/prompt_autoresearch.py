@@ -7,17 +7,14 @@ import argparse
 import json
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from generator.assessment.benchmark_policy import (
-    CAMPAIGN_STOP_STALE_FAMILIES,
-    CONTROL_WORD_WATCH,
-    WORKING_BASELINE_DESCRIPTION,
-)
+from generator.assessment.benchmark_policy import CONTROL_WORD_WATCH, WORKING_BASELINE_DESCRIPTION
 from generator.core.runtime_logging import audit, install_process_logging, path_timestamp
 from scripts import run_experiments as runner
 
@@ -31,6 +28,7 @@ INCUMBENT_FILENAME = "incumbent.json"
 EVENTS_FILENAME = "events.jsonl"
 TRIALS_DIRNAME = "trials"
 SNAPSHOTS_DIRNAME = "snapshots"
+SEED_PROMPTS_DIRNAME = "seed_prompts"
 INCUMBENT_PROMPTS_DIRNAME = "incumbent_prompts"
 TRIAL_PROMPTS_DIRNAME = "trial_prompts"
 RUN_LOG_FILENAME = "current_run.log"
@@ -90,6 +88,7 @@ def family_paths(state_dir: Path) -> dict[str, Path]:
         "events": state_dir / EVENTS_FILENAME,
         "trials": state_dir / TRIALS_DIRNAME,
         "snapshots": state_dir / SNAPSHOTS_DIRNAME,
+        "seed_prompts": state_dir / SNAPSHOTS_DIRNAME / SEED_PROMPTS_DIRNAME,
         "incumbent_prompts": state_dir / SNAPSHOTS_DIRNAME / INCUMBENT_PROMPTS_DIRNAME,
         "trial_prompts": state_dir / SNAPSHOTS_DIRNAME / TRIAL_PROMPTS_DIRNAME,
         "run_log": state_dir / RUN_LOG_FILENAME,
@@ -129,8 +128,29 @@ def resolve_baseline_json_path(state: dict, baseline_json: Path | None) -> Path 
     return Path(value) if value else None
 
 
+def resolve_seed_prompts_path(state: dict, seed_prompts_dir: Path | None) -> Path | None:
+    if seed_prompts_dir is not None:
+        return seed_prompts_dir
+    value = state.get("seed_prompt_snapshot")
+    return Path(value) if value else None
+
+
+def infer_seed_prompts_dir(baseline_json: Path | None) -> Path | None:
+    if baseline_json is None:
+        return None
+    candidate = baseline_json.parent / SNAPSHOTS_DIRNAME / INCUMBENT_PROMPTS_DIRNAME
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def default_families(experiment_set: str = DEFAULT_EXPERIMENT_SET) -> dict[str, dict[str, object]]:
-    priority = runner.V2_EXPERIMENT_FAMILY_PRIORITY if experiment_set == "v2" else runner.EXPERIMENT_FAMILY_PRIORITY
+    if experiment_set == "v2":
+        priority = runner.V2_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v3":
+        priority = runner.V3_EXPERIMENT_FAMILY_PRIORITY
+    else:
+        priority = runner.EXPERIMENT_FAMILY_PRIORITY
     families = {name: default_family_state(name) for name in priority}
     for exp in runner.experiments_for_set(experiment_set):
         families.setdefault(exp.family, default_family_state(exp.family))
@@ -221,7 +241,7 @@ def update_family_state(family_state: dict[str, object], entry: dict[str, object
         word for word, count in loss_counts.items() if count >= runner.FAMILY_STOP_REPEAT_COLLATERAL
     )
     family_state["repeated_primary_fragile_losers"] = sorted(
-        word for word, count in primary_loss_counts.items() if count >= runner.V2_FAMILY_STOP_REPEAT_PRIMARY
+        word for word, count in primary_loss_counts.items() if count >= runner.family_stop_repeat_primary(experiment_set)
     )
 
     if int(family_state["consecutive_non_keeps"]) >= runner.family_stop_consecutive_non_keeps(experiment_set):
@@ -230,7 +250,7 @@ def update_family_state(family_state: dict[str, object], entry: dict[str, object
     elif int(family_state["total_non_keeps_since_last_keep"]) >= runner.family_stop_total_non_keeps(experiment_set):
         family_state["stale"] = True
         family_state["stale_reason"] = "total_non_keeps"
-    elif experiment_set == "v2" and family_state["repeated_primary_fragile_losers"]:
+    elif experiment_set in {"v2", "v3"} and family_state["repeated_primary_fragile_losers"]:
         family_state["stale"] = True
         family_state["stale_reason"] = "repeated_primary_fragile_losers"
     elif family_state["repeated_collateral_losers"]:
@@ -258,6 +278,7 @@ def build_trial_record(
         "target_words": list(exp.target_words),
         "risk_words": list(exp.risk_words),
         "prerequisites": list(exp.prerequisites),
+        "assessment_overrides": dict(exp.assessment_overrides or {}),
         "patch": [
             {"file": edit.file, "find": edit.find, "replace": edit.replace}
             for edit in exp.edits
@@ -366,10 +387,17 @@ def initialize_state(
     incumbent_payload: dict,
     campaign_log: Path | None,
     baseline_json: Path | None,
+    seed_prompts_dir: Path | None,
     experiment_set: str = DEFAULT_EXPERIMENT_SET,
 ) -> tuple[dict, dict[str, dict[str, object]], dict]:
     paths = family_paths(state_dir)
-    copy_prompt_tree(paths["incumbent_prompts"])
+    source_prompts = seed_prompts_dir or infer_seed_prompts_dir(baseline_json) or runner.PROMPTS_DIR
+    if paths["seed_prompts"].exists():
+        shutil.rmtree(paths["seed_prompts"])
+    shutil.copytree(source_prompts, paths["seed_prompts"])
+    if paths["incumbent_prompts"].exists():
+        shutil.rmtree(paths["incumbent_prompts"])
+    shutil.copytree(paths["seed_prompts"], paths["incumbent_prompts"])
     attempted_experiments: list[str] = []
     if campaign_log and campaign_log.exists():
         reclassified, incumbent_payload, families = replay_campaign_log(
@@ -395,6 +423,7 @@ def initialize_state(
         "incumbent_composite": float(incumbent_payload["composite"]),
         "incumbent_pass_rate": float(incumbent_payload["pass_rate"]),
         "incumbent_prompt_snapshot": str(paths["incumbent_prompts"]),
+        "seed_prompt_snapshot": str(paths["seed_prompts"]),
         "active_trial": None,
         "stop_reason": None,
         "campaign_log": str(campaign_log) if campaign_log is not None else None,
@@ -415,6 +444,7 @@ def load_or_initialize_state(
     state_dir: Path,
     campaign_log: Path | None,
     baseline_json: Path | None,
+    seed_prompts_dir: Path | None,
     experiment_set: str = DEFAULT_EXPERIMENT_SET,
 ) -> tuple[dict, dict[str, dict[str, object]], dict]:
     paths = family_paths(state_dir)
@@ -423,12 +453,14 @@ def load_or_initialize_state(
             state_dir=state_dir,
             campaign_log=campaign_log,
             baseline_json=baseline_json,
+            seed_prompts_dir=seed_prompts_dir,
             experiment_set=experiment_set,
         )
     return bootstrap_from_campaign(
         state_dir=state_dir,
         campaign_log=campaign_log,
         baseline_json=baseline_json,
+        seed_prompts_dir=seed_prompts_dir,
         experiment_set=experiment_set,
     )
 
@@ -460,6 +492,67 @@ def recover_if_interrupted(state_dir: Path, state: dict) -> None:
     audit("prompt_autoresearch_recovered", payload={"trial": active_trial["id"]})
 
 
+def snapshot_dirs_match(expected_dir: Path, actual_dir: Path) -> bool:
+    expected_files = sorted(p.relative_to(expected_dir) for p in expected_dir.rglob("*.md"))
+    actual_files = sorted(p.relative_to(actual_dir) for p in actual_dir.rglob("*.md"))
+    if expected_files != actual_files:
+        return False
+    for rel in expected_files:
+        if (expected_dir / rel).read_text(encoding="utf-8") != (actual_dir / rel).read_text(encoding="utf-8"):
+            return False
+    return True
+
+
+def _trial_status_map(state_dir: Path, state: dict, campaign_log: Path | None) -> dict[str, str]:
+    paths = family_paths(state_dir)
+    status_map: dict[str, str] = {}
+    for exp_name in state.get("attempted_experiments", []):
+        trial_path = paths["trials"] / f"{exp_name}.json"
+        if trial_path.exists():
+            trial = load_json(trial_path, {})
+            if trial.get("status"):
+                status_map[exp_name] = str(trial["status"])
+    if campaign_log and campaign_log.exists():
+        for entry in load_json(campaign_log, []):
+            if entry.get("name") and entry.get("status"):
+                status_map.setdefault(str(entry["name"]), str(entry["status"]))
+    return status_map
+
+
+def incumbent_snapshot_matches_kept_experiments(
+    *,
+    state_dir: Path,
+    state: dict,
+    campaign_log: Path | None,
+) -> tuple[bool, str | None]:
+    paths = family_paths(state_dir)
+    if not paths["seed_prompts"].exists() or not paths["incumbent_prompts"].exists():
+        return True, None
+
+    status_map = _trial_status_map(state_dir, state, campaign_log)
+    attempted = list(state.get("attempted_experiments", []))
+    with tempfile.TemporaryDirectory(prefix="expected-incumbent-") as tmpdir:
+        expected_dir = Path(tmpdir) / "expected_prompts"
+        shutil.copytree(paths["seed_prompts"], expected_dir)
+        original_prompts_dir = runner.PROMPTS_DIR
+        runner.PROMPTS_DIR = expected_dir
+        try:
+            for exp_name in attempted:
+                if status_map.get(exp_name) != "keep":
+                    continue
+                exp = runner.get_experiment(exp_name, str(state.get("experiment_set") or DEFAULT_EXPERIMENT_SET))
+                if not runner.apply_experiment(exp):
+                    return False, f"failed to reconstruct keep experiment {exp_name}"
+        finally:
+            runner.PROMPTS_DIR = original_prompts_dir
+
+        if snapshot_dirs_match(expected_dir, paths["incumbent_prompts"]):
+            return True, None
+        if any(status_map.get(exp_name) == "skipped" for exp_name in attempted):
+            return False, "incumbent snapshot mismatch; skipped experiment leakage suspected"
+        return False, "incumbent snapshot mismatch against kept experiments"
+
+
 def validate_state(
     *,
     state_dir: Path,
@@ -489,6 +582,14 @@ def validate_state(
     if state.get("status") in {"idle", "stopped"} and not prompt_tree_matches_snapshot(paths["incumbent_prompts"]):
         return False, "prompt tree does not match incumbent snapshot"
 
+    incumbent_ok, incumbent_reason = incumbent_snapshot_matches_kept_experiments(
+        state_dir=state_dir,
+        state=state,
+        campaign_log=campaign_log,
+    )
+    if not incumbent_ok:
+        return False, incumbent_reason
+
     attempted = set(state.get("attempted_experiments", []))
     logged = set()
     if campaign_log and campaign_log.exists():
@@ -516,6 +617,7 @@ def bootstrap_from_campaign(
     state_dir: Path,
     campaign_log: Path | None,
     baseline_json: Path | None,
+    seed_prompts_dir: Path | None,
     experiment_set: str = DEFAULT_EXPERIMENT_SET,
 ) -> tuple[dict, dict[str, dict[str, object]], dict]:
     incumbent_payload = current_incumbent_payload(campaign_log, baseline_json)
@@ -524,6 +626,7 @@ def bootstrap_from_campaign(
         incumbent_payload=incumbent_payload,
         campaign_log=campaign_log,
         baseline_json=baseline_json,
+        seed_prompts_dir=seed_prompts_dir,
         experiment_set=experiment_set,
     )
 
@@ -533,6 +636,7 @@ def rebuild_state_from_campaign(
     state_dir: Path,
     campaign_log: Path | None,
     baseline_json: Path | None,
+    seed_prompts_dir: Path | None,
     experiment_set: str = DEFAULT_EXPERIMENT_SET,
 ) -> tuple[dict, dict[str, dict[str, object]], dict]:
     tmp_dir = state_dir.with_name(f"{state_dir.name}.rebuild_tmp")
@@ -542,6 +646,7 @@ def rebuild_state_from_campaign(
         state_dir=tmp_dir,
         campaign_log=campaign_log,
         baseline_json=baseline_json,
+        seed_prompts_dir=seed_prompts_dir,
         experiment_set=experiment_set,
     )
     if state_dir.exists():
@@ -551,8 +656,10 @@ def rebuild_state_from_campaign(
     state = load_json(paths["state"], {})
     families = load_json(paths["families"], default_families(DEFAULT_EXPERIMENT_SET))
     incumbent = load_json(paths["incumbent"], {})
+    state["seed_prompt_snapshot"] = str(paths["seed_prompts"])
     state["incumbent_prompt_snapshot"] = str(paths["incumbent_prompts"])
     persist_campaign_state(state_dir, state, families, incumbent)
+    restore_prompt_tree(paths["incumbent_prompts"])
     return state, families, incumbent
 
 
@@ -561,12 +668,14 @@ def resume_existing_state(
     state_dir: Path,
     campaign_log: Path | None,
     baseline_json: Path | None,
+    seed_prompts_dir: Path | None,
     experiment_set: str = DEFAULT_EXPERIMENT_SET,
 ) -> tuple[dict, dict[str, dict[str, object]], dict]:
     paths = family_paths(state_dir)
     state = load_json(paths["state"], {})
     campaign_log = resolve_campaign_log_path(state, campaign_log)
     baseline_json = resolve_baseline_json_path(state, baseline_json)
+    seed_prompts_dir = resolve_seed_prompts_path(state, seed_prompts_dir) or infer_seed_prompts_dir(baseline_json)
     experiment_set = str(state.get("experiment_set") or experiment_set)
     families = load_json(paths["families"], default_families(experiment_set))
     incumbent = load_json(paths["incumbent"], {})
@@ -586,6 +695,7 @@ def resume_existing_state(
             state_dir=state_dir,
             campaign_log=campaign_log,
             baseline_json=baseline_json,
+            seed_prompts_dir=seed_prompts_dir,
             experiment_set=experiment_set,
         )
     except Exception as exc:
@@ -637,7 +747,12 @@ def select_next_experiment(
             if available:
                 return sorted(available, key=lambda exp: (exp.priority, exp.name))[0]
 
-    family_priority = runner.V2_EXPERIMENT_FAMILY_PRIORITY if experiment_set == "v2" else runner.EXPERIMENT_FAMILY_PRIORITY
+    if experiment_set == "v2":
+        family_priority = runner.V2_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v3":
+        family_priority = runner.V3_EXPERIMENT_FAMILY_PRIORITY
+    else:
+        family_priority = runner.EXPERIMENT_FAMILY_PRIORITY
     for family in family_priority:
         family_state = families.get(family, {})
         if family_state.get("stale"):
@@ -660,6 +775,7 @@ def run_supervisor(
     state_dir: Path,
     campaign_log: Path | None,
     baseline_json: Path | None,
+    seed_prompts_dir: Path | None,
     max_trials: int | None,
     description_prefix: str,
     dry_run: bool,
@@ -670,6 +786,7 @@ def run_supervisor(
         state_dir=state_dir,
         campaign_log=campaign_log,
         baseline_json=baseline_json,
+        seed_prompts_dir=seed_prompts_dir,
         experiment_set=experiment_set,
     )
     recover_if_interrupted(state_dir, state)
@@ -739,6 +856,7 @@ def run_supervisor(
                 assessment_log_path=assessment_log_path,
                 assessment_json_path=assessment_json_path,
                 stream_output=False,
+                assessment_overrides=exp.assessment_overrides,
             )
         except KeyboardInterrupt:
             restore_prompt_tree(paths["incumbent_prompts"])
@@ -823,8 +941,8 @@ def run_supervisor(
                     "experiment": exp.name,
                 },
             )
-        if int(state.get("stale_family_streak", 0)) >= CAMPAIGN_STOP_STALE_FAMILIES:
-            safe_stop(state, reason="three consecutive stale families")
+        if int(state.get("stale_family_streak", 0)) >= runner.campaign_stop_stale_families(experiment_set):
+            safe_stop(state, reason=f"{runner.campaign_stop_stale_families(experiment_set)} consecutive stale families")
             persist_campaign_state(state_dir, state, families, incumbent)
             audit("campaign_stopped", payload={"reason": state["stop_reason"]})
             return 0
@@ -861,6 +979,7 @@ def main() -> None:
     parser.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR)
     parser.add_argument("--campaign-log", type=Path, help="Existing experiment log to import/reclassify")
     parser.add_argument("--baseline-json", type=Path, help="Baseline/incumbent assessment JSON")
+    parser.add_argument("--seed-prompts-dir", type=Path, help="Seed prompt snapshot used to reconstruct the incumbent")
     parser.add_argument("--experiment-set", choices=sorted(runner.EXPERIMENT_SETS), default=DEFAULT_EXPERIMENT_SET)
     parser.add_argument("--max-trials", type=int, help="Run at most N new trials")
     parser.add_argument("--continuous", action="store_true", help="Run until safe-stop instead of stopping after N trials")
@@ -887,6 +1006,7 @@ def main() -> None:
                     state_dir=args.state_dir,
                     campaign_log=args.campaign_log,
                     baseline_json=args.baseline_json,
+                    seed_prompts_dir=args.seed_prompts_dir,
                     experiment_set=args.experiment_set,
                 )
                 valid, reason = validate_state(
@@ -910,7 +1030,7 @@ def main() -> None:
                             print("No viable experiment available.")
                         else:
                             print(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
-                    return
+                return
             if args.status and paths["state"].exists():
                 state = load_json(paths["state"], {})
                 families = load_json(paths["families"], default_families(str(state.get("experiment_set") or DEFAULT_EXPERIMENT_SET)))
@@ -934,6 +1054,7 @@ def main() -> None:
                 state_dir=args.state_dir,
                 campaign_log=args.campaign_log,
                 baseline_json=args.baseline_json,
+                seed_prompts_dir=args.seed_prompts_dir,
                 max_trials=None if args.continuous else args.max_trials,
                 description_prefix=args.description_prefix,
                 dry_run=args.dry_run,

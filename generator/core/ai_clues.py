@@ -148,6 +148,10 @@ def create_client() -> OpenAI:
     )
 
 
+def _resolve_model_name(model: str | None) -> str:
+    return model or "default"
+
+
 def _clean_response(text: str | None) -> str:
     text = (text or "").strip().strip('"').strip("'")
     text = re.sub(r"<\|[^|]*\|>", "", text).strip()
@@ -495,6 +499,7 @@ def generate_definition(
     word_type: str = "",
     dex_definitions: str = "",
     temperature: float | None = None,
+    model: str | None = None,
 ) -> str:
     """Generate a single clue definition."""
     display_word = original if original else word.lower()
@@ -507,7 +512,7 @@ def generate_definition(
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
-                model="default",
+                model=_resolve_model_name(model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
@@ -551,6 +556,7 @@ def rewrite_definition(
     failure_history: list[tuple[str, list[str]]] | None = None,
     wrong_guesses: list[str] | None = None,
     temperature: float | None = None,
+    model: str | None = None,
 ) -> str:
     """Rewrite a failed or low-rated clue using feedback."""
     display_word = original if original else word.lower()
@@ -582,7 +588,7 @@ def rewrite_definition(
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
-                model="default",
+                model=_resolve_model_name(model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
@@ -616,6 +622,7 @@ def verify_definition_candidates(
     answer_length: int,
     word_type: str = "",
     max_guesses: int = VERIFY_CANDIDATE_COUNT,
+    model: str | None = None,
 ) -> VerifyResult:
     """Ask AI to suggest up to max_guesses candidate answers for a clue definition."""
     prompt = _build_verify_prompt(
@@ -628,7 +635,7 @@ def verify_definition_candidates(
     last_candidates: list[str] = []
     for attempt in range(2):
         response = client.chat.completions.create(
-            model="default",
+            model=_resolve_model_name(model),
             messages=[
                 {"role": "system", "content": load_system_prompt("verify")},
                 {"role": "user", "content": prompt},
@@ -654,6 +661,7 @@ def verify_definition(client: OpenAI, definition: str, answer_length: int, word_
         answer_length,
         word_type=word_type,
         max_guesses=1,
+        model=None,
     ).primary_guess
 
 
@@ -665,6 +673,7 @@ def rate_definition(
     answer_length: int,
     word_type: str = "",
     dex_definitions: str = "",
+    model: str | None = None,
 ) -> DefinitionRating | None:
     """Rate a definition's semantic quality and guessability.
 
@@ -678,7 +687,7 @@ def rate_definition(
     for attempt in range(2):
         try:
             response = client.chat.completions.create(
-                model="default",
+                model=_resolve_model_name(model),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
@@ -729,11 +738,12 @@ def choose_better_clue_variant(
     answer_length: int,
     definition_a: str,
     definition_b: str,
+    model: str | None = None,
 ) -> str:
     prompt = _build_clue_tiebreak_prompt(word, answer_length, definition_a, definition_b)
     try:
         response = client.chat.completions.create(
-            model="default",
+            model=_resolve_model_name(model),
             messages=[
                 {"role": "system", "content": load_system_prompt("clue_tiebreaker")},
                 {"role": "user", "content": prompt},
@@ -750,11 +760,12 @@ def choose_better_puzzle_variant(
     client: OpenAI,
     summary_a: str,
     summary_b: str,
+    model: str | None = None,
 ) -> str:
     prompt = _build_puzzle_tiebreak_prompt(summary_a, summary_b)
     try:
         response = client.chat.completions.create(
-            model="default",
+            model=_resolve_model_name(model),
             messages=[
                 {"role": "system", "content": load_system_prompt("puzzle_tiebreaker")},
                 {"role": "user", "content": prompt},

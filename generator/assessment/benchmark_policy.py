@@ -13,9 +13,14 @@ FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 4
 FAMILY_STOP_TOTAL_NON_KEEPS = 6
 FAMILY_STOP_REPEAT_COLLATERAL = 3
 CAMPAIGN_STOP_STALE_FAMILIES = 3
-V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 3
-V2_FAMILY_STOP_TOTAL_NON_KEEPS = 3
-V2_FAMILY_STOP_REPEAT_PRIMARY = 2
+V2_CAMPAIGN_STOP_STALE_FAMILIES = 4
+V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 10
+V2_FAMILY_STOP_TOTAL_NON_KEEPS = 10
+V2_FAMILY_STOP_REPEAT_PRIMARY = 4
+V3_CAMPAIGN_STOP_STALE_FAMILIES = 4
+V3_FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 3
+V3_FAMILY_STOP_TOTAL_NON_KEEPS = 3
+V3_FAMILY_STOP_REPEAT_PRIMARY = 3
 WORKING_DATASET_TIER_COUNTS = {
     "low": 30,
     "medium": 25,
@@ -72,10 +77,16 @@ EXPERIMENT_FAMILY_PRIORITY = (
     "cleanup",
 )
 V2_EXPERIMENT_FAMILY_PRIORITY = (
-    "micro_rewrite_pairs",
-    "blank_output_concretizers",
-    "action_result_disambiguators",
-    "micro_confirm_bundles",
+    "short_word_exactness",
+    "near_neighbor_exclusion",
+    "blank_output_concretization",
+    "rare_technical_noun_rescue",
+)
+V3_EXPERIMENT_FAMILY_PRIORITY = (
+    "system_factor_temperatures",
+    "verify_minimal_procedural",
+    "rewrite_generic_exclusion",
+    "prompt_dedup_cleanup",
 )
 
 

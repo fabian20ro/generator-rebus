@@ -57,6 +57,7 @@ def _verify_clues(
     skip_words: set[str] | None = None,
     *,
     model_label: str = "",
+    model_name: str | None = None,
     max_guesses: int = VERIFY_CANDIDATE_COUNT,
 ) -> list[WorkingClue]:
     """Verify each clue by asking AI to guess the word."""
@@ -95,6 +96,7 @@ def _verify_clues(
                 len(clue.word_normalized),
                 word_type=clue.word_type,
                 max_guesses=max_guesses,
+                model=model_name,
             )
         except Exception as e:
             verify_result = None
@@ -155,6 +157,7 @@ def _rate_clues(
     dex: DexProvider | None = None,
     *,
     model_label: str = "",
+    model_name: str | None = None,
 ) -> None:
     """Rate each usable clue definition quality in-place."""
     for clue in clues:
@@ -176,6 +179,7 @@ def _rate_clues(
                 len(clue.word_normalized),
                 word_type=clue.word_type,
                 dex_definitions=dex_defs,
+                model=model_name,
             )
         except Exception:
             rating = None
@@ -236,6 +240,7 @@ def verify_working_puzzle(
     skip_words: set[str] | None = None,
     *,
     model_label: str = "",
+    model_name: str | None = None,
     max_guesses: int = VERIFY_CANDIDATE_COUNT,
 ) -> tuple[int, int]:
     """Verify all clue definitions in-place and return (passed, total)."""
@@ -245,6 +250,7 @@ def verify_working_puzzle(
         client,
         skip_words=skip_words,
         model_label=model_label,
+        model_name=model_name,
         max_guesses=max_guesses,
     )
 
@@ -254,6 +260,7 @@ def verify_working_puzzle(
         client,
         skip_words=skip_words,
         model_label=model_label,
+        model_name=model_name,
         max_guesses=max_guesses,
     )
 
@@ -269,16 +276,17 @@ def rate_working_puzzle(
     dex: DexProvider | None = None,
     *,
     model_label: str = "",
+    model_name: str | None = None,
 ) -> tuple[float, float, int]:
     """Rate all usable definitions in-place."""
     print("Rating horizontal definitions...")
     _rate_clues(
-        puzzle.horizontal_clues, client, skip_words=skip_words, dex=dex, model_label=model_label,
+        puzzle.horizontal_clues, client, skip_words=skip_words, dex=dex, model_label=model_label, model_name=model_name,
     )
 
     print("Rating vertical definitions...")
     _rate_clues(
-        puzzle.vertical_clues, client, skip_words=skip_words, dex=dex, model_label=model_label,
+        puzzle.vertical_clues, client, skip_words=skip_words, dex=dex, model_label=model_label, model_name=model_name,
     )
 
     semantic_scores = []

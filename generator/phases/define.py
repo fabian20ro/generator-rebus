@@ -77,7 +77,7 @@ def generate_definitions_for_state(
             try:
                 definition = generate_definition(
                     client, clue.word_normalized, clue.word_original, theme,
-                    word_type=clue.word_type, dex_definitions=dex_defs,
+                    word_type=clue.word_type, dex_definitions=dex_defs, model=generated_model or "default",
                 )
             except Exception as e:
                 definition = f"[Definiție lipsă: {e}]"
