@@ -88,6 +88,30 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         min_preparation_attempts=40,
         max_full_width_slots=5,
     ),
+    13: SizeSettings(
+        max_rarity=5,
+        max_backtracks=650_000,
+        target_blacks=28,
+        solved_candidates=3,
+        attempt_budget=130,
+        max_two_letter_slots=30,
+        min_candidates_per_slot=8,
+        template_attempts=1_650,
+        min_preparation_attempts=1,
+        max_full_width_slots=6,
+    ),
+    14: SizeSettings(
+        max_rarity=5,
+        max_backtracks=850_000,
+        target_blacks=40,
+        solved_candidates=2,
+        attempt_budget=140,
+        max_two_letter_slots=40,
+        min_candidates_per_slot=6,
+        template_attempts=1_900,
+        min_preparation_attempts=1,
+        max_full_width_slots=7,
+    ),
     15: SizeSettings(
         max_rarity=5,
         max_backtracks=420_000,
@@ -97,13 +121,13 @@ SIZE_SETTINGS: dict[int, SizeSettings] = {
         max_two_letter_slots=50,
         min_candidates_per_slot=4,
         template_attempts=1_800,
-        min_preparation_attempts=50,
+        min_preparation_attempts=1,
     ),
 }
 
 
 SUPPORTED_GRID_SIZES = tuple(sorted(SIZE_SETTINGS))
-DEFAULT_BATCH_SIZES = (7, 8, 9, 10, 11, 12)
+DEFAULT_BATCH_SIZES = (7, 8, 9, 10, 11, 12, 13, 14, 15)
 OVERNIGHT_LOOP_SIZES = DEFAULT_BATCH_SIZES
 
 

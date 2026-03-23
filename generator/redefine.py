@@ -118,6 +118,7 @@ def rewrite_puzzle_definitions(
         theme=puzzle.title or "Puzzle rebus",
         multi_model=multi_model,
         verify_candidates=verify_candidates,
+        hybrid_deanchor=True,
     )
     return result.improved_versions
 

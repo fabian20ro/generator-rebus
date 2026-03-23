@@ -19,6 +19,9 @@ generator/output/
 node_modules/
 frontend/dist/
 
+# Rust
+crossword_engine/target/
+
 # IDE
 .vscode/
 .idea/

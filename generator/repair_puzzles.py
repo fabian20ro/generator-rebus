@@ -202,6 +202,7 @@ def repair_puzzle(
         theme=candidate_puzzle.title or "Puzzle rebus",
         multi_model=multi_model,
         verify_candidates=verify_candidates,
+        hybrid_deanchor=True,
     )
     candidate_puzzle.assessment = score_puzzle_state(candidate_puzzle)
     print(

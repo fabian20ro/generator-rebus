@@ -5,15 +5,17 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 
-from .ai_clues import generate_definition, rewrite_definition
+from .ai_clues import choose_better_clue_variant, generate_definition, rewrite_definition
 from .model_session import ModelSession
 from .pipeline_state import (
     ClueCandidateVersion,
+    WorkingClue,
     WorkingPuzzle,
     all_working_clues,
     set_current_definition,
 )
 from .plateau import has_plateaued
+from .selection_engine import choose_clue_version
 from .runtime_logging import audit
 from .score_helpers import (
     LOCKED_REBUS,
@@ -45,6 +47,7 @@ class RewriteWordOutcome:
     changed_definition: bool = False
     had_error: bool = False
     terminal_reason: str = ""
+    selected_strategy: str = ""
 
 
 @dataclass
@@ -57,6 +60,199 @@ class RewriteLoopResult:
     improved_versions: dict[str, ClueCandidateVersion] = field(default_factory=dict)
 
 
+HYBRID_REBUS_THRESHOLD = 4
+
+
+@dataclass(frozen=True)
+class PendingCandidate:
+    source: str
+    definition: str
+    generated_by: str
+    strategy_label: str
+
+
+def _definition_key(text: str) -> str:
+    return " ".join((text or "").split()).lower()
+
+
+def _should_try_hybrid(
+    clue: WorkingClue,
+    *,
+    hybrid_attempted_words: set[str],
+    hybrid_deanchor: bool,
+) -> bool:
+    if not hybrid_deanchor:
+        return False
+    if clue.word_normalized in hybrid_attempted_words:
+        return False
+    if not clue.current.definition or clue.current.definition.startswith("["):
+        return False
+    if clue.current.assessment.verified is False:
+        return True
+    rebus_score = _extract_rebus_score(clue) or 0
+    return rebus_score <= HYBRID_REBUS_THRESHOLD
+
+
+def _build_pending_candidates(
+    clue: WorkingClue,
+    *,
+    client,
+    theme: str,
+    current_model,
+    wrong_guess: str,
+    wrong_guesses: list[str],
+    rating_feedback: str,
+    bad_example_definition: str,
+    bad_example_reason: str,
+    dex_defs: str,
+    failure_history: list[tuple[str, list[str]]],
+    use_hybrid: bool,
+) -> tuple[list[PendingCandidate], bool]:
+    pending: list[PendingCandidate] = []
+    seen: set[str] = set()
+
+    def _maybe_add(definition: str, *, source: str, strategy_label: str) -> None:
+        cleaned = (definition or "").strip()
+        if not cleaned or cleaned == clue.current.definition:
+            return
+        key = _definition_key(cleaned)
+        if key in seen:
+            return
+        seen.add(key)
+        pending.append(
+            PendingCandidate(
+                source=source,
+                definition=cleaned,
+                generated_by=current_model.display_name,
+                strategy_label=strategy_label,
+            )
+        )
+
+    had_error = False
+    if clue.current.definition.startswith("["):
+        _maybe_add(
+            generate_definition(
+                client,
+                clue.word_normalized,
+                clue.word_original,
+                theme,
+                retries=3,
+                word_type=clue.word_type,
+                dex_definitions=dex_defs,
+                model=current_model.model_id,
+            ),
+            source="generate",
+            strategy_label="fresh_only",
+        )
+        return pending, had_error
+
+    try:
+        rewrite_candidate = rewrite_definition(
+            client,
+            clue.word_normalized,
+            clue.word_original,
+            theme,
+            clue.current.definition,
+            wrong_guess,
+            wrong_guesses=wrong_guesses or None,
+            rating_feedback=rating_feedback,
+            bad_example_definition=bad_example_definition,
+            bad_example_reason=bad_example_reason,
+            word_type=clue.word_type,
+            dex_definitions=dex_defs,
+            failure_history=failure_history or None,
+            model=current_model.model_id,
+        )
+        _maybe_add(rewrite_candidate, source="rewrite", strategy_label="rewrite")
+    except Exception as exc:
+        had_error = True
+        print(f"  Rewrite failed for {clue.word_normalized}: {exc}")
+
+    if use_hybrid:
+        try:
+            fresh_candidate = generate_definition(
+                client,
+                clue.word_normalized,
+                clue.word_original,
+                theme,
+                retries=3,
+                word_type=clue.word_type,
+                dex_definitions=dex_defs,
+                model=current_model.model_id,
+            )
+            _maybe_add(fresh_candidate, source="generate", strategy_label="fresh_generate")
+        except Exception as exc:
+            had_error = True
+            print(f"  Fresh generate failed for {clue.word_normalized}: {exc}")
+
+    return pending, had_error
+
+
+def _evaluate_single_candidate(
+    puzzle: WorkingPuzzle,
+    clue: WorkingClue,
+    candidate: PendingCandidate,
+    *,
+    client,
+    evaluator_model,
+    preset_skip: set[str],
+    dex: DexProvider,
+    round_index: int,
+    verify_candidates: int,
+) -> ClueCandidateVersion:
+    skip_words = ({c.word_normalized for c in all_working_clues(puzzle)} - {clue.word_normalized}) | preset_skip
+    set_current_definition(
+        clue,
+        candidate.definition,
+        round_index=round_index,
+        source=candidate.source,
+        generated_by=candidate.generated_by,
+    )
+    verify_working_puzzle(
+        puzzle,
+        client,
+        skip_words=skip_words,
+        model_label=evaluator_model.display_name,
+        model_name=evaluator_model.model_id,
+        max_guesses=verify_candidates,
+    )
+    rate_working_puzzle(
+        puzzle,
+        client,
+        skip_words=skip_words,
+        dex=dex,
+        model_label=evaluator_model.display_name,
+        model_name=evaluator_model.model_id,
+    )
+    return copy.deepcopy(clue.current)
+
+
+def _select_hybrid_candidate(
+    clue: WorkingClue,
+    candidates: list[tuple[PendingCandidate, ClueCandidateVersion]],
+    *,
+    client,
+) -> tuple[PendingCandidate, ClueCandidateVersion]:
+    if len(candidates) == 1:
+        return candidates[0]
+
+    (candidate_a, version_a), (candidate_b, version_b) = candidates[0], candidates[1]
+
+    def _tiebreak(a_text: str, b_text: str) -> str:
+        return choose_better_clue_variant(
+            client,
+            clue.word_normalized,
+            len(clue.word_normalized),
+            a_text,
+            b_text,
+        )
+
+    chosen_version, _decision = choose_clue_version(version_a, version_b, tiebreaker=_tiebreak)
+    if _definition_key(chosen_version.definition) == _definition_key(version_b.definition):
+        return candidate_b, version_b
+    return candidate_a, version_a
+
+
 def run_rewrite_loop(
     puzzle: WorkingPuzzle,
     client,
@@ -66,6 +262,7 @@ def run_rewrite_loop(
     multi_model: bool = False,
     dex: DexProvider | None = None,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    hybrid_deanchor: bool = False,
 ) -> RewriteLoopResult:
     """Verify, rate, rewrite, and restore best clue versions for a puzzle."""
     if dex is None:
@@ -111,6 +308,7 @@ def run_rewrite_loop(
     consecutive_failures: dict[str, int] = {}
     stuck_words: set[str] = set()
     min_rebus_history: list[int] = []
+    hybrid_attempted_words: set[str] = set()
 
     for round_index in range(1, rounds + 1):
         current_scores = [_extract_rebus_score(c) or 0 for c in all_working_clues(puzzle)]
@@ -153,6 +351,7 @@ def run_rewrite_loop(
         )
 
         changed_words: set[str] = set()
+        pending_candidates_by_word: dict[str, list[PendingCandidate]] = {}
         for clue in candidates:
             outcome = outcomes[clue.word_normalized]
             outcome.was_candidate = True
@@ -176,56 +375,48 @@ def run_rewrite_loop(
                 for v in clue.history
                 if (v.assessment.verify_candidates or v.assessment.wrong_guess) and v.definition
             ]
-            try:
-                if clue.current.definition.startswith("["):
-                    new_definition = generate_definition(
-                        client,
-                        clue.word_normalized,
-                        clue.word_original,
-                        theme,
-                        retries=3,
-                        word_type=clue.word_type,
-                        dex_definitions=dex_defs,
-                        model=current_model.model_id,
-                    )
-                else:
-                    new_definition = rewrite_definition(
-                        client,
-                        clue.word_normalized,
-                        clue.word_original,
-                        theme,
-                        clue.current.definition,
-                        wrong_guess,
-                        wrong_guesses=wrong_guesses or None,
-                        rating_feedback=rating_feedback,
-                        bad_example_definition=bad_example_definition,
-                        bad_example_reason=bad_example_reason,
-                        word_type=clue.word_type,
-                        dex_definitions=dex_defs,
-                        failure_history=failure_history or None,
-                        model=current_model.model_id,
-                    )
-            except Exception as exc:
-                outcome.had_error = True
-                print(f"  Rewrite failed for {clue.word_normalized}: {exc}")
-                continue
+            use_hybrid = _should_try_hybrid(
+                clue,
+                hybrid_attempted_words=hybrid_attempted_words,
+                hybrid_deanchor=hybrid_deanchor,
+            )
+            if use_hybrid:
+                hybrid_attempted_words.add(clue.word_normalized)
+            pending_candidates, had_error = _build_pending_candidates(
+                clue,
+                client=client,
+                theme=theme,
+                current_model=current_model,
+                wrong_guess=wrong_guess,
+                wrong_guesses=wrong_guesses,
+                rating_feedback=rating_feedback,
+                bad_example_definition=bad_example_definition,
+                bad_example_reason=bad_example_reason,
+                dex_defs=dex_defs,
+                failure_history=failure_history,
+                use_hybrid=use_hybrid,
+            )
+            outcome.had_error = outcome.had_error or had_error
 
-            if new_definition and new_definition != clue.current.definition:
+            if pending_candidates:
                 outcome.changed_definition = True
                 changed_words.add(clue.word_normalized)
                 consecutive_failures[clue.word_normalized] = 0
-                print(
-                    f"  {clue.word_normalized}: "
-                    f"'{_compact_log_text(clue.current.definition)}' -> "
-                    f"'{_compact_log_text(new_definition)}'"
-                )
-                set_current_definition(
-                    clue,
-                    new_definition,
-                    round_index=round_index,
-                    source="rewrite",
-                    generated_by=current_model.display_name,
-                )
+                pending_candidates_by_word[clue.word_normalized] = pending_candidates
+                if len(pending_candidates) == 1:
+                    only = pending_candidates[0]
+                    print(
+                        f"  {clue.word_normalized}: "
+                        f"'{_compact_log_text(clue.current.definition)}' -> "
+                        f"'{_compact_log_text(only.definition)}' "
+                        f"[{only.strategy_label if use_hybrid else only.source}]"
+                    )
+                else:
+                    print(
+                        f"  {clue.word_normalized}: hybrid "
+                        f"rewrite='{_compact_log_text(pending_candidates[0].definition)}' | "
+                        f"fresh='{_compact_log_text(pending_candidates[1].definition)}'"
+                    )
             else:
                 consecutive_failures[clue.word_normalized] = consecutive_failures.get(clue.word_normalized, 0) + 1
                 if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
@@ -235,26 +426,81 @@ def run_rewrite_loop(
                         f"{consecutive_failures[clue.word_normalized]} încercări eșuate consecutive"
                     )
 
-        skip_words = ({c.word_normalized for c in all_working_clues(puzzle)} - changed_words) | preset_skip
         current_model = session.alternate()
         if multi_model:
             print(f"  Model activ (evaluare): {current_model.display_name}")
-        verify_working_puzzle(
-            puzzle,
-            client,
-            skip_words=skip_words,
-            model_label=current_model.display_name,
-            model_name=current_model.model_id,
-            max_guesses=verify_candidates,
-        )
-        rate_working_puzzle(
-            puzzle,
-            client,
-            skip_words=skip_words,
-            dex=dex,
-            model_label=current_model.display_name,
-            model_name=current_model.model_id,
-        )
+
+        evaluated_words: set[str] = set()
+        for clue in candidates:
+            pending_candidates = pending_candidates_by_word.get(clue.word_normalized)
+            if not pending_candidates:
+                continue
+            if len(pending_candidates) == 1:
+                only = pending_candidates[0]
+                set_current_definition(
+                    clue,
+                    only.definition,
+                    round_index=round_index,
+                    source=only.source,
+                    generated_by=only.generated_by,
+                )
+                if only.strategy_label == "rewrite":
+                    outcomes[clue.word_normalized].selected_strategy = "rewrite_only"
+                elif only.strategy_label == "fresh_generate":
+                    outcomes[clue.word_normalized].selected_strategy = "fresh_only"
+                else:
+                    outcomes[clue.word_normalized].selected_strategy = only.strategy_label
+                continue
+
+            evaluated_versions = [
+                (
+                    candidate,
+                    _evaluate_single_candidate(
+                        puzzle,
+                        clue,
+                        candidate,
+                        client=client,
+                        evaluator_model=current_model,
+                        preset_skip=preset_skip,
+                        dex=dex,
+                        round_index=round_index,
+                        verify_candidates=verify_candidates,
+                    ),
+                )
+                for candidate in pending_candidates
+            ]
+            chosen_candidate, chosen_version = _select_hybrid_candidate(
+                clue,
+                evaluated_versions,
+                client=client,
+            )
+            clue.current = copy.deepcopy(chosen_version)
+            evaluated_words.add(clue.word_normalized)
+            outcomes[clue.word_normalized].selected_strategy = chosen_candidate.strategy_label
+            print(
+                f"  {clue.word_normalized}: ales {chosen_candidate.strategy_label} -> "
+                f"'{_compact_log_text(chosen_version.definition)}'"
+            )
+
+        pending_collective_words = changed_words - evaluated_words
+        if pending_collective_words:
+            skip_words = ({c.word_normalized for c in all_working_clues(puzzle)} - pending_collective_words) | preset_skip
+            verify_working_puzzle(
+                puzzle,
+                client,
+                skip_words=skip_words,
+                model_label=current_model.display_name,
+                model_name=current_model.model_id,
+                max_guesses=verify_candidates,
+            )
+            rate_working_puzzle(
+                puzzle,
+                client,
+                skip_words=skip_words,
+                dex=dex,
+                model_label=current_model.display_name,
+                model_name=current_model.model_id,
+            )
         for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:
                 continue

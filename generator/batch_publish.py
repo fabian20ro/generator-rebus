@@ -7,6 +7,7 @@ import argparse
 import copy
 import json
 import random
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,6 +109,7 @@ class Candidate:
     template: list[list[bool]]
     markdown: str
     metadata: dict[str, dict] = field(default_factory=dict)
+    stats: dict[str, int | float] = field(default_factory=dict)
 
 
 @dataclass
@@ -126,6 +128,9 @@ class PreparedPuzzle:
 PUZZLE_TIEBREAK_DELTA = 0.25
 MIN_PUBLISHABLE_PASS_RATE = 0.5
 MAX_REWRITE_ROUNDS = 30
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RUST_ENGINE_BINARY = REPO_ROOT / "crossword_engine" / "target" / "release" / "crossword_phase1"
+RUST_ENGINE_DEBUG_BINARY = REPO_ROOT / "crossword_engine" / "target" / "debug" / "crossword_phase1"
 
 
 def _load_words(words_path: Path) -> list[dict]:
@@ -134,6 +139,140 @@ def _load_words(words_path: Path) -> list[dict]:
         download_words("-", str(words_path))
     with open(words_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _metadata_by_word(raw_words: list[dict]) -> dict[str, dict]:
+    return {word["normalized"]: word for word in raw_words}
+
+
+def _rust_binary_path() -> Path:
+    if RUST_ENGINE_BINARY.exists():
+        return RUST_ENGINE_BINARY
+    if RUST_ENGINE_DEBUG_BINARY.exists():
+        return RUST_ENGINE_DEBUG_BINARY
+    raise RuntimeError(
+        "Rust phase-1 binary missing. Run `run_batch_loop.sh` or "
+        "`cargo build --release --manifest-path crossword_engine/Cargo.toml` first."
+    )
+
+
+def _quality_report_from_payload(payload: dict) -> QualityReport:
+    return QualityReport(
+        score=float(payload.get("score", 0.0)),
+        word_count=int(payload.get("word_count", 0)),
+        average_length=float(payload.get("average_length", 0.0)),
+        average_rarity=float(payload.get("average_rarity", 0.0)),
+        two_letter_words=int(payload.get("two_letter_words", 0)),
+        three_letter_words=int(payload.get("three_letter_words", 0)),
+        high_rarity_words=int(payload.get("high_rarity_words", 0)),
+        uncommon_letter_words=int(payload.get("uncommon_letter_words", 0)),
+        friendly_words=int(payload.get("friendly_words", 0)),
+        max_rarity=int(payload.get("max_rarity", 0)),
+        average_definability=float(payload.get("average_definability", 0.0)),
+    )
+
+
+def _render_markdown_from_rust_payload(
+    title: str,
+    template: list[list[bool]],
+    filled_grid_payload: list[list[str | None]],
+    slots_payload: list[dict],
+    words_payload: list[dict],
+) -> str:
+    size = len(template)
+    grid_out: list[list[str | None]] = []
+    for row_index in range(size):
+        rendered_row: list[str | None] = []
+        for col_index in range(size):
+            if not template[row_index][col_index]:
+                rendered_row.append(None)
+            else:
+                rendered_row.append(filled_grid_payload[row_index][col_index])
+        grid_out.append(rendered_row)
+
+    h_words: list[list[str]] = [[] for _ in range(size)]
+    h_originals: list[list[str]] = [[] for _ in range(size)]
+    v_words: list[list[str]] = [[] for _ in range(size)]
+    v_originals: list[list[str]] = [[] for _ in range(size)]
+    word_by_slot = {int(word["slot_id"]): word for word in words_payload}
+    for slot in slots_payload:
+        slot_id = int(slot["id"])
+        word = word_by_slot[slot_id]
+        if slot["direction"] == "H":
+            h_words[int(slot["start_row"])].append(word["normalized"])
+            h_originals[int(slot["start_row"])].append(word["original"])
+        else:
+            v_words[int(slot["start_col"])].append(word["normalized"])
+            v_originals[int(slot["start_col"])].append(word["original"])
+
+    return write_filled_grid(size, grid_out, h_words, v_words, h_originals, v_originals, title=title)
+
+
+def _best_candidate_rust(
+    size: int,
+    title: str,
+    *,
+    words_path: Path,
+    metadata: dict[str, dict],
+    rng: random.Random,
+    preparation_attempts: int = 1,
+) -> Candidate:
+    seed = rng.randint(1, 10_000_000)
+    command = [
+        str(_rust_binary_path()),
+        "--size",
+        str(size),
+        "--words",
+        str(words_path),
+        "--seed",
+        str(seed),
+        "--preparation-attempts",
+        str(max(1, preparation_attempts)),
+    ]
+    result = subprocess.run(
+        command,
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n")
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Rust phase-1 failed for {size}x{size} with exit {result.returncode}: "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Rust phase-1 returned invalid JSON: {exc}") from exc
+
+    template = [[bool(cell) for cell in row] for row in payload["template"]]
+    report = _quality_report_from_payload(payload["quality"])
+    markdown = _render_markdown_from_rust_payload(
+        title,
+        template,
+        payload["filled_grid"],
+        payload["slots"],
+        payload["words"],
+    )
+    stats = dict(payload.get("stats", {}))
+    print(
+        f"  Rust phase-1 {size}x{size}: score={report.score:.1f} "
+        f"two={report.two_letter_words} three={report.three_letter_words} "
+        f"elapsed_ms={int(stats.get('elapsed_ms', 0) or 0)} "
+        f"nodes={int(stats.get('solver_nodes', 0) or 0)} "
+        f"solved={int(stats.get('solved_candidates', 0) or 0)}"
+    )
+    return Candidate(
+        score=report.score,
+        report=report,
+        template=template,
+        markdown=markdown,
+        metadata=metadata,
+        stats=stats,
+    )
 
 
 def _build_index(raw_words: list[dict], size: int, settings: SizeSettings) -> tuple[WordIndex, dict[str, dict]]:
@@ -295,7 +434,7 @@ def _choose_template(
     )
 
 
-def _best_candidate(
+def _best_candidate_python(
     size: int,
     title: str,
     raw_words: list[dict],
@@ -346,6 +485,35 @@ def _best_candidate(
     if best is not None:
         return best
     raise RuntimeError(f"Could not generate a valid filled grid for {size}x{size}")
+
+
+def _best_candidate(
+    size: int,
+    title: str,
+    raw_words: list[dict],
+    rng: random.Random,
+    seen_template_fingerprints: set[str] | None = None,
+    *,
+    words_path: Path | None = None,
+    word_metadata: dict[str, dict] | None = None,
+    preparation_attempts: int = 1,
+) -> Candidate:
+    if words_path is None:
+        return _best_candidate_python(
+            size,
+            title,
+            raw_words,
+            rng=rng,
+            seen_template_fingerprints=seen_template_fingerprints,
+        )
+    return _best_candidate_rust(
+        size,
+        title,
+        words_path=words_path,
+        metadata=word_metadata or _metadata_by_word(raw_words),
+        rng=rng,
+        preparation_attempts=preparation_attempts,
+    )
 
 
 
@@ -427,19 +595,21 @@ def _backfill_generated_model(puzzle: WorkingPuzzle, model_label: str) -> None:
             clue.current.generated_by = model_label
 
 
-def _compute_difficulty(report: QualityReport) -> int:
-    """Star rating based on word rarity levels."""
-    max_r = report.max_rarity
-    avg_r = report.average_rarity
-    if max_r <= 3:
-        return 1
-    if max_r >= 5 and avg_r >= 3.0:
-        return 5
-    if max_r >= 5 and avg_r < 3.0:
-        return 4
-    if avg_r < 2.0:
-        return 2
-    return 3
+def _compute_difficulty(size: int, report: QualityReport) -> int:
+    """Approximate difficulty from grid size and short-word burden, not rarity."""
+    if size <= 7:
+        difficulty = 2
+    elif size <= 9:
+        difficulty = 3
+    elif size <= 11:
+        difficulty = 4
+    else:
+        difficulty = 5
+    if report.two_letter_words >= max(4, size // 2):
+        difficulty -= 1
+    if report.average_length >= 6.0 and report.two_letter_words <= 2:
+        difficulty += 1
+    return max(1, min(5, difficulty))
 
 
 def _is_publishable(prepared: PreparedPuzzle) -> bool:
@@ -517,12 +687,14 @@ def _prepare_puzzle_for_publication(
     total_puzzles: int,
     size: int,
     raw_words: list[dict],
+    words_path: Path | None,
     client,
     rewrite_rounds: int,
     preparation_attempts: int,
     seen_template_fingerprints: set[str] | None = None,
     multi_model: bool = False,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    word_metadata: dict[str, dict] | None = None,
 ) -> PreparedPuzzle:
     best_prepared: PreparedPuzzle | None = None
     effective_attempts = _preparation_attempts_for_size(size, preparation_attempts)
@@ -542,6 +714,9 @@ def _prepare_puzzle_for_publication(
             raw_words,
             rng=rng,
             seen_template_fingerprints=seen_template_fingerprints,
+            words_path=words_path,
+            word_metadata=word_metadata,
+            preparation_attempts=1,
         )
         puzzle = parse_markdown(candidate.markdown)
         puzzle.title = ""
@@ -679,6 +854,7 @@ def run_batch(
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
 ) -> list[dict]:
     raw_words = _load_words(words_path)
+    word_metadata = _metadata_by_word(raw_words)
     client = create_client()
     rng_seed = seed if seed is not None else random.SystemRandom().randint(1, 10_000_000)
     batch_rng = random.Random(rng_seed)
@@ -706,12 +882,14 @@ def run_batch(
             total_puzzles=len(sizes),
             size=size,
             raw_words=raw_words,
+            words_path=words_path,
             client=client,
             rewrite_rounds=rewrite_rounds,
             preparation_attempts=preparation_attempts,
             seen_template_fingerprints=seen_7x7_templates if size == 7 else None,
             multi_model=multi_model,
             verify_candidates=verify_candidates,
+            word_metadata=word_metadata,
         )
         if prepared.blocking_words:
             print("\n--- Detailed rejection report ---")
@@ -760,7 +938,7 @@ def run_batch(
         if multi_model:
             models_used_desc.append(SECONDARY_MODEL.display_name)
         description = build_puzzle_description(prepared.assessment, models_used_desc)
-        difficulty = _compute_difficulty(prepared.candidate.report)
+        difficulty = _compute_difficulty(size, prepared.candidate.report)
         puzzle_id = upload_puzzle(
             puzzle_from_working_state(defs_puzzle),
             difficulty=difficulty,
@@ -782,7 +960,10 @@ def run_batch(
         creativity_scores = [c.active_version().assessment.scores.creativity or 0 for c in clues]
         puzzle_metrics.append(PuzzleMetric(
             size=size,
+            fill_elapsed_ms=int(prepared.candidate.stats.get("elapsed_ms", 0) or 0),
             word_count=len(clues),
+            avg_word_length=prepared.candidate.report.average_length,
+            avg_rarity=prepared.candidate.report.average_rarity,
             definition_first_pass_rate=prepared.first_passed / prepared.total if prepared.total else 0.0,
             definition_final_pass_rate=prepared.final_passed / prepared.total if prepared.total else 0.0,
             avg_semantic=sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0.0,
@@ -806,6 +987,7 @@ def run_batch(
             "puzzle_id": puzzle_id,
             "score": prepared.candidate.score,
             "quality": prepared.candidate.report.to_dict(),
+            "phase1_stats": prepared.candidate.stats,
             "verification_first_passed": prepared.first_passed,
             "verification_final_passed": prepared.final_passed,
             "verification_passed": prepared.final_passed,

@@ -17,6 +17,7 @@ from generator.batch_publish import (
     _better_prepared_puzzle,
     _clear_verification_state,
     _collect_word_metrics,
+    _compute_difficulty,
     _generate_candidate,
     _is_publishable,
     _merge_best_clue_variants,
@@ -340,6 +341,9 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual(5, _preparation_attempts_for_size(7, 5))
         self.assertEqual(24, _preparation_attempts_for_size(10, 5))
         self.assertEqual(40, _preparation_attempts_for_size(12, 5))
+        self.assertEqual(5, _preparation_attempts_for_size(13, 5))
+        self.assertEqual(5, _preparation_attempts_for_size(14, 5))
+        self.assertEqual(5, _preparation_attempts_for_size(15, 5))
 
     def test_batch_cli_accepts_all_supported_mid_sizes(self):
         parser = build_batch_parser()
@@ -373,6 +377,53 @@ class BatchPublishTests(unittest.TestCase):
         mock_tiebreak.assert_called_once()
         self.assertIn("Puzzle tie-break:", captured.getvalue())
         self.assertIn("câștigă B", captured.getvalue())
+
+    @patch("generator.batch_publish._rust_binary_path")
+    @patch("generator.batch_publish.subprocess.run")
+    def test_best_candidate_uses_rust_binary_when_words_path_present(
+        self,
+        mock_run,
+        mock_binary,
+    ):
+        mock_binary.return_value = Path("/tmp/crossword_phase1")
+        mock_run.return_value = SimpleNamespace(
+            returncode=0,
+            stderr="variant 1 solved\n",
+            stdout=(
+                '{"template":[[true,true],[true,true]],'
+                '"filled_grid":[["A","B"],["C","D"]],'
+                '"slots":['
+                '{"id":0,"direction":"H","start_row":0,"start_col":0,"length":2,"cells":[[0,0],[0,1]],"intersections":[]},'
+                '{"id":1,"direction":"H","start_row":1,"start_col":0,"length":2,"cells":[[1,0],[1,1]],"intersections":[]},'
+                '{"id":2,"direction":"V","start_row":0,"start_col":0,"length":2,"cells":[[0,0],[1,0]],"intersections":[]},'
+                '{"id":3,"direction":"V","start_row":0,"start_col":1,"length":2,"cells":[[0,1],[1,1]],"intersections":[]}'
+                '],'
+                '"words":['
+                '{"slot_id":0,"normalized":"AB","original":"ab"},'
+                '{"slot_id":1,"normalized":"CD","original":"cd"},'
+                '{"slot_id":2,"normalized":"AC","original":"ac"},'
+                '{"slot_id":3,"normalized":"BD","original":"bd"}'
+                '],'
+                '"quality":{"score":321.0,"word_count":4,"average_length":2.0,'
+                '"average_rarity":0.0,"two_letter_words":4,"three_letter_words":0,'
+                '"high_rarity_words":0,"uncommon_letter_words":0,"friendly_words":0,'
+                '"max_rarity":0,"average_definability":5.0},'
+                '"stats":{"elapsed_ms":12,"solver_nodes":44,"solved_candidates":2}}'
+            ),
+        )
+
+        candidate = _best_candidate(
+            7,
+            "Test",
+            raw_words=[{"normalized": "AB", "original": "ab"}],
+            rng=SimpleNamespace(randint=lambda *_: 123),
+            words_path=Path("generator/output/words.json"),
+            word_metadata={"AB": {"normalized": "AB", "original": "ab"}},
+        )
+
+        self.assertEqual(321.0, candidate.score)
+        self.assertEqual(12, candidate.stats["elapsed_ms"])
+        mock_run.assert_called_once()
 
     def test_prepared_puzzle_prefers_more_verified_clues_before_score(self):
         best = _prepared_puzzle(title="A", definition_score=8.0, blocking_words=[], verified_count=5, total_clues=6)
@@ -751,6 +802,7 @@ class BatchPublishTests(unittest.TestCase):
             total_puzzles=1,
             size=7,
             raw_words=[],
+            words_path=None,
             client=object(),
             rewrite_rounds=1,
             preparation_attempts=1,
@@ -941,6 +993,36 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual(3, metrics[0].semantic_delta)
         self.assertEqual(3, metrics[0].rebus_delta)
 
+    def test_compute_difficulty_ignores_rarity(self):
+        low_rarity = QualityReport(
+            score=100.0,
+            word_count=20,
+            average_length=5.2,
+            average_rarity=0.0,
+            two_letter_words=2,
+            three_letter_words=4,
+            high_rarity_words=0,
+            uncommon_letter_words=1,
+            friendly_words=10,
+            max_rarity=0,
+            average_definability=5.0,
+        )
+        high_rarity = QualityReport(
+            score=100.0,
+            word_count=20,
+            average_length=5.2,
+            average_rarity=5.0,
+            two_letter_words=2,
+            three_letter_words=4,
+            high_rarity_words=12,
+            uncommon_letter_words=1,
+            friendly_words=10,
+            max_rarity=5,
+            average_definability=5.0,
+        )
+
+        self.assertEqual(_compute_difficulty(9, low_rarity), _compute_difficulty(9, high_rarity))
+
     def test_size_11_settings(self):
         settings = get_size_settings(11)
         self.assertEqual(18, settings.max_two_letter_slots)
@@ -958,9 +1040,22 @@ class BatchPublishTests(unittest.TestCase):
         settings = get_size_settings(12)
         self.assertEqual(5, settings.max_full_width_slots)
 
+    def test_size_13_has_full_width_slot_limit(self):
+        settings = get_size_settings(13)
+        self.assertEqual(6, settings.max_full_width_slots)
+
+    def test_size_14_has_full_width_slot_limit(self):
+        settings = get_size_settings(14)
+        self.assertEqual(7, settings.max_full_width_slots)
+
     def test_size_7_has_no_full_width_slot_limit(self):
         settings = get_size_settings(7)
         self.assertIsNone(settings.max_full_width_slots)
+
+    def test_overnight_loop_sizes_include_fifteen(self):
+        from generator.core.size_tuning import OVERNIGHT_LOOP_SIZES
+
+        self.assertEqual((7, 8, 9, 10, 11, 12, 13, 14, 15), OVERNIGHT_LOOP_SIZES)
 
     def test_working_clue_has_word_type_field(self):
         from generator.core.pipeline_state import WorkingClue
@@ -977,6 +1072,10 @@ class BatchPublishTests(unittest.TestCase):
     def test_plateau_constants(self):
         self.assertEqual(7, PLATEAU_LOOKBACK)
         self.assertEqual(30, MAX_REWRITE_ROUNDS)
+
+    def test_run_batch_loop_builds_rust_binary_before_python(self):
+        script = Path("run_batch_loop.sh").read_text(encoding="utf-8")
+        self.assertIn("cargo build --release --manifest-path", script)
 
 
 def _count_two_letter_slots(grid: list[list[bool]]) -> int:

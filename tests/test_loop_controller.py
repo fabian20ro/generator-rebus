@@ -8,7 +8,7 @@ from generator.loop_controller import LoopRunResult, build_batch_command, build_
 
 
 class LoopControllerTests(unittest.TestCase):
-    def test_loop_parser_defaults_to_sizes_seven_through_twelve(self):
+    def test_loop_parser_defaults_to_sizes_seven_through_fifteen(self):
         parser = build_parser()
         args = parser.parse_args([])
 

@@ -34,6 +34,8 @@
 ## Performance & Infrastructure
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
+**[2026-03-23]** Native hot-path migrations are safest when the host-language contract stays stable — if a slow phase moves to Rust, keep the Python-facing result shape (`Candidate`, markdown, metadata hooks) intact and hide the new engine behind one thin subprocess boundary. Pair that with an entrypoint build step (`run_batch_loop.sh` / equivalent) so missing binaries fail fast before the long-running pipeline starts.
+
 ## Dependencies & External Services
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
