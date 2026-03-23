@@ -53,6 +53,13 @@ header h1 {
   font-style: italic;
 }
 
+.puzzle-meta {
+  font-size: 0.82rem;
+  color: #666;
+  margin-top: 0.35rem;
+  line-height: 1.4;
+}
+
 .hidden {
   display: none !important;
 }
@@ -145,6 +152,10 @@ header h1 {
   gap: 1rem;
   font-size: 0.8rem;
   color: #999;
+}
+
+.puzzle-card__meta--secondary {
+  margin-top: 0.35rem;
 }
 
 .loading {

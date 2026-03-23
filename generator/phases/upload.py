@@ -39,7 +39,14 @@ def _slots_with_words(grid: list[list[str]]) -> list[tuple[Slot, str]]:
     return [(slot, "".join(grid[r][c] for r, c in slot.cells)) for slot in slots]
 
 
-def upload_puzzle(puzzle, force: bool = False, *, difficulty: int = 3, description: str = "") -> str:
+def upload_puzzle(
+    puzzle,
+    force: bool = False,
+    *,
+    difficulty: int = 3,
+    description: str = "",
+    metadata: dict[str, object] | None = None,
+) -> str:
     """Upload a parsed puzzle object and return the puzzle ID."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
@@ -124,13 +131,16 @@ def upload_puzzle(puzzle, force: bool = False, *, difficulty: int = 3, descripti
     # Insert puzzle
     puzzle_data = {
         "title": puzzle.title or "Rebus",
-        "theme": description or puzzle.title or "",
+        "theme": "",
+        "description": description or None,
         "grid_size": puzzle.size,
         "grid_template": grid_template_json,
         "grid_solution": grid_solution_json,
         "difficulty": difficulty,
         "published": False,
     }
+    if metadata:
+        puzzle_data.update(metadata)
 
     result = client.table("crossword_puzzles").insert(puzzle_data).execute()
     puzzle_id = result.data[0]["id"]

@@ -132,6 +132,19 @@ class BuildWorkingPuzzleTests(unittest.TestCase):
         self.assertEqual(1, len(puzzle.vertical_clues))
         self.assertEqual("APA", puzzle.vertical_clues[0].word_normalized)
 
+    def test_routes_short_db_direction_codes(self):
+        puzzle_row = {"id": "p1", "title": "", "grid_size": 7}
+        clue_rows = [
+            _make_clue_row("MUNTE", "Formă de relief", direction="H"),
+            _make_clue_row("APA", "Lichid vital", direction="V"),
+        ]
+
+        puzzle = build_working_puzzle(puzzle_row, clue_rows)
+
+        self.assertEqual(1, len(puzzle.horizontal_clues))
+        self.assertEqual(1, len(puzzle.vertical_clues))
+        self.assertEqual("APA", puzzle.vertical_clues[0].word_normalized)
+
     def test_sets_definition_on_current_version(self):
         puzzle_row = {"id": "p1", "title": "", "grid_size": 7}
         clue_rows = [_make_clue_row("MUNTE", "Formă de relief")]

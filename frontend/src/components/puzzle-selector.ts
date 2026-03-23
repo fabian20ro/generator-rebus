@@ -51,6 +51,15 @@ function matchesFilter(difficulty: number): boolean {
   return difficulty >= f.min && difficulty <= f.max;
 }
 
+function formatDateLabel(value?: string | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return (
+    d.toLocaleDateString("ro-RO") + " " +
+    d.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" })
+  );
+}
+
 export function renderPuzzleList(
   container: HTMLElement,
   puzzles: PuzzleSummary[],
@@ -77,9 +86,8 @@ export function renderPuzzleList(
       card.classList.add("puzzle-card--in-progress");
     }
 
-    const d = new Date(puzzle.created_at);
-    const date = d.toLocaleDateString("ro-RO") + " " +
-      d.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" });
+    const createdAt = formatDateLabel(puzzle.created_at);
+    const repairedAt = formatDateLabel(puzzle.repaired_at);
     const stars = "\u2605".repeat(puzzle.difficulty) +
       "\u2606".repeat(5 - puzzle.difficulty);
     const difficultyLabel = [
@@ -94,11 +102,12 @@ export function renderPuzzleList(
     card.innerHTML = `
       <span class="puzzle-card__size">${puzzle.grid_size}x${puzzle.grid_size}</span>
       <h3>${solved ? "\u2713 " : inProgress ? "\u25B6 " : ""}${puzzle.title || "Rebus"}</h3>
-      <p class="puzzle-card__theme">${puzzle.theme || ""}</p>
+      <p class="puzzle-card__theme">${puzzle.description || puzzle.theme || ""}</p>
       <div class="puzzle-card__meta">
         <span title="${difficultyLabel}">${stars}</span>
-        <span>${date}</span>
+        <span>Creat: ${createdAt}</span>
       </div>
+      ${repairedAt ? `<div class="puzzle-card__meta puzzle-card__meta--secondary"><span>Ultima reparare: ${repairedAt}</span></div>` : ""}
     `;
 
     card.addEventListener("click", () => onSelect(puzzle.id));

@@ -81,7 +81,7 @@ def build_working_puzzle(puzzle_row: dict, clue_rows: list[dict]) -> WorkingPuzz
         )
 
         direction = (row.get("direction") or "horizontal").lower()
-        if direction == "vertical":
+        if direction in {"v", "vertical"}:
             vertical_clues.append(clue)
         else:
             horizontal_clues.append(clue)

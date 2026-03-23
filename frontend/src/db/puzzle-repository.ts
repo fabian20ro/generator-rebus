@@ -21,9 +21,11 @@ export interface PuzzleSummary {
   id: string;
   title: string;
   theme: string;
+  description?: string;
   grid_size: number;
   difficulty: number;
   created_at: string;
+  repaired_at?: string | null;
 }
 
 export interface Clue {
@@ -41,10 +43,12 @@ export interface PuzzleDetail {
     id: string;
     title: string;
     theme: string;
+    description?: string;
     grid_size: number;
     grid_template: string; // JSON string: boolean[][]
     difficulty: number;
     created_at: string;
+    repaired_at?: string | null;
   };
   clues: Clue[];
 }
@@ -56,7 +60,12 @@ export interface PuzzleSolution {
 export async function listPuzzles(): Promise<PuzzleSummary[]> {
   const resp = await fetch(`${API_BASE}/puzzles`);
   if (!resp.ok) throw new Error(`Failed to fetch puzzles: ${resp.status}`);
-  return resp.json();
+  const puzzles = await resp.json() as PuzzleSummary[];
+  return puzzles.sort((a, b) => {
+    const aTime = Date.parse(a.repaired_at || a.created_at || "");
+    const bTime = Date.parse(b.repaired_at || b.created_at || "");
+    return bTime - aTime;
+  });
 }
 
 export async function getPuzzle(id: string): Promise<PuzzleDetail> {

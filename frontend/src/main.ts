@@ -64,6 +64,7 @@ const puzzleSelector = document.getElementById("puzzle-selector")!;
 const puzzleList = document.getElementById("puzzle-list")!;
 const puzzleView = document.getElementById("puzzle-view")!;
 const puzzleTitle = document.getElementById("puzzle-title")!;
+const puzzleMeta = document.getElementById("puzzle-meta")!;
 const gridContainer = document.getElementById("grid")!;
 const progressCounter = document.getElementById("progress-counter")!;
 const cluesH = document.getElementById("clues-horizontal")!;
@@ -93,6 +94,35 @@ let currentGridSize = 10;
 let puzzleStartTime = 0;
 let hintsUsedCount = 0;
 let pencilMode = false;
+
+function formatDateLabel(value?: string | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return (
+    d.toLocaleDateString("ro-RO") + " " +
+    d.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" })
+  );
+}
+
+function setPuzzleMeta(description?: string, createdAt?: string, repairedAt?: string | null): void {
+  const parts: string[] = [];
+  if (description) {
+    parts.push(description);
+  }
+  if (createdAt) {
+    parts.push(`Creat: ${formatDateLabel(createdAt)}`);
+  }
+  if (repairedAt) {
+    parts.push(`Ultima reparare: ${formatDateLabel(repairedAt)}`);
+  }
+  if (parts.length === 0) {
+    puzzleMeta.textContent = "";
+    puzzleMeta.classList.add("hidden");
+    return;
+  }
+  puzzleMeta.textContent = parts.join(" | ");
+  puzzleMeta.classList.remove("hidden");
+}
 
 // --- Undo/Redo ---
 const cellHistory = new UndoStack<(string | null)[][]>(50);
@@ -154,6 +184,7 @@ function showTab(tab: "puzzles" | "stats"): void {
 
   puzzleView.classList.add("hidden");
   puzzleTitle.textContent = "";
+  setPuzzleMeta();
   btnBack.classList.add("hidden");
 
   if (tab === "puzzles") {
@@ -412,6 +443,11 @@ async function loadPuzzle(id: string): Promise<void> {
     }
 
     puzzleTitle.textContent = data.puzzle.title || "Rebus";
+    setPuzzleMeta(
+      data.puzzle.description || data.puzzle.theme || "",
+      data.puzzle.created_at,
+      data.puzzle.repaired_at,
+    );
     puzzleSelector.classList.add("hidden");
     statsPanel.classList.add("hidden");
     puzzleView.classList.remove("hidden");
@@ -448,6 +484,7 @@ async function showPuzzleList(): Promise<void> {
   statsPanel.classList.add("hidden");
   puzzleSelector.classList.remove("hidden");
   puzzleTitle.textContent = "";
+  setPuzzleMeta();
   progressCounter.textContent = "";
   navTabs.classList.remove("hidden");
   btnBack.classList.add("hidden");

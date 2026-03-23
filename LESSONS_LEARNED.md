@@ -81,6 +81,8 @@
 
 **[2026-03-23]** Autoresearch rebuilds must refresh both snapshot paths and the live prompt tree after swapping temp state into place — if `seed_prompt_snapshot` still points at the temporary rebuild dir, or if `generator/prompts/` is not restored from the rebuilt incumbent snapshot, the next validator run reports a false incumbent mismatch even though the durable state itself is correct.
 
+**[2026-03-23]** Supabase clue directions must accept persisted `H`/`V` codes, not only spelled-out names — upload stores `crossword_clues.direction` as `H`/`V`, so any DB-to-working-state adapter that only checks `"vertical"` silently routes every clue into the horizontal list. Treat both compact DB codes and verbose strings as valid inputs before running redefine/repair flows.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

@@ -5,11 +5,20 @@ CREATE TABLE crossword_puzzles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title VARCHAR(100),
   theme VARCHAR(200),
+  description TEXT,
   grid_size SMALLINT NOT NULL DEFAULT 10,
   grid_template TEXT NOT NULL,
   grid_solution TEXT NOT NULL,
   difficulty SMALLINT DEFAULT 3,
+  rebus_score_min SMALLINT,
+  rebus_score_avg REAL,
+  definition_score REAL,
+  verified_count SMALLINT,
+  total_clues SMALLINT,
+  pass_rate REAL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ,
+  repaired_at TIMESTAMPTZ,
   published BOOLEAN NOT NULL DEFAULT FALSE
 );
 
