@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-03-23] Repair regressions after Python phase-1 removal
+
+**Context:** after deleting the legacy Python phase-1 stack, full CI still failed in `test_ai_clues` and `test_verify`, and an old manual size sweep had left native `crossword_phase1` processes running in the terminal.
+**Happened:** Restored the shared `ENGLISH_HOMOGRAPH_HINTS` mapping in `generator/core/quality.py` with the Romanian senses already documented in the definition system prompt, so `_build_generate_prompt()` again emits the expected anti-English warning for words like `AN`. Updated `generator/phases/verify.py` to pass `model=` only when a concrete model name exists, preserving the old mock-call contract when `model_name is None`. Stopped the stale `crossword_phase1` background processes from the earlier 13/14/15 sweep.
+**Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_verify.py -q` (`49 passed`); `python3 -m pytest -q` (`369 passed`)
+**Outcome:** success
+**Insight:** deleting “unused” helpers is safe only after a repo-wide search for non-phase-1 consumers; prompt helpers and tests still depended on the homograph-hint table.
+**Promoted:** no
+
+---
+
 ### [2026-03-23] Remove legacy Python phase-1 generator path after Rust migration
 
 **Context:** user explicitly wanted the old Python phase-1 crossword-generation code gone after the Rust engine takeover; no dead fallback, no standalone Python template/fill commands left around.

@@ -6,7 +6,16 @@ from dataclasses import asdict, dataclass
 
 
 # Shared with clue prompts to steer obvious Romanian/English homographs.
-ENGLISH_HOMOGRAPH_HINTS: dict[str, str] = {}
+ENGLISH_HOMOGRAPH_HINTS: dict[str, str] = {
+    "AI": "formă a verbului «a avea»",
+    "AN": "unitate de timp egală cu 12 luni",
+    "AT": "domeniul online al Austriei",
+    "CLOU": "moment culminant",
+    "FAR": "lumină de semnalizare pe coastă",
+    "IN": "plantă textilă cu flori albastre",
+    "OF": "interjecție care exprimă durere sau regret",
+    "OS": "țesut dur al scheletului",
+}
 
 
 @dataclass

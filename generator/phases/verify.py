@@ -90,13 +90,17 @@ def _verify_clues(
 
         print(f"  Verifying: {clue.word_normalized} - {definition[:50]}...")
         try:
+            verify_kwargs = dict(
+                word_type=clue.word_type,
+                max_guesses=max_guesses,
+            )
+            if model_name is not None:
+                verify_kwargs["model"] = model_name
             verify_result = verify_definition_candidates(
                 client,
                 definition,
                 len(clue.word_normalized),
-                word_type=clue.word_type,
-                max_guesses=max_guesses,
-                model=model_name,
+                **verify_kwargs,
             )
         except Exception as e:
             verify_result = None
