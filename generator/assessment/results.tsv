@@ -12,3 +12,15 @@ afbf4e8	76.0	0.329	9.0	8.1	discard	autoresearch_v2/v2exp023 | rewrite rule anato
 afbf4e8	70.6	0.271	9.0	8.2	discard	autoresearch_v2/v2exp031 | definition example ATAS sidecar object | system/definition.md
 afbf4e8	75.0	0.314	9.1	8.2	discard	autoresearch_v2/v2exp032 | definition example DRUSA crystal cluster | system/definition.md
 afbf4e8	76.3	0.329	9.1	8.1	discard	autoresearch_v2/v2exp033 | definition example TOR architectural molding | system/definition.md
+6e26efe	77.8	0.343	9.1	8.1	discard	autoresearch_v3/v3exp001 | system baseline temperatures generate 0.20 rewrite 0.30 | [system]
+6e26efe	73.4	0.300	9.0	8.1	discard	autoresearch_v3/v3exp002 | system temperatures generate 0.15 rewrite 0.15 | [system]
+6e26efe	67.4	0.243	8.9	8.1	discard	autoresearch_v3/v3exp003 | system temperatures generate 0.20 rewrite 0.15 | [system]
+6e26efe	73.3	0.300	9.1	8.1	discard	autoresearch_v3/v3exp005 | verify compress Romanian-only and remove mental translation line | system/verify.md
+6e26efe	70.1	0.271	8.9	8.1	discard	autoresearch_v3/v3exp006 | verify remove broad flexibility guidance | system/verify.md
+6e26efe	70.5	0.271	9.1	8.1	discard	autoresearch_v3/v3exp007 | verify shorten process to shortlist and elimination | system/verify.md
+6e26efe	70.7	0.271	9.1	8.1	discard	autoresearch_v3/v3exp009 | rewrite add universal near-neighbor exclusion rule | system/rewrite.md
+6e26efe	73.0	0.300	9.0	7.9	discard	autoresearch_v3/v3exp010 | rewrite add blank-output concretizer rule | system/rewrite.md
+6e26efe	71.9	0.286	9.1	8.1	discard	autoresearch_v3/v3exp011 | rewrite add action-result anti-dictionary rule | system/rewrite.md
+6e26efe	70.4	0.271	9.1	8.0	discard	autoresearch_v3/v3exp013 | definition compress Romanian-only lines | system/definition.md
+6e26efe	76.1	0.329	9.0	8.1	discard	autoresearch_v3/v3exp014 | definition compress exact-form guidance | system/definition.md
+6e26efe	74.9	0.314	9.1	8.1	discard	autoresearch_v3/v3exp015 | rewrite compress rare-valid-sense guidance | system/rewrite.md
