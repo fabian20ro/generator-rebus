@@ -32,6 +32,20 @@ from .core.rewrite_engine import run_rewrite_loop
 from .core.runtime_logging import install_process_logging, path_timestamp
 
 REDEFINE_ROUNDS = 7
+_CLUE_SELECT_FIELD_SETS = (
+    (
+        "id, puzzle_id, word_normalized, word_original, definition, direction, "
+        "start_row, start_col, length, clue_number, verify_note, verified"
+    ),
+    (
+        "id, puzzle_id, word_normalized, word_original, definition, direction, "
+        "start_row, start_col, length, clue_number, verified"
+    ),
+    (
+        "id, puzzle_id, word_normalized, word_original, definition, direction, "
+        "start_row, start_col, length, clue_number"
+    ),
+)
 
 
 def fetch_puzzles(
@@ -56,16 +70,23 @@ def fetch_puzzles(
 
 def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
     """Fetch all clues for a puzzle with fields needed for rewriting."""
-    result = (
-        supabase.table("crossword_clues")
-        .select(
-            "id, puzzle_id, word_normalized, word_original, definition, direction, "
-            "start_row, start_col, length, clue_number, verify_note, verified"
-        )
-        .eq("puzzle_id", puzzle_id)
-        .execute()
-    )
-    return result.data or []
+    last_error = None
+    for fields in _CLUE_SELECT_FIELD_SETS:
+        try:
+            result = (
+                supabase.table("crossword_clues")
+                .select(fields)
+                .eq("puzzle_id", puzzle_id)
+                .execute()
+            )
+            return result.data or []
+        except Exception as exc:
+            last_error = exc
+            if "does not exist" not in str(exc):
+                raise
+    if last_error is not None:
+        raise last_error
+    return []
 
 
 def _now_iso() -> str:
@@ -142,6 +163,14 @@ def _apply_clue_version(target: WorkingClue, source: WorkingClue) -> None:
     target.current = copy.deepcopy(final_version)
     target.best = copy.deepcopy(final_version)
     target.locked = source.locked
+
+
+def _clue_update_payload(row: dict, desired: dict[str, object]) -> dict[str, object]:
+    payload = {"definition": desired["definition"]}
+    for field in ("verify_note", "verified"):
+        if field in row:
+            payload[field] = desired[field]
+    return payload
 
 
 def _desired_clue_payloads(puzzle: WorkingPuzzle) -> dict[tuple[str, int, int], dict[str, object]]:
@@ -290,12 +319,14 @@ def redefine_puzzle(
         source_clue = candidate_clues.get(key)
         if not desired or not target_clue or not source_clue:
             continue
+        update_payload = _clue_update_payload(row, desired)
         current = {
             "definition": row.get("definition", "") or "",
             "verify_note": row.get("verify_note", "") or "",
             "verified": bool(row.get("verified")),
         }
-        if current == desired:
+        comparable_current = {field: current[field] for field in update_payload}
+        if comparable_current == update_payload:
             continue
 
         word = row.get("word_normalized", "")
@@ -305,9 +336,9 @@ def redefine_puzzle(
         )
         if not dry_run:
             supabase.table("crossword_clues").update(
-                desired
+                update_payload
             ).eq("id", row["id"]).eq("puzzle_id", puzzle_id).execute()
-        row.update(desired)
+        row.update(update_payload)
         _apply_clue_version(target_clue, source_clue)
         persistence_puzzle.assessment = score_puzzle_state(persistence_puzzle)
         metadata_payload = _build_metadata_payload(
