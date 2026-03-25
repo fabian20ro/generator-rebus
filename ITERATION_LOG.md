@@ -308,6 +308,14 @@
 **Insight:** title dedup has to be run-stateful; if uniqueness is checked only against the pre-run DB snapshot, later puzzles can collide with titles minted earlier in the same maintenance batch.
 **Promoted:** no
 
+### [2026-03-26] — Preserve DEX usage-category headings in parsed definition text
+**Context:** user noticed dexonline pages where register information lives in section headings like `Arhaisme și regionalisme`, not only inline markers such as `(reg.)`, and wanted that metadata to survive ingestion into `dex_definitions`.
+**Happened:** Extended the HTML parser in `generator/core/dex_cache.py` so it still extracts compact `tree-def` synthesis definitions first, but also reads original-definition wrappers under usage-relevant callout headings and appends category-tagged entries like `Arhaisme și regionalisme: ...` to the parsed DEX text. Kept non-usage categories (e.g. `Sinonime`) out of this extra injection to avoid noisy prompt context. Added parser tests for usage-heading inclusion and non-usage exclusion.
+**Verification:** `python3 -m pytest tests/test_dex_cache.py tests/test_ai_clues.py -q` (`117 passed in 9.40s`); `python3 -m pytest tests/test_verify.py -q` (`10 passed in 0.22s`)
+**Outcome:** success
+**Insight:** dexonline register metadata can sit outside the definition span; if ingestion reads only `tree-def`, it silently loses category-level rarity/register hints that matter downstream.
+**Promoted:** no
+
 ### [2026-03-22] — Regroup prompt autoresearch families so stale-stop does not kill unrelated hypothesis classes
 **Context:** after one autonomous continuation, supervisor safe-stopped with `three consecutive stale families` even though only negative definition examples, early rate counterexamples, and one rewrite framing edit had actually been tested. Positive definition examples and rule/guidance variants were still untouched but hidden inside the same coarse family names.
 **Happened:** Split experiment-family mapping in `scripts/run_experiments.py`: `rewrite_anti_distractor` into `rewrite_framing` vs `rewrite_structural_guidance`; `definition_examples` into `definition_negative_examples`, `definition_positive_examples`, `definition_guidance`; `rate_exactness` into `rate_counterexamples`, `rate_rules`. Updated family priorities in `generator/assessment/benchmark_policy.py` so the next live candidate is `definition_positive_examples`, not more negative examples or old verify work. Updated bundle unlock prerequisites to depend on the new finer-grained signal buckets. Adjusted autoresearch tests to assert the new first family/next experiment and rebuilt durable state from the same pilot log + baseline JSON.

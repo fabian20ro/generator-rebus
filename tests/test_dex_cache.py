@@ -78,6 +78,28 @@ class ParseDefinitionsFromHtmlTests(unittest.TestCase):
         result = parse_definitions_from_html(html)
         self.assertEqual(result, ["Diminutiv al lui fir."])
 
+    def test_usage_category_is_added_to_definition_text(self):
+        html = (
+            '<div class="callout callout-secondary mt-5"><h3>Arhaisme și regionalisme</h3></div>'
+            '<div class=" defWrapper "><p>'
+            '<span class="def"><b>clin,</b> <i>clinuri,</i> s.n. unealtă de cizmărie.</span>'
+            "</p></div>"
+        )
+        result = parse_definitions_from_html(html)
+        self.assertEqual(
+            result,
+            ["Arhaisme și regionalisme: clin, clinuri, s.n. unealtă de cizmărie."],
+        )
+
+    def test_non_usage_category_is_not_injected(self):
+        html = (
+            '<div class="callout callout-secondary mt-5"><h3>Sinonime</h3></div>'
+            '<div class=" defWrapper "><p>'
+            '<span class="def"><b>clin</b> = stan.</span>'
+            "</p></div>"
+        )
+        self.assertEqual(parse_definitions_from_html(html), [])
+
 
 class FormatDefinitionsTests(unittest.TestCase):
     def test_basic(self):

@@ -81,6 +81,17 @@ _UNIT_FRACTION_PATTERN = re.compile(
     r"^a\s+[^\s;:,(=]+\s+parte dintr-(?:un|o)\s+([^\s;:,(=]+)",
     re.IGNORECASE,
 )
+_USAGE_CATEGORY_MARKERS = (
+    "ARHAISM",
+    "REGIONAL",
+    "JARGON",
+    "ARGOU",
+    "TEHNIC",
+    "POPULAR",
+    "FAMILIAR",
+    "LIVRESC",
+    "INVECHIT",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -92,35 +103,97 @@ class _DefinitionExtractor(HTMLParser):
 
     def __init__(self):
         super().__init__()
-        self._in_def = False
-        self._depth = 0
-        self._current: list[str] = []
-        self.definitions: list[str] = []
+        self._in_tree_def = False
+        self._tree_depth = 0
+        self._tree_current: list[str] = []
+        self.tree_definitions: list[str] = []
+        self._callout_depth = 0
+        self._def_wrapper_depth = 0
+        self._in_callout_heading = False
+        self._callout_heading_current: list[str] = []
+        self._current_category = ""
+        self._in_categorized_def = False
+        self._categorized_depth = 0
+        self._categorized_current: list[str] = []
+        self.categorized_definitions: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        classes = dict(attrs).get("class", "") or ""
         if tag == "span":
-            classes = dict(attrs).get("class", "") or ""
             if "tree-def" in classes:
-                self._in_def = True
-                self._depth = 1
-                self._current = []
+                self._in_tree_def = True
+                self._tree_depth = 1
+                self._tree_current = []
                 return
-        if self._in_def:
-            self._depth += 1 if tag in _DEF_CONTAINER_TAGS else 0
+            if self._def_wrapper_depth > 0 and "def" in classes.split():
+                self._in_categorized_def = True
+                self._categorized_depth = 1
+                self._categorized_current = []
+                return
+        if tag == "div":
+            if "callout-secondary" in classes:
+                self._callout_depth = 1
+                self._current_category = ""
+            elif self._callout_depth > 0:
+                self._callout_depth += 1
+            if "defWrapper" in classes:
+                self._def_wrapper_depth += 1
+        elif tag == "h3" and self._callout_depth > 0:
+            self._in_callout_heading = True
+            self._callout_heading_current = []
+
+        if self._in_tree_def:
+            self._tree_depth += 1 if tag in _DEF_CONTAINER_TAGS else 0
+        if self._in_categorized_def:
+            self._categorized_depth += 1 if tag in _DEF_CONTAINER_TAGS else 0
 
     def handle_endtag(self, tag: str) -> None:
-        if self._in_def:
+        if self._in_callout_heading and tag == "h3":
+            self._current_category = " ".join("".join(self._callout_heading_current).split()).strip()
+            self._in_callout_heading = False
+            self._callout_heading_current = []
+
+        if self._in_tree_def:
             if tag in _DEF_CONTAINER_TAGS:
-                self._depth -= 1
-                if self._depth <= 0:
-                    text = " ".join("".join(self._current).split()).strip()
+                self._tree_depth -= 1
+                if self._tree_depth <= 0:
+                    text = " ".join("".join(self._tree_current).split()).strip()
                     if text:
-                        self.definitions.append(text)
-                    self._in_def = False
+                        self.tree_definitions.append(text)
+                    self._in_tree_def = False
+
+        if self._in_categorized_def:
+            if tag in _DEF_CONTAINER_TAGS:
+                self._categorized_depth -= 1
+                if self._categorized_depth <= 0:
+                    text = " ".join("".join(self._categorized_current).split()).strip()
+                    if text and _is_usage_category(self._current_category):
+                        self.categorized_definitions.append(f"{self._current_category}: {text}")
+                    self._in_categorized_def = False
+
+        if tag == "div":
+            if self._callout_depth > 0:
+                self._callout_depth -= 1
+                if self._callout_depth == 0:
+                    self._in_callout_heading = False
+                    self._callout_heading_current = []
+            if self._def_wrapper_depth > 0:
+                self._def_wrapper_depth -= 1
 
     def handle_data(self, data: str) -> None:
-        if self._in_def:
-            self._current.append(data)
+        if self._in_callout_heading:
+            self._callout_heading_current.append(data)
+        if self._in_tree_def:
+            self._tree_current.append(data)
+        if self._in_categorized_def:
+            self._categorized_current.append(data)
+
+
+def _is_usage_category(category: str) -> bool:
+    if not category:
+        return False
+    normalized_category = normalize(category)
+    return any(marker in normalized_category for marker in _USAGE_CATEGORY_MARKERS)
 
 
 def parse_definitions_from_html(html: str) -> list[str]:
@@ -129,7 +202,7 @@ def parse_definitions_from_html(html: str) -> list[str]:
     parser.feed(html)
     seen: set[str] = set()
     result: list[str] = []
-    for d in parser.definitions:
+    for d in parser.tree_definitions + parser.categorized_definitions:
         if d not in seen:
             seen.add(d)
             result.append(d)
