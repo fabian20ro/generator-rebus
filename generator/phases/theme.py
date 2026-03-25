@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import sys
+from collections.abc import Iterable
 
 from ..core.ai_clues import create_client
 from ..core.diacritics import normalize
@@ -95,6 +96,12 @@ TITLE_ENGLISH_MARKERS = {
 
 def _fallback_title() -> str:
     return random.choice(FALLBACK_TITLES)
+
+
+def normalize_title_key(title: str) -> str:
+    cleaned = " ".join(title.strip().strip('"').strip("'").split())
+    cleaned = cleaned.rstrip(".,;:!?…")
+    return normalize(cleaned)
 
 
 def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
@@ -222,6 +229,7 @@ def generate_creative_title(
     rate_client=None,
     runtime: LmRuntime | None = None,
     multi_model: bool = False,
+    forbidden_title_keys: Iterable[str] | None = None,
 ) -> str:
     """Generate a creative title with quality evaluation loop."""
     if not words:
@@ -235,6 +243,7 @@ def generate_creative_title(
     best_title: str | None = None
     best_score = 0
     rejected: list[tuple[str, str]] = []
+    forbidden_keys = {key for key in (forbidden_title_keys or []) if key}
 
     for round_idx in range(1, MAX_TITLE_ROUNDS + 1):
         rejected_context = ""
@@ -257,7 +266,15 @@ def generate_creative_title(
         )
 
         sanitized = _sanitize_title(raw_title, input_words=words)
-        if sanitized in [t for t, _ in rejected] or sanitized in FALLBACK_TITLES:
+        title_key = normalize_title_key(sanitized)
+        rejected_keys = {normalize_title_key(title) for title, _ in rejected}
+        if (
+            sanitized in FALLBACK_TITLES
+            or title_key in rejected_keys
+            or (title_key and title_key in forbidden_keys)
+        ):
+            if title_key and title_key in forbidden_keys:
+                rejected.append((sanitized, "titlu deja folosit"))
             continue
 
         rating_model = runtime.activate_secondary() if multi_model else generator_model

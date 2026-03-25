@@ -8,6 +8,7 @@ from generator.retitle import (
     fetch_clues,
     fetch_puzzles,
     retitle_puzzle,
+    select_puzzles_for_retitle,
 )
 
 
@@ -56,6 +57,20 @@ def _fake_rate_client_sequential(scores: list[int]):
 
 
 class FetchPuzzlesTests(unittest.TestCase):
+    def test_select_puzzles_prioritizes_largest_duplicate_groups(self):
+        rows = [
+            {"id": "a", "title": "Sensuri Comune", "created_at": "2026-03-14T03:00:00+00:00"},
+            {"id": "b", "title": "sensuri comune", "created_at": "2026-03-15T03:00:00+00:00"},
+            {"id": "c", "title": "Sensuri românești", "created_at": "2026-03-13T03:00:00+00:00"},
+            {"id": "d", "title": "sensuri romanesti", "created_at": "2026-03-14T01:00:00+00:00"},
+            {"id": "e", "title": "SENSURI ROMÂNEȘTI", "created_at": "2026-03-14T02:00:00+00:00"},
+            {"id": "f", "title": "Titlu Unic", "created_at": "2026-03-12T03:00:00+00:00"},
+        ]
+
+        result = select_puzzles_for_retitle(rows, global_rows=rows)
+
+        self.assertEqual(["c", "d", "e", "a", "b"], [row["id"] for row in result])
+
     def test_fetch_puzzles_sorts_oldest_first(self):
         mock_supabase = MagicMock()
         mock_query = MagicMock()
@@ -187,6 +202,43 @@ class RetitlePuzzleTests(unittest.TestCase):
 
         self.assertTrue(changed)
         mock_supabase.table.return_value.update.assert_called_once()
+        payload = mock_supabase.table.return_value.update.call_args[0][0]
+        self.assertEqual("Orizont Verde", payload["title"])
+        self.assertIn("updated_at", payload)
+        self.assertEqual("Orizont Verde", puzzle_row["title"])
+
+    @patch("generator.retitle.LmRuntime")
+    @patch("generator.retitle.generate_creative_title", return_value="sensuri romanesti")
+    def test_retitle_rejects_normalized_duplicate_title(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
+        mock_supabase = MagicMock()
+        clue_query = MagicMock()
+        mock_supabase.table.return_value.select.return_value = clue_query
+        clue_query.eq.return_value = clue_query
+        clue_query.execute.return_value = SimpleNamespace(
+            data=[
+                {"word_normalized": "MUNTE", "definition": "Formă de relief"},
+                {"word_normalized": "PADURE", "definition": "Arbori mulți"},
+            ]
+        )
+
+        puzzle_row = {"id": "abc", "title": "Titlu Vechi"}
+        ai_client = _fake_ai_client("unused")
+        rate_client = _fake_rate_client(8)
+
+        changed = retitle_puzzle(
+            mock_supabase,
+            puzzle_row,
+            ai_client,
+            rate_client,
+            dry_run=False,
+            forbidden_title_keys={"SENSURI ROMANESTI"},
+        )
+
+        self.assertFalse(changed)
+        mock_supabase.table.return_value.update.assert_not_called()
 
 
 class RetitleScoreComparisonTests(unittest.TestCase):

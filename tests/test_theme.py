@@ -10,6 +10,7 @@ from generator.phases.theme import (
     _sanitize_title,
     generate_creative_title,
     generate_title_for_final_puzzle,
+    normalize_title_key,
     rate_title_creativity,
 )
 
@@ -122,6 +123,12 @@ class FallbackTitleTests(unittest.TestCase):
 
 
 class SanitizeTitleTests(unittest.TestCase):
+    def test_normalize_title_key_collapses_case_diacritics_and_spacing(self):
+        self.assertEqual(
+            normalize_title_key("  Sensuri   românești... "),
+            normalize_title_key("sensuri romanesti"),
+        )
+
     def test_valid_title_passes_through(self):
         self.assertEqual("Metale și Ecouri", _sanitize_title("Metale și Ecouri"))
 
@@ -208,6 +215,19 @@ class CreativeTitleTests(unittest.TestCase):
         )
         self.assertEqual(PRIMARY_MODEL.model_id, gen_client.calls[0]["model"])
         self.assertEqual(SECONDARY_MODEL.model_id, rate_client.calls[0]["model"])
+
+    def test_retries_when_title_key_forbidden(self):
+        runtime = _FakeRuntime()
+        title = generate_creative_title(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=_SequentialClient(["Sensuri Românești", "Orizont Nou"]),
+            rate_client=_fake_rate_client(8),
+            runtime=runtime,
+            multi_model=True,
+            forbidden_title_keys={normalize_title_key("sensuri romanesti")},
+        )
+        self.assertEqual("Orizont Nou", title)
 
 
 class FinalPuzzleTitleTests(unittest.TestCase):
