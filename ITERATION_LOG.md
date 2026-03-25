@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-03-25] Refresh redefine metadata/clue state after each persisted clue update
+
+**Context:** user wanted `run_definition_improve.sh` / `generator.redefine` to stop updating only `crossword_clues.definition`. New requirement: after each persisted clue delta, also refresh puzzle-level Supabase metadata, persist clue `verify_note` + `verified`, keep title fixed, and backfill missing metadata even when no clue row changes.
+**Happened:** Refactored `generator/redefine.py` into a two-state flow: baseline puzzle is re-evaluated from DB rows first, then a separate candidate puzzle runs the rewrite loop. `fetch_clues()` now loads `clue_number`, `verify_note`, and `verified`; `build_working_puzzle()` imports existing verify state instead of discarding it. Persist path now compares stable clue keys `(direction,start_row,start_col)` and writes full clue payloads `{definition, verify_note, verified}` one row at a time. After each clue write, an in-memory persistence puzzle is advanced to that clue’s final version, puzzle assessment is recomputed via shared `puzzle_metrics` helpers, and `crossword_puzzles` gets refreshed `description`, numeric scores/counts, `pass_rate`, plus `updated_at` and `repaired_at`. Added no-op/backfill handling for the zero-clue-delta cases. Expanded `tests/test_redefine.py` to cover imported verify state, clue-state persistence, per-clue metadata refresh, backfill-only behavior, no-op when metadata already exists, and state-only deltas.
+**Verification:** `python3 -m pytest tests/test_redefine.py`; `python3 -m pytest tests/test_repair_puzzles.py`.
+**Outcome:** success
+**Insight:** redefine/repair flows should key DB clue persistence by stable coordinates, not `word_normalized`; duplicate answers are legal, while `(direction,start_row,start_col)` is the actual persistence contract.
+**Promoted:** no
+
+---
+
 ### [2026-03-24] Implement normalized-only Rust engine and pinned Python variant hydration
 
 **Context:** user wanted the Rust phase-1 engine to own only normalized grid fill, dedupe input by normalized word before search, forbid duplicate normalized answers in solved grids, use minimum rarity across variants for normalized-word quality, and move concrete variant resolution (`word_original`, `word_type`, later metadata) fully outside Rust while keeping that choice fixed once selected.

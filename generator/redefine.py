@@ -6,19 +6,27 @@ import argparse
 import copy
 import re
 import sys
+from datetime import datetime, timezone
 
 from supabase import create_client as create_supabase_client
 
+from .core.markdown_io import ClueEntry
+from .core.puzzle_metrics import (
+    build_puzzle_description,
+    evaluate_puzzle_state,
+    puzzle_metadata_payload,
+    score_puzzle_state,
+)
 from .core.score_helpers import _compact_log_text
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from .core.ai_clues import create_client as create_ai_client
 from .core.lm_runtime import LmRuntime
 from .core.pipeline_state import (
-    ClueCandidateVersion,
-    ClueAssessment,
     WorkingClue,
     WorkingPuzzle,
     all_working_clues,
+    puzzle_from_working_state,
+    working_clue_from_entry,
 )
 from .core.rewrite_engine import run_rewrite_loop
 from .core.runtime_logging import install_process_logging, path_timestamp
@@ -50,11 +58,111 @@ def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
     """Fetch all clues for a puzzle with fields needed for rewriting."""
     result = (
         supabase.table("crossword_clues")
-        .select("id, puzzle_id, word_normalized, word_original, definition, direction, start_row, start_col, length")
+        .select(
+            "id, puzzle_id, word_normalized, word_original, definition, direction, "
+            "start_row, start_col, length, clue_number, verify_note, verified"
+        )
         .eq("puzzle_id", puzzle_id)
         .execute()
     )
     return result.data or []
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _models_used(multi_model: bool) -> list[str]:
+    if multi_model:
+        return ["gpt-oss-20b", "eurollm-22b"]
+    return ["gpt-oss-20b"]
+
+
+def _needs_metadata_backfill(puzzle_row: dict) -> bool:
+    required = (
+        "description",
+        "rebus_score_min",
+        "rebus_score_avg",
+        "definition_score",
+        "verified_count",
+        "total_clues",
+        "pass_rate",
+    )
+    for field in required:
+        value = puzzle_row.get(field)
+        if value is None:
+            return True
+        if field == "description" and not str(value).strip():
+            return True
+    return False
+
+
+def _direction_code(direction: str | None) -> str:
+    return "V" if (direction or "").strip().lower() in {"v", "vertical"} else "H"
+
+
+def _clue_key(direction: str | None, start_row: int | None, start_col: int | None) -> tuple[str, int, int]:
+    return (_direction_code(direction), int(start_row or 0), int(start_col or 0))
+
+
+def _clue_row_sort_key(row: dict) -> tuple[object, ...]:
+    direction = _direction_code(row.get("direction"))
+    return (
+        0 if direction == "H" else 1,
+        int(row.get("clue_number") or 0),
+        int(row.get("start_row") or 0),
+        int(row.get("start_col") or 0),
+        row.get("id") or "",
+    )
+
+
+def _build_metadata_payload(assessment, *, multi_model: bool) -> dict[str, object]:
+    description = build_puzzle_description(assessment, _models_used(multi_model))
+    payload = puzzle_metadata_payload(assessment, description=description)
+    timestamp = _now_iso()
+    payload["updated_at"] = timestamp
+    payload["repaired_at"] = timestamp
+    return payload
+
+
+def _persist_puzzle_metadata(
+    supabase,
+    puzzle_id: str,
+    payload: dict[str, object],
+    *,
+    dry_run: bool,
+) -> None:
+    if dry_run:
+        return
+    supabase.table("crossword_puzzles").update(payload).eq("id", puzzle_id).execute()
+
+
+def _apply_clue_version(target: WorkingClue, source: WorkingClue) -> None:
+    final_version = copy.deepcopy(source.active_version())
+    target.current = copy.deepcopy(final_version)
+    target.best = copy.deepcopy(final_version)
+    target.locked = source.locked
+
+
+def _desired_clue_payloads(puzzle: WorkingPuzzle) -> dict[tuple[str, int, int], dict[str, object]]:
+    rendered = puzzle_from_working_state(puzzle)
+    payloads: dict[tuple[str, int, int], dict[str, object]] = {}
+    for direction, clues in (("H", rendered.horizontal_clues), ("V", rendered.vertical_clues)):
+        for clue in clues:
+            payloads[_clue_key(direction, clue.start_row, clue.start_col)] = {
+                "definition": clue.definition,
+                "verify_note": clue.verify_note or "",
+                "verified": bool(clue.verified),
+            }
+    return payloads
+
+
+def _working_clue_map(puzzle: WorkingPuzzle) -> dict[tuple[str, int, int], WorkingClue]:
+    mapping: dict[tuple[str, int, int], WorkingClue] = {}
+    for direction, clues in (("H", puzzle.horizontal_clues), ("V", puzzle.vertical_clues)):
+        for clue in clues:
+            mapping[_clue_key(direction, clue.start_row, clue.start_col)] = clue
+    return mapping
 
 
 def build_working_puzzle(puzzle_row: dict, clue_rows: list[dict]) -> WorkingPuzzle:
@@ -62,26 +170,24 @@ def build_working_puzzle(puzzle_row: dict, clue_rows: list[dict]) -> WorkingPuzz
     horizontal_clues: list[WorkingClue] = []
     vertical_clues: list[WorkingClue] = []
 
-    for idx, row in enumerate(clue_rows):
-        current = ClueCandidateVersion(
-            definition=row.get("definition", ""),
-            round_index=0,
-            source="db_import",
-            assessment=ClueAssessment(),
+    for idx, row in enumerate(sorted(clue_rows, key=_clue_row_sort_key)):
+        clue = working_clue_from_entry(
+            ClueEntry(
+                row_number=int(row.get("clue_number") or idx + 1),
+                word_normalized=row.get("word_normalized", ""),
+                word_original=row.get("word_original", "") or "",
+                definition=row.get("definition", "") or "",
+                verified=row.get("verified"),
+                verify_note=row.get("verify_note", "") or "",
+                start_row=int(row.get("start_row", 0) or 0),
+                start_col=int(row.get("start_col", 0) or 0),
+            )
         )
-        clue = WorkingClue(
-            row_number=idx + 1,
-            word_normalized=row.get("word_normalized", ""),
-            word_original=row.get("word_original", "") or "",
-            start_row=row.get("start_row", 0) or 0,
-            start_col=row.get("start_col", 0) or 0,
-            current=current,
-            best=None,
-            history=[current],
-        )
+        clue.current.source = "db_import"
+        if clue.history:
+            clue.history[0].source = "db_import"
 
-        direction = (row.get("direction") or "horizontal").lower()
-        if direction in {"v", "vertical"}:
+        if _direction_code(row.get("direction")) == "V":
             vertical_clues.append(clue)
         else:
             horizontal_clues.append(clue)
@@ -106,13 +212,9 @@ def rewrite_puzzle_definitions(
     multi_model: bool = True,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
     runtime: LmRuntime | None = None,
-) -> dict[str, ClueCandidateVersion]:
-    """Run the verify-rate-rewrite loop and return best versions per word.
-
-    Returns a mapping of word_normalized -> best ClueCandidateVersion after
-    the rewrite loop completes.
-    """
-    result = run_rewrite_loop(
+) -> object:
+    """Run the verify-rate-rewrite loop."""
+    return run_rewrite_loop(
         puzzle,
         client,
         rounds=rounds,
@@ -122,7 +224,6 @@ def rewrite_puzzle_definitions(
         hybrid_deanchor=True,
         runtime=runtime,
     )
-    return result.improved_versions
 
 
 def redefine_puzzle(
@@ -138,47 +239,103 @@ def redefine_puzzle(
 ) -> int:
     """Redefine definitions for one puzzle. Returns count of updated clues."""
     puzzle_id = puzzle_row["id"]
-    clue_rows = fetch_clues(supabase, puzzle_id)
+    clue_rows = sorted(fetch_clues(supabase, puzzle_id), key=_clue_row_sort_key)
     if not clue_rows:
         print(f"  [{puzzle_id}] No clues found, skipping")
         return 0
 
-    puzzle = build_working_puzzle(puzzle_row, clue_rows)
-    print(f"  [{puzzle_id}] {len(clue_rows)} clues, title: {puzzle.title}")
+    baseline_puzzle = build_working_puzzle(puzzle_row, clue_rows)
+    print(f"  [{puzzle_id}] {len(clue_rows)} clues, title: {baseline_puzzle.title}")
+    runtime = runtime or LmRuntime(multi_model=multi_model)
+    baseline_eval = evaluate_puzzle_state(
+        baseline_puzzle,
+        client,
+        multi_model=multi_model,
+        verify_candidates=verify_candidates,
+        runtime=runtime,
+    )
+    baseline_puzzle.assessment = baseline_eval.assessment
+    print(
+        f"  [{puzzle_id}] baseline min={baseline_eval.assessment.min_rebus}/10 "
+        f"avg={baseline_eval.assessment.avg_rebus:.1f}/10 "
+        f"verified={baseline_eval.assessment.verified_count}/{baseline_eval.assessment.total_clues}"
+    )
 
-    improved = rewrite_puzzle_definitions(
-        puzzle,
+    candidate_puzzle = build_working_puzzle(puzzle_row, clue_rows)
+    rewrite_puzzle_definitions(
+        candidate_puzzle,
         client,
         rounds=rounds,
         multi_model=multi_model,
         verify_candidates=verify_candidates,
         runtime=runtime,
     )
+    candidate_puzzle.assessment = score_puzzle_state(candidate_puzzle)
+    print(
+        f"  [{puzzle_id}] candidate min={candidate_puzzle.assessment.min_rebus}/10 "
+        f"avg={candidate_puzzle.assessment.avg_rebus:.1f}/10 "
+        f"verified={candidate_puzzle.assessment.verified_count}/{candidate_puzzle.assessment.total_clues}"
+    )
 
-    if not improved:
-        print(f"  [{puzzle_id}] No definitions improved")
-        return 0
-
-    # Map word_normalized back to clue DB IDs
-    word_to_clue_id = {row["word_normalized"]: row["id"] for row in clue_rows}
+    desired_payloads = _desired_clue_payloads(candidate_puzzle)
+    candidate_clues = _working_clue_map(candidate_puzzle)
+    persistence_puzzle = copy.deepcopy(baseline_puzzle)
+    persistence_clues = _working_clue_map(persistence_puzzle)
 
     updated_count = 0
-    for word, version in improved.items():
-        clue_id = word_to_clue_id.get(word)
-        if not clue_id:
+    for row in clue_rows:
+        key = _clue_key(row.get("direction"), row.get("start_row"), row.get("start_col"))
+        desired = desired_payloads.get(key)
+        target_clue = persistence_clues.get(key)
+        source_clue = candidate_clues.get(key)
+        if not desired or not target_clue or not source_clue:
             continue
-        old_def = next(
-            (r["definition"] for r in clue_rows if r["word_normalized"] == word), ""
-        )
+        current = {
+            "definition": row.get("definition", "") or "",
+            "verify_note": row.get("verify_note", "") or "",
+            "verified": bool(row.get("verified")),
+        }
+        if current == desired:
+            continue
+
+        word = row.get("word_normalized", "")
         print(
             f"  [{puzzle_id}] {word}: "
-            f"'{_compact_log_text(old_def)}' -> '{_compact_log_text(version.definition)}'"
+            f"'{_compact_log_text(current['definition'])}' -> '{_compact_log_text(desired['definition'])}'"
         )
         if not dry_run:
             supabase.table("crossword_clues").update(
-                {"definition": version.definition}
-            ).eq("id", clue_id).execute()
+                desired
+            ).eq("id", row["id"]).eq("puzzle_id", puzzle_id).execute()
+        row.update(desired)
+        _apply_clue_version(target_clue, source_clue)
+        persistence_puzzle.assessment = score_puzzle_state(persistence_puzzle)
+        metadata_payload = _build_metadata_payload(
+            persistence_puzzle.assessment,
+            multi_model=multi_model,
+        )
+        _persist_puzzle_metadata(
+            supabase,
+            puzzle_id,
+            metadata_payload,
+            dry_run=dry_run,
+        )
         updated_count += 1
+
+    if updated_count == 0:
+        if _needs_metadata_backfill(puzzle_row):
+            print(f"  [{puzzle_id}] backfill metadata")
+            _persist_puzzle_metadata(
+                supabase,
+                puzzle_id,
+                _build_metadata_payload(
+                    baseline_puzzle.assessment,
+                    multi_model=multi_model,
+                ),
+                dry_run=dry_run,
+            )
+        else:
+            print(f"  [{puzzle_id}] No clue or metadata changes")
 
     return updated_count
 
