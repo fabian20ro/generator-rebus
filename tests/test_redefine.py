@@ -98,6 +98,22 @@ class _SupabaseFixture:
 
 
 class FetchPuzzlesTests(unittest.TestCase):
+    def test_fetch_puzzles_sorts_oldest_first(self):
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_supabase.table.return_value.select.return_value = mock_query
+        mock_query.execute.return_value = SimpleNamespace(
+            data=[
+                {"id": "c", "created_at": "2026-03-15T01:00:00+00:00"},
+                {"id": "a", "created_at": "2026-03-14T03:00:00+00:00"},
+                {"id": "b", "created_at": "2026-03-14T03:00:00+00:00"},
+            ]
+        )
+
+        result = fetch_puzzles(mock_supabase)
+
+        self.assertEqual(["a", "b", "c"], [row["id"] for row in result])
+
     def test_fetch_puzzles_by_date(self):
         mock_supabase = MagicMock()
         mock_query = MagicMock()

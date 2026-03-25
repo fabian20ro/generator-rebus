@@ -35,6 +35,24 @@ class TimestampedWriterTests(unittest.TestCase):
 
 
 class AuditTests(unittest.TestCase):
+    def test_install_process_logging_writes_log_file(self):
+        with TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "run.log"
+            handle = install_process_logging(
+                run_id="test-run",
+                component="test_component",
+                log_path=log_path,
+                tee_console=False,
+            )
+            try:
+                print("hello log")
+            finally:
+                handle.restore()
+
+            output = log_path.read_text(encoding="utf-8")
+            self.assertIn("hello log", output)
+            self.assertTrue(output.startswith("["))
+
     def test_audit_writes_jsonl_record(self):
         with TemporaryDirectory() as tmpdir:
             audit_path = Path(tmpdir) / "audit.jsonl"

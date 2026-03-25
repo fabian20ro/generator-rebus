@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from pathlib import Path
 
 from supabase import create_client as create_supabase_client
 
@@ -37,13 +38,21 @@ def fetch_puzzles(
         )
 
     result = query.execute()
-    rows = result.data or []
+    rows = sorted(result.data or [], key=_puzzle_sort_key)
 
     if fallbacks_only:
         fallback_set = set(FALLBACK_TITLES)
         rows = [r for r in rows if r.get("title") in fallback_set]
 
     return rows
+
+
+def _puzzle_sort_key(row: dict) -> tuple[bool, str, str]:
+    return (
+        row.get("created_at") is None,
+        str(row.get("created_at") or ""),
+        str(row.get("id") or ""),
+    )
 
 
 def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
@@ -155,14 +164,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    run_dir = Path("generator/output/retitle_runs") / path_timestamp()
+    log_path = run_dir / "run.log"
+    audit_path = run_dir / "audit.jsonl"
     handle = install_process_logging(
-        run_id=f"retitle_{path_timestamp()}",
+        run_id=run_dir.name,
         component="retitle",
+        log_path=log_path,
+        audit_path=audit_path,
         tee_console=True,
     )
     parser = build_parser()
     try:
         args = parser.parse_args()
+        print(f"Run log: {log_path}")
+        print(f"Audit log: {audit_path}")
 
         if not args.date and not args.puzzle_id and not args.all_fallbacks and not args.all:
             parser.error("Specify --date, --puzzle-id, --all-fallbacks, or --all")

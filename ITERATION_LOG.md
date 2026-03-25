@@ -292,6 +292,14 @@
 **Insight:** size-only settings were indeed misleading, and long-word scarcity is real, but the live `15x15` probe still failed quickly through black counts `44..52`; remaining top-end bottleneck is template/search topology, not just bad black-count scaling.
 **Promoted:** yes — see LESSONS_LEARNED entry on size settings using dictionary length histograms, not board size alone.
 
+### [2026-03-26] — Persist redefine/retitle run logs and force oldest-first maintenance ordering
+**Context:** user wanted `run_definition_improve.sh` and title-regeneration runs to leave analyzable logs on disk, similar to long-running batch tooling, and asked why `run_definition_improve.sh` did not start from the oldest puzzle in Supabase.
+**Happened:** Updated `generator/redefine.py` and `generator/retitle.py` so each run now creates a timestamped artifact dir under `generator/output/redefine_runs/` or `generator/output/retitle_runs/`, with `run.log` and `audit.jsonl`, and prints both paths at startup. Also changed puzzle fetch ordering in both tools to sort deterministically by `created_at` ascending with `id` as tie-break, instead of trusting unspecified Supabase row order. Added tests for oldest-first sorting and for persisted runtime log files.
+**Verification:** `python3 -m pytest tests/test_runtime_logging.py tests/test_redefine.py tests/test_retitle.py -q` (`47 passed in 0.70s`)
+**Outcome:** success
+**Insight:** maintenance jobs need explicit artifact paths and explicit row ordering; otherwise logs disappear with the terminal session and DB iteration order becomes accidental behavior.
+**Promoted:** no
+
 ### [2026-03-22] — Regroup prompt autoresearch families so stale-stop does not kill unrelated hypothesis classes
 **Context:** after one autonomous continuation, supervisor safe-stopped with `three consecutive stale families` even though only negative definition examples, early rate counterexamples, and one rewrite framing edit had actually been tested. Positive definition examples and rule/guidance variants were still untouched but hidden inside the same coarse family names.
 **Happened:** Split experiment-family mapping in `scripts/run_experiments.py`: `rewrite_anti_distractor` into `rewrite_framing` vs `rewrite_structural_guidance`; `definition_examples` into `definition_negative_examples`, `definition_positive_examples`, `definition_guidance`; `rate_exactness` into `rate_counterexamples`, `rate_rules`. Updated family priorities in `generator/assessment/benchmark_policy.py` so the next live candidate is `definition_positive_examples`, not more negative examples or old verify work. Updated bundle unlock prerequisites to depend on the new finer-grained signal buckets. Adjusted autoresearch tests to assert the new first family/next experiment and rebuilt durable state from the same pilot log + baseline JSON.

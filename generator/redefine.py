@@ -7,6 +7,7 @@ import copy
 import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from supabase import create_client as create_supabase_client
 
@@ -65,7 +66,16 @@ def fetch_puzzles(
         )
 
     result = query.execute()
-    return result.data or []
+    rows = result.data or []
+    return sorted(rows, key=_puzzle_sort_key)
+
+
+def _puzzle_sort_key(row: dict) -> tuple[bool, str, str]:
+    return (
+        row.get("created_at") is None,
+        str(row.get("created_at") or ""),
+        str(row.get("id") or ""),
+    )
 
 
 def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
@@ -409,14 +419,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    run_dir = Path("generator/output/redefine_runs") / path_timestamp()
+    log_path = run_dir / "run.log"
+    audit_path = run_dir / "audit.jsonl"
     handle = install_process_logging(
-        run_id=f"redefine_{path_timestamp()}",
+        run_id=run_dir.name,
         component="redefine",
+        log_path=log_path,
+        audit_path=audit_path,
         tee_console=True,
     )
     parser = build_parser()
     try:
         args = parser.parse_args()
+        print(f"Run log: {log_path}")
+        print(f"Audit log: {audit_path}")
 
         if not args.date and not args.puzzle_id and not args.all:
             parser.error("Specify --date, --puzzle-id, or --all")
