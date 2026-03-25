@@ -18,6 +18,21 @@ from .model_manager import PRIMARY_MODEL
 from .quality import ENGLISH_HOMOGRAPH_HINTS
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
+USAGE_SUFFIX_PRECEDENCE: list[tuple[str, tuple[str, ...]]] = [
+    ("(arh.)", (r"\bARHAIC\b", r"\bARHAISM\b", r"\bARH\.\b", r"\bIN LIMBAJ ARHAIC\b")),
+    ("(inv.)", (r"\bINVECHIT\b", r"\bIESIT DIN UZ\b", r"\bINV\.\b")),
+    ("(reg.)", (r"\bREGIONAL\b", r"\bREGIONALISM\b", r"\bREG\.\b")),
+    ("(tehn.)", (r"\bTEHNIC\b", r"\bTERMEN TEHNIC\b", r"\bTEHN\.\b")),
+    ("(pop.)", (r"\bPOPULAR\b", r"\bPOP\.\b")),
+    ("(fam.)", (r"\bFAMILIAR\b", r"\bFAM\.\b")),
+    ("(arg.)", (r"\bARGOTIC\b", r"\bARGOU\b", r"\bARG\.\b")),
+    ("(livr.)", (r"\bLIVRESC\b", r"\bLIVR\.\b")),
+]
+USAGE_SUFFIXES = {suffix for suffix, _markers in USAGE_SUFFIX_PRECEDENCE}
+_TRAILING_USAGE_SUFFIX_RE = re.compile(
+    r"(?:\s+\((?:arh|inv|reg|tehn|pop|fam|arg|livr)\.\))+\s*$",
+    flags=re.IGNORECASE,
+)
 
 RATE_MIN_SEMANTIC = 7
 RATE_MIN_REBUS = 5
@@ -211,6 +226,58 @@ def _feedback_is_rarity_only(feedback: str) -> bool:
     return bool(tokens & RARITY_MARKERS) and not bool(tokens & AMBIGUITY_MARKERS)
 
 
+def _strip_trailing_usage_suffixes(definition: str) -> str:
+    return _TRAILING_USAGE_SUFFIX_RE.sub("", definition or "").strip()
+
+
+def _extract_definition_usage_suffix(definition: str) -> str | None:
+    matches = re.findall(r"\((?:arh|inv|reg|tehn|pop|fam|arg|livr)\.\)", definition or "", flags=re.IGNORECASE)
+    if not matches:
+        return None
+    return matches[-1].lower()
+
+
+def _extract_usage_suffix_from_dex(dex_definitions: str) -> str | None:
+    if not dex_definitions:
+        return None
+    normalized_text = normalize(dex_definitions)
+    for suffix, patterns in USAGE_SUFFIX_PRECEDENCE:
+        if any(re.search(pattern, normalized_text) for pattern in patterns):
+            return suffix
+    return None
+
+
+def _normalize_definition_usage_suffix(definition: str, required_suffix: str | None) -> str:
+    base = _strip_trailing_usage_suffixes(definition)
+    if not required_suffix or required_suffix not in USAGE_SUFFIXES:
+        return base
+    if not base:
+        return required_suffix
+    return f"{base} {required_suffix}"
+
+
+def _build_usage_label_line(required_suffix: str | None, *, purpose: str) -> str:
+    if not required_suffix:
+        return ""
+    if purpose == "generate":
+        return (
+            f"Marcaj DEX explicit: {required_suffix}\n"
+            f"Dacă definești sensul marcat de DEX, încheie definiția exact cu {required_suffix}. "
+            "Folosești maximum un singur sufix de acest tip.\n"
+        )
+    if purpose == "rewrite":
+        return (
+            f"Marcaj DEX explicit: {required_suffix}\n"
+            f"Păstrează sau restaurează exact sufixul final {required_suffix} dacă rescrii sensul marcat de DEX. "
+            "Folosești maximum un singur sufix de acest tip.\n"
+        )
+    if purpose == "verify":
+        return f"Marcaj de uz explicit în definiție: {required_suffix}\n"
+    if purpose == "rate":
+        return f"Marcaj DEX permis: {required_suffix}\n"
+    return ""
+
+
 _ENGLISH_MEANING_PATTERNS: dict[str, list[str]] = {
     "AN": ["articol nehotărât", "articol nehotarat"],
     "OF": ["prepoziție de posesie", "prepozitie de posesie", "indică posesia", "indica posesia"],
@@ -260,10 +327,12 @@ def _family_exclusion_note(word: str) -> str:
 
 
 def _build_generate_prompt(display_word: str, word: str, length: int, word_type: str = "", dex_definitions: str = "") -> str:
+    required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     prompt = load_user_template("generate").format(
         display_word=display_word,
         word=word,
         length=length,
+        usage_label_line=_build_usage_label_line(required_suffix, purpose="generate"),
     )
     prompt += "\nDefiniția trebuie să fie o formulare completă, nu un singur cuvânt izolat."
     label = WORD_TYPE_LABELS.get(word_type)
@@ -295,6 +364,7 @@ def _build_rewrite_prompt(
     dex_definitions: str = "",
     failure_history: list[tuple[str, list[str]]] | None = None,
 ) -> str:
+    required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     label = WORD_TYPE_LABELS.get(word_type)
     word_type_line = f"Categorie gramaticală: {label}\n" if label else ""
     history_text = ""
@@ -313,6 +383,7 @@ def _build_rewrite_prompt(
         feedback_text=feedback_text,
         bad_example_text=bad_example_text,
         failure_history_text=history_text,
+        usage_label_line=_build_usage_label_line(required_suffix, purpose="rewrite"),
     )
     prompt += "\nDefiniția nouă trebuie să fie completă și naturală, nu un singur cuvânt izolat."
     hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
@@ -342,8 +413,10 @@ def _build_verify_prompt(
     word_type: str = "",
     max_guesses: int = VERIFY_CANDIDATE_COUNT,
 ) -> str:
+    used_suffix = _extract_definition_usage_suffix(definition)
     return load_user_template("verify").format(
         word_type_line=_word_type_line(word_type),
+        usage_label_line=_build_usage_label_line(used_suffix, purpose="verify"),
         definition=definition,
         answer_length=answer_length,
         max_guesses=max_guesses,
@@ -351,11 +424,31 @@ def _build_verify_prompt(
 
 
 def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int, word_type: str = "", dex_definitions: str = "") -> str:
+    allowed_suffix = _extract_usage_suffix_from_dex(dex_definitions)
+    used_suffix = _extract_definition_usage_suffix(definition)
+    suffix_status_line = ""
+    if used_suffix and allowed_suffix == used_suffix:
+        suffix_status_line = (
+            f"Eticheta folosită în definiție: {used_suffix}\n"
+            "Eticheta corespunde explicit unui sens DEX marcat.\n"
+        )
+    elif used_suffix and allowed_suffix != used_suffix:
+        suffix_status_line = (
+            f"Eticheta folosită în definiție: {used_suffix}\n"
+            "Eticheta din definiție nu este susținută explicit de DEX pentru acest cuvânt.\n"
+        )
+    elif allowed_suffix:
+        suffix_status_line = (
+            f"Eticheta permisă de DEX: {allowed_suffix}\n"
+            "Definiția putea folosi această etichetă pentru a disambigua sensul marcat.\n"
+        )
     prompt = load_user_template("rate").format(
         display_word=display_word,
         word=word,
         answer_length=answer_length,
         word_type_line=_word_type_line(word_type),
+        usage_label_line=_build_usage_label_line(allowed_suffix, purpose="rate"),
+        suffix_status_line=suffix_status_line,
         definition=definition,
     )
     if dex_definitions:
@@ -424,17 +517,18 @@ def _clamp_score(value: int | str | None, default: int = 5) -> int:
 
 def _validate_definition(word: str, definition: str) -> str | None:
     """Return rejection reason, or None if acceptable."""
-    if len(definition) < 5:
-        return f"too short ({len(definition)} chars)"
-    if len(re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", definition)) < 2:
+    clean_definition = _strip_trailing_usage_suffixes(definition)
+    if len(clean_definition) < 5:
+        return f"too short ({len(clean_definition)} chars)"
+    if len(re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", clean_definition)) < 2:
         return "single-word gloss"
-    if _last_word(definition) in DANGLING_ENDING_MARKERS:
+    if _last_word(clean_definition) in DANGLING_ENDING_MARKERS:
         return "dangling ending"
-    if _definition_is_invalid(word, definition):
+    if _definition_is_invalid(word, clean_definition):
         return "contains answer or family word"
-    if contains_english_markers(definition):
+    if contains_english_markers(clean_definition):
         return "English markers detected"
-    if _definition_describes_english_meaning(word, definition):
+    if _definition_describes_english_meaning(word, clean_definition):
         return "English meaning"
     return None
 
@@ -509,6 +603,7 @@ def generate_definition(
     length = len(word)
     prompt = _build_generate_prompt(display_word, word, length, word_type=word_type, dex_definitions=dex_definitions)
     system_prompt = load_system_prompt("definition")
+    required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     print(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
     print(f"  [LLM user prompt]\n{prompt}")
 
@@ -526,6 +621,7 @@ def generate_definition(
             definition = _clean_response(response.choices[0].message.content)
             if definition == "[NECLAR]":
                 return definition
+            definition = _normalize_definition_usage_suffix(definition, required_suffix)
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
             rejection = _validate_definition(word, definition)
@@ -585,6 +681,7 @@ def rewrite_definition(
         failure_history=failure_history,
     )
     system_prompt = load_system_prompt("rewrite")
+    required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     print(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
     print(f"  [LLM user prompt]\n{prompt}")
 
@@ -602,6 +699,7 @@ def rewrite_definition(
             definition = _clean_response(response.choices[0].message.content)
             if definition == "[NECLAR]":
                 return definition
+            definition = _normalize_definition_usage_suffix(definition, required_suffix)
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
             rejection = _validate_definition(word, definition)

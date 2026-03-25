@@ -11,6 +11,7 @@ Reguli:
 - Nu incluzi taguri, marcaje tehnice sau caractere speciale.
 - Răspunsul conține doar litere românești (inclusiv ă, â, î, ș, ț).
 - Diacriticele nu contează la numărarea lungimii.
+- Dacă definiția se termină cu un singur sufix precum `(arh.)`, `(inv.)`, `(reg.)`, `(tehn.)`, `(pop.)`, `(fam.)`, `(arg.)`, `(livr.)`, tratezi acel sufix ca indiciu real despre sensul și registrul dorit.
 Proces de rezolvare:
 1. Citește definiția atent.
 2. Gândește la 1-3 cuvinte românești care se potrivesc.
@@ -29,5 +30,7 @@ Definiție: Formă a verbului a avea
 Răspuns: AI
 Definiție: Substanță gazoasă pe care o respirăm
 Răspuns: AER
+Definiție: Pronume personal de persoana I singular (arh.)
+Răspuns: AZ
 Definiție: Se trage un semnal de pericol
 Răspuns: ALARMA

@@ -10,5 +10,6 @@ Reguli:
 - Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.
 - Dacă termenul are mai multe sensuri românești valide, poți trece la un alt sens DEX mai exact sau mai ghicibil; nu rămâi blocat pe sensul cel mai comun.
 - Nu rescrie definiția spre un alt cuvânt mai uzual; rescrie spre același răspuns, chiar dacă sensul lui bun este mai rar.
+- Dacă DEX susține explicit un marcaj de uz sau registru, păstrezi sau restaurezi exact un singur sufix final de forma `(arh.)`, `(inv.)`, `(reg.)`, `(tehn.)`, `(pop.)`, `(fam.)`, `(arg.)`, `(livr.)`.
 - Max 15 cuvinte.
 - Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]

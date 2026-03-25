@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-03-25] Add DEX-driven usage-label suffixes to clue prompts and clue text
+
+**Context:** user wanted clues for marked senses to carry one explicit usage/register suffix like `(arh.)`, `(inv.)`, `(tehn.)`, `(reg.)` so solvers are warned when the intended answer is rarer or domain-specific. Requirement: source labels only from explicit text already present in `dex_definitions`; apply consistently to define/verify/rewrite/rate; and bias rating so justified suffixes help rare words while gratuitous suffixes hurt common words.
+**Happened:** Extended `generator/core/ai_clues.py` with explicit DEX-text label extraction, fixed precedence across supported suffixes, trailing-suffix stripping/normalization, and prompt-context builders for generate/rewrite/verify/rate. `generate_definition()` and `rewrite_definition()` now normalize outputs to at most one supported trailing suffix and remove gratuitous suffixes when DEX gives no explicit support; validation ignores the trailing label so one-word gloss checks and other guards still apply to the semantic core of the clue. Updated prompt templates and system prompts so generate/rewrite use the suffix when DEX supports it, verify treats a trailing suffix as real sense/register guidance, and rate scores suffixes asymmetrically: helpful for rare/specialized disambiguation, harmful when gratuitous on common words. Added explicit examples in prompt files where those prompts already had examples. Expanded `tests/test_ai_clues.py` with extraction, prompt, normalization, and prompt-example assertions, and updated `tests/test_verify.py` to assert suffixed definitions are passed intact. Also hardened two verify-phase tests by mocking `LmRuntime.activate_primary()` so unit coverage no longer depends on live LM Studio state.
+**Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_verify.py tests/test_rewrite_engine.py -q`; `python3 -m pytest tests/test_redefine.py -q`.
+**Outcome:** success
+**Insight:** once clue text gains machine-added parenthetical suffixes, clue validation must strip them before word-count and dangling-ending checks; otherwise the suffix itself can mask bad one-word glosses.
+**Promoted:** no
+
+---
+
 ### [2026-03-25] Refresh redefine metadata/clue state after each persisted clue update
 
 **Context:** user wanted `run_definition_improve.sh` / `generator.redefine` to stop updating only `crossword_clues.definition`. New requirement: after each persisted clue delta, also refresh puzzle-level Supabase metadata, persist clue `verify_note` + `verified`, keep title fixed, and backfill missing metadata even when no clue row changes.

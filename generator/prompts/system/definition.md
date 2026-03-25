@@ -12,6 +12,8 @@ Reguli:
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă DEX oferă mai multe sensuri valide, poți alege și un sens mai rar, dar trebuie să fie un sens românesc real și formulat exact.
 - Nu alege automat sensul cel mai comun dacă alt sens valid duce mai exact la cuvântul cerut.
+- Dacă DEX indică explicit un marcaj de uz sau registru, poți adăuga exact un singur sufix final dintre: `(arh.)`, `(inv.)`, `(reg.)`, `(tehn.)`, `(pop.)`, `(fam.)`, `(arg.)`, `(livr.)`.
+- Nu inventezi astfel de sufixe. Le folosești numai când DEX le susține explicit.
 - Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].
 Exemple corecte:
 OS -> Țesut dur al scheletului
@@ -22,6 +24,7 @@ AT -> Domeniul online al Austriei
 AI -> Formă a verbului a avea
 FAR -> Lumină de semnalizare pe coastă
 CLOU -> Moment culminant
+AZ -> Pronume personal de persoana I singular (arh.)
 Contra-exemple (GREȘIT - sensuri englezești):
 AN -> Articol nehotărât [GREȘIT]
 OF -> Prepoziție de posesie [GREȘIT]

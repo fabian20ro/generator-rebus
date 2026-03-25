@@ -59,6 +59,27 @@ class VerifyPhaseTests(unittest.TestCase):
         )
 
     @patch("generator.phases.verify.verify_definition_candidates")
+    def test_verify_preserves_usage_suffix_in_definition_text(self, mock_verify_definition):
+        mock_verify_definition.return_value = SimpleNamespace(candidates=["AZ"])
+        client = object()
+        clue = ClueEntry(
+            row_number=1,
+            word_normalized="AZ",
+            word_original="az",
+            definition="Pronume personal de persoana I singular (arh.)",
+        )
+
+        _verify_clues([clue], client=client)
+
+        mock_verify_definition.assert_called_once_with(
+            client,
+            "Pronume personal de persoana I singular (arh.)",
+            2,
+            word_type="",
+            max_guesses=3,
+        )
+
+    @patch("generator.phases.verify.verify_definition_candidates")
     def test_verify_marks_related_form_guess_explicitly(self, mock_verify_definition):
         mock_verify_definition.return_value = SimpleNamespace(candidates=["INCEPUT", "START"])
         clue = working_clue_from_entry(ClueEntry(
@@ -93,9 +114,13 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertEqual(["PARI", "ARACI", "NULE"], assessed.verify_candidates)
         self.assertEqual("", assessed.wrong_guess)
 
+    @patch(
+        "generator.phases.verify.LmRuntime.activate_primary",
+        return_value=SimpleNamespace(display_name="gpt-oss-20b", model_id="openai/gpt-oss-20b"),
+    )
     @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")
-    def test_rate_puzzle_reports_two_averages(self, mock_rate_definition, _mock_dex):
+    def test_rate_puzzle_reports_two_averages(self, mock_rate_definition, _mock_dex, _mock_runtime):
         mock_rate_definition.side_effect = [
             DefinitionRating(semantic_score=8, guessability_score=6, feedback="bună", creativity_score=7),
             DefinitionRating(semantic_score=6, guessability_score=4, feedback="prea vagă", creativity_score=5),
@@ -117,9 +142,13 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertIn("Scor semantic: 8/10", puzzle.horizontal_clues[0].verify_note)
         self.assertIn("Scor rebus:", puzzle.vertical_clues[0].verify_note)
 
+    @patch(
+        "generator.phases.verify.LmRuntime.activate_primary",
+        return_value=SimpleNamespace(display_name="gpt-oss-20b", model_id="openai/gpt-oss-20b"),
+    )
     @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")
-    def test_rate_logging_includes_definition_text(self, mock_rate_definition, _mock_dex):
+    def test_rate_logging_includes_definition_text(self, mock_rate_definition, _mock_dex, _mock_runtime):
         mock_rate_definition.return_value = DefinitionRating(
             semantic_score=9,
             guessability_score=9,

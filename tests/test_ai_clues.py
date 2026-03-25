@@ -5,9 +5,13 @@ from types import SimpleNamespace
 from generator.core.ai_clues import (
     DefinitionRating,
     _clean_response,
+    _extract_usage_suffix_from_dex,
+    _normalize_definition_usage_suffix,
     _build_verify_prompt,
     _definition_describes_english_meaning,
     _build_generate_prompt,
+    _build_rate_prompt,
+    _build_rewrite_prompt,
     compute_rebus_score,
     generate_definition,
     rate_definition,
@@ -15,6 +19,7 @@ from generator.core.ai_clues import (
     verify_definition_candidates,
 )
 from generator.core.model_manager import PRIMARY_MODEL
+from generator.prompts.loader import load_system_prompt
 
 
 class _RecordingClient:
@@ -191,6 +196,38 @@ class AiCluesTests(unittest.TestCase):
         self.assertNotIn("ATENȚIE", prompt)
         self.assertIn("nu un singur cuvânt izolat", prompt)
 
+    def test_extract_usage_suffix_from_dex_prefers_highest_precedence(self):
+        dex = "- Pronume personal, în limbaj arhaic.\n- Formă învechită."
+        self.assertEqual("(arh.)", _extract_usage_suffix_from_dex(dex))
+
+    def test_extract_usage_suffix_from_dex_returns_none_when_no_explicit_label(self):
+        dex = "- Țesut dur al scheletului."
+        self.assertIsNone(_extract_usage_suffix_from_dex(dex))
+
+    def test_normalize_definition_usage_suffix_appends_required_suffix(self):
+        self.assertEqual(
+            "Pronume personal de persoana I singular (arh.)",
+            _normalize_definition_usage_suffix(
+                "Pronume personal de persoana I singular",
+                "(arh.)",
+            ),
+        )
+
+    def test_normalize_definition_usage_suffix_replaces_existing_suffix(self):
+        self.assertEqual(
+            "Pronume personal de persoana I singular (arh.)",
+            _normalize_definition_usage_suffix(
+                "Pronume personal de persoana I singular (reg.)",
+                "(arh.)",
+            ),
+        )
+
+    def test_normalize_definition_usage_suffix_removes_gratuitous_suffix(self):
+        self.assertEqual(
+            "Locuință obișnuită",
+            _normalize_definition_usage_suffix("Locuință obișnuită (reg.)", None),
+        )
+
     def test_rate_english_meaning_forces_low_scores(self):
         client = _RecordingClient([
             json.dumps({
@@ -256,6 +293,16 @@ class AiCluesTests(unittest.TestCase):
         prompt = _build_generate_prompt("lovi", "LOVI", 4, word_type="V")
         self.assertIn("Categorie gramaticală: verb", prompt)
 
+    def test_generate_prompt_includes_usage_label_instruction(self):
+        prompt = _build_generate_prompt(
+            "az",
+            "AZ",
+            2,
+            dex_definitions="- Pronume personal, în limbaj arhaic.",
+        )
+        self.assertIn("Marcaj DEX explicit: (arh.)", prompt)
+        self.assertIn("încheie definiția exact cu (arh.)", prompt)
+
     def test_generate_prompt_no_word_type_for_empty(self):
         prompt = _build_generate_prompt("casă", "CASA", 4, word_type="")
         self.assertNotIn("Categorie gramaticală", prompt)
@@ -265,16 +312,31 @@ class AiCluesTests(unittest.TestCase):
         self.assertNotIn("Categorie gramaticală", prompt)
 
     def test_rewrite_prompt_includes_word_type(self):
-        from generator.core.ai_clues import _build_rewrite_prompt
         prompt = _build_rewrite_prompt(
             "lovi", "LOVI", "A atinge cu forță", "[niciun feedback]", "", word_type="V",
         )
         self.assertIn("Categorie gramaticală: verb", prompt)
 
+    def test_rewrite_prompt_includes_usage_label_instruction(self):
+        prompt = _build_rewrite_prompt(
+            "az",
+            "AZ",
+            "Pronume personal",
+            "[niciun feedback]",
+            "",
+            dex_definitions="- Pronume personal, în limbaj arhaic.",
+        )
+        self.assertIn("Marcaj DEX explicit: (arh.)", prompt)
+        self.assertIn("Păstrează sau restaurează", prompt)
+
     def test_build_verify_prompt_includes_candidate_count(self):
         prompt = _build_verify_prompt("Țesut dur al scheletului", 2, max_guesses=3)
         self.assertIn("maximum 3", prompt)
         self.assertIn("Răspunsuri", prompt)
+
+    def test_build_verify_prompt_includes_usage_label_context(self):
+        prompt = _build_verify_prompt("Pronume personal de persoana I singular (arh.)", 2, max_guesses=3)
+        self.assertIn("Marcaj de uz explicit în definiție: (arh.)", prompt)
 
     def test_verify_definition_candidates_parses_numbered_lines(self):
         client = _RecordingClient(["1. BAR\n2. TUN\n3. ARC"])
@@ -349,14 +411,84 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(["TUN", "ARC"], result.candidates)
 
     def test_rate_prompt_includes_word_type(self):
-        from generator.core.ai_clues import _build_rate_prompt
         prompt = _build_rate_prompt("casă", "CASA", "Locuință", 4, word_type="N")
         self.assertIn("Categorie gramaticală: substantiv", prompt)
+
+    def test_rate_prompt_includes_usage_label_and_bias_context(self):
+        prompt = _build_rate_prompt(
+            "az",
+            "AZ",
+            "Pronume personal de persoana I singular (arh.)",
+            2,
+            dex_definitions="- Pronume personal, în limbaj arhaic.",
+        )
+        self.assertIn("Marcaj DEX permis: (arh.)", prompt)
+        self.assertIn("Eticheta corespunde explicit unui sens DEX marcat", prompt)
 
     def test_verify_prompt_includes_word_type(self):
         prompt = _build_verify_prompt("Locuință", 4, word_type="N")
         self.assertIn("Categorie gramaticală: substantiv", prompt)
         self.assertIn("Definiție: Locuință", prompt)
+
+    def test_generate_definition_appends_required_suffix(self):
+        client = _RecordingClient(["Pronume personal de persoana I singular"])
+
+        definition = generate_definition(
+            client,
+            word="AZ",
+            original="az",
+            theme="",
+            dex_definitions="- Pronume personal, în limbaj arhaic.",
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("Pronume personal de persoana I singular (arh.)", definition)
+
+    def test_generate_definition_removes_gratuitous_suffix_when_dex_has_no_label(self):
+        client = _RecordingClient(["Locuință obișnuită (reg.)"])
+
+        definition = generate_definition(
+            client,
+            word="CASA",
+            original="casă",
+            theme="",
+            dex_definitions="- Locuință.",
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("Locuință obișnuită", definition)
+
+    def test_rewrite_definition_restores_required_suffix(self):
+        client = _RecordingClient(["Pronume personal de persoana I singular"])
+
+        definition = rewrite_definition(
+            client,
+            word="AZ",
+            original="az",
+            theme="",
+            previous_definition="Pronume personal",
+            wrong_guess="EU",
+            dex_definitions="- Pronume personal, în limbaj arhaic.",
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("Pronume personal de persoana I singular (arh.)", definition)
+
+    def test_system_prompts_include_usage_label_examples(self):
+        definition_prompt = load_system_prompt("definition")
+        verify_prompt = load_system_prompt("verify")
+        rate_prompt = load_system_prompt("rate")
+
+        self.assertIn("AZ -> Pronume personal de persoana I singular (arh.)", definition_prompt)
+        self.assertIn("Definiție: Pronume personal de persoana I singular (arh.)", verify_prompt)
+        self.assertIn(
+            "`Pronume personal de persoana I singular (arh.)` pentru un răspuns rar ca `AZ`",
+            rate_prompt,
+        )
+        self.assertIn(
+            "`Locuință (reg.)` pentru un răspuns comun ca `CASĂ`",
+            rate_prompt,
+        )
 
     def test_rate_definition_returns_none_on_unparseable_response(self):
         """When JSON parsing fails, rate_definition returns None (not 5/5/5)."""
