@@ -3,12 +3,15 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.phases.theme import TitleGenerationResult
 from generator.retitle import (
     build_parser,
     fetch_clues,
     fetch_puzzles,
+    generate_title_results_batch,
     retitle_puzzle,
+    _RetitleBatchState,
     select_duplicate_puzzles_for_retitle,
     select_puzzles_for_retitle,
 )
@@ -60,6 +63,36 @@ def _fake_rate_client_sequential(scores: list[int]):
     return SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
     )
+
+
+class _FakeRuntime:
+    def __init__(self):
+        self.trace = []
+
+    def activate_primary(self):
+        self.trace.append("primary")
+        return PRIMARY_MODEL
+
+    def activate_secondary(self):
+        self.trace.append("secondary")
+        return SECONDARY_MODEL
+
+
+class _ModelAwareClient:
+    def __init__(self, responses_by_model: dict[str, list[str]]):
+        self._responses_by_model = {
+            model: list(responses) for model, responses in responses_by_model.items()
+        }
+
+        def _create(**kwargs):
+            model = kwargs["model"]
+            responses = self._responses_by_model[model]
+            content = responses.pop(0) if len(responses) > 1 else responses[0]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+            )
+
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 
 
 class FetchPuzzlesTests(unittest.TestCase):
@@ -406,6 +439,55 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         mock_rate.assert_not_called()
 
 
+class RetitleBatchGenerationTests(unittest.TestCase):
+    def test_batch_generation_reuses_model_phases_across_multiple_puzzles(self):
+        runtime = _FakeRuntime()
+        gen_client = _ModelAwareClient(
+            {
+                PRIMARY_MODEL.model_id: ["Orizont Aprins", "Umbre Verzi"],
+                SECONDARY_MODEL.model_id: ["Ecou Cald", "Foc Bland"],
+            }
+        )
+        rate_client = _ModelAwareClient(
+            {
+                PRIMARY_MODEL.model_id: [
+                    json.dumps({"creativity_score": 7, "feedback": "bun"}),
+                    json.dumps({"creativity_score": 7, "feedback": "bun"}),
+                ],
+                SECONDARY_MODEL.model_id: [
+                    json.dumps({"creativity_score": 8, "feedback": "excelent"}),
+                    json.dumps({"creativity_score": 8, "feedback": "excelent"}),
+                ],
+            }
+        )
+        states = [
+            _RetitleBatchState(
+                puzzle_row={"id": "p1", "title": "Sensuri Comune"},
+                words=["AER", "MUNTE"],
+                definitions=["Gaz din atmosferă", "Formă de relief"],
+                forbidden_title_keys=set(),
+            ),
+            _RetitleBatchState(
+                puzzle_row={"id": "p2", "title": "Punți Nevăzute"},
+                words=["APA", "LAC"],
+                definitions=["Lichid vital", "Întindere de apă"],
+                forbidden_title_keys=set(),
+            ),
+        ]
+
+        results = generate_title_results_batch(
+            states,
+            gen_client,
+            rate_client,
+            runtime=runtime,
+            multi_model=True,
+        )
+
+        self.assertEqual("Orizont Aprins", results["p1"].title)
+        self.assertEqual("Umbre Verzi", results["p2"].title)
+        self.assertEqual(["primary", "secondary"], runtime.trace)
+
+
 class ParserTests(unittest.TestCase):
     def test_retitle_parser_accepts_date_flag(self):
         parser = build_parser()
@@ -421,6 +503,11 @@ class ParserTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["--duplicates-only"])
         self.assertTrue(args.duplicates_only)
+
+    def test_retitle_parser_accepts_batch_size(self):
+        parser = build_parser()
+        args = parser.parse_args(["--all", "--batch-size", "12"])
+        self.assertEqual(12, args.batch_size)
 
     def test_retitle_parser_accepts_dry_run(self):
         parser = build_parser()

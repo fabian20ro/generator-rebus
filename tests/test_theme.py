@@ -244,7 +244,7 @@ class CreativeTitleTests(unittest.TestCase):
             multi_model=True,
         )
         self.assertEqual("Orizont Aprins", title)
-        self.assertEqual(["primary", "primary", "secondary"], runtime.trace)
+        self.assertEqual(["primary", "secondary"], runtime.trace)
 
     def test_score_seven_requires_retry(self):
         runtime = _FakeRuntime()
@@ -312,7 +312,7 @@ class CreativeTitleTests(unittest.TestCase):
         )
 
         self.assertEqual("Umbre Verzi", result.title)
-        self.assertEqual(["primary", "secondary", "secondary", "primary"], runtime.trace)
+        self.assertEqual(["primary", "secondary", "primary"], runtime.trace)
 
     def test_empty_output_does_not_pollute_rejected_context(self):
         runtime = _FakeRuntime()

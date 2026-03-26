@@ -6,6 +6,7 @@ import argparse
 import re
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,14 +15,48 @@ from supabase import create_client as create_supabase_client
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from .core.ai_clues import create_client as create_ai_client
 from .core.lm_runtime import LmRuntime
+from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
 from .core.runtime_logging import install_process_logging, path_timestamp
 from .phases.theme import (
     FALLBACK_TITLES,
+    MAX_TITLE_ROUNDS,
+    NO_TITLE_LABEL,
+    TITLE_MIN_CREATIVITY,
     TitleGenerationResult,
+    _build_rejected_context,
+    _generate_candidate_with_active_model,
+    _phase_label,
+    _review_title_candidate,
     generate_creative_title_result,
     normalize_title_key,
     rate_title_creativity,
 )
+
+
+RETITLE_BATCH_SIZE = 10
+
+
+@dataclass
+class _RetitleBatchState:
+    puzzle_row: dict
+    words: list[str]
+    definitions: list[str]
+    forbidden_title_keys: set[str]
+    best_result: TitleGenerationResult | None = None
+    final_result: TitleGenerationResult | None = None
+    rejected: list[tuple[str, str]] = field(default_factory=list)
+    rejected_by_model: dict[str, list[tuple[str, str]]] = field(default_factory=lambda: {
+        PRIMARY_MODEL.model_id: [],
+        SECONDARY_MODEL.model_id: [],
+    })
+
+    @property
+    def puzzle_id(self) -> str:
+        return str(self.puzzle_row.get("id") or "")
+
+    @property
+    def done(self) -> bool:
+        return self.final_result is not None
 
 
 def fetch_puzzles(
@@ -118,49 +153,199 @@ def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
     return result.data or []
 
 
-def retitle_puzzle(
-    supabase,
-    puzzle_row: dict,
-    ai_client,
+def _finalize_title_result(state: _RetitleBatchState) -> TitleGenerationResult:
+    if state.final_result is not None:
+        return state.final_result
+    if state.best_result is not None and state.best_result.score > 0:
+        return state.best_result
+    return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True)
+
+
+def _update_best_result(state: _RetitleBatchState, result: TitleGenerationResult) -> None:
+    if (
+        state.best_result is None
+        or result.score > state.best_result.score
+        or (
+            result.score == state.best_result.score
+            and len(result.title.split()) < len(state.best_result.title.split())
+        )
+    ):
+        state.best_result = result
+    if result.score >= TITLE_MIN_CREATIVITY:
+        state.final_result = result
+
+
+def _generate_batch_candidates(
+    states: list[_RetitleBatchState],
+    client,
+    *,
+    active_model: ModelConfig,
+    round_idx: int,
+) -> list[tuple[_RetitleBatchState, str]]:
+    valid_candidates: list[tuple[_RetitleBatchState, str]] = []
+    for state in states:
+        if state.done:
+            continue
+        rejected_context = _build_rejected_context(
+            state.rejected_by_model.setdefault(active_model.model_id, [])
+        )
+        raw_title = _generate_candidate_with_active_model(
+            state.definitions,
+            state.words,
+            client,
+            active_model=active_model,
+            rejected_context=rejected_context,
+            empty_retry_instruction="Răspunde obligatoriu cu un singur titlu concret de 2-5 cuvinte, exclusiv în limba română.",
+        )
+        if not raw_title.strip():
+            print(
+                f'  [{state.puzzle_id}] Title round {round_idx} [{active_model.display_name}]: "(gol)" -> creativity=0/10 (titlu gol)'
+            )
+            continue
+
+        reviewed = _review_title_candidate(raw_title, input_words=state.words)
+        display_title = reviewed.title or raw_title.strip() or "(gol)"
+        if not reviewed.valid:
+            print(
+                f'  [{state.puzzle_id}] Title round {round_idx} [{active_model.display_name}]: "{display_title}" -> creativity=0/10 ({reviewed.feedback})'
+            )
+            state.rejected.append((display_title, reviewed.feedback))
+            state.rejected_by_model.setdefault(active_model.model_id, []).append((display_title, reviewed.feedback))
+            continue
+
+        title_key = normalize_title_key(reviewed.title)
+        rejected_keys = {normalize_title_key(title) for title, _ in state.rejected}
+        if reviewed.title in FALLBACK_TITLES:
+            state.rejected.append((reviewed.title, "fallback generic"))
+            state.rejected_by_model.setdefault(active_model.model_id, []).append((reviewed.title, "fallback generic"))
+            continue
+        if title_key in rejected_keys:
+            state.rejected.append((reviewed.title, "titlu deja respins"))
+            state.rejected_by_model.setdefault(active_model.model_id, []).append((reviewed.title, "titlu deja respins"))
+            continue
+        if title_key and title_key in state.forbidden_title_keys:
+            print(
+                f'  [{state.puzzle_id}] Title round {round_idx} [{active_model.display_name}]: "{reviewed.title}" -> creativity=0/10 (titlu deja folosit)'
+            )
+            state.rejected.append((reviewed.title, "titlu deja folosit"))
+            state.rejected_by_model.setdefault(active_model.model_id, []).append((reviewed.title, "titlu deja folosit"))
+            continue
+
+        valid_candidates.append((state, reviewed.title))
+    return valid_candidates
+
+
+def _rate_batch_candidates(
+    candidates: list[tuple[_RetitleBatchState, str]],
     rate_client,
     *,
-    dry_run: bool = False,
-    multi_model: bool = True,
-    runtime: LmRuntime | None = None,
-    forbidden_title_keys: set[str] | None = None,
+    generator_model: ModelConfig,
+    rating_model: ModelConfig,
+    round_idx: int,
+) -> None:
+    for state, title in candidates:
+        score, feedback = rate_title_creativity(
+            title,
+            state.words,
+            rate_client,
+            model_config=rating_model,
+        )
+        print(
+            f'  [{state.puzzle_id}] Title round {round_idx} [{_phase_label(generator_model, rating_model)}]: "{title}" -> creativity={score}/10 ({feedback})'
+        )
+        result = TitleGenerationResult(title, score, feedback)
+        _update_best_result(state, result)
+        if state.done:
+            continue
+        state.rejected.append((title, feedback))
+        state.rejected_by_model.setdefault(generator_model.model_id, []).append((title, feedback))
+
+
+def generate_title_results_batch(
+    states: list[_RetitleBatchState],
+    client,
+    rate_client,
+    *,
+    runtime: LmRuntime,
+    multi_model: bool,
+) -> dict[str, TitleGenerationResult]:
+    if not states:
+        return {}
+
+    for round_idx in range(1, MAX_TITLE_ROUNDS + 1):
+        pending = [state for state in states if not state.done]
+        if not pending:
+            break
+
+        primary_model = runtime.activate_primary()
+        primary_candidates = _generate_batch_candidates(
+            pending,
+            client,
+            active_model=primary_model,
+            round_idx=round_idx,
+        )
+
+        if multi_model:
+            secondary_model = runtime.activate_secondary()
+            _rate_batch_candidates(
+                primary_candidates,
+                rate_client,
+                generator_model=primary_model,
+                rating_model=secondary_model,
+                round_idx=round_idx,
+            )
+
+            pending = [state for state in states if not state.done]
+            if not pending:
+                break
+
+            secondary_candidates = _generate_batch_candidates(
+                pending,
+                client,
+                active_model=secondary_model,
+                round_idx=round_idx,
+            )
+            primary_model = runtime.activate_primary()
+            _rate_batch_candidates(
+                secondary_candidates,
+                rate_client,
+                generator_model=secondary_model,
+                rating_model=primary_model,
+                round_idx=round_idx,
+            )
+        else:
+            _rate_batch_candidates(
+                primary_candidates,
+                rate_client,
+                generator_model=primary_model,
+                rating_model=primary_model,
+                round_idx=round_idx,
+            )
+
+    return {state.puzzle_id: _finalize_title_result(state) for state in states}
+
+
+def _apply_title_result(
+    supabase,
+    puzzle_row: dict,
+    title_result: TitleGenerationResult,
+    rate_client,
+    *,
+    dry_run: bool,
+    multi_model: bool,
+    runtime: LmRuntime | None,
+    forbidden_title_keys: set[str] | None,
+    words: list[str],
 ) -> bool:
-    """Generate a new title for a puzzle. Returns True if title changed."""
     puzzle_id = puzzle_row["id"]
     old_title = puzzle_row.get("title", "")
     old_title_key = normalize_title_key(old_title)
 
-    clues = fetch_clues(supabase, puzzle_id)
-    if not clues:
-        print(f"  [{puzzle_id}] No clues found, skipping")
-        return False
-
-    words = [c["word_normalized"] for c in clues if c.get("word_normalized")]
-    definitions = [c["definition"] for c in clues if c.get("definition")]
-
-    if not words or not definitions:
-        print(f"  [{puzzle_id}] Missing words or definitions, skipping")
-        return False
-
-    title_result = generate_creative_title_result(
-        words,
-        definitions,
-        client=ai_client,
-        rate_client=rate_client,
-        runtime=runtime,
-        multi_model=multi_model,
-        forbidden_title_keys=forbidden_title_keys,
-    )
     if title_result.used_fallback:
         print(f'  [{puzzle_id}] "{old_title}" -> skipped, no valid title candidate')
         return False
 
     new_title = title_result.title
-
     new_title_key = normalize_title_key(new_title)
     if new_title_key == old_title_key:
         print(f'  [{puzzle_id}] "{old_title}" -> unchanged')
@@ -197,8 +382,55 @@ def retitle_puzzle(
         ).eq("id", puzzle_id).execute()
     puzzle_row["title"] = new_title
     puzzle_row["title_score"] = title_result.score
-
     return True
+
+
+def retitle_puzzle(
+    supabase,
+    puzzle_row: dict,
+    ai_client,
+    rate_client,
+    *,
+    dry_run: bool = False,
+    multi_model: bool = True,
+    runtime: LmRuntime | None = None,
+    forbidden_title_keys: set[str] | None = None,
+) -> bool:
+    """Generate a new title for a puzzle. Returns True if title changed."""
+    puzzle_id = puzzle_row["id"]
+
+    clues = fetch_clues(supabase, puzzle_id)
+    if not clues:
+        print(f"  [{puzzle_id}] No clues found, skipping")
+        return False
+
+    words = [c["word_normalized"] for c in clues if c.get("word_normalized")]
+    definitions = [c["definition"] for c in clues if c.get("definition")]
+
+    if not words or not definitions:
+        print(f"  [{puzzle_id}] Missing words or definitions, skipping")
+        return False
+
+    title_result = generate_creative_title_result(
+        words,
+        definitions,
+        client=ai_client,
+        rate_client=rate_client,
+        runtime=runtime,
+        multi_model=multi_model,
+        forbidden_title_keys=forbidden_title_keys,
+    )
+    return _apply_title_result(
+        supabase,
+        puzzle_row,
+        title_result,
+        rate_client,
+        dry_run=dry_run,
+        multi_model=multi_model,
+        runtime=runtime,
+        forbidden_title_keys=forbidden_title_keys,
+        words=words,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -226,6 +458,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Print before/after without updating Supabase",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=RETITLE_BATCH_SIZE,
+        help=f"How many puzzles to process together per title-generation batch (default: {RETITLE_BATCH_SIZE})",
     )
     parser.add_argument(
         "--multi-model",
@@ -258,6 +496,8 @@ def main() -> None:
 
         if args.date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
             parser.error("--date must be in YYYY-MM-DD format")
+        if args.batch_size <= 0:
+            parser.error("--batch-size must be >= 1")
 
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
             print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
@@ -311,34 +551,88 @@ def main() -> None:
             if row.get("id")
         }
 
-        for puzzle_row in puzzles:
-            try:
-                forbidden_title_keys = {
-                    key
-                    for puzzle_id, key in active_title_keys.items()
-                    if puzzle_id != puzzle_row.get("id") and key
-                }
-                changed = retitle_puzzle(
-                    supabase,
-                    puzzle_row,
-                    ai_client,
-                    rate_client,
-                    dry_run=args.dry_run,
-                    multi_model=multi_model,
-                    runtime=runtime,
-                    forbidden_title_keys=forbidden_title_keys,
-                )
-                if changed:
-                    updated += 1
-                    active_title_keys[puzzle_row["id"]] = normalize_title_key(
-                        puzzle_row.get("title", "") or ""
-                    )
-                else:
-                    unchanged += 1
-            except Exception as exc:
+        for start in range(0, len(puzzles), args.batch_size):
+            batch_rows = puzzles[start : start + args.batch_size]
+            batch_states: list[_RetitleBatchState] = []
+            batch_words: dict[str, list[str]] = {}
+            skipped_ids: set[str] = set()
+
+            for puzzle_row in batch_rows:
                 puzzle_id = puzzle_row.get("id", "?")
-                print(f"  [{puzzle_id}] Error: {exc}")
-                failed += 1
+                try:
+                    clues = fetch_clues(supabase, puzzle_id)
+                    if not clues:
+                        print(f"  [{puzzle_id}] No clues found, skipping")
+                        unchanged += 1
+                        skipped_ids.add(puzzle_id)
+                        continue
+
+                    words = [c["word_normalized"] for c in clues if c.get("word_normalized")]
+                    definitions = [c["definition"] for c in clues if c.get("definition")]
+                    if not words or not definitions:
+                        print(f"  [{puzzle_id}] Missing words or definitions, skipping")
+                        unchanged += 1
+                        skipped_ids.add(puzzle_id)
+                        continue
+
+                    forbidden_title_keys = {
+                        key
+                        for other_puzzle_id, key in active_title_keys.items()
+                        if other_puzzle_id != puzzle_row.get("id") and key
+                    }
+                    batch_words[puzzle_id] = words
+                    batch_states.append(
+                        _RetitleBatchState(
+                            puzzle_row=puzzle_row,
+                            words=words,
+                            definitions=definitions,
+                            forbidden_title_keys=forbidden_title_keys,
+                        )
+                    )
+                except Exception as exc:
+                    print(f"  [{puzzle_id}] Error: {exc}")
+                    failed += 1
+                    skipped_ids.add(puzzle_id)
+
+            batch_results = generate_title_results_batch(
+                batch_states,
+                ai_client,
+                rate_client,
+                runtime=runtime,
+                multi_model=multi_model,
+            )
+
+            for puzzle_row in batch_rows:
+                puzzle_id = puzzle_row.get("id", "?")
+                if puzzle_id in skipped_ids:
+                    continue
+                try:
+                    forbidden_title_keys = {
+                        key
+                        for other_puzzle_id, key in active_title_keys.items()
+                        if other_puzzle_id != puzzle_row.get("id") and key
+                    }
+                    changed = _apply_title_result(
+                        supabase,
+                        puzzle_row,
+                        batch_results[puzzle_id],
+                        rate_client,
+                        dry_run=args.dry_run,
+                        multi_model=multi_model,
+                        runtime=runtime,
+                        forbidden_title_keys=forbidden_title_keys,
+                        words=batch_words[puzzle_id],
+                    )
+                    if changed:
+                        updated += 1
+                        active_title_keys[puzzle_row["id"]] = normalize_title_key(
+                            puzzle_row.get("title", "") or ""
+                        )
+                    else:
+                        unchanged += 1
+                except Exception as exc:
+                    print(f"  [{puzzle_id}] Error: {exc}")
+                    failed += 1
 
         print(f"\nSummary: {updated} updated, {unchanged} unchanged, {failed} failed")
     finally:

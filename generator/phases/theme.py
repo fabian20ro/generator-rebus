@@ -396,6 +396,39 @@ def _generate_candidate_for_model(
     )
 
 
+def _generate_candidate_with_active_model(
+    definitions: list[str],
+    words: list[str],
+    client,
+    *,
+    active_model: ModelConfig,
+    rejected_context: str,
+    empty_retry_instruction: str,
+) -> str:
+    raw_title = _generate_single_title(
+        definitions,
+        client,
+        model_config=active_model,
+        rejected_context=rejected_context,
+        words=words,
+    )
+    if raw_title.strip():
+        return raw_title
+    return _generate_single_title(
+        definitions,
+        client,
+        model_config=active_model,
+        rejected_context=empty_retry_instruction,
+        words=words,
+    )
+
+
+def _phase_label(generator_model: ModelConfig, rating_model: ModelConfig | None = None) -> str:
+    if rating_model is None or rating_model.model_id == generator_model.model_id:
+        return generator_model.display_name
+    return f"{generator_model.display_name} -> rated by {rating_model.display_name}"
+
+
 # ---------------------------------------------------------------------------
 # Level 2 — retry loop with rating
 # ---------------------------------------------------------------------------
@@ -474,7 +507,6 @@ def generate_creative_title_result(
                 model_rejected.append((reviewed.title, "titlu deja folosit"))
                 continue
 
-            generator_model = _activate_generator_model(runtime, generator_model)
             rating_model = _rating_model_for_generator(
                 runtime,
                 generator_model,
@@ -487,7 +519,7 @@ def generate_creative_title_result(
                 model_config=rating_model,
             )
             print(
-                f'  Title round {round_idx} [{generator_model.display_name}]: "{reviewed.title}" -> creativity={score}/10 ({feedback})'
+                f'  Title round {round_idx} [{_phase_label(generator_model, rating_model)}]: "{reviewed.title}" -> creativity={score}/10 ({feedback})'
             )
 
             result = TitleGenerationResult(reviewed.title, score, feedback)
