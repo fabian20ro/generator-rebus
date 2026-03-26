@@ -604,7 +604,7 @@ def generate_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=temperature if temperature is not None else 0.2,
-                max_tokens=160,
+                max_tokens=2048,
             )
             definition = _clean_response(response.choices[0].message.content)
             if definition == "[NECLAR]":

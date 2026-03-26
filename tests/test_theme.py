@@ -128,6 +128,7 @@ class GenerateSingleTitleTests(unittest.TestCase):
         )
         self.assertEqual("  Metale și Ecouri  ", result)
         self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
+        self.assertEqual(2048, client.calls[0]["max_tokens"])
 
     def test_returns_empty_on_failure(self):
         result = _generate_single_title(

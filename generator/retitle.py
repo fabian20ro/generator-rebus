@@ -161,6 +161,44 @@ def _finalize_title_result(state: _RetitleBatchState) -> TitleGenerationResult:
     return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True)
 
 
+def _backfill_title_score(
+    supabase,
+    puzzle_row: dict,
+    score: int,
+    *,
+    dry_run: bool,
+) -> None:
+    if dry_run:
+        puzzle_row["title_score"] = score
+        return
+    supabase.table("crossword_puzzles").update(
+        {"title_score": score, "updated_at": _now_iso()}
+    ).eq("id", puzzle_row["id"]).execute()
+    puzzle_row["title_score"] = score
+
+
+def _resolve_old_title_score(
+    puzzle_row: dict,
+    words: list[str],
+    rate_client,
+    *,
+    multi_model: bool,
+    runtime: LmRuntime,
+) -> tuple[int, bool, str | None]:
+    stored_score = _stored_title_score(puzzle_row)
+    if stored_score is not None:
+        return stored_score, False, None
+
+    old_title = puzzle_row.get("title", "")
+    reviewed = _review_title_candidate(old_title, input_words=words)
+    if not reviewed.valid:
+        return 0, True, reviewed.feedback
+
+    score_model = runtime.activate_secondary() if multi_model else runtime.activate_primary()
+    old_score, _ = rate_title_creativity(old_title, words, rate_client, model_config=score_model)
+    return old_score, True, None
+
+
 def _update_best_result(state: _RetitleBatchState, result: TitleGenerationResult) -> None:
     if (
         state.best_result is None
@@ -358,12 +396,21 @@ def _apply_title_result(
     runtime = runtime or LmRuntime(multi_model=multi_model)
 
     if not is_fallback:
-        old_score = _stored_title_score(puzzle_row)
-        if old_score is None:
-            score_model = runtime.activate_secondary() if multi_model else runtime.activate_primary()
-            old_score, _ = rate_title_creativity(old_title, words, rate_client, model_config=score_model)
+        old_score, should_backfill_old_score, invalid_reason = _resolve_old_title_score(
+            puzzle_row,
+            words,
+            rate_client,
+            multi_model=multi_model,
+            runtime=runtime,
+        )
+        if invalid_reason:
+            print(f'  [{puzzle_id}] "{old_title}" old title invalid -> score=0 ({invalid_reason})')
+        elif should_backfill_old_score:
+            print(f'  [{puzzle_id}] "{old_title}" old title_score resolved -> {old_score}')
         new_score = title_result.score
         if new_score <= old_score:
+            if should_backfill_old_score:
+                _backfill_title_score(supabase, puzzle_row, old_score, dry_run=dry_run)
             print(
                 f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
                 f'-> "{new_title}" (score={new_score}) — skipped, not better'

@@ -359,7 +359,10 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         )
 
         self.assertFalse(changed)
-        mock_supabase.table.return_value.update.assert_not_called()
+        mock_supabase.table.return_value.update.assert_called_once()
+        payload = mock_supabase.table.return_value.update.call_args[0][0]
+        self.assertEqual(8, payload["title_score"])
+        self.assertNotIn("title", payload)
 
     @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 9))
@@ -397,7 +400,10 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         )
 
         self.assertFalse(changed)
-        mock_supabase.table.return_value.update.assert_not_called()
+        mock_supabase.table.return_value.update.assert_called_once()
+        payload = mock_supabase.table.return_value.update.call_args[0][0]
+        self.assertEqual(6, payload["title_score"])
+        self.assertNotIn("title", payload)
 
     @patch("generator.retitle.LmRuntime")
     @patch("generator.retitle.generate_creative_title_result", return_value=_title_result("Orice Titlu Nou", 1))
@@ -437,6 +443,56 @@ class RetitleScoreComparisonTests(unittest.TestCase):
 
         self.assertTrue(changed)
         mock_rate.assert_not_called()
+        payload = mock_supabase.table.return_value.update.call_args[0][0]
+        self.assertEqual("Titlu Nou Superior", payload["title"])
+        self.assertEqual(9, payload["title_score"])
+
+    @patch("generator.retitle.rate_title_creativity")
+    @patch("generator.retitle.LmRuntime")
+    @patch("generator.retitle.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 8))
+    def test_invalid_old_title_gets_zero_without_llm_rating(self, _mock_gen, mock_runtime_cls, mock_rate):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
+        mock_supabase = self._make_supabase_mock()
+        puzzle_row = {"id": "abc", "title": "<|channel|>"}
+
+        changed = retitle_puzzle(
+            mock_supabase,
+            puzzle_row,
+            _fake_ai_client("unused"),
+            _fake_rate_client(99),
+            dry_run=False,
+        )
+
+        self.assertTrue(changed)
+        mock_rate.assert_not_called()
+        self.assertEqual(1, mock_supabase.table.return_value.update.call_count)
+        payload = mock_supabase.table.return_value.update.call_args[0][0]
+        self.assertEqual("Titlu Nou Superior", payload["title"])
+        self.assertEqual(8, payload["title_score"])
+
+    @patch("generator.retitle.LmRuntime")
+    @patch("generator.retitle.generate_creative_title_result", return_value=_title_result("Titlu Mai Slab", 4))
+    def test_invalid_old_title_backfills_zero_when_new_title_loses(self, _mock_gen, mock_runtime_cls):
+        runtime = mock_runtime_cls.return_value
+        runtime.activate_primary.return_value = SimpleNamespace(model_id="primary")
+        runtime.activate_secondary.return_value = SimpleNamespace(model_id="secondary")
+        mock_supabase = self._make_supabase_mock()
+        puzzle_row = {"id": "abc", "title": "<|channel|>"}
+
+        changed = retitle_puzzle(
+            mock_supabase,
+            puzzle_row,
+            _fake_ai_client("unused"),
+            _fake_rate_client(99),
+            dry_run=False,
+        )
+
+        self.assertTrue(changed)
+        payload = mock_supabase.table.return_value.update.call_args[0][0]
+        self.assertEqual("Titlu Mai Slab", payload["title"])
+        self.assertEqual(4, payload["title_score"])
 
 
 class RetitleBatchGenerationTests(unittest.TestCase):

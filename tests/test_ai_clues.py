@@ -363,6 +363,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
+        self.assertEqual(2048, client.calls[0]["max_tokens"])
 
     def test_verify_definition_candidates_passes_explicit_model(self):
         client = _RecordingClient(["1. BAR\n2. TUN"])

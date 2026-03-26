@@ -341,7 +341,7 @@ def _generate_single_title(
                 {"role": "user", "content": prompt},
             ],
             temperature=temperature,
-            max_tokens=500,
+            max_tokens=2048,
         )
         return response.choices[0].message.content or ""
     except Exception:
