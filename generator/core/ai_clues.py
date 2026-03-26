@@ -14,6 +14,7 @@ from ..config import LMSTUDIO_BASE_URL, VERIFY_CANDIDATE_COUNT
 from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
+from .llm_text import clean_llm_text_response
 from .model_manager import PRIMARY_MODEL
 from .quality import ENGLISH_HOMOGRAPH_HINTS
 
@@ -171,20 +172,7 @@ def _resolve_model_name(model: str | None) -> str:
 
 
 def _clean_response(text: str | None) -> str:
-    text = (text or "").strip().strip('"').strip("'")
-    text = re.sub(r"<\|[^|]*\|>", "", text).strip()
-    text = re.sub(
-        r"^\*{0,2}(Definiția nouă|Definitia noua|Definiție|Definitie|Răspuns|Raspuns):?\*{0,2}\s*",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    ).strip()
-    if "\n" in text:
-        text = text.split("\n")[0].strip()
-    for left, right in (("**", "**"), ("__", "__"), ("*", "*"), ("_", "_"), ("`", "`")):
-        if text.startswith(left) and text.endswith(right) and len(text) > len(left) + len(right):
-            text = text[len(left):-len(right)].strip()
-    return text
+    return clean_llm_text_response(text)
 
 
 def contains_english_markers(text: str | None) -> bool:

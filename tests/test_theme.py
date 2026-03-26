@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
+from generator.prompts.loader import load_system_prompt
 from generator.phases.theme import (
     FALLBACK_TITLES,
     NO_TITLE_LABEL,
@@ -72,6 +73,25 @@ class _FakeRuntime:
     def activate_secondary(self):
         self.secondary_calls += 1
         return SECONDARY_MODEL
+
+
+class _ModelAwareClient:
+    def __init__(self, responses_by_model: dict[str, list[str]]):
+        self._responses_by_model = {
+            model: list(responses) for model, responses in responses_by_model.items()
+        }
+        self.calls = []
+
+        def _create(**kwargs):
+            self.calls.append(kwargs)
+            model = kwargs["model"]
+            responses = self._responses_by_model[model]
+            content = responses.pop(0) if len(responses) > 1 else responses[0]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+            )
+
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 
 
 def _fake_rate_client(score: int, feedback: str = "ok"):
@@ -162,6 +182,12 @@ class SanitizeTitleTests(unittest.TestCase):
 
 
 class RateTitleCreativityTests(unittest.TestCase):
+    def test_system_prompt_demands_exact_json_without_markdown(self):
+        prompt = load_system_prompt("title_rate")
+        self.assertIn("EXACT un singur obiect JSON valid", prompt)
+        self.assertIn("Nu scrii markdown", prompt)
+        self.assertIn('EXACT cheile "creativity_score" și "feedback"', prompt)
+
     def test_parses_json(self):
         client = _FakeClient('{"creativity_score": 7, "feedback": "bun titlu"}')
         score, feedback = rate_title_creativity(
@@ -173,6 +199,17 @@ class RateTitleCreativityTests(unittest.TestCase):
         self.assertEqual(7, score)
         self.assertEqual("bun titlu", feedback)
         self.assertEqual(SECONDARY_MODEL.model_id, client.calls[0]["model"])
+
+    def test_extracts_json_from_markdown_fence(self):
+        client = _FakeClient('```json\n{"creativity_score": 8, "feedback": "clar"}\n```')
+        score, feedback = rate_title_creativity(
+            "Test",
+            ["A", "B"],
+            client,
+            model_config=SECONDARY_MODEL,
+        )
+        self.assertEqual(8, score)
+        self.assertEqual("clar", feedback)
 
 
 class CreativeTitleTests(unittest.TestCase):
@@ -188,7 +225,7 @@ class CreativeTitleTests(unittest.TestCase):
         )
         self.assertEqual("Orizont Aprins", title)
         self.assertEqual(1, runtime.primary_calls)
-        self.assertEqual(1, runtime.secondary_calls)
+        self.assertEqual(2, runtime.secondary_calls)
 
     def test_score_seven_requires_retry(self):
         runtime = _FakeRuntime()
@@ -236,6 +273,29 @@ class CreativeTitleTests(unittest.TestCase):
         self.assertEqual(0, result.score)
         self.assertTrue(result.used_fallback)
 
+    def test_retries_generation_with_secondary_when_primary_returns_empty(self):
+        runtime = _FakeRuntime()
+        gen_client = _ModelAwareClient(
+            {
+                PRIMARY_MODEL.model_id: [""],
+                SECONDARY_MODEL.model_id: ["Umbre Verzi"],
+            }
+        )
+        rate_client = _fake_rate_client(8)
+
+        result = generate_creative_title_result(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=gen_client,
+            rate_client=rate_client,
+            runtime=runtime,
+            multi_model=True,
+        )
+
+        self.assertEqual("Umbre Verzi", result.title)
+        self.assertEqual(2, runtime.primary_calls)
+        self.assertEqual(1, runtime.secondary_calls)
+
     def test_retries_on_low_score(self):
         runtime = _FakeRuntime()
         title = generate_creative_title(
@@ -254,13 +314,14 @@ class CreativeTitleTests(unittest.TestCase):
 
     def test_includes_rejected_in_prompt(self):
         runtime = _FakeRuntime()
-        gen_client = _SequentialClient(["Ecou Palid", "Ecou Doiun"])
+        gen_client = _SequentialClient(["Ecou Palid", "Ecou Doiun", "Ecou Trei"])
         generate_creative_title(
             ["AER", "MUNTE"],
             ["Gaz din atmosferă"],
             client=gen_client,
             rate_client=_SequentialClient([
                 json.dumps({"creativity_score": 2, "feedback": "prea banal"}),
+                json.dumps({"creativity_score": 3, "feedback": "tot banal"}),
                 json.dumps({"creativity_score": 8, "feedback": "excelent"}),
             ]),
             runtime=runtime,

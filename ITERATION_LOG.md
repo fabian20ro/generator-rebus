@@ -17,6 +17,28 @@
 
 ---
 
+### [2026-03-26] Make both title models generate per round and share text cleanup with clue generation
+
+**Context:** user observed that `gpt-oss-20b` still often returned empty title content or weak short-title behavior even after increasing token budget, while definition generation remained stable. They wanted title generation to behave more like definition generation: lower temperature, shared output cleanup, and both models allowed to generate candidates instead of only using the secondary model as an empty-response fallback.
+**Happened:** Refactored `generator/phases/theme.py` so each title round now queries both generators when `multi_model=True`, rates each candidate cross-model, and keeps the best valid result across both models/rounds. Lowered title-generation temperature from `0.9` to `0.3`. Extracted the plain-text cleanup logic from `generator/core/ai_clues.py` into shared helper `generator/core/llm_text.py`, then reused it for titles so model output now strips wrappers/labels/markdown-like noise before title validation, just like definition generation does. Updated theme tests for the new per-round dual-generator flow and reran title/batch/retitle/repair plus clue-generation coverage.
+**Verification:** `python3 -m pytest tests/test_text_rules.py tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py tests/test_ai_clues.py -q` (`148 passed in 0.47s`)
+**Outcome:** success
+**Insight:** short creative-title generation should not use a fundamentally different output-cleaning contract from definition generation; shared cleanup and parallel model generation reduce both empty-output and formatting-noise failure modes.
+**Promoted:** no
+
+---
+
+### [2026-03-26] Raise title-generation token budget to avoid gpt-oss reasoning-only empty outputs
+
+**Context:** user reported `run_title_improve.sh` getting repeated `"(gol)" -> titlu gol` rounds for many puzzles. Investigation showed `gpt-oss-20b` was often filling LM Studio's `reasoning` field but leaving `message.content` empty on the title prompt, so the pipeline interpreted the result as an empty title.
+**Happened:** Reproduced the raw chat-completions call locally and confirmed the model frequently returned empty `content` at the old `max_tokens=50` title budget. Increased title-generation `max_tokens` in `generator/phases/theme.py` to `500`, matching the user's requested safer budget, and synchronized the title prompts (`generator/prompts/system/theme.md`, `generator/prompts/user/title_generate.md`) from `2-4` to `2-5` words so prompt text matches the current validator rules.
+**Verification:** `python3 -m pytest tests/test_theme.py tests/test_retitle.py tests/test_batch_publish.py tests/test_repair_puzzles.py -q` (`88 passed in 0.53s`)
+**Outcome:** success
+**Insight:** local reasoning models can exhaust a tiny completion budget on hidden reasoning and emit blank final text; short-form generation paths need a larger token budget than the apparent final answer length suggests.
+**Promoted:** no
+
+---
+
 ### [2026-03-26] Force deterministic `Fara titlu` when title generation never beats score 0
 
 **Context:** after the title-score refactor, user wanted the all-failure case to stop producing random fallback labels; if the maximum title score after all 7 rounds stays `0`, the result should be deterministic.
