@@ -9,6 +9,7 @@ from generator.retitle import (
     fetch_clues,
     fetch_puzzles,
     retitle_puzzle,
+    select_duplicate_puzzles_for_retitle,
     select_puzzles_for_retitle,
 )
 
@@ -62,7 +63,20 @@ def _fake_rate_client_sequential(scores: list[int]):
 
 
 class FetchPuzzlesTests(unittest.TestCase):
-    def test_select_puzzles_prioritizes_largest_duplicate_groups(self):
+    def test_select_puzzles_prioritizes_missing_title_score_then_created_at(self):
+        rows = [
+            {"id": "a", "title": "Sensuri Comune", "created_at": "2026-03-14T03:00:00+00:00", "title_score": 8},
+            {"id": "b", "title": "Titlu B", "created_at": "2026-03-15T03:00:00+00:00", "title_score": None},
+            {"id": "c", "title": "Titlu C", "created_at": "2026-03-13T03:00:00+00:00"},
+            {"id": "d", "title": "Titlu D", "created_at": "2026-03-14T01:00:00+00:00", "title_score": 3},
+            {"id": "e", "title": "Titlu E", "created_at": "2026-03-14T02:00:00+00:00"},
+        ]
+
+        result = select_puzzles_for_retitle(rows)
+
+        self.assertEqual(["c", "e", "b", "d", "a"], [row["id"] for row in result])
+
+    def test_select_duplicate_puzzles_prioritizes_largest_duplicate_groups(self):
         rows = [
             {"id": "a", "title": "Sensuri Comune", "created_at": "2026-03-14T03:00:00+00:00"},
             {"id": "b", "title": "sensuri comune", "created_at": "2026-03-15T03:00:00+00:00"},
@@ -72,7 +86,7 @@ class FetchPuzzlesTests(unittest.TestCase):
             {"id": "f", "title": "Titlu Unic", "created_at": "2026-03-12T03:00:00+00:00"},
         ]
 
-        result = select_puzzles_for_retitle(rows, global_rows=rows)
+        result = select_duplicate_puzzles_for_retitle(rows, global_rows=rows)
 
         self.assertEqual(["c", "d", "e", "a", "b"], [row["id"] for row in result])
 
@@ -402,6 +416,11 @@ class ParserTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["--all-fallbacks"])
         self.assertTrue(args.all_fallbacks)
+
+    def test_retitle_parser_accepts_duplicates_only_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["--duplicates-only"])
+        self.assertTrue(args.duplicates_only)
 
     def test_retitle_parser_accepts_dry_run(self):
         parser = build_parser()

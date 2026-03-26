@@ -65,7 +65,19 @@ def _title_counts(rows: list[dict]) -> Counter[str]:
     )
 
 
-def select_puzzles_for_retitle(rows: list[dict], *, global_rows: list[dict]) -> list[dict]:
+def select_puzzles_for_retitle(rows: list[dict]) -> list[dict]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            _stored_title_score(row) is not None,
+            row.get("created_at") is None,
+            str(row.get("created_at") or ""),
+            str(row.get("id") or ""),
+        ),
+    )
+
+
+def select_duplicate_puzzles_for_retitle(rows: list[dict], *, global_rows: list[dict]) -> list[dict]:
     counts = _title_counts(global_rows)
     duplicate_keys = {key for key, count in counts.items() if count > 1}
 
@@ -201,6 +213,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retitle all puzzles in the database",
     )
     parser.add_argument(
+        "--duplicates-only",
+        action="store_true",
+        help="Limit retitle to puzzles whose normalized title appears multiple times",
+    )
+    parser.add_argument(
         "--all-fallbacks",
         action="store_true",
         help="Retitle all puzzles with fallback titles",
@@ -236,8 +253,8 @@ def main() -> None:
         print(f"Run log: {log_path}")
         print(f"Audit log: {audit_path}")
 
-        if not args.date and not args.puzzle_id and not args.all_fallbacks and not args.all:
-            parser.error("Specify --date, --puzzle-id, --all-fallbacks, or --all")
+        if not args.date and not args.puzzle_id and not args.all_fallbacks and not args.all and not args.duplicates_only:
+            parser.error("Specify --date, --puzzle-id, --all-fallbacks, --all, or --duplicates-only")
 
         if args.date and not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
             parser.error("--date must be in YYYY-MM-DD format")
@@ -262,14 +279,21 @@ def main() -> None:
         puzzles = (
             filtered_rows
             if args.puzzle_id
-            else select_puzzles_for_retitle(filtered_rows, global_rows=all_puzzles)
+            else (
+                select_duplicate_puzzles_for_retitle(filtered_rows, global_rows=all_puzzles)
+                if args.duplicates_only
+                else select_puzzles_for_retitle(filtered_rows)
+            )
         )
 
         if not puzzles:
-            print("No duplicate-title puzzles found matching the criteria.")
+            print("No puzzles found matching the criteria.")
             return
 
         print(f"Found {len(puzzles)} puzzle(s) to retitle")
+        missing_score_count = sum(1 for row in puzzles if _stored_title_score(row) is None)
+        if missing_score_count:
+            print(f"Prioritized {missing_score_count} puzzle(s) without title_score")
         if args.dry_run:
             print("(dry run — no updates will be made)\n")
         else:
