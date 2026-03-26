@@ -65,13 +65,16 @@ class _FakeRuntime:
     def __init__(self):
         self.primary_calls = 0
         self.secondary_calls = 0
+        self.trace = []
 
     def activate_primary(self):
         self.primary_calls += 1
+        self.trace.append("primary")
         return PRIMARY_MODEL
 
     def activate_secondary(self):
         self.secondary_calls += 1
+        self.trace.append("secondary")
         return SECONDARY_MODEL
 
 
@@ -89,6 +92,23 @@ class _ModelAwareClient:
             content = responses.pop(0) if len(responses) > 1 else responses[0]
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+            )
+
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
+
+
+class _TraceClient:
+    def __init__(self, runtime, content="Orizont Aprins"):
+        self.runtime = runtime
+        self.content = content
+        self.trace_at_calls = []
+        self.calls = []
+
+        def _create(**kwargs):
+            self.calls.append(kwargs)
+            self.trace_at_calls.append(list(self.runtime.trace))
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))]
             )
 
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
@@ -224,8 +244,7 @@ class CreativeTitleTests(unittest.TestCase):
             multi_model=True,
         )
         self.assertEqual("Orizont Aprins", title)
-        self.assertEqual(1, runtime.primary_calls)
-        self.assertEqual(2, runtime.secondary_calls)
+        self.assertEqual(["primary", "primary", "secondary"], runtime.trace)
 
     def test_score_seven_requires_retry(self):
         runtime = _FakeRuntime()
@@ -248,7 +267,7 @@ class CreativeTitleTests(unittest.TestCase):
         result = generate_creative_title_result(
             ["MUNTE"],
             ["Formă de relief"],
-            client=_SequentialClient(["MUNTE", "MUNTE", "MUNTE", "MUNTE", "MUNTE", "MUNTE", "MUNTE"]),
+            client=_SequentialClient(["MUNTE"] * 14),
             rate_client=_fake_rate_client(8),
             runtime=runtime,
             multi_model=True,
@@ -277,7 +296,7 @@ class CreativeTitleTests(unittest.TestCase):
         runtime = _FakeRuntime()
         gen_client = _ModelAwareClient(
             {
-                PRIMARY_MODEL.model_id: [""],
+                PRIMARY_MODEL.model_id: ["", ""],
                 SECONDARY_MODEL.model_id: ["Umbre Verzi"],
             }
         )
@@ -293,8 +312,26 @@ class CreativeTitleTests(unittest.TestCase):
         )
 
         self.assertEqual("Umbre Verzi", result.title)
-        self.assertEqual(2, runtime.primary_calls)
-        self.assertEqual(1, runtime.secondary_calls)
+        self.assertEqual(["primary", "secondary", "secondary", "primary"], runtime.trace)
+
+    def test_empty_output_does_not_pollute_rejected_context(self):
+        runtime = _FakeRuntime()
+        gen_client = _ModelAwareClient(
+            {
+                PRIMARY_MODEL.model_id: ["", "", "Orizont Nou"],
+                SECONDARY_MODEL.model_id: ["Umbre Verzi"],
+            }
+        )
+        generate_creative_title_result(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=gen_client,
+            rate_client=_fake_rate_client(8),
+            runtime=runtime,
+            multi_model=False,
+        )
+        self.assertGreaterEqual(len(gen_client.calls), 3)
+        self.assertNotIn("(gol)", gen_client.calls[-1]["messages"][-1]["content"])
 
     def test_retries_on_low_score(self):
         runtime = _FakeRuntime()
@@ -314,21 +351,37 @@ class CreativeTitleTests(unittest.TestCase):
 
     def test_includes_rejected_in_prompt(self):
         runtime = _FakeRuntime()
-        gen_client = _SequentialClient(["Ecou Palid", "Ecou Doiun", "Ecou Trei"])
+        gen_client = _SequentialClient(["Alfa Beta Gama Delta Epsilon Zeta", "Linii Fara Margini", "Ecou Trei"])
         generate_creative_title(
             ["AER", "MUNTE"],
             ["Gaz din atmosferă"],
             client=gen_client,
             rate_client=_SequentialClient([
-                json.dumps({"creativity_score": 2, "feedback": "prea banal"}),
-                json.dumps({"creativity_score": 3, "feedback": "tot banal"}),
                 json.dumps({"creativity_score": 8, "feedback": "excelent"}),
             ]),
             runtime=runtime,
-            multi_model=True,
+            multi_model=False,
         )
-        self.assertIn("Ecou Palid", gen_client.last_user_content)
-        self.assertIn("prea banal", gen_client.last_user_content)
+        self.assertIn("Alfa Beta Gama Delta Epsilon Zeta", gen_client.last_user_content)
+        self.assertIn("prea multe cuvinte", gen_client.last_user_content)
+
+    def test_repeated_invalid_reason_adds_correction_hint(self):
+        runtime = _FakeRuntime()
+        gen_client = _SequentialClient([
+            "Alfa Beta Gama Delta Epsilon Zeta",
+            "Una Doua Trei Patru Cinci Sase",
+            "Ecou Curat",
+        ])
+        generate_creative_title(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă"],
+            client=gen_client,
+            rate_client=_fake_rate_client(8),
+            runtime=runtime,
+            multi_model=False,
+        )
+        self.assertIn("Corecții obligatorii", gen_client.last_user_content)
+        self.assertIn("maximum 5 cuvinte", gen_client.last_user_content)
 
     def test_uses_explicit_model_ids(self):
         runtime = _FakeRuntime()
@@ -344,6 +397,24 @@ class CreativeTitleTests(unittest.TestCase):
         )
         self.assertEqual(PRIMARY_MODEL.model_id, gen_client.calls[0]["model"])
         self.assertEqual(SECONDARY_MODEL.model_id, rate_client.calls[0]["model"])
+
+    def test_no_secondary_activation_before_first_generation_call(self):
+        runtime = _FakeRuntime()
+        gen_client = _TraceClient(runtime)
+        generate_creative_title(
+            ["NATURA"],
+            ["Frunză uscată de toamnă"],
+            client=gen_client,
+            rate_client=_fake_rate_client(8),
+            runtime=runtime,
+            multi_model=True,
+        )
+        self.assertEqual(["primary"], gen_client.trace_at_calls[0])
+
+    def test_rejects_mixed_language_title(self):
+        reviewed = _review_title_candidate("Umbre in world")
+        self.assertFalse(reviewed.valid)
+        self.assertEqual("limba mixta", reviewed.feedback)
 
     def test_retries_when_title_key_forbidden(self):
         runtime = _FakeRuntime()

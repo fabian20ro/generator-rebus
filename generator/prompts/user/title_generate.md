@@ -1,3 +1,3 @@
 {content_section}
 
-Dă un titlu creativ de 2-5 cuvinte.{rejected_context}
+Dă exact un singur titlu creativ de 2-5 cuvinte, doar în română, fără virgulă, fără text extra.{rejected_context}

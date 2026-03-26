@@ -93,6 +93,8 @@
 
 **[2026-03-26]** Title screening should separate invalid-candidate reasons from fallback selection — if sanitization immediately maps bad title outputs to a random fallback, retitle/publish flows lose the reason (`ALL CAPS`, too many words, leaked solution word), cannot assign deterministic `0` scores, and cannot feed precise rejection context into later rounds. Keep a structured title-review result (`title`, `valid`, `feedback`, `score`) and reserve fallback titles for the final “no valid candidate survived” path only.
 
+**[2026-03-26]** Multi-model title loops must activate models just-in-time, not prebuild an alternating model list by calling activators up front — eager activation unloads the first generator before its own API call, produces misleading `[model]` logs, and turns valid orchestration bugs into fake prompt-quality failures. Keep rejected-history and corrective hints scoped per generator, and do not let empty-output retries pollute semantic rejection context.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

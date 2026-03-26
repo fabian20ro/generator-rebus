@@ -386,13 +386,7 @@ def _generate_candidate_for_model(
     )
     if raw_title.strip():
         return raw_title
-    retry_context = rejected_context
-    if empty_retry_instruction:
-        retry_context = (
-            rejected_context
-            + "\n\n"
-            + empty_retry_instruction
-        )
+    retry_context = empty_retry_instruction
     return _generate_single_title(
         definitions,
         client,
@@ -426,13 +420,17 @@ def generate_creative_title_result(
 
     best_result: TitleGenerationResult | None = None
     rejected: list[tuple[str, str]] = []
+    rejected_by_model: dict[str, list[tuple[str, str]]] = {
+        PRIMARY_MODEL.model_id: [],
+        SECONDARY_MODEL.model_id: [],
+    }
     forbidden_keys = {key for key in (forbidden_title_keys or []) if key}
     generator_order = [PRIMARY_MODEL] if not multi_model else [PRIMARY_MODEL, SECONDARY_MODEL]
 
     for round_idx in range(1, MAX_TITLE_ROUNDS + 1):
-        rejected_context = _build_rejected_context(rejected)
-
         for generator_model in generator_order:
+            model_rejected = rejected_by_model.setdefault(generator_model.model_id, [])
+            rejected_context = _build_rejected_context(model_rejected)
             raw_title = _generate_candidate_for_model(
                 definitions,
                 words,
@@ -446,7 +444,6 @@ def generate_creative_title_result(
                 print(
                     f"  Title round {round_idx} [{generator_model.display_name}]: \"(gol)\" -> creativity=0/10 (titlu gol)"
                 )
-                rejected.append(("(gol)", "titlu gol"))
                 continue
 
             reviewed = _review_title_candidate(raw_title, input_words=words)
@@ -456,21 +453,25 @@ def generate_creative_title_result(
                     f'  Title round {round_idx} [{generator_model.display_name}]: "{display_title}" -> creativity=0/10 ({reviewed.feedback})'
                 )
                 rejected.append((display_title, reviewed.feedback))
+                model_rejected.append((display_title, reviewed.feedback))
                 continue
 
             title_key = normalize_title_key(reviewed.title)
             rejected_keys = {normalize_title_key(title) for title, _ in rejected}
             if reviewed.title in FALLBACK_TITLES:
                 rejected.append((reviewed.title, "fallback generic"))
+                model_rejected.append((reviewed.title, "fallback generic"))
                 continue
             if title_key in rejected_keys:
                 rejected.append((reviewed.title, "titlu deja respins"))
+                model_rejected.append((reviewed.title, "titlu deja respins"))
                 continue
             if title_key and title_key in forbidden_keys:
                 print(
                     f'  Title round {round_idx} [{generator_model.display_name}]: "{reviewed.title}" -> creativity=0/10 (titlu deja folosit)'
                 )
                 rejected.append((reviewed.title, "titlu deja folosit"))
+                model_rejected.append((reviewed.title, "titlu deja folosit"))
                 continue
 
             generator_model = _activate_generator_model(runtime, generator_model)
@@ -505,6 +506,7 @@ def generate_creative_title_result(
                 return result
 
             rejected.append((reviewed.title, feedback))
+            model_rejected.append((reviewed.title, feedback))
 
     if best_result is not None and best_result.score > 0:
         return best_result
