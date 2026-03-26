@@ -67,7 +67,7 @@ LMSTUDIO_BASE_URL=http://127.0.0.1:1234
 
 ### Database setup
 
-Run `schema.sql` in your Supabase SQL Editor. It creates two tables (`crossword_puzzles`, `crossword_clues`) with RLS policies that allow public read access only to published puzzles.
+Run `schema.sql` in your Supabase SQL Editor. It creates two tables (`crossword_puzzles`, `crossword_clues`) with RLS policies that allow public read access only to published puzzles. The local DDL also documents puzzle metadata such as `title_score`, `updated_at`, and repair metrics.
 
 ## Generator CLI
 

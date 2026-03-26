@@ -41,6 +41,7 @@ from generator.core.pipeline_state import (
     working_clue_from_entry,
 )
 from generator.core.quality import QualityReport
+from generator.phases.theme import TitleGenerationResult
 from generator.rebus import build_parser as build_rebus_parser
 
 
@@ -502,7 +503,7 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertEqual("gpt-oss-20b", puzzle.horizontal_clues[0].current.generated_by)
 
-    @patch("generator.batch_publish.generate_title_for_final_puzzle")
+    @patch("generator.batch_publish.generate_title_for_final_puzzle_result")
     @patch("generator.batch_publish._rewrite_failed_clues")
     @patch("generator.batch_publish.generate_definitions_for_puzzle")
     @patch("generator.batch_publish.parse_markdown")
@@ -546,7 +547,7 @@ class BatchPublishTests(unittest.TestCase):
             return (0, 1, 1)
 
         def _title_from_final(puzzle_obj, client=None, rate_client=None, runtime=None, multi_model=False):
-            return puzzle_obj.horizontal_clues[0].definition
+            return TitleGenerationResult(puzzle_obj.horizontal_clues[0].definition, 8, "ok")
 
         mock_generate_definitions.side_effect = _fill_defs
         mock_rewrite_failed.side_effect = _rewrite
@@ -621,6 +622,7 @@ class BatchPublishTests(unittest.TestCase):
         mock_load_words.return_value = []
         mock_prepare.return_value = PreparedPuzzle(
             title="Titlu de Test",
+            title_score=8,
             candidate=Candidate(
                 score=100.0,
                 report=QualityReport(
@@ -675,7 +677,7 @@ class BatchPublishTests(unittest.TestCase):
             title="Test",
             definition_score=8.0,
             blocking_words=[],
-            verified_count=9,
+            verified_count=2,
             total_clues=22,
         )
 
@@ -861,6 +863,7 @@ def _prepared_puzzle(
     })()
     return PreparedPuzzle(
         title=title,
+        title_score=8,
         candidate=Candidate(
             score=definition_score,
             report=QualityReport(

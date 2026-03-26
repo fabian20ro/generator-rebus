@@ -37,7 +37,7 @@ retitle.main(--date | --puzzle-id | --all-fallbacks)
        │
        └─ generate_creative_title(words, definitions, ...)
             │  (same Level 2 loop described below in "Title Generation")
-            │  writes new title back to Supabase
+            │  writes new title + title_score + updated_at back to Supabase
 ```
 
 ## Entry Point 3: Redefine Existing Puzzles
@@ -231,8 +231,9 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
               │              │                              # ← RANDOMNESS: LLM sampling (high temp)
               │              │
               │              │  ── Sanitize ──
-              │              │  strip quotes, truncate to 4 words
-              │              │  reject if: ≥2 commas, blocked words, ≥2 puzzle words in title
+              │              │  strip quotes, keep max 5 words
+              │              │  reject if: ≥2 commas, blocked words, ALL CAPS
+              │              │  reject if: any puzzle word of length ≥3 appears in title
               │              │  reject if: already rejected or is a fallback title
               │              │
               │              │  ── Switch model ──
@@ -245,7 +246,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
               │              │
               │              │  Track best_title (highest score seen)
               │              │
-              │              │  if score ≥ 5 → accept immediately
+              │              │  if score ≥ 8 → accept immediately
               │              │                              # TITLE_MIN_CREATIVITY
               │              │  else → add to rejected list (shown in next round's prompt)
               │              │
@@ -321,7 +322,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
 | `RATE_MIN_REBUS` | 5 | ai_clues | Minimum rebus score (guessability) |
 | `LOCKED_SEMANTIC` | 9 | batch_publish | Clue is locked (no more rewrites) if semantic ≥ 9 |
 | `LOCKED_REBUS` | 8 | batch_publish | ...AND rebus ≥ 8 |
-| `TITLE_MIN_CREATIVITY` | 5 | theme | Accept title immediately if creativity ≥ 5 |
+| `TITLE_MIN_CREATIVITY` | 8 | theme | Accept title immediately if creativity ≥ 8 |
 | `MAX_TITLE_ROUNDS` | 7 | theme | Max title generation attempts |
 | `MAX_REWRITE_ROUNDS` | 30 | batch_publish | Max definition rewrite rounds |
 | `PLATEAU_LOOKBACK` | 7 | batch_publish | Rounds without improvement → stop |

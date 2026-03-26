@@ -91,6 +91,8 @@
 
 **[2026-03-24]** Crossword phase-1 size tuning should derive from dictionary length histograms, not board size alone — the usable normalized-word buckets peak around medium lengths and thin sharply at the long end (for example current corpus: `8-letter = 12481`, `15-letter = 546`). Large-grid black density, template budget, and slot-capacity floors should react to that long-word scarcity; a smooth size formula helps readability, but top-end failures can still come from template/search topology after the histogram pressure is accounted for.
 
+**[2026-03-26]** Title screening should separate invalid-candidate reasons from fallback selection — if sanitization immediately maps bad title outputs to a random fallback, retitle/publish flows lose the reason (`ALL CAPS`, too many words, leaked solution word), cannot assign deterministic `0` scores, and cannot feed precise rejection context into later rounds. Keep a structured title-review result (`title`, `valid`, `feedback`, `score`) and reserve fallback titles for the final “no valid candidate survived” path only.
+
 ## Process & Workflow
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 

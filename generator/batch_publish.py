@@ -95,7 +95,7 @@ from .phases.define import (
     generate_definitions_for_state,
 )
 from .phases.download import run as download_words
-from .phases.theme import generate_title_for_final_puzzle
+from .phases.theme import generate_title_for_final_puzzle_result
 from .phases.upload import upload_puzzle
 from .phases.verify import rate_working_puzzle, verify_working_puzzle
 
@@ -113,6 +113,7 @@ class Candidate:
 @dataclass
 class PreparedPuzzle:
     title: str
+    title_score: int
     candidate: Candidate
     puzzle: object
     first_passed: int
@@ -612,17 +613,19 @@ def _prepare_puzzle_for_publication(
         state.assessment = score_puzzle_state(state, candidate.report)
         blockers = _blocking_clues(state)
         rendered_for_title = puzzle_from_working_state(state)
-        title = generate_title_for_final_puzzle(
+        title_result = generate_title_for_final_puzzle_result(
             rendered_for_title,
             client=client,
             rate_client=client,
             runtime=runtime,
             multi_model=multi_model,
         )
+        title = title_result.title
         state.title = title
         print(f"Titlu final: {title}")
         prepared = PreparedPuzzle(
             title=title,
+            title_score=title_result.score,
             candidate=candidate,
             puzzle=copy.deepcopy(state),
             first_passed=first_passed,
@@ -832,9 +835,10 @@ def run_batch(
             puzzle_from_working_state(defs_puzzle),
             difficulty=difficulty,
             description=description,
-            metadata=puzzle_metadata_payload(
-                prepared.assessment, description=description
-            ),
+            metadata={
+                **puzzle_metadata_payload(prepared.assessment, description=description),
+                "title_score": prepared.title_score,
+            },
         )
         set_published(puzzle_id, True)
 

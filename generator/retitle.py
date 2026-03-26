@@ -17,7 +17,8 @@ from .core.lm_runtime import LmRuntime
 from .core.runtime_logging import install_process_logging, path_timestamp
 from .phases.theme import (
     FALLBACK_TITLES,
-    generate_creative_title,
+    TitleGenerationResult,
+    generate_creative_title_result,
     normalize_title_key,
     rate_title_creativity,
 )
@@ -84,6 +85,16 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _stored_title_score(puzzle_row: dict) -> int | None:
+    value = puzzle_row.get("title_score")
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
     """Fetch all clues for a puzzle."""
     result = (
@@ -123,7 +134,7 @@ def retitle_puzzle(
         print(f"  [{puzzle_id}] Missing words or definitions, skipping")
         return False
 
-    new_title = generate_creative_title(
+    title_result = generate_creative_title_result(
         words,
         definitions,
         client=ai_client,
@@ -132,6 +143,11 @@ def retitle_puzzle(
         multi_model=multi_model,
         forbidden_title_keys=forbidden_title_keys,
     )
+    if title_result.used_fallback:
+        print(f'  [{puzzle_id}] "{old_title}" -> skipped, no valid title candidate')
+        return False
+
+    new_title = title_result.title
 
     new_title_key = normalize_title_key(new_title)
     if new_title_key == old_title_key:
@@ -145,9 +161,11 @@ def retitle_puzzle(
     runtime = runtime or LmRuntime(multi_model=multi_model)
 
     if not is_fallback:
-        score_model = runtime.activate_secondary() if multi_model else runtime.activate_primary()
-        old_score, _ = rate_title_creativity(old_title, words, rate_client, model_config=score_model)
-        new_score, _ = rate_title_creativity(new_title, words, rate_client, model_config=score_model)
+        old_score = _stored_title_score(puzzle_row)
+        if old_score is None:
+            score_model = runtime.activate_secondary() if multi_model else runtime.activate_primary()
+            old_score, _ = rate_title_creativity(old_title, words, rate_client, model_config=score_model)
+        new_score = title_result.score
         if new_score <= old_score:
             print(
                 f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
@@ -159,13 +177,14 @@ def retitle_puzzle(
             f'-> "{new_title}" (score={new_score})'
         )
     else:
-        print(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}"')
+        print(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}" (score={title_result.score})')
 
     if not dry_run:
-        supabase.table("crossword_puzzles").update({"title": new_title, "updated_at": _now_iso()}).eq(
-            "id", puzzle_id
-        ).execute()
+        supabase.table("crossword_puzzles").update(
+            {"title": new_title, "title_score": title_result.score, "updated_at": _now_iso()}
+        ).eq("id", puzzle_id).execute()
     puzzle_row["title"] = new_title
+    puzzle_row["title_score"] = title_result.score
 
     return True
 

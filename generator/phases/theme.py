@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import sys
+from dataclasses import dataclass
 from collections.abc import Iterable
 
 from ..core.ai_clues import create_client
@@ -12,6 +13,7 @@ from ..core.diacritics import normalize
 from ..core.lm_runtime import LmRuntime
 from ..core.markdown_io import parse_markdown, write_with_definitions
 from ..core.model_manager import ModelConfig, PRIMARY_MODEL, SECONDARY_MODEL
+from ..core.text_rules import contains_normalized_forbidden_word
 from ..prompts.loader import load_system_prompt, load_user_template
 
 
@@ -38,8 +40,9 @@ def _collect_definitions(puzzle) -> list[str]:
             definitions.append(clue.definition.strip())
     return definitions
 
-TITLE_MIN_CREATIVITY = 5
+TITLE_MIN_CREATIVITY = 8
 MAX_TITLE_ROUNDS = 7
+NO_TITLE_LABEL = "Fara titlu"
 
 FALLBACK_TITLES = [
     "Fir de Cuvinte",
@@ -104,40 +107,74 @@ def normalize_title_key(title: str) -> str:
     return normalize(cleaned)
 
 
-def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
+@dataclass(frozen=True)
+class TitleCandidateReview:
+    title: str
+    valid: bool
+    feedback: str = ""
+
+
+@dataclass(frozen=True)
+class TitleGenerationResult:
+    title: str
+    score: int
+    feedback: str
+    used_fallback: bool = False
+
+
+def _clean_title(title: str) -> str:
     cleaned = " ".join(title.strip().strip('"').strip("'").split())
     cleaned = cleaned.rstrip(".,;:!?…")
-    if not cleaned:
-        return _fallback_title()
+    return cleaned
 
+
+def _is_all_caps_title(title: str) -> bool:
+    letters = [ch for ch in title if ch.isalpha()]
+    return bool(letters) and all(ch.upper() == ch for ch in letters)
+
+
+def _review_title_candidate(title: str, input_words: list[str] | None = None) -> TitleCandidateReview:
+    cleaned = _clean_title(title)
+    if not cleaned:
+        return TitleCandidateReview(cleaned, False, "titlu gol")
     # Reject comma-separated word lists (2+ commas)
     if cleaned.count(",") >= 2:
-        return _fallback_title()
+        return TitleCandidateReview(cleaned, False, "lista de cuvinte")
 
     blocked = {"rebus", "romanesc", "românesc", "puzzle", "titlu"}
     title_tokens = set(cleaned.lower().split())
     if title_tokens & blocked:
-        return _fallback_title()
+        return TitleCandidateReview(cleaned, False, "termeni generici interzisi")
 
     parts = cleaned.split()
-    if len(parts) > 4:
-        return _fallback_title()
+    if len(parts) >= 6:
+        return TitleCandidateReview(cleaned, False, "prea multe cuvinte")
+
+    if _is_all_caps_title(cleaned):
+        return TitleCandidateReview(cleaned, False, "all caps")
 
     english_hits = sum(1 for token in cleaned.lower().split() if token in TITLE_ENGLISH_MARKERS)
     if english_hits >= 2:
-        return _fallback_title()
+        return TitleCandidateReview(cleaned, False, "prea multe marcaje englezesti")
 
-    # Only reject if 2+ input words of length >= 4 appear in the title
-    if input_words:
-        title_upper = normalize(cleaned)
-        match_count = sum(
-            1 for word in input_words
-            if len(word) >= 4 and normalize(word) in title_upper
-        )
-        if match_count >= 2:
-            return _fallback_title()
+    if len(cleaned) > 100:
+        return TitleCandidateReview(cleaned, False, "peste 100 de caractere")
 
-    return cleaned
+    if input_words and contains_normalized_forbidden_word(
+        cleaned,
+        input_words,
+        min_length=3,
+    ):
+        return TitleCandidateReview(cleaned, False, "contine cuvant-solutie")
+
+    return TitleCandidateReview(cleaned, True)
+
+
+def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
+    reviewed = _review_title_candidate(title, input_words=input_words)
+    if reviewed.valid:
+        return reviewed.title
+    return _fallback_title()
 
 def rate_title_creativity(
     title: str,
@@ -222,7 +259,7 @@ def _generate_single_title(
 # Level 2 — retry loop with rating
 # ---------------------------------------------------------------------------
 
-def generate_creative_title(
+def generate_creative_title_result(
     words: list[str],
     definitions: list[str],
     client,
@@ -230,18 +267,17 @@ def generate_creative_title(
     runtime: LmRuntime | None = None,
     multi_model: bool = False,
     forbidden_title_keys: Iterable[str] | None = None,
-) -> str:
+) -> TitleGenerationResult:
     """Generate a creative title with quality evaluation loop."""
     if not words:
-        return _fallback_title()
+        return TitleGenerationResult(NO_TITLE_LABEL, 0, "fara cuvinte", used_fallback=True)
 
     if rate_client is None:
         rate_client = client
     if runtime is None:
         runtime = LmRuntime(multi_model=multi_model)
 
-    best_title: str | None = None
-    best_score = 0
+    best_result: TitleGenerationResult | None = None
     rejected: list[tuple[str, str]] = []
     forbidden_keys = {key for key in (forbidden_title_keys or []) if key}
 
@@ -265,37 +301,75 @@ def generate_creative_title(
             words=words,
         )
 
-        sanitized = _sanitize_title(raw_title, input_words=words)
-        title_key = normalize_title_key(sanitized)
+        reviewed = _review_title_candidate(raw_title, input_words=words)
+        display_title = reviewed.title or _clean_title(raw_title) or "(gol)"
+        if not reviewed.valid:
+            print(f'  Title round {round_idx}: "{display_title}" -> creativity=0/10 ({reviewed.feedback})')
+            rejected.append((display_title, reviewed.feedback))
+            continue
+
+        title_key = normalize_title_key(reviewed.title)
         rejected_keys = {normalize_title_key(title) for title, _ in rejected}
-        if (
-            sanitized in FALLBACK_TITLES
-            or title_key in rejected_keys
-            or (title_key and title_key in forbidden_keys)
-        ):
-            if title_key and title_key in forbidden_keys:
-                rejected.append((sanitized, "titlu deja folosit"))
+        if reviewed.title in FALLBACK_TITLES:
+            rejected.append((reviewed.title, "fallback generic"))
+            continue
+        if title_key in rejected_keys:
+            rejected.append((reviewed.title, "titlu deja respins"))
+            continue
+        if title_key and title_key in forbidden_keys:
+            print(f'  Title round {round_idx}: "{reviewed.title}" -> creativity=0/10 (titlu deja folosit)')
+            rejected.append((reviewed.title, "titlu deja folosit"))
             continue
 
         rating_model = runtime.activate_secondary() if multi_model else generator_model
         score, feedback = rate_title_creativity(
-            sanitized,
+            reviewed.title,
             words,
             rate_client,
             model_config=rating_model,
         )
-        print(f"  Title round {round_idx}: \"{sanitized}\" -> creativity={score}/10 ({feedback})")
+        print(f"  Title round {round_idx}: \"{reviewed.title}\" -> creativity={score}/10 ({feedback})")
 
-        if score > best_score or (score == best_score and best_title and len(sanitized.split()) < len(best_title.split())):
-            best_score = score
-            best_title = sanitized
+        result = TitleGenerationResult(reviewed.title, score, feedback)
+
+        if (
+            best_result is None
+            or score > best_result.score
+            or (
+                score == best_result.score
+                and len(reviewed.title.split()) < len(best_result.title.split())
+            )
+        ):
+            best_result = result
 
         if score >= TITLE_MIN_CREATIVITY:
-            return sanitized
+            return result
 
-        rejected.append((sanitized, feedback))
+        rejected.append((reviewed.title, feedback))
 
-    return best_title if best_title is not None else _fallback_title()
+    if best_result is not None and best_result.score > 0:
+        return best_result
+    return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True)
+
+
+def generate_creative_title(
+    words: list[str],
+    definitions: list[str],
+    client,
+    rate_client=None,
+    runtime: LmRuntime | None = None,
+    multi_model: bool = False,
+    forbidden_title_keys: Iterable[str] | None = None,
+) -> str:
+    return generate_creative_title_result(
+        words,
+        definitions,
+        client,
+        rate_client=rate_client,
+        runtime=runtime,
+        multi_model=multi_model,
+        forbidden_title_keys=forbidden_title_keys,
+    ).title
 
 
 # ---------------------------------------------------------------------------
@@ -309,13 +383,29 @@ def generate_title_for_final_puzzle(
     runtime: LmRuntime | None = None,
     multi_model: bool = False,
 ) -> str:
+    return generate_title_for_final_puzzle_result(
+        puzzle,
+        client=client,
+        rate_client=rate_client,
+        runtime=runtime,
+        multi_model=multi_model,
+    ).title
+
+
+def generate_title_for_final_puzzle_result(
+    puzzle,
+    client=None,
+    rate_client=None,
+    runtime: LmRuntime | None = None,
+    multi_model: bool = False,
+) -> TitleGenerationResult:
     all_words = _collect_words(puzzle)
     definitions = _collect_definitions(puzzle)
 
     if client is None:
         client = create_client()
 
-    return generate_creative_title(
+    return generate_creative_title_result(
         all_words,
         definitions,
         client=client,

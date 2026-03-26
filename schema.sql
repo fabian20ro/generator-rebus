@@ -4,6 +4,7 @@
 CREATE TABLE crossword_puzzles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title VARCHAR(100),
+  title_score SMALLINT,
   theme VARCHAR(200),
   description TEXT,
   grid_size SMALLINT NOT NULL DEFAULT 10,

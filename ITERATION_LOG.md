@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-03-26] Force deterministic `Fara titlu` when title generation never beats score 0
+
+**Context:** after the title-score refactor, user wanted the all-failure case to stop producing random fallback labels; if the maximum title score after all 7 rounds stays `0`, the result should be deterministic.
+**Happened:** Updated `generator/phases/theme.py` so the no-signal outcome now returns `Fara titlu` with `score=0` and `used_fallback=True` instead of a random fallback-pool label. This covers both paths: all 7 rounds invalid during candidate review, and valid candidates whose best creativity score never rises above `0`. Added theme tests for both scenarios and reran the title-related suites to confirm batch/retitle/repair behavior stays intact.
+**Verification:** `python3 -m pytest tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py -q` (`88 passed in 0.60s`)
+**Outcome:** success
+**Insight:** deterministic failure labels beat random fallback titles when the generator produced no usable signal at all; otherwise repeated maintenance runs look noisy even though nothing improved.
+**Promoted:** no
+
+---
+
 ### [2026-03-25] Add DEX-driven usage-label suffixes to clue prompts and clue text
 
 **Context:** user wanted clues for marked senses to carry one explicit usage/register suffix like `(arh.)`, `(inv.)`, `(tehn.)`, `(reg.)` so solvers are warned when the intended answer is rarer or domain-specific. Requirement: source labels only from explicit text already present in `dex_definitions`; apply consistently to define/verify/rewrite/rate; and bias rating so justified suffixes help rare words while gratuitous suffixes hurt common words.
@@ -355,6 +366,14 @@
 **Outcome:** success
 **Insight:** once the repeated loser cluster is known, it should move from postmortem knowledge into the live classifier and family-stop policy before the next prompt campaign starts.
 **Promoted:** yes — see LESSONS_LEARNED entry on explicit fragile-word watchlists.
+
+### [2026-03-26] — Persist title scores and tighten title screening across retitle + initial publish flows
+**Context:** user wanted title regeneration to persist a `title_score`, accept immediately only at `8/10`, reject title candidates that are `ALL CAPS`, `6+` words, or leak normalized solution words of length `3+` (while allowing 2-letter solution words), and keep local schema/docs aligned with the live Supabase column they had already added manually.
+**Happened:** Added shared normalized-text helpers in `generator/core/text_rules.py` and refactored `generator/phases/theme.py` so title generation now distinguishes candidate review from fallback selection. Invalid title candidates now surface explicit rejection reasons instead of collapsing immediately into random fallback titles; `TITLE_MIN_CREATIVITY` moved to `8`, the soft word-count cap moved to `5`, and solution-word leakage now checks normalized token overlap with `min_length=3`. Added structured `TitleGenerationResult` plumbing, persisted `title_score` in `generator/retitle.py`, and propagated the same score into initial publish (`generator/batch_publish.py` via upload metadata) and repair acceptance (`generator/repair_puzzles.py`). Updated local schema/docs (`schema.sql`, `README.md`, `GENERATOR_ARCH.md`) to reflect the live `title_score` column, and expanded tests for helper normalization, title validation, stored-score reuse, repair persistence, and batch title generation wiring.
+**Verification:** `python3 -m pytest tests/test_text_rules.py tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py -q` (`90 passed in 0.46s`); `python3 -m py_compile generator/core/text_rules.py generator/phases/theme.py generator/retitle.py generator/repair_puzzles.py generator/batch_publish.py tests/test_text_rules.py tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py`
+**Outcome:** success
+**Insight:** title validation rules that affect acceptance thresholds and persistence need to live before scoring, but fallback titles should remain a last-resort output only; otherwise maintenance and initial publish paths diverge and score metadata becomes meaningless.
+**Promoted:** yes — see LESSONS_LEARNED entry on separating title screening from fallback selection.
 
 <!-- new entries above this line, most recent first -->
 ### [2026-03-23] — Unify remaining Python LM Studio orchestration under one runtime and remove implicit model routing

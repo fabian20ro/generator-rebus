@@ -5,10 +5,13 @@ from types import SimpleNamespace
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.phases.theme import (
     FALLBACK_TITLES,
+    NO_TITLE_LABEL,
     _fallback_title,
     _generate_single_title,
+    _review_title_candidate,
     _sanitize_title,
     generate_creative_title,
+    generate_creative_title_result,
     generate_title_for_final_puzzle,
     normalize_title_key,
     rate_title_creativity,
@@ -136,7 +139,26 @@ class SanitizeTitleTests(unittest.TestCase):
         self.assertIn(_sanitize_title("Rebus Românesc"), FALLBACK_TITLES)
 
     def test_rejects_five_word_title(self):
-        self.assertIn(_sanitize_title("Alfa Beta Gama Delta Epsilon"), FALLBACK_TITLES)
+        self.assertEqual("Alfa Beta Gama Delta Epsilon", _sanitize_title("Alfa Beta Gama Delta Epsilon"))
+
+    def test_rejects_six_word_title(self):
+        reviewed = _review_title_candidate("Alfa Beta Gama Delta Epsilon Zeta")
+        self.assertFalse(reviewed.valid)
+        self.assertEqual("prea multe cuvinte", reviewed.feedback)
+
+    def test_rejects_all_caps_title(self):
+        reviewed = _review_title_candidate("ORIZONT VERDE")
+        self.assertFalse(reviewed.valid)
+        self.assertEqual("all caps", reviewed.feedback)
+
+    def test_rejects_title_containing_solution_word_with_three_letters(self):
+        reviewed = _review_title_candidate("Munte blând", input_words=["MUNTE", "AI"])
+        self.assertFalse(reviewed.valid)
+        self.assertEqual("contine cuvant-solutie", reviewed.feedback)
+
+    def test_allows_two_letter_solution_words_in_title(self):
+        reviewed = _review_title_candidate("Ai timp", input_words=["AI", "AT"])
+        self.assertTrue(reviewed.valid)
 
 
 class RateTitleCreativityTests(unittest.TestCase):
@@ -160,13 +182,59 @@ class CreativeTitleTests(unittest.TestCase):
             ["AER", "MUNTE"],
             ["Gaz din atmosferă", "Formă de relief"],
             client=_FakeClient("Orizont Aprins"),
-            rate_client=_fake_rate_client(7),
+            rate_client=_fake_rate_client(8),
             runtime=runtime,
             multi_model=True,
         )
         self.assertEqual("Orizont Aprins", title)
         self.assertEqual(1, runtime.primary_calls)
         self.assertEqual(1, runtime.secondary_calls)
+
+    def test_score_seven_requires_retry(self):
+        runtime = _FakeRuntime()
+        result = generate_creative_title_result(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=_SequentialClient(["Orizont Cald", "Umbre Fine"]),
+            rate_client=_SequentialClient([
+                json.dumps({"creativity_score": 7, "feedback": "aproape"}),
+                json.dumps({"creativity_score": 8, "feedback": "acceptat"}),
+            ]),
+            runtime=runtime,
+            multi_model=True,
+        )
+        self.assertEqual("Umbre Fine", result.title)
+        self.assertEqual(8, result.score)
+
+    def test_returns_fara_titlu_when_all_rounds_invalid(self):
+        runtime = _FakeRuntime()
+        result = generate_creative_title_result(
+            ["MUNTE"],
+            ["Formă de relief"],
+            client=_SequentialClient(["MUNTE", "MUNTE", "MUNTE", "MUNTE", "MUNTE", "MUNTE", "MUNTE"]),
+            rate_client=_fake_rate_client(8),
+            runtime=runtime,
+            multi_model=True,
+        )
+        self.assertEqual(NO_TITLE_LABEL, result.title)
+        self.assertEqual(0, result.score)
+        self.assertTrue(result.used_fallback)
+
+    def test_returns_fara_titlu_when_best_score_is_zero(self):
+        runtime = _FakeRuntime()
+        result = generate_creative_title_result(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=_SequentialClient(["Orizont Calm"] * 7),
+            rate_client=_SequentialClient([
+                json.dumps({"creativity_score": 0, "feedback": "slab"}),
+            ] * 7),
+            runtime=runtime,
+            multi_model=True,
+        )
+        self.assertEqual(NO_TITLE_LABEL, result.title)
+        self.assertEqual(0, result.score)
+        self.assertTrue(result.used_fallback)
 
     def test_retries_on_low_score(self):
         runtime = _FakeRuntime()

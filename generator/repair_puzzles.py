@@ -22,7 +22,7 @@ from .core.puzzle_metrics import (
 )
 from .core.rewrite_engine import run_rewrite_loop
 from .core.runtime_logging import install_process_logging, path_timestamp
-from .phases.theme import generate_creative_title
+from .phases.theme import TitleGenerationResult, generate_creative_title_result
 from .redefine import build_working_puzzle
 
 REPAIR_ROUNDS = 7
@@ -113,11 +113,28 @@ def _build_description(assessment, *, multi_model: bool) -> str:
     return build_puzzle_description(assessment, _models_used(multi_model))
 
 
-def _generate_title(puzzle, ai_client, rate_client, *, multi_model: bool, runtime: LmRuntime) -> str:
+def _stored_title_score(puzzle_row: dict) -> int | None:
+    value = puzzle_row.get("title_score")
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _generate_title(
+    puzzle,
+    ai_client,
+    rate_client,
+    *,
+    multi_model: bool,
+    runtime: LmRuntime,
+) -> TitleGenerationResult:
     words, definitions = _collect_title_inputs(puzzle)
     if not words or not definitions:
-        return puzzle.title or "Rebus"
-    return generate_creative_title(
+        return TitleGenerationResult(puzzle.title or "Rebus", 0, "titlu existent pastrat")
+    return generate_creative_title_result(
         words,
         definitions,
         client=ai_client,
@@ -221,18 +238,24 @@ def repair_puzzle(
         print(f"  [{puzzle_id}] rejected — score not better")
         return "rejected"
 
-    new_title = _generate_title(
+    title_result = _generate_title(
         candidate_puzzle,
         ai_client,
         rate_client,
         multi_model=multi_model,
         runtime=runtime,
     )
-    candidate_puzzle.title = new_title or candidate_puzzle.title or puzzle_row.get("title") or "Rebus"
+    if title_result.used_fallback and puzzle_row.get("title"):
+        candidate_puzzle.title = puzzle_row.get("title") or "Rebus"
+        title_score = _stored_title_score(puzzle_row) or 0
+    else:
+        candidate_puzzle.title = title_result.title or candidate_puzzle.title or puzzle_row.get("title") or "Rebus"
+        title_score = title_result.score
     repaired_at = _now_iso()
     description = _build_description(candidate_puzzle.assessment, multi_model=multi_model)
     puzzle_payload = {
         "title": candidate_puzzle.title,
+        "title_score": title_score,
         "updated_at": repaired_at,
         "repaired_at": repaired_at,
         **puzzle_metadata_payload(candidate_puzzle.assessment, description=description),

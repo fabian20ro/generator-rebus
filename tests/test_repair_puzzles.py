@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from generator.core.pipeline_state import ClueAssessment, ClueScores, PuzzleAssessment
 from generator.core.puzzle_metrics import PuzzleEvaluationResult
+from generator.phases.theme import TitleGenerationResult
 from generator.repair_puzzles import (
     build_parser,
     repair_puzzle,
@@ -154,7 +155,10 @@ class RepairPuzzleTests(unittest.TestCase):
         self.assertEqual(5, payload["rebus_score_min"])
         self.assertIn("Scor rebus: 5/10", payload["description"])
 
-    @patch("generator.repair_puzzles.generate_creative_title", return_value="Titlu Nou")
+    @patch(
+        "generator.repair_puzzles.generate_creative_title_result",
+        return_value=TitleGenerationResult("Titlu Nou", 8, "ok"),
+    )
     @patch("generator.repair_puzzles.score_puzzle_state")
     @patch("generator.repair_puzzles.run_rewrite_loop")
     @patch("generator.repair_puzzles.evaluate_puzzle_state")
@@ -222,6 +226,7 @@ class RepairPuzzleTests(unittest.TestCase):
 
         puzzle_payload = fixture.puzzle_table.update.call_args[0][0]
         self.assertEqual("Titlu Nou", puzzle_payload["title"])
+        self.assertEqual(8, puzzle_payload["title_score"])
         self.assertEqual(7, puzzle_payload["rebus_score_min"])
         self.assertIn("repaired_at", puzzle_payload)
         self.assertIn("updated_at", puzzle_payload)
