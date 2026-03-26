@@ -70,10 +70,15 @@ def fetch_puzzles(
     return sorted(rows, key=_puzzle_sort_key)
 
 
-def _puzzle_sort_key(row: dict) -> tuple[bool, str, str]:
+def _puzzle_sort_key(row: dict) -> tuple[object, ...]:
+    created_at = str(row.get("created_at") or "")
+    repaired_at = str(row.get("repaired_at") or "")
     return (
+        0 if row.get("repaired_at") is None else 1,
+        0 if _needs_metadata_backfill(row) else 1,
+        created_at if row.get("repaired_at") is None else repaired_at,
         row.get("created_at") is None,
-        str(row.get("created_at") or ""),
+        created_at,
         str(row.get("id") or ""),
     )
 

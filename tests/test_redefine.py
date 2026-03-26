@@ -98,6 +98,43 @@ class _SupabaseFixture:
 
 
 class FetchPuzzlesTests(unittest.TestCase):
+    def test_fetch_puzzles_prioritizes_never_repaired_before_recently_repaired(self):
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_supabase.table.return_value.select.return_value = mock_query
+        mock_query.execute.return_value = SimpleNamespace(
+            data=[
+                {
+                    "id": "recently-repaired",
+                    "created_at": "2026-03-01T03:00:00+00:00",
+                    "repaired_at": "2026-03-26T10:00:00+00:00",
+                    "description": "ok",
+                    "rebus_score_min": 7,
+                    "rebus_score_avg": 7.0,
+                    "definition_score": 10.0,
+                    "verified_count": 10,
+                    "total_clues": 10,
+                    "pass_rate": 1.0,
+                },
+                {
+                    "id": "never-repaired",
+                    "created_at": "2026-03-20T03:00:00+00:00",
+                    "repaired_at": None,
+                    "description": "",
+                    "rebus_score_min": None,
+                    "rebus_score_avg": None,
+                    "definition_score": None,
+                    "verified_count": None,
+                    "total_clues": None,
+                    "pass_rate": None,
+                },
+            ]
+        )
+
+        result = fetch_puzzles(mock_supabase)
+
+        self.assertEqual(["never-repaired", "recently-repaired"], [row["id"] for row in result])
+
     def test_fetch_puzzles_sorts_oldest_first(self):
         mock_supabase = MagicMock()
         mock_query = MagicMock()

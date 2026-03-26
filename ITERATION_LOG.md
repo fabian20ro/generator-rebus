@@ -316,6 +316,14 @@
 **Insight:** dexonline register metadata can sit outside the definition span; if ingestion reads only `tree-def`, it silently loses category-level rarity/register hints that matter downstream.
 **Promoted:** no
 
+### [2026-03-26] — Prioritize never-repaired puzzles in redefine maintenance runs
+**Context:** user observed `run_definition_improve.sh` starting again from a puzzle repaired recently, while some puzzles still had never been repaired and still had null rebus/metadata fields in Supabase.
+**Happened:** Changed `generator/redefine.py` sorting so maintenance runs now prioritize puzzles with `repaired_at IS NULL` first, then rows still missing puzzle metadata, then age. This pushes never-repaired / null-score puzzles ahead of recently repaired ones while preserving stable ordering within each bucket. Added a regression test covering the exact scenario of a recently repaired puzzle losing priority to a never-repaired puzzle with null metadata.
+**Verification:** `python3 -m pytest tests/test_redefine.py -q` (`28 passed in 1.00s`)
+**Outcome:** success
+**Insight:** for maintenance jobs, plain chronological order is the wrong heuristic once repair state exists; `repaired_at` must dominate `created_at` or the queue re-chews fresh work while stale/null rows wait indefinitely.
+**Promoted:** no
+
 ### [2026-03-22] — Regroup prompt autoresearch families so stale-stop does not kill unrelated hypothesis classes
 **Context:** after one autonomous continuation, supervisor safe-stopped with `three consecutive stale families` even though only negative definition examples, early rate counterexamples, and one rewrite framing edit had actually been tested. Positive definition examples and rule/guidance variants were still untouched but hidden inside the same coarse family names.
 **Happened:** Split experiment-family mapping in `scripts/run_experiments.py`: `rewrite_anti_distractor` into `rewrite_framing` vs `rewrite_structural_guidance`; `definition_examples` into `definition_negative_examples`, `definition_positive_examples`, `definition_guidance`; `rate_exactness` into `rate_counterexamples`, `rate_rules`. Updated family priorities in `generator/assessment/benchmark_policy.py` so the next live candidate is `definition_positive_examples`, not more negative examples or old verify work. Updated bundle unlock prerequisites to depend on the new finer-grained signal buckets. Adjusted autoresearch tests to assert the new first family/next experiment and rebuilt durable state from the same pilot log + baseline JSON.
