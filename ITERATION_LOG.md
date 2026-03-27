@@ -418,6 +418,14 @@
 **Insight:** in a local single-active-model runtime, “which model is generating now?” is orchestration state, not just metadata; preactivation can silently falsify logs and waste debugging effort by making prompt failures look like model-quality failures.
 **Promoted:** yes — see LESSONS_LEARNED entry on just-in-time multi-model activation.
 
+### [2026-03-28] — Only count meaningful puzzle progress after at least one filled letter
+**Context:** user reported that simply opening a puzzle and backing out marked it as `in progress`, even though no letter had been filled.
+**Happened:** Updated `frontend/src/gamification/progress-storage.ts` with a `hasFilledCells()` helper and aligned the meaning of progress with “at least one non-empty cell”. Updated `frontend/src/main.ts` so empty progress snapshots are cleared instead of saved, browse-state derivation only marks puzzles `in_progress` when saved progress has at least one filled cell, and old empty saved entries are cleaned up on load.
+**Verification:** `npm run build` in `frontend/`.
+**Outcome:** success
+**Insight:** local progress keys should not be treated as progress by existence alone; resume/status semantics need a content-based threshold, otherwise navigation side effects masquerade as user intent.
+**Promoted:** no
+
 ### [2026-03-28] — Collapse selector filters behind compact disclosure on mobile
 **Context:** after the broader selector refresh landed, user reported the filter area still occupied too much vertical space on phone and explicitly asked for a more compact pattern, suggesting a dropdown-style control.
 **Happened:** Reworked `frontend/src/components/puzzle-selector.ts` so the selector now defaults to a compact top row: `Filtre (n)` disclosure button plus a shortened sort dropdown (`Recente`, `Mărime ↑`, `Mărime ↓`, `A-Z`). The full status/size/hide/reset controls now live inside an expandable panel instead of always-visible pills. Updated `frontend/src/styles/gamification.css` and `frontend/src/styles/responsive.css` to support the disclosure layout, compact widths, and shorter mobile labels. This replaced the earlier “always-open chip wall” with a mobile-first disclosure pattern while keeping the same filter capabilities.

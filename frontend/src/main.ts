@@ -53,6 +53,7 @@ import {
   saveProgress,
   loadProgress,
   clearProgress,
+  hasFilledCells,
 } from "./gamification/progress-storage";
 import { deriveChallenges, pickMenuChallenge } from "./gamification/challenges";
 import {
@@ -166,7 +167,8 @@ function resetBrowseState(): void {
 function buildBrowseItems(puzzles: PuzzleSummary[]): PuzzleBrowseItem[] {
   return puzzles.map((puzzle) => {
     const solved = isPuzzleAlreadySolved(puzzle.id);
-    const progress = solved ? null : loadProgress(puzzle.id);
+    const saved = solved ? null : loadProgress(puzzle.id);
+    const progress = saved && hasFilledCells(saved) ? saved : null;
     return {
       ...puzzle,
       localStatus: solved ? "solved" : progress ? "in_progress" : "unplayed",
@@ -300,7 +302,7 @@ function saveCurrentProgress(): void {
   const cleanCells = gridState.cells.map((row) =>
     row.map((cell) => (cell === "!" ? null : cell))
   );
-  saveProgress(currentPuzzleId, {
+  const progress = {
     cells: cleanCells,
     revealed: gridState.revealed,
     pencilCells: gridState.pencilCells,
@@ -308,7 +310,12 @@ function saveCurrentProgress(): void {
     checksUsed: checksUsedCount,
     elapsedSeconds: elapsed,
     savedAt: new Date().toISOString(),
-  });
+  };
+  if (!hasFilledCells(progress)) {
+    clearProgress(currentPuzzleId);
+    return;
+  }
+  saveProgress(currentPuzzleId, progress);
 }
 
 // --- Points display ---
@@ -592,7 +599,11 @@ async function loadPuzzle(id: string): Promise<void> {
     }
 
     // Restore saved progress if available
-    const saved = isPuzzleAlreadySolved(id) ? null : loadProgress(id);
+    const savedRaw = isPuzzleAlreadySolved(id) ? null : loadProgress(id);
+    const saved = savedRaw && hasFilledCells(savedRaw) ? savedRaw : null;
+    if (savedRaw && !saved) {
+      clearProgress(id);
+    }
     if (saved && saved.cells.length === gridState.size &&
         saved.cells.every((row) => row.length === gridState!.size)) {
       gridState.cells = saved.cells;

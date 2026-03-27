@@ -17,6 +17,12 @@ function storageKey(puzzleId: string): string {
   return `rebus_progress_${puzzleId}`;
 }
 
+export function hasFilledCells(progress: PuzzleProgress): boolean {
+  return progress.cells.some((row) =>
+    row.some((cell) => cell !== null && cell !== "#")
+  );
+}
+
 export function saveProgress(
   puzzleId: string,
   progress: PuzzleProgress
@@ -56,7 +62,8 @@ export function clearProgress(puzzleId: string): void {
 
 export function hasProgress(puzzleId: string): boolean {
   try {
-    return localStorage.getItem(storageKey(puzzleId)) !== null;
+    const progress = loadProgress(puzzleId);
+    return progress ? hasFilledCells(progress) : false;
   } catch {
     return false;
   }
