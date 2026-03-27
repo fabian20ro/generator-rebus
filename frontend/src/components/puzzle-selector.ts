@@ -46,11 +46,13 @@ const STATUS_FILTERS: Array<{ value: PuzzleStatusFilter; label: string }> = [
 ];
 
 const SORT_OPTIONS: Array<{ value: PuzzleSort; label: string }> = [
-  { value: "recent", label: "Continuă / recente" },
-  { value: "size_asc", label: "Mărime crescător" },
-  { value: "size_desc", label: "Mărime descrescător" },
+  { value: "recent", label: "Recente" },
+  { value: "size_asc", label: "Mărime ↑" },
+  { value: "size_desc", label: "Mărime ↓" },
   { value: "title", label: "A-Z" },
 ];
+
+let filtersExpanded = false;
 
 function formatDateLabel(value?: string | null): string {
   if (!value) return "";
@@ -91,23 +93,6 @@ function appendCardSelection(card: HTMLElement, onSelect: () => void): void {
       onSelect();
     }
   });
-}
-
-function createChip(
-  label: string,
-  active: boolean,
-  onClick: () => void
-): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "browse-chip";
-  if (active) {
-    btn.classList.add("browse-chip--active");
-  }
-  btn.textContent = label;
-  btn.setAttribute("aria-pressed", String(active));
-  btn.addEventListener("click", onClick);
-  return btn;
 }
 
 function createPuzzleCard(
@@ -168,59 +153,46 @@ export function renderBrowseControls(
   onReset: () => void
 ): void {
   container.innerHTML = "";
+  const activeFilterCount =
+    Number(state.status !== "all") +
+    Number(state.sizeGroup !== "all") +
+    Number(state.hideCompleted);
 
   const sticky = document.createElement("div");
   sticky.className = "selector-toolbar";
-
-  const statusGroup = document.createElement("div");
-  statusGroup.className = "selector-toolbar__group";
-  statusGroup.innerHTML = `<span class="selector-toolbar__label">Stare</span>`;
-  const statusRow = document.createElement("div");
-  statusRow.className = "selector-toolbar__chips";
-  for (const option of STATUS_FILTERS) {
-    statusRow.appendChild(
-      createChip(option.label, state.status === option.value, () => {
-        const patch: Partial<PuzzleBrowseState> = { status: option.value };
-        if (option.value === "solved" && state.hideCompleted) {
-          patch.hideCompleted = false;
-        }
-        onStateChange(patch);
-      })
-    );
+  if (filtersExpanded) {
+    sticky.classList.add("selector-toolbar--expanded");
   }
-  statusGroup.appendChild(statusRow);
 
-  const sizeGroup = document.createElement("div");
-  sizeGroup.className = "selector-toolbar__group";
-  sizeGroup.innerHTML = `<span class="selector-toolbar__label">Mărime</span>`;
-  const sizeRow = document.createElement("div");
-  sizeRow.className = "selector-toolbar__chips";
-  for (const option of SIZE_GROUPS) {
-    sizeRow.appendChild(
-      createChip(option.label, state.sizeGroup === option.value, () => {
-        onStateChange({ sizeGroup: option.value });
-      })
-    );
+  const topRow = document.createElement("div");
+  topRow.className = "selector-toolbar__top";
+
+  const disclosure = document.createElement("button");
+  disclosure.type = "button";
+  disclosure.className = "browse-disclosure";
+  if (activeFilterCount > 0) {
+    disclosure.classList.add("browse-disclosure--active");
   }
-  sizeGroup.appendChild(sizeRow);
+  disclosure.textContent = activeFilterCount > 0
+    ? `Filtre (${activeFilterCount})`
+    : "Filtre";
+  disclosure.setAttribute("aria-expanded", String(filtersExpanded));
 
-  const actions = document.createElement("div");
-  actions.className = "selector-toolbar__actions";
-
-  const hideCompleted = document.createElement("button");
-  hideCompleted.type = "button";
-  hideCompleted.className = "browse-toggle";
-  if (state.hideCompleted) {
-    hideCompleted.classList.add("browse-toggle--active");
+  const panel = document.createElement("div");
+  panel.className = "selector-toolbar__panel";
+  if (!filtersExpanded) {
+    panel.classList.add("hidden");
   }
-  hideCompleted.textContent = "Ascunde rezolvate";
-  hideCompleted.setAttribute("aria-pressed", String(state.hideCompleted));
-  hideCompleted.addEventListener("click", () => {
-    onStateChange({ hideCompleted: !state.hideCompleted });
+
+  disclosure.addEventListener("click", () => {
+    filtersExpanded = !filtersExpanded;
+    panel.classList.toggle("hidden", !filtersExpanded);
+    sticky.classList.toggle("selector-toolbar--expanded", filtersExpanded);
+    disclosure.setAttribute("aria-expanded", String(filtersExpanded));
   });
 
   const sortWrap = document.createElement("label");
-  sortWrap.className = "browse-select";
+  sortWrap.className = "browse-select browse-select--compact";
   sortWrap.innerHTML = `<span class="selector-toolbar__label">Sortare</span>`;
   const select = document.createElement("select");
   select.setAttribute("aria-label", "Sortare rebusuri");
@@ -238,19 +210,82 @@ export function renderBrowseControls(
   });
   sortWrap.appendChild(select);
 
+  const statusGroup = document.createElement("label");
+  statusGroup.className = "browse-select";
+  statusGroup.innerHTML = `<span class="selector-toolbar__label">Stare</span>`;
+  const statusSelect = document.createElement("select");
+  statusSelect.setAttribute("aria-label", "Filtru stare");
+  for (const option of STATUS_FILTERS) {
+    const node = document.createElement("option");
+    node.value = option.value;
+    node.textContent = option.label;
+    if (state.status === option.value) {
+      node.selected = true;
+    }
+    statusSelect.appendChild(node);
+  }
+  statusSelect.addEventListener("change", () => {
+    const nextStatus = statusSelect.value as PuzzleStatusFilter;
+    const patch: Partial<PuzzleBrowseState> = { status: nextStatus };
+    if (nextStatus === "solved" && state.hideCompleted) {
+      patch.hideCompleted = false;
+    }
+    onStateChange(patch);
+  });
+  statusGroup.appendChild(statusSelect);
+
+  const sizeGroup = document.createElement("label");
+  sizeGroup.className = "browse-select";
+  sizeGroup.innerHTML = `<span class="selector-toolbar__label">Mărime</span>`;
+  const sizeSelect = document.createElement("select");
+  sizeSelect.setAttribute("aria-label", "Filtru mărime");
+  for (const option of SIZE_GROUPS) {
+    const node = document.createElement("option");
+    node.value = option.value;
+    node.textContent = option.label;
+    if (state.sizeGroup === option.value) {
+      node.selected = true;
+    }
+    sizeSelect.appendChild(node);
+  }
+  sizeSelect.addEventListener("change", () => {
+    onStateChange({ sizeGroup: sizeSelect.value as PuzzleSizeGroup });
+  });
+  sizeGroup.appendChild(sizeSelect);
+
+  const actions = document.createElement("div");
+  actions.className = "selector-toolbar__actions";
+
+  const hideCompleted = document.createElement("button");
+  hideCompleted.type = "button";
+  hideCompleted.className = "browse-toggle";
+  if (state.hideCompleted) {
+    hideCompleted.classList.add("browse-toggle--active");
+  }
+  hideCompleted.textContent = "Ascunde rezolvate";
+  hideCompleted.setAttribute("aria-pressed", String(state.hideCompleted));
+  hideCompleted.addEventListener("click", () => {
+    onStateChange({ hideCompleted: !state.hideCompleted });
+  });
+
   const reset = document.createElement("button");
   reset.type = "button";
   reset.className = "browse-reset";
   reset.textContent = "Resetează filtrele";
   reset.addEventListener("click", onReset);
 
+  topRow.appendChild(disclosure);
+  topRow.appendChild(sortWrap);
+
   actions.appendChild(hideCompleted);
-  actions.appendChild(sortWrap);
   actions.appendChild(reset);
 
-  sticky.appendChild(statusGroup);
-  sticky.appendChild(sizeGroup);
-  sticky.appendChild(actions);
+  panel.appendChild(statusGroup);
+  panel.appendChild(sizeGroup);
+  panel.appendChild(actions);
+
+  sticky.appendChild(topRow);
+  sticky.appendChild(panel);
   container.appendChild(sticky);
 }
 
