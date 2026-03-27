@@ -36,3 +36,18 @@ Interpretation rules:
 - exact-answer recovery beats creativity
 - reject edits that break primary fragile words: `AZ`, `FERMENT`, `MIRE`, `OSTRACA`, `SAN`, `ETAN`
 - reject verifier overfitting that fixes one target and harms many unrelated words
+
+Manual runbook:
+- baseline only:
+  - `.venv/bin/python -u -m generator.assessment.run_assessment --description "manual_baseline_20260328" --json-out logs/manual_baseline_20260328.json`
+- one-off `v3` probe; fresh ad-hoc state/log dir, not `build/prompt_research_v3`:
+  - `.venv/bin/python scripts/run_experiments.py --experiment-set v3 --start-from 4 --end-at 4 --log-path build/manual_v3/experiment_log.json --assessment-logs-dir build/manual_v3/assessment_logs --description-prefix manual_v3/ --stream-assessment-output`
+- untried manual probes:
+  - `4` = `v3exp004`
+  - `8` = `v3exp008`
+  - `12` = `v3exp012`
+  - `16` = `v3exp016`
+- monitor:
+  - `tail -f build/manual_v3/assessment_logs/v3exp004.log`
+  - `tail -n 5 generator/assessment/results.tsv`
+  - `python3 -m json.tool build/manual_v3/assessment_logs/v3exp004.json | less`

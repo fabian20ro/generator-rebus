@@ -175,6 +175,39 @@ class PromptAutoresearchTests(unittest.TestCase):
 
         run_supervisor.assert_not_called()
 
+    def test_main_dry_run_with_existing_state_does_not_rebuild_or_run_trials(self):
+        mod = _load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir) / "state"
+            state = {
+                "campaign_id": "x",
+                "status": "stopped",
+                "current_family": "prompt_dedup_cleanup",
+                "current_experiment": None,
+                "incumbent_composite": 81.9,
+                "incumbent_pass_rate": 0.386,
+                "attempted_experiments": ["v3exp001"],
+            }
+            families = mod.default_families("v3")
+            incumbent = {"composite": 81.9, "pass_rate": 0.386}
+            next_exp = mock.Mock()
+            next_exp.name = "v3exp004"
+            next_exp.family = "system_factor_temperatures"
+            next_exp.desc = "system temperatures generate 0.15 rewrite 0.20"
+
+            with mock.patch.object(sys, "argv", ["prompt_autoresearch.py", "--state-dir", str(state_dir), "--dry-run"]), \
+                 mock.patch.object(mod, "inspect_state", return_value=(state, families, incumbent, False, "invalid", next_exp)), \
+                 mock.patch.object(mod, "rebuild_state_from_campaign") as rebuild_state, \
+                 mock.patch.object(mod, "run_supervisor") as run_supervisor, \
+                 mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                mod.main()
+
+        rebuild_state.assert_not_called()
+        run_supervisor.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("State valid: no (invalid)", output)
+        self.assertIn("Next experiment: v3exp004", output)
+
     def test_select_next_experiment_unlocks_bundles_only_after_signal(self):
         mod = _load_module()
         families = mod.default_families()

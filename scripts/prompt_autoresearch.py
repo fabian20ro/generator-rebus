@@ -465,6 +465,51 @@ def load_or_initialize_state(
     )
 
 
+def inspect_state(
+    *,
+    state_dir: Path,
+    campaign_log: Path | None,
+    baseline_json: Path | None,
+    seed_prompts_dir: Path | None,
+    experiment_set: str = DEFAULT_EXPERIMENT_SET,
+) -> tuple[dict, dict[str, dict[str, object]], dict, bool, str | None, runner.Experiment | None]:
+    """Read current state for status/dry-run without mutating durable state."""
+    paths = family_paths(state_dir)
+    if paths["state"].exists():
+        state = load_json(paths["state"], {})
+        experiment_set = str(state.get("experiment_set") or experiment_set)
+        families = load_json(paths["families"], default_families(experiment_set))
+        incumbent = load_json(paths["incumbent"], {})
+        valid, reason = validate_state(
+            state_dir=state_dir,
+            state=state,
+            families=families,
+            incumbent=incumbent,
+            campaign_log=campaign_log,
+        )
+        next_exp = select_next_experiment(state, families)
+        return state, families, incumbent, valid, reason, next_exp
+
+    with tempfile.TemporaryDirectory(prefix="prompt-autoresearch-preview-") as tmpdir:
+        preview_state_dir = Path(tmpdir) / "state"
+        state, families, incumbent = bootstrap_from_campaign(
+            state_dir=preview_state_dir,
+            campaign_log=campaign_log,
+            baseline_json=baseline_json,
+            seed_prompts_dir=seed_prompts_dir,
+            experiment_set=experiment_set,
+        )
+        valid, reason = validate_state(
+            state_dir=preview_state_dir,
+            state=state,
+            families=families,
+            incumbent=incumbent,
+            campaign_log=campaign_log,
+        )
+        next_exp = select_next_experiment(state, families)
+        return state, families, incumbent, valid, reason, next_exp
+
+
 def persist_campaign_state(
     state_dir: Path,
     state: dict,
@@ -1031,24 +1076,31 @@ def main() -> None:
                         else:
                             print(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
                 return
-            if args.status and paths["state"].exists():
-                state = load_json(paths["state"], {})
-                families = load_json(paths["families"], default_families(str(state.get("experiment_set") or DEFAULT_EXPERIMENT_SET)))
-                incumbent = load_json(paths["incumbent"], {})
-                valid, reason = validate_state(
+            if args.status or args.dry_run:
+                state, families, incumbent, valid, reason, next_exp = inspect_state(
                     state_dir=args.state_dir,
-                    state=state,
-                    families=families,
-                    incumbent=incumbent,
                     campaign_log=args.campaign_log,
+                    baseline_json=args.baseline_json,
+                    seed_prompts_dir=args.seed_prompts_dir,
+                    experiment_set=args.experiment_set,
                 )
-                payload = dict(state)
-                payload["state_valid"] = valid
-                payload["state_validation_reason"] = reason
-                next_exp = select_next_experiment(state, families)
-                payload["next_experiment"] = next_exp.name if next_exp else None
-                payload["next_family"] = next_exp.family if next_exp else None
-                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                if args.status:
+                    payload = dict(state)
+                    payload["state_valid"] = valid
+                    payload["state_validation_reason"] = reason
+                    payload["next_experiment"] = next_exp.name if next_exp else None
+                    payload["next_family"] = next_exp.family if next_exp else None
+                    print(json.dumps(payload, ensure_ascii=False, indent=2))
+                if args.dry_run:
+                    if next_exp is None:
+                        print("No viable experiment available.")
+                    else:
+                        print(
+                            f"State valid: {'yes' if valid else 'no'}"
+                            + (f" ({reason})" if reason else "")
+                        )
+                        print(f"Incumbent: {state['incumbent_composite']:.1f} / {state['incumbent_pass_rate']:.3f}")
+                        print(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
                 return
             exit_code = run_supervisor(
                 state_dir=args.state_dir,

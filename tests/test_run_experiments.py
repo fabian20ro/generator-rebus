@@ -114,17 +114,18 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertTrue(multifile)
         self.assertEqual("exp073", multifile[0].name)
 
-    def test_all_manifest_edit_anchors_exist_in_current_prompts(self):
+    def test_active_manifest_edit_anchors_exist_in_current_prompts(self):
         mod = _load_run_experiments_module()
 
-        for exp in mod.EXPERIMENTS:
-            for edit in exp.edits:
-                prompt_path = mod.PROMPTS_DIR / edit.file
-                content = prompt_path.read_text(encoding="utf-8")
-                self.assertTrue(
-                    edit.find in content or (edit.replace and edit.replace in content),
-                    msg=f"{exp.name} missing anchor/replacement in {edit.file}",
-                )
+        for experiments in (mod.V2_EXPERIMENTS, mod.V3_EXPERIMENTS):
+            for exp in experiments:
+                for edit in exp.edits:
+                    prompt_path = mod.PROMPTS_DIR / edit.file
+                    content = prompt_path.read_text(encoding="utf-8")
+                    self.assertTrue(
+                        edit.find in content or (edit.replace and edit.replace in content),
+                        msg=f"{exp.name} missing anchor/replacement in {edit.file}",
+                    )
 
     def test_apply_experiment_skips_when_replacement_already_present(self):
         mod = _load_run_experiments_module()

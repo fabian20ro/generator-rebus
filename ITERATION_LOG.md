@@ -218,6 +218,27 @@
 **Context:** user asked for task lists plus concrete fixes across multiple passes: correctness, objective alignment, metrics, and tests.
 **Happened:** Identified and fixed four core issues: `_best_candidate()` returned after the first solved grid; LM Studio model switching unloaded by model key instead of loaded instance id; clean `defs.md` export kept score residue; clue selection and rewrite gating underweighted exact verification. Added richer word-difficulty aggregation fields (`wrong_guess`, `failure_kind`, blocker counts, rebus/guessability averages, rarity-override counts, word type). Added focused tests for model switching, selection ranking, best-candidate search, clean export, and richer metrics. Wrote a pass-based task list under `build/experiment_reports/20260320_generator_task_list.md`.
 **Outcome:** success
+
+---
+
+### [2026-03-28] Make prompt autoresearch inspection side-effect free and narrow manifest-anchor coverage
+
+**Context:** definition-improvement audit found two maintenance issues: `prompt_autoresearch.py --dry-run` could rebuild and wipe saved `v3` state on invalid durable state, and the old manifest-anchor test was failing on stale `v1` prompt edits even though current work runs on later experiment sets.
+**Happened:** Added side-effect-free inspection flow in `scripts/prompt_autoresearch.py` so `--status` and `--dry-run` read existing state directly and only bootstrap into a temporary directory when no state exists. This bypasses the repair/rebuild path during inspection and keeps durable state untouched. Added a regression test proving dry-run no longer routes through rebuild/run paths. Updated manifest-anchor coverage in `tests/test_run_experiments.py` to validate active/current `v2` and `v3` manifests against live prompt files instead of stale historical `v1` edits. Added a concise manual `v3` runbook to `prompt_research.md`.
+**Verification:** `.venv/bin/python -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_run_assessment.py tests/test_model_manager.py` (`60 passed`)
+**Outcome:** success
+**Insight:** inspection commands must never call durable-state repair logic implicitly; once a supervisor owns mutable benchmark state, even “dry-run” paths need a separate read-only codepath.
+**Promoted:** no
+
+---
+
+### [2026-03-28] Rotate assessment ledger into results6 and clear working results.tsv
+
+**Context:** user wanted the current `generator/assessment/results.tsv` history preserved before starting a fresh benchmark baseline, and asked whether the current file risked being overwritten.
+**Happened:** Copied the full working ledger from `generator/assessment/results.tsv` into new archive file `generator/assessment/results6.tsv`, then reset `results.tsv` back to header-only so the next baseline run starts from a clean working ledger. Left code references pointing at `results.tsv`, since benchmark/runtime paths already target that filename and should keep doing so for the new baseline.
+**Outcome:** success
+**Insight:** benchmark rotation here is really “archive old ledger, keep canonical filename empty for next run”, because code paths are pinned to `results.tsv` rather than a versioned filename.
+**Promoted:** no
 **Insight:** selector/rule mismatches between assessment and production create false-positive prompt wins; correctness fixes and objective alignment should land before the next baseline
 **Promoted:** yes — see LESSONS_LEARNED entries on selection alignment and LM Studio unload instance ids
 
