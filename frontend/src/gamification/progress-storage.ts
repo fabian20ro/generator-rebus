@@ -8,6 +8,7 @@ export interface PuzzleProgress {
   revealed?: boolean[][];
   pencilCells?: boolean[][];
   hintsUsed: number;
+  checksUsed?: number;
   elapsedSeconds: number;
   savedAt: string;
 }
@@ -35,6 +36,9 @@ export function loadProgress(puzzleId: string): PuzzleProgress | null {
     if (!Array.isArray(data.cells) || typeof data.elapsedSeconds !== "number" ||
         typeof data.hintsUsed !== "number") {
       return null;
+    }
+    if (typeof data.checksUsed !== "number") {
+      data.checksUsed = 0;
     }
     return data;
   } catch {

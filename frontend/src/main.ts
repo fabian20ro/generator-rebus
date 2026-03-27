@@ -9,6 +9,7 @@ import {
   getSolution,
   type PuzzleDetail,
   type Clue,
+  type PuzzleSummary,
 } from "./db/puzzle-repository";
 import {
   createGridState,
@@ -23,7 +24,16 @@ import {
   handleCellInput,
   handleKeyDown,
 } from "./components/input-handler";
-import { renderPuzzleList, renderDifficultyFilter } from "./components/puzzle-selector";
+import {
+  getPuzzleSizeGroup,
+  renderBrowseControls,
+  renderChallengeHighlight,
+  renderContinueSection,
+  renderPuzzleList,
+  renderSelectorSummary,
+  type PuzzleBrowseItem,
+  type PuzzleBrowseState,
+} from "./components/puzzle-selector";
 import {
   revealLetter,
   revealWord,
@@ -44,6 +54,7 @@ import {
   loadProgress,
   clearProgress,
 } from "./gamification/progress-storage";
+import { deriveChallenges, pickMenuChallenge } from "./gamification/challenges";
 import {
   calculateScore,
   hintLetterCost,
@@ -61,6 +72,10 @@ import confetti from "canvas-confetti";
 
 // --- DOM elements ---
 const puzzleSelector = document.getElementById("puzzle-selector")!;
+const selectorContinue = document.getElementById("selector-continue")!;
+const selectorChallenge = document.getElementById("selector-challenge")!;
+const selectorControls = document.getElementById("selector-controls")!;
+const selectorSummary = document.getElementById("selector-summary")!;
 const puzzleList = document.getElementById("puzzle-list")!;
 const puzzleView = document.getElementById("puzzle-view")!;
 const puzzleTitle = document.getElementById("puzzle-title")!;
@@ -88,12 +103,21 @@ const btnPencilState = btnPencil.querySelector(".btn-pencil__state")!;
 
 // --- State ---
 let gridState: GridState | null = null;
+let allPuzzles: PuzzleSummary[] = [];
 let currentPuzzleId: string | null = null;
 let currentDifficulty = 1;
 let currentGridSize = 10;
 let puzzleStartTime = 0;
 let hintsUsedCount = 0;
+let checksUsedCount = 0;
 let pencilMode = false;
+let puzzleListScrollY = 0;
+let browseState: PuzzleBrowseState = {
+  status: "all",
+  hideCompleted: false,
+  sizeGroup: "all",
+  sort: "recent",
+};
 
 function formatDateLabel(value?: string | null): string {
   if (!value) return "";
@@ -104,11 +128,17 @@ function formatDateLabel(value?: string | null): string {
   );
 }
 
-function setPuzzleMeta(description?: string, createdAt?: string, repairedAt?: string | null): void {
+function setPuzzleMeta(
+  description?: string,
+  createdAt?: string,
+  repairedAt?: string | null,
+  extraParts: string[] = []
+): void {
   const parts: string[] = [];
   if (description) {
     parts.push(description);
   }
+  parts.push(...extraParts.filter(Boolean));
   if (createdAt) {
     parts.push(`Creat: ${formatDateLabel(createdAt)}`);
   }
@@ -122,6 +152,135 @@ function setPuzzleMeta(description?: string, createdAt?: string, repairedAt?: st
   }
   puzzleMeta.textContent = parts.join(" | ");
   puzzleMeta.classList.remove("hidden");
+}
+
+function resetBrowseState(): void {
+  browseState = {
+    status: "all",
+    hideCompleted: false,
+    sizeGroup: "all",
+    sort: "recent",
+  };
+}
+
+function buildBrowseItems(puzzles: PuzzleSummary[]): PuzzleBrowseItem[] {
+  return puzzles.map((puzzle) => {
+    const solved = isPuzzleAlreadySolved(puzzle.id);
+    const progress = solved ? null : loadProgress(puzzle.id);
+    return {
+      ...puzzle,
+      localStatus: solved ? "solved" : progress ? "in_progress" : "unplayed",
+      sizeGroup: getPuzzleSizeGroup(puzzle.grid_size),
+      savedAt: progress?.savedAt ?? null,
+    };
+  });
+}
+
+function getSortTimestamp(puzzle: PuzzleBrowseItem): number {
+  const raw = puzzle.savedAt || puzzle.repaired_at || puzzle.created_at || "";
+  const timestamp = Date.parse(raw);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function applyBrowseState(items: PuzzleBrowseItem[]): PuzzleBrowseItem[] {
+  return [...items]
+    .filter((item) => {
+      if (browseState.hideCompleted && item.localStatus === "solved") {
+        return false;
+      }
+      if (browseState.sizeGroup !== "all" && item.sizeGroup !== browseState.sizeGroup) {
+        return false;
+      }
+      switch (browseState.status) {
+        case "in_progress":
+          return item.localStatus === "in_progress";
+        case "unsolved":
+          return item.localStatus !== "solved";
+        case "solved":
+          return item.localStatus === "solved";
+        default:
+          return true;
+      }
+    })
+    .sort((a, b) => {
+      switch (browseState.sort) {
+        case "size_asc":
+          return a.grid_size - b.grid_size || getSortTimestamp(b) - getSortTimestamp(a);
+        case "size_desc":
+          return b.grid_size - a.grid_size || getSortTimestamp(b) - getSortTimestamp(a);
+        case "title":
+          return (a.title || "Rebus").localeCompare(b.title || "Rebus", "ro");
+        default:
+          return getSortTimestamp(b) - getSortTimestamp(a);
+      }
+    });
+}
+
+function buildBrowseSummary(
+  totalCount: number,
+  visibleCount: number
+): { totalCount: number; visibleCount: number; activeLabels: string[] } {
+  const labels: string[] = [];
+  if (browseState.status === "in_progress") labels.push("Doar în curs");
+  if (browseState.status === "unsolved") labels.push("Doar nerezolvate");
+  if (browseState.status === "solved") labels.push("Doar rezolvate");
+  if (browseState.sizeGroup === "small") labels.push("Mic 7-9");
+  if (browseState.sizeGroup === "medium") labels.push("Mediu 10-12");
+  if (browseState.sizeGroup === "large") labels.push("Mare 13-15");
+  if (browseState.hideCompleted) labels.push("Ascunde rezolvate");
+  if (browseState.sort === "size_asc") labels.push("Mărime crescător");
+  if (browseState.sort === "size_desc") labels.push("Mărime descrescător");
+  if (browseState.sort === "title") labels.push("A-Z");
+  return { totalCount, visibleCount, activeLabels: labels };
+}
+
+function renderProgressPanel(): void {
+  const items = buildBrowseItems(allPuzzles);
+  const inProgressCount = items.filter((item) => item.localStatus === "in_progress").length;
+  renderStatsPanel(statsPanel, {
+    inProgressCount,
+    challenges: deriveChallenges(loadPlayerData(), inProgressCount),
+  });
+}
+
+function renderPuzzleSelector(): void {
+  const items = buildBrowseItems(allPuzzles);
+  const allInProgress = items.filter((item) => item.localStatus === "in_progress");
+  const inProgress = allInProgress
+    .filter((item) => browseState.sizeGroup === "all" || item.sizeGroup === browseState.sizeGroup)
+    .sort((a, b) => getSortTimestamp(b) - getSortTimestamp(a));
+  const visible = applyBrowseState(items);
+  const challenges = deriveChallenges(loadPlayerData(), allInProgress.length);
+
+  renderBrowseControls(
+    selectorControls,
+    browseState,
+    (patch) => {
+      browseState = { ...browseState, ...patch };
+      renderPuzzleSelector();
+    },
+    () => {
+      resetBrowseState();
+      renderPuzzleSelector();
+    }
+  );
+  renderContinueSection(
+    selectorContinue,
+    browseState.status === "solved" ? [] : inProgress.slice(0, 3),
+    loadPuzzle
+  );
+  renderChallengeHighlight(selectorChallenge, pickMenuChallenge(challenges));
+  renderSelectorSummary(selectorSummary, buildBrowseSummary(items.length, visible.length));
+  renderPuzzleList(
+    puzzleList,
+    visible,
+    loadPuzzle,
+    () => {
+      resetBrowseState();
+      renderPuzzleSelector();
+    },
+    items.length
+  );
 }
 
 // --- Undo/Redo ---
@@ -146,6 +305,7 @@ function saveCurrentProgress(): void {
     revealed: gridState.revealed,
     pencilCells: gridState.pencilCells,
     hintsUsed: hintsUsedCount,
+    checksUsed: checksUsedCount,
     elapsedSeconds: elapsed,
     savedAt: new Date().toISOString(),
   });
@@ -194,7 +354,7 @@ function showTab(tab: "puzzles" | "stats"): void {
   } else {
     puzzleSelector.classList.add("hidden");
     statsPanel.classList.remove("hidden");
-    renderStatsPanel(statsPanel);
+    renderProgressPanel();
   }
 }
 
@@ -353,6 +513,7 @@ function handleCompletion(): void {
     difficulty: currentDifficulty,
     gridSize: currentGridSize,
     hintsUsed: hintsUsedCount,
+    checksUsed: checksUsedCount,
     pointsEarned: score.total,
     pointsSpent: 0,
   };
@@ -401,6 +562,8 @@ function handleCompletion(): void {
 // --- Load a puzzle ---
 async function loadPuzzle(id: string): Promise<void> {
   try {
+    puzzleListScrollY = window.scrollY;
+
     // Fetch puzzle and solution in parallel
     const [puzzleResult, solutionResult] = await Promise.allSettled([
       getPuzzle(id),
@@ -421,6 +584,7 @@ async function loadPuzzle(id: string): Promise<void> {
     currentGridSize = data.puzzle.grid_size;
     puzzleStartTime = Date.now();
     hintsUsedCount = 0;
+    checksUsedCount = 0;
 
     // Attach solution if available (hints require it)
     if (solutionResult.status === "fulfilled") {
@@ -439,7 +603,21 @@ async function loadPuzzle(id: string): Promise<void> {
         gridState.pencilCells = saved.pencilCells;
       }
       hintsUsedCount = saved.hintsUsed;
+      checksUsedCount = saved.checksUsed ?? 0;
       puzzleStartTime = Date.now() - saved.elapsedSeconds * 1000;
+    }
+
+    const puzzleStatus = isPuzzleAlreadySolved(id)
+      ? "Rezolvat"
+      : saved
+        ? "În curs"
+        : "Nou";
+    const extraMeta = [
+      `${data.puzzle.grid_size}x${data.puzzle.grid_size}`,
+      puzzleStatus,
+    ];
+    if (saved) {
+      extraMeta.push("Continuare salvată");
     }
 
     puzzleTitle.textContent = data.puzzle.title || "Rebus";
@@ -447,6 +625,7 @@ async function loadPuzzle(id: string): Promise<void> {
       data.puzzle.description || data.puzzle.theme || "",
       data.puzzle.created_at,
       data.puzzle.repaired_at,
+      extraMeta,
     );
     puzzleSelector.classList.add("hidden");
     statsPanel.classList.add("hidden");
@@ -488,17 +667,24 @@ async function showPuzzleList(): Promise<void> {
   progressCounter.textContent = "";
   navTabs.classList.remove("hidden");
   btnBack.classList.add("hidden");
-
-  const difficultyFilterEl = document.getElementById("difficulty-filter")!;
+  selectorContinue.classList.add("hidden");
+  selectorChallenge.classList.add("hidden");
+  selectorSummary.innerHTML = "";
+  selectorControls.innerHTML = "";
+  puzzleList.innerHTML = "<p class=\"loading\">Se încarcă...</p>";
 
   try {
-    const puzzles = await listPuzzles();
-    renderDifficultyFilter(difficultyFilterEl, () => {
-      renderPuzzleList(puzzleList, puzzles, loadPuzzle);
-    });
-    renderPuzzleList(puzzleList, puzzles, loadPuzzle);
+    if (allPuzzles.length === 0) {
+      allPuzzles = await listPuzzles();
+    }
+    renderPuzzleSelector();
+    requestAnimationFrame(() => window.scrollTo({ top: puzzleListScrollY }));
   } catch (err) {
     console.error("Failed to load puzzle list:", err);
+    selectorContinue.classList.add("hidden");
+    selectorChallenge.classList.add("hidden");
+    selectorSummary.innerHTML = "";
+    selectorControls.innerHTML = "";
     puzzleList.innerHTML =
       "<p>Nu s-au putut \u00eenc\u0103rca rebus-urile. Verific\u0103 conexiunea.</p>";
   }
@@ -517,6 +703,7 @@ btnCheck.addEventListener("click", () => {
     }
     return;
   }
+  checksUsedCount++;
   updatePointsDisplay();
   refresh();
   if (result.wrong === 0 && result.empty === 0) {

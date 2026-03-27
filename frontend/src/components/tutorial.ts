@@ -19,7 +19,7 @@ const steps: TutorialStep[] = [
   {
     title: "Selecteaza un rebus",
     description:
-      "Fiecare rebus are un cartonas cu titlul, tema si dificultatea (reprezentata prin stele). Apasa pe un cartonas pentru a-l deschide.",
+      "Fiecare rebus are un cartonas cu titlul, marimea si starea lui. Foloseste sectiunea Continuă si filtrele de sus ca sa gasesti rapid urmatorul joc.",
   },
   {
     title: "Completeaza grila",

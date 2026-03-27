@@ -24,14 +24,17 @@
       <p id="puzzle-meta" class="puzzle-meta hidden"></p>
       <nav class="nav-tabs" id="nav-tabs">
         <button class="nav-tab nav-tab--active" data-tab="puzzles">Rebusuri</button>
-        <button class="nav-tab" data-tab="stats">Profil</button>
+        <button class="nav-tab" data-tab="stats">Progres</button>
       </nav>
     </header>
 
     <main>
       <!-- Puzzle selector -->
-      <div id="puzzle-selector" class="panel">
-        <div id="difficulty-filter" class="difficulty-filter"></div>
+      <div id="puzzle-selector" class="panel selector-panel">
+        <div id="selector-continue" class="selector-section hidden"></div>
+        <div id="selector-challenge" class="selector-challenge hidden"></div>
+        <div id="selector-controls" class="selector-controls"></div>
+        <div id="selector-summary" class="selector-summary" aria-live="polite"></div>
         <div id="puzzle-list" class="puzzle-list">
           <p class="loading">Se încarcă...</p>
         </div>

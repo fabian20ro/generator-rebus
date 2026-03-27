@@ -1,37 +1,171 @@
-/* --- Difficulty filter --- */
-.difficulty-filter {
+/* --- Selector browse controls --- */
+.selector-controls {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 5;
+}
+
+.selector-toolbar {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(26, 26, 26, 0.08);
+  border-radius: 16px;
+  padding: 0.9rem;
+  box-shadow: var(--shadow);
   display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-bottom: 1rem;
+  flex-direction: column;
+  gap: 0.9rem;
 }
 
-.difficulty-filter:empty {
-  display: none;
+.selector-toolbar__group,
+.selector-toolbar__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
 }
 
-.difficulty-filter__btn {
-  padding: 0.3rem 0.9rem;
-  border: 1px solid #ccc;
+.selector-toolbar__actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.selector-toolbar__label {
+  font-size: 0.72rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.selector-toolbar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.browse-chip,
+.browse-toggle,
+.browse-reset {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid rgba(26, 26, 26, 0.12);
   border-radius: 999px;
-  background: var(--card-bg, #fff);
+  background: var(--card-bg);
   font-family: "Georgia", "Times New Roman", serif;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   font-weight: 600;
-  color: #999;
+  color: #475569;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 
-.difficulty-filter__btn:hover {
+.browse-chip:hover,
+.browse-toggle:hover,
+.browse-reset:hover {
   color: var(--text);
-  border-color: var(--text);
+  border-color: rgba(37, 99, 235, 0.3);
 }
 
-.difficulty-filter__btn--active {
-  color: #fff;
+.browse-chip--active,
+.browse-toggle--active {
   background: var(--black-cell);
   border-color: var(--black-cell);
+  color: #fff;
+}
+
+.browse-reset {
+  color: var(--accent);
+}
+
+.browse-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 14rem;
+}
+
+.browse-select select {
+  min-height: 2.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(26, 26, 26, 0.12);
+  background: var(--card-bg);
+  padding: 0 0.8rem;
+  font-family: inherit;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.selector-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+}
+
+.selector-summary__copy {
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.selector-summary__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.selector-summary__tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.selector-challenge {
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 16px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  box-shadow: var(--shadow);
+}
+
+.selector-challenge--ready {
+  background: linear-gradient(135deg, #fefce8 0%, #ffffff 100%);
+  border-color: rgba(234, 179, 8, 0.28);
+}
+
+.selector-challenge__eyebrow {
+  font-size: 0.72rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.selector-challenge__title {
+  font-size: 1.05rem;
+}
+
+.selector-challenge__description {
+  color: #475569;
+  line-height: 1.45;
+}
+
+.selector-challenge__progress {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 /* --- Definition bar above grid --- */
@@ -156,14 +290,20 @@
 
 .stats-summary {
   display: flex;
-  justify-content: center;
-  gap: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
 .stat-item {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  min-width: 9rem;
+  padding: 1rem 0.75rem;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
 }
 
 .stat-value {
@@ -179,14 +319,18 @@
   color: #999;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+  text-align: center;
 }
 
-/* --- Badge grid --- */
-.badges-section {
+.challenge-section,
+.badges-section,
+.history-section {
   margin-bottom: 1.5rem;
 }
 
-.badges-section h3 {
+.challenge-section h3,
+.badges-section h3,
+.history-section h3 {
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 1.1rem;
   margin-bottom: 0.75rem;
@@ -194,6 +338,57 @@
   border-bottom: 1px solid #ddd;
 }
 
+.challenge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.challenge-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 0.9rem;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(26, 26, 26, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.challenge-card--done {
+  border-color: rgba(22, 163, 74, 0.22);
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.challenge-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.challenge-card__status,
+.challenge-card__progress {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.challenge-card__title {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.challenge-card__desc {
+  color: #666;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+/* --- Badge grid --- */
 .badge-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -238,14 +433,6 @@
 }
 
 /* --- History table --- */
-.history-section h3 {
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 1.1rem;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.25rem;
-  border-bottom: 1px solid #ddd;
-}
-
 .history-table {
   display: flex;
   flex-direction: column;
@@ -254,6 +441,7 @@
 
 .history-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 0.4rem 0.5rem;
   font-size: 0.85rem;
@@ -269,6 +457,11 @@
   flex: 0 0 4rem;
 }
 
+.history-size {
+  flex: 0 0 4.5rem;
+  color: #666;
+}
+
 .history-hints {
   flex: 1;
   color: #999;
@@ -278,6 +471,11 @@
   font-weight: 600;
   color: var(--accent);
   text-align: right;
+}
+
+.history-empty {
+  color: #666;
+  line-height: 1.45;
 }
 
 /* --- Completion modal enhancements --- */

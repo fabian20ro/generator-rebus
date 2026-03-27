@@ -42,16 +42,64 @@
 
   .toolbar {
     width: 100%;
+    position: sticky;
+    bottom: 0.35rem;
   }
 
   .toolbar .btn {
-    flex: 1;
+    flex: 1 1 calc(50% - 0.25rem);
     font-size: 0.8rem;
     padding: 0.4rem 0.5rem;
   }
 
   .puzzle-list {
     grid-template-columns: 1fr;
+  }
+
+  .selector-controls {
+    top: 0.25rem;
+  }
+
+  .selector-toolbar {
+    padding: 0.8rem;
+  }
+
+  .selector-toolbar__actions {
+    gap: 0.6rem;
+  }
+
+  .browse-select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .browse-select select {
+    width: 100%;
+  }
+
+  .selector-toolbar__chips {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 0.15rem;
+  }
+
+  .browse-chip,
+  .browse-toggle,
+  .browse-reset {
+    flex: 0 0 auto;
+  }
+
+  .stats-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .challenge-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-item {
+    min-width: 0;
   }
 }
 
@@ -63,5 +111,15 @@
 
   header h1 {
     font-size: 1.4rem;
+  }
+
+  .header-row {
+    gap: 0.45rem;
+  }
+
+  .browse-chip,
+  .browse-toggle,
+  .browse-reset {
+    font-size: 0.84rem;
   }
 }

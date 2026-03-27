@@ -15,6 +15,7 @@ export interface PuzzleRecord {
   difficulty: number;
   gridSize: number;
   hintsUsed: number;
+  checksUsed?: number;
   pointsEarned: number;
   pointsSpent: number; // on hints
 }
@@ -42,6 +43,11 @@ export function loadPlayerData(): PlayerData {
     if (!Array.isArray(data.puzzlesSolved)) data.puzzlesSolved = [];
     if (typeof data.totalPoints !== "number") data.totalPoints = 0;
     if (!data.createdAt) data.createdAt = new Date().toISOString();
+    for (const record of data.puzzlesSolved) {
+      if (typeof record.checksUsed !== "number") {
+        record.checksUsed = -1;
+      }
+    }
     return data;
   } catch {
     return defaultPlayerData();
