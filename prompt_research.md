@@ -30,6 +30,7 @@ Selection rules:
 - single-file prompt experiments only
 - no verify/rate/temperature changes in this batch
 - no multi-file bundles before a clear `keep`
+- avoid negative bans that repeat the unwanted token; prefer positive Romanian-sense / referent-first phrasing
 
 Interpretation rules:
 - exact-answer recovery beats creativity
@@ -42,8 +43,8 @@ Manual runbook:
 - one-off `v4` probe; fresh ad-hoc state/log dir:
   - `.venv/bin/python scripts/run_experiments.py --experiment-set v4 --start-from 1 --end-at 1 --log-path build/manual_v4/experiment_log.json --assessment-logs-dir build/manual_v4/assessment_logs --description-prefix manual_v4/ --stream-assessment-output`
 - `v4` probes:
-  - `1-3` = explicit rule re-additions
-  - `4-5` = header variants
+  - `1-3` = positive guardrails for Romanian register, referent-first wording, lexical distance
+  - `4-5` = positive header variants
   - `6-8` = compactness bias variants
 - monitor:
   - `tail -f build/manual_v4/assessment_logs/v4exp001.log`

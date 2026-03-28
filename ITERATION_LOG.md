@@ -484,6 +484,14 @@
 **Insight:** title validation rules that affect acceptance thresholds and persistence need to live before scoring, but fallback titles should remain a last-resort output only; otherwise maintenance and initial publish paths diverge and score metadata becomes meaningless.
 **Promoted:** yes — see LESSONS_LEARNED entry on separating title screening from fallback selection.
 
+### [2026-03-28] — Reframe `v4` rewrite experiments away from negative banned-token phrasing
+**Context:** user flagged a plausible local-model failure mode: negated wording like “nu folosești engleză” can still bias weaker models toward the forbidden token just by mentioning it.
+**Happened:** Rewrote the `v4` manifest in `scripts/run_experiments.py` so the exploratory rewrite variants now use positive Romanian-register, referent-first, and lexical-distance phrasing instead of explicit negative bans mentioning the unwanted token. Updated `prompt_research.md` to record the new hypothesis and `v4` probe descriptions.
+**Verification:** `.venv/bin/python scripts/run_experiments.py --experiment-set v4 --dry-run`; `.venv/bin/python -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_benchmark_policy.py` (`50 passed`).
+**Outcome:** success
+**Insight:** prompt variants for older local models should prefer positive target-state phrasing over negated forbidden-token wording when the forbidden token itself can anchor generation.
+**Promoted:** no
+
 ### [2026-03-28] — Promote `v3exp016` baseline to working incumbent and prep `v4`
 **Context:** user ran fresh baseline on the confirmed `v3exp016` rewrite prompt and wanted the benchmark lane aligned before launching the next experiment batch.
 **Happened:** Verified new kept ledger row in `generator/assessment/results.tsv` (`baseline_results_20260328_v16`, composite `72.7`, pass rate `0.300`), updated `generator/assessment/benchmark_policy.py` to point `WORKING_BASELINE_DESCRIPTION` at that baseline, and refreshed `tests/test_benchmark_policy.py` so baseline-name assertions match the new incumbent.
