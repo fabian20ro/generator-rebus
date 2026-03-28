@@ -1,1 +1,8 @@
 commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
+9fc05ef	69.9	0.271	9.0	7.9	keep	baseline_results_20260328
+9fc05ef	69.6	0.271	8.9	7.8	discard	manual_v3/v3exp004 | system temperatures generate 0.15 rewrite 0.20 | [system]
+9fc05ef	69.6	0.271	8.9	7.8	discard	manual_v3/v3exp012 | user rewrite exclude one competitor only | user/rewrite.md
+9fc05ef	71.5	0.286	9.0	8.0	keep	manual_v3/v3exp016 | rewrite compress Romanian-only and family rules | system/rewrite.md
+9fc05ef	76.6	0.343	8.9	7.8	keep	v3exp016_confirm run 1/3
+9fc05ef	74.0	0.314	9.0	7.9	keep	v3exp016_confirm run 2/3
+9fc05ef	73.9	0.314	9.0	7.8	keep	v3exp016_confirm run 3/3
