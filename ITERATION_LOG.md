@@ -239,6 +239,16 @@
 **Outcome:** success
 **Insight:** benchmark rotation here is really “archive old ledger, keep canonical filename empty for next run”, because code paths are pinned to `results.tsv` rather than a versioned filename.
 **Promoted:** no
+
+---
+
+### [2026-03-28] Prepare rewrite-focused v4 batch and rotate pre-v4 ledger into results7
+
+**Context:** after `v3exp016` beat the freshly rotated baseline and three confirmation runs stayed well above the old score floor, the next request was to stop extending the old `v3` batch, archive the current ledger again before a new official baseline run, and prepare a new `v4` experiment set around the winning rewrite prompt.
+**Happened:** Added a new `v4` experiment namespace to `scripts/run_experiments.py`, `scripts/prompt_autoresearch.py`, and benchmark policy constants so tooling now recognizes three rewrite-only families: explicit rule re-additions, header variants, and compactness-bias variants. The `v4` manifest contains eight single-file edits, all targeted at `generator/prompts/system/rewrite.md`, designed to isolate whether the `v3exp016` win came from deleting specific bans, compressing the header, or generally pushing the rewrite prompt toward shorter outputs. Updated prompt-research docs to describe the new lane and the manual `v4` run commands. Archived the just-finished `results.tsv` ledger into `generator/assessment/results7.tsv`, then reset `results.tsv` back to header-only so the next official baseline can land into a clean working ledger.
+**Outcome:** success
+**Insight:** once a cleanup-style rewrite experiment wins and confirms, the next batch should stop touching unrelated surfaces and instead probe which exact deleted constraints were redundant versus still worth reintroducing one at a time.
+**Promoted:** no
 **Insight:** selector/rule mismatches between assessment and production create false-positive prompt wins; correctness fixes and objective alignment should land before the next baseline
 **Promoted:** yes — see LESSONS_LEARNED entries on selection alignment and LM Studio unload instance ids
 

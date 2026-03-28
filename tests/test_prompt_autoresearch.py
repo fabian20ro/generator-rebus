@@ -151,6 +151,20 @@ class PromptAutoresearchTests(unittest.TestCase):
         self.assertEqual("system_factor_temperatures", next_exp.family)
         self.assertEqual("v3exp001", next_exp.name)
 
+    def test_select_next_experiment_respects_v4_family_priority(self):
+        mod = _load_module()
+        families = mod.default_families("v4")
+        state = {
+            "attempted_experiments": [],
+            "current_family": None,
+            "experiment_set": "v4",
+        }
+
+        next_exp = mod.select_next_experiment(state, families)
+
+        self.assertEqual("rewrite_rule_readditions", next_exp.family)
+        self.assertEqual("v4exp001", next_exp.name)
+
     def test_main_rebuild_state_exits_without_running_trials(self):
         mod = _load_module()
         with tempfile.TemporaryDirectory() as tmpdir:

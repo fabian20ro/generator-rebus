@@ -15,10 +15,9 @@ Statuses:
 - `discard`: bad idea in current form
 
 Current experiment families:
-1. `system_factor_temperatures`
-2. `verify_minimal_procedural`
-3. `rewrite_generic_exclusion`
-4. `prompt_dedup_cleanup`
+1. `rewrite_rule_readditions`
+2. `rewrite_header_variants`
+3. `rewrite_compactness_bias`
 
 Family stop rules:
 - stop after 3 consecutive non-keeps
@@ -27,9 +26,9 @@ Family stop rules:
 - stop whole campaign after 4 stale families in a row
 
 Selection rules:
-- system-factor lane first
+- rewrite lane only
 - single-file prompt experiments only
-- no word-specific examples in this batch
+- no verify/rate/temperature changes in this batch
 - no multi-file bundles before a clear `keep`
 
 Interpretation rules:
@@ -39,15 +38,14 @@ Interpretation rules:
 
 Manual runbook:
 - baseline only:
-  - `.venv/bin/python -u -m generator.assessment.run_assessment --description "manual_baseline_20260328" --json-out logs/manual_baseline_20260328.json`
-- one-off `v3` probe; fresh ad-hoc state/log dir, not `build/prompt_research_v3`:
-  - `.venv/bin/python scripts/run_experiments.py --experiment-set v3 --start-from 4 --end-at 4 --log-path build/manual_v3/experiment_log.json --assessment-logs-dir build/manual_v3/assessment_logs --description-prefix manual_v3/ --stream-assessment-output`
-- untried manual probes:
-  - `4` = `v3exp004`
-  - `8` = `v3exp008`
-  - `12` = `v3exp012`
-  - `16` = `v3exp016`
+  - `.venv/bin/python -u -m generator.assessment.run_assessment --description "baseline_results_20260328_v16" --json-out logs/baseline_results_20260328_v16.json`
+- one-off `v4` probe; fresh ad-hoc state/log dir:
+  - `.venv/bin/python scripts/run_experiments.py --experiment-set v4 --start-from 1 --end-at 1 --log-path build/manual_v4/experiment_log.json --assessment-logs-dir build/manual_v4/assessment_logs --description-prefix manual_v4/ --stream-assessment-output`
+- `v4` probes:
+  - `1-3` = explicit rule re-additions
+  - `4-5` = header variants
+  - `6-8` = compactness bias variants
 - monitor:
-  - `tail -f build/manual_v3/assessment_logs/v3exp004.log`
+  - `tail -f build/manual_v4/assessment_logs/v4exp001.log`
   - `tail -n 5 generator/assessment/results.tsv`
-  - `python3 -m json.tool build/manual_v3/assessment_logs/v3exp004.json | less`
+  - `python3 -m json.tool build/manual_v4/assessment_logs/v4exp001.json | less`

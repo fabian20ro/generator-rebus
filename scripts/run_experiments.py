@@ -44,6 +44,11 @@ from generator.assessment.benchmark_policy import (
     PILOT_EXPERIMENT_RANGE,
     V2_CAMPAIGN_STOP_STALE_FAMILIES,
     UNCERTAINTY_DELTA,
+    V4_CAMPAIGN_STOP_STALE_FAMILIES,
+    V4_EXPERIMENT_FAMILY_PRIORITY,
+    V4_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
+    V4_FAMILY_STOP_REPEAT_PRIMARY,
+    V4_FAMILY_STOP_TOTAL_NON_KEEPS,
     V2_EXPERIMENT_FAMILY_PRIORITY,
     V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
     V2_FAMILY_STOP_REPEAT_PRIMARY,
@@ -81,10 +86,17 @@ V3_EXPERIMENT_PRESETS = {
     "rewrite-generic-exclusion": (9, 12),
     "prompt-dedup-cleanup": (13, 16),
 }
+V4_EXPERIMENT_PRESETS = {
+    "full": (1, 8),
+    "rewrite-rule-readditions": (1, 3),
+    "rewrite-header-variants": (4, 5),
+    "rewrite-compactness-bias": (6, 8),
+}
 EXPERIMENT_PRESETS_BY_SET = {
     "v1": EXPERIMENT_PRESETS,
     "v2": V2_EXPERIMENT_PRESETS,
     "v3": V3_EXPERIMENT_PRESETS,
+    "v4": V4_EXPERIMENT_PRESETS,
 }
 TARGET_DIRECTION_BLOCKS = {
     "verify-examples": "verify",
@@ -209,6 +221,8 @@ def _family_priority(family: str, experiment_set: str = "v1") -> int:
         priority_order = V2_EXPERIMENT_FAMILY_PRIORITY
     elif experiment_set == "v3":
         priority_order = V3_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v4":
+        priority_order = V4_EXPERIMENT_FAMILY_PRIORITY
     else:
         priority_order = EXPERIMENT_FAMILY_PRIORITY
     try:
@@ -1256,10 +1270,89 @@ V3_EXPERIMENTS = [
 _validate_experiment_list(V3_EXPERIMENTS)
 assert len(V3_EXPERIMENTS) == 16, len(V3_EXPERIMENTS)
 
+V4_EXPERIMENTS = [
+    Experiment(
+        "v4exp001",
+        "rewrite re-add explicit Romanian-only line",
+        [_edit_after(SYS_REWRITE, "- Răspunzi doar cu definiția finală.", "- Tot textul este exclusiv în română. Nu folosești engleză.")],
+        family="rewrite_rule_readditions",
+        priority=_family_priority("rewrite_rule_readditions", "v4"),
+        tags=("rewrite_rule_readditions",),
+    ),
+    Experiment(
+        "v4exp002",
+        "rewrite re-add explicit answer-ban line",
+        [_edit_after(SYS_REWRITE, "- Răspunzi doar cu definiția finală.", "- Nu incluzi răspunsul și nici derivate evidente ale lui.")],
+        family="rewrite_rule_readditions",
+        priority=_family_priority("rewrite_rule_readditions", "v4"),
+        tags=("rewrite_rule_readditions",),
+    ),
+    Experiment(
+        "v4exp003",
+        "rewrite re-add explicit lexical-family line",
+        [_edit_after(SYS_REWRITE, "- Răspunzi doar cu definiția finală.", "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.")],
+        family="rewrite_rule_readditions",
+        priority=_family_priority("rewrite_rule_readditions", "v4"),
+        tags=("rewrite_rule_readditions",),
+    ),
+    Experiment(
+        "v4exp004",
+        "rewrite split header into Romanian-sense line plus explicit bans",
+        [_edit(
+            SYS_REWRITE,
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- Răspunzi doar cu definiția finală.\n",
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Definești doar sensul românesc real.\nReguli:\n- Răspunzi doar cu definiția finală.\n- Nu incluzi răspunsul și nici derivate evidente ale lui.\n- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n",
+        )],
+        family="rewrite_header_variants",
+        priority=_family_priority("rewrite_header_variants", "v4"),
+        tags=("rewrite_header_variants",),
+    ),
+    Experiment(
+        "v4exp005",
+        "rewrite split header into Romanian-only line and compact ban line",
+        [_edit(
+            SYS_REWRITE,
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- Răspunzi doar cu definiția finală.\n",
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Definești doar sensul românesc real.\nReguli:\n- Răspunzi doar cu definiția finală.\n- Tot textul este exclusiv în română. Nu folosești engleză.\n- Fără răspuns și fără familie lexicală.\n",
+        )],
+        family="rewrite_header_variants",
+        priority=_family_priority("rewrite_header_variants", "v4"),
+        tags=("rewrite_header_variants",),
+    ),
+    Experiment(
+        "v4exp006",
+        "rewrite add explicit redundancy-cut rule",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Tai orice formulare redundantă înainte de a livra definiția.")],
+        family="rewrite_compactness_bias",
+        priority=_family_priority("rewrite_compactness_bias", "v4"),
+        tags=("rewrite_compactness_bias",),
+    ),
+    Experiment(
+        "v4exp007",
+        "rewrite prefer 4-9 words when exactness survives",
+        [_edit_before(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Preferi 4-9 cuvinte dacă sensul rămâne exact.")],
+        family="rewrite_compactness_bias",
+        priority=_family_priority("rewrite_compactness_bias", "v4"),
+        tags=("rewrite_compactness_bias",),
+    ),
+    Experiment(
+        "v4exp008",
+        "rewrite tighten hard cap to 12 words",
+        [_edit(SYS_REWRITE, REWRITE_MAX_WORDS_MARKER, "- Max 12 cuvinte.")],
+        family="rewrite_compactness_bias",
+        priority=_family_priority("rewrite_compactness_bias", "v4"),
+        tags=("rewrite_compactness_bias",),
+    ),
+]
+
+_validate_experiment_list(V4_EXPERIMENTS)
+assert len(V4_EXPERIMENTS) == 8, len(V4_EXPERIMENTS)
+
 EXPERIMENT_SETS = {
     "v1": V1_EXPERIMENTS,
     "v2": V2_EXPERIMENTS,
     "v3": V3_EXPERIMENTS,
+    "v4": V4_EXPERIMENTS,
 }
 EXPERIMENTS = V1_EXPERIMENTS
 
@@ -1670,6 +1763,8 @@ def family_stop_consecutive_non_keeps(experiment_set: str) -> int:
         return V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
     if experiment_set == "v3":
         return V3_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
+    if experiment_set == "v4":
+        return V4_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
     return FAMILY_STOP_CONSECUTIVE_NON_KEEPS
 
 
@@ -1678,6 +1773,8 @@ def family_stop_total_non_keeps(experiment_set: str) -> int:
         return V2_FAMILY_STOP_TOTAL_NON_KEEPS
     if experiment_set == "v3":
         return V3_FAMILY_STOP_TOTAL_NON_KEEPS
+    if experiment_set == "v4":
+        return V4_FAMILY_STOP_TOTAL_NON_KEEPS
     return FAMILY_STOP_TOTAL_NON_KEEPS
 
 
@@ -1686,6 +1783,8 @@ def campaign_stop_stale_families(experiment_set: str) -> int:
         return V2_CAMPAIGN_STOP_STALE_FAMILIES
     if experiment_set == "v3":
         return V3_CAMPAIGN_STOP_STALE_FAMILIES
+    if experiment_set == "v4":
+        return V4_CAMPAIGN_STOP_STALE_FAMILIES
     return CAMPAIGN_STOP_STALE_FAMILIES
 
 
@@ -1694,6 +1793,8 @@ def family_stop_repeat_primary(experiment_set: str) -> int:
         return V2_FAMILY_STOP_REPEAT_PRIMARY
     if experiment_set == "v3":
         return V3_FAMILY_STOP_REPEAT_PRIMARY
+    if experiment_set == "v4":
+        return V4_FAMILY_STOP_REPEAT_PRIMARY
     return V2_FAMILY_STOP_REPEAT_PRIMARY
 
 
