@@ -24,6 +24,7 @@ export interface PuzzleSummary {
   description?: string;
   grid_size: number;
   difficulty: number;
+  pass_rate?: number | null;
   created_at: string;
   repaired_at?: string | null;
 }

@@ -61,39 +61,11 @@
   }
 
   .selector-toolbar {
-    padding: 0.8rem;
+    padding: 0.65rem 0.75rem;
   }
 
-  .selector-toolbar__top {
-    gap: 0.5rem;
-  }
-
-  .selector-toolbar__actions {
-    gap: 0.6rem;
-  }
-
-  .browse-select {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .browse-select--compact {
-    width: auto;
-    flex: 1;
-  }
-
-  .browse-disclosure {
-    min-width: 6.25rem;
-  }
-
-  .browse-select select {
-    width: 100%;
-  }
-
-  .browse-disclosure,
-  .browse-toggle,
-  .browse-reset {
-    flex: 0 0 auto;
+  .selector-size-row {
+    gap: 0.35rem;
   }
 
   .stats-summary {
@@ -124,9 +96,8 @@
     gap: 0.45rem;
   }
 
-  .browse-disclosure,
-  .browse-toggle,
-  .browse-reset {
+  .size-chip {
     font-size: 0.84rem;
+    min-height: 2.45rem;
   }
 }

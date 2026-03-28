@@ -1,4 +1,4 @@
-"""Working prompt benchmark policy for the curated 2026-03-21 reset."""
+"""Working prompt benchmark policy for the current prompt campaign."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ WORKING_DATASET_TIER_COUNTS = {
 }
 HISTORICAL_PROMPT_EVIDENCE = ("results4.tsv",)
 WORKING_RESULTS_PATH = Path(__file__).with_name("results.tsv")
-WORKING_BASELINE_DESCRIPTION = "baseline_results_20260321"
+WORKING_BASELINE_DESCRIPTION = "baseline_results_20260328_v16"
 PILOT_EXPERIMENT_RANGE = (1, 12)
 EXPERIMENT_BLOCK_RANGES = {
     "cleanup": (1, 12),

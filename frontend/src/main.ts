@@ -25,14 +25,8 @@ import {
   handleKeyDown,
 } from "./components/input-handler";
 import {
-  getPuzzleSizeGroup,
-  renderBrowseControls,
-  renderChallengeHighlight,
-  renderContinueSection,
+  renderAvailableControls,
   renderPuzzleList,
-  renderSelectorSummary,
-  type PuzzleBrowseItem,
-  type PuzzleBrowseState,
 } from "./components/puzzle-selector";
 import {
   revealLetter,
@@ -41,7 +35,8 @@ import {
   isPuzzleComplete,
 } from "./components/hint-system";
 import { renderDefinitionBar } from "./components/definition-bar";
-import { renderStatsPanel } from "./components/stats-panel";
+import { renderStatisticsPanel } from "./components/statistics-panel";
+import { renderRewardsPanel } from "./components/rewards-panel";
 import { showToast } from "./components/toast";
 import {
   loadPlayerData,
@@ -54,8 +49,16 @@ import {
   loadProgress,
   clearProgress,
   hasFilledCells,
+  type PuzzleProgress,
 } from "./gamification/progress-storage";
-import { deriveChallenges, pickMenuChallenge } from "./gamification/challenges";
+import {
+  buildTabConfig,
+  derivePuzzleState,
+  filterAvailableBySize,
+  type AppTab,
+  type AvailableTabBrowseState,
+  type DerivedPuzzleState,
+} from "./gamification/puzzle-status";
 import {
   calculateScore,
   hintLetterCost,
@@ -73,10 +76,7 @@ import confetti from "canvas-confetti";
 
 // --- DOM elements ---
 const puzzleSelector = document.getElementById("puzzle-selector")!;
-const selectorContinue = document.getElementById("selector-continue")!;
-const selectorChallenge = document.getElementById("selector-challenge")!;
 const selectorControls = document.getElementById("selector-controls")!;
-const selectorSummary = document.getElementById("selector-summary")!;
 const puzzleList = document.getElementById("puzzle-list")!;
 const puzzleView = document.getElementById("puzzle-view")!;
 const puzzleTitle = document.getElementById("puzzle-title")!;
@@ -113,11 +113,9 @@ let hintsUsedCount = 0;
 let checksUsedCount = 0;
 let pencilMode = false;
 let puzzleListScrollY = 0;
-let browseState: PuzzleBrowseState = {
-  status: "all",
-  hideCompleted: false,
-  sizeGroup: "all",
-  sort: "recent",
+let activeTab: AppTab = "available";
+let availableBrowseState: AvailableTabBrowseState = {
+  size: "all",
 };
 
 function formatDateLabel(value?: string | null): string {
@@ -155,134 +153,189 @@ function setPuzzleMeta(
   puzzleMeta.classList.remove("hidden");
 }
 
-function resetBrowseState(): void {
-  browseState = {
-    status: "all",
-    hideCompleted: false,
-    sizeGroup: "all",
-    sort: "recent",
-  };
-}
+function loadMeaningfulProgressById(puzzles: PuzzleSummary[]): Map<string, PuzzleProgress> {
+  const progressById = new Map<string, PuzzleProgress>();
 
-function buildBrowseItems(puzzles: PuzzleSummary[]): PuzzleBrowseItem[] {
-  return puzzles.map((puzzle) => {
-    const solved = isPuzzleAlreadySolved(puzzle.id);
-    const saved = solved ? null : loadProgress(puzzle.id);
-    const progress = saved && hasFilledCells(saved) ? saved : null;
-    return {
-      ...puzzle,
-      localStatus: solved ? "solved" : progress ? "in_progress" : "unplayed",
-      sizeGroup: getPuzzleSizeGroup(puzzle.grid_size),
-      savedAt: progress?.savedAt ?? null,
-    };
-  });
-}
-
-function getSortTimestamp(puzzle: PuzzleBrowseItem): number {
-  const raw = puzzle.savedAt || puzzle.repaired_at || puzzle.created_at || "";
-  const timestamp = Date.parse(raw);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function applyBrowseState(items: PuzzleBrowseItem[]): PuzzleBrowseItem[] {
-  return [...items]
-    .filter((item) => {
-      if (browseState.hideCompleted && item.localStatus === "solved") {
-        return false;
-      }
-      if (browseState.sizeGroup !== "all" && item.sizeGroup !== browseState.sizeGroup) {
-        return false;
-      }
-      switch (browseState.status) {
-        case "in_progress":
-          return item.localStatus === "in_progress";
-        case "unsolved":
-          return item.localStatus !== "solved";
-        case "solved":
-          return item.localStatus === "solved";
-        default:
-          return true;
-      }
-    })
-    .sort((a, b) => {
-      switch (browseState.sort) {
-        case "size_asc":
-          return a.grid_size - b.grid_size || getSortTimestamp(b) - getSortTimestamp(a);
-        case "size_desc":
-          return b.grid_size - a.grid_size || getSortTimestamp(b) - getSortTimestamp(a);
-        case "title":
-          return (a.title || "Rebus").localeCompare(b.title || "Rebus", "ro");
-        default:
-          return getSortTimestamp(b) - getSortTimestamp(a);
-      }
-    });
-}
-
-function buildBrowseSummary(
-  totalCount: number,
-  visibleCount: number
-): { totalCount: number; visibleCount: number; activeLabels: string[] } {
-  const labels: string[] = [];
-  if (browseState.status === "in_progress") labels.push("Doar în curs");
-  if (browseState.status === "unsolved") labels.push("Doar nerezolvate");
-  if (browseState.status === "solved") labels.push("Doar rezolvate");
-  if (browseState.sizeGroup === "small") labels.push("Mic 7-9");
-  if (browseState.sizeGroup === "medium") labels.push("Mediu 10-12");
-  if (browseState.sizeGroup === "large") labels.push("Mare 13-15");
-  if (browseState.hideCompleted) labels.push("Ascunde rezolvate");
-  if (browseState.sort === "size_asc") labels.push("Mărime crescător");
-  if (browseState.sort === "size_desc") labels.push("Mărime descrescător");
-  if (browseState.sort === "title") labels.push("A-Z");
-  return { totalCount, visibleCount, activeLabels: labels };
-}
-
-function renderProgressPanel(): void {
-  const items = buildBrowseItems(allPuzzles);
-  const inProgressCount = items.filter((item) => item.localStatus === "in_progress").length;
-  renderStatsPanel(statsPanel, {
-    inProgressCount,
-    challenges: deriveChallenges(loadPlayerData(), inProgressCount),
-  });
-}
-
-function renderPuzzleSelector(): void {
-  const items = buildBrowseItems(allPuzzles);
-  const allInProgress = items.filter((item) => item.localStatus === "in_progress");
-  const inProgress = allInProgress
-    .filter((item) => browseState.sizeGroup === "all" || item.sizeGroup === browseState.sizeGroup)
-    .sort((a, b) => getSortTimestamp(b) - getSortTimestamp(a));
-  const visible = applyBrowseState(items);
-  const challenges = deriveChallenges(loadPlayerData(), allInProgress.length);
-
-  renderBrowseControls(
-    selectorControls,
-    browseState,
-    (patch) => {
-      browseState = { ...browseState, ...patch };
-      renderPuzzleSelector();
-    },
-    () => {
-      resetBrowseState();
-      renderPuzzleSelector();
+  for (const puzzle of puzzles) {
+    if (isPuzzleAlreadySolved(puzzle.id)) {
+      continue;
     }
+    const progress = loadProgress(puzzle.id);
+    if (!progress) {
+      continue;
+    }
+    if (!hasFilledCells(progress)) {
+      clearProgress(puzzle.id);
+      continue;
+    }
+    progressById.set(puzzle.id, progress);
+  }
+
+  return progressById;
+}
+
+function getDerivedState(): DerivedPuzzleState {
+  return derivePuzzleState(
+    allPuzzles,
+    loadPlayerData(),
+    loadMeaningfulProgressById(allPuzzles),
   );
-  renderContinueSection(
-    selectorContinue,
-    browseState.status === "solved" ? [] : inProgress.slice(0, 3),
-    loadPuzzle
-  );
-  renderChallengeHighlight(selectorChallenge, pickMenuChallenge(challenges));
-  renderSelectorSummary(selectorSummary, buildBrowseSummary(items.length, visible.length));
+}
+
+function getVisibleTabs(state: DerivedPuzzleState) {
+  return buildTabConfig(state).filter((tab) => tab.visible);
+}
+
+function ensureActiveTab(state: DerivedPuzzleState): void {
+  const tabs = getVisibleTabs(state);
+  if (tabs.some((tab) => tab.id === activeTab)) {
+    return;
+  }
+  activeTab = tabs[0]?.id ?? "available";
+}
+
+function renderNavTabs(state: DerivedPuzzleState): void {
+  navTabs.innerHTML = "";
+  navTabs.setAttribute("role", "tablist");
+  const tabs = getVisibleTabs(state);
+
+  for (const [index, tab] of tabs.entries()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "nav-tab";
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(tab.id === activeTab));
+    button.tabIndex = tab.id === activeTab ? 0 : -1;
+    if (tab.id === activeTab) {
+      button.classList.add("nav-tab--active");
+    }
+    button.title = tab.label;
+    button.setAttribute("aria-label", tab.label);
+    button.setAttribute("aria-pressed", String(tab.id === activeTab));
+
+    const icon = document.createElement("span");
+    icon.className = "nav-tab__icon";
+    icon.textContent = tab.icon;
+    button.appendChild(icon);
+
+    if (tab.count) {
+      const count = document.createElement("span");
+      count.className = "nav-tab__count";
+      count.textContent = String(tab.count);
+      button.appendChild(count);
+    }
+
+    button.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft" && e.key !== "Home" && e.key !== "End") {
+        return;
+      }
+      e.preventDefault();
+      let nextIndex = index;
+      if (e.key === "ArrowRight") {
+        nextIndex = (index + 1) % tabs.length;
+      } else if (e.key === "ArrowLeft") {
+        nextIndex = (index - 1 + tabs.length) % tabs.length;
+      } else if (e.key === "Home") {
+        nextIndex = 0;
+      } else if (e.key === "End") {
+        nextIndex = tabs.length - 1;
+      }
+      const nextButton = navTabs.querySelectorAll<HTMLElement>(".nav-tab")[nextIndex];
+      nextButton?.focus();
+    });
+
+    button.addEventListener("click", () => {
+      showTab(tab.id);
+    });
+
+    navTabs.appendChild(button);
+  }
+}
+
+function renderAvailableTab(state: DerivedPuzzleState): void {
+  selectorControls.classList.remove("hidden");
+  renderAvailableControls(selectorControls, availableBrowseState, (size) => {
+    availableBrowseState = { size };
+    renderCurrentTab();
+  });
+
+  const filtered = filterAvailableBySize(state.visibleAvailable, availableBrowseState.size);
+  const hasOtherSizes = availableBrowseState.size !== "all";
   renderPuzzleList(
     puzzleList,
-    visible,
+    filtered,
     loadPuzzle,
-    () => {
-      resetBrowseState();
-      renderPuzzleSelector();
+    "available",
+    hasOtherSizes ? {
+      emptyTitle: "Niciun rebus vizibil pentru dimensiunea asta",
+      emptyBody: "Alege altă dimensiune sau revino la toate.",
+      emptyActionLabel: "Toate",
+      onEmptyAction: () => {
+        availableBrowseState = { size: "all" };
+        renderCurrentTab();
+      },
+    } : {
+      emptyTitle: "Nu sunt rebusuri disponibile",
+      emptyBody: "Revino puțin mai târziu.",
     },
-    items.length
   );
+}
+
+function renderCurrentTab(): void {
+  const state = getDerivedState();
+  ensureActiveTab(state);
+  renderNavTabs(state);
+
+  puzzleSelector.classList.remove("hidden");
+  statsPanel.classList.add("hidden");
+  selectorControls.innerHTML = "";
+
+  switch (activeTab) {
+    case "available":
+      renderAvailableTab(state);
+      return;
+    case "in_progress":
+      selectorControls.classList.add("hidden");
+      renderPuzzleList(puzzleList, state.inProgress, loadPuzzle, "in_progress", {
+        emptyTitle: "Nimic în curs",
+        emptyBody: "Începe un rebus și completează măcar o literă.",
+      });
+      return;
+    case "solved":
+      selectorControls.classList.add("hidden");
+      renderPuzzleList(puzzleList, state.solved, loadPuzzle, "solved", {
+        emptyTitle: "Nimic rezolvat încă",
+        emptyBody: "Primele rebusuri rezolvate apar aici.",
+      });
+      return;
+    case "statistics":
+      puzzleSelector.classList.add("hidden");
+      statsPanel.classList.remove("hidden");
+      renderStatisticsPanel(statsPanel, {
+        inProgressCount: state.inProgress.length,
+      });
+      return;
+    case "rewards":
+      puzzleSelector.classList.add("hidden");
+      statsPanel.classList.remove("hidden");
+      renderRewardsPanel(statsPanel, {
+        inProgressCount: state.inProgress.length,
+      });
+      return;
+  }
+}
+
+function showTab(tab: AppTab): void {
+  saveCurrentProgress();
+  activeTab = tab;
+
+  puzzleView.classList.add("hidden");
+  puzzleTitle.textContent = "";
+  setPuzzleMeta();
+  btnBack.classList.add("hidden");
+  navTabs.classList.remove("hidden");
+
+  renderCurrentTab();
 }
 
 // --- Undo/Redo ---
@@ -338,38 +391,6 @@ function renderPencilButton(): void {
     ? "Literele noi vor fi marcate ca tentative"
     : "Literele noi vor fi introduse ca răspuns final";
 }
-
-// --- Navigation ---
-function showTab(tab: "puzzles" | "stats"): void {
-  saveCurrentProgress();
-  navTabs.querySelectorAll(".nav-tab").forEach((btn) => {
-    btn.classList.toggle(
-      "nav-tab--active",
-      (btn as HTMLElement).dataset.tab === tab
-    );
-  });
-
-  puzzleView.classList.add("hidden");
-  puzzleTitle.textContent = "";
-  setPuzzleMeta();
-  btnBack.classList.add("hidden");
-
-  if (tab === "puzzles") {
-    puzzleSelector.classList.remove("hidden");
-    statsPanel.classList.add("hidden");
-    showPuzzleList();
-  } else {
-    puzzleSelector.classList.add("hidden");
-    statsPanel.classList.remove("hidden");
-    renderProgressPanel();
-  }
-}
-
-navTabs.addEventListener("click", (e) => {
-  const btn = (e.target as HTMLElement).closest("[data-tab]") as HTMLElement;
-  if (!btn) return;
-  showTab(btn.dataset.tab as "puzzles" | "stats");
-});
 
 // --- Grid callback helpers (defined once, always reference current gridState) ---
 function onGridCellClick(row: number, col: number): void {
@@ -622,7 +643,7 @@ async function loadPuzzle(id: string): Promise<void> {
       ? "Rezolvat"
       : saved
         ? "În curs"
-        : "Nou";
+        : "Disponibil";
     const extraMeta = [
       `${data.puzzle.grid_size}x${data.puzzle.grid_size}`,
       puzzleStatus,
@@ -678,9 +699,6 @@ async function showPuzzleList(): Promise<void> {
   progressCounter.textContent = "";
   navTabs.classList.remove("hidden");
   btnBack.classList.add("hidden");
-  selectorContinue.classList.add("hidden");
-  selectorChallenge.classList.add("hidden");
-  selectorSummary.innerHTML = "";
   selectorControls.innerHTML = "";
   puzzleList.innerHTML = "<p class=\"loading\">Se încarcă...</p>";
 
@@ -688,13 +706,10 @@ async function showPuzzleList(): Promise<void> {
     if (allPuzzles.length === 0) {
       allPuzzles = await listPuzzles();
     }
-    renderPuzzleSelector();
+    renderCurrentTab();
     requestAnimationFrame(() => window.scrollTo({ top: puzzleListScrollY }));
   } catch (err) {
     console.error("Failed to load puzzle list:", err);
-    selectorContinue.classList.add("hidden");
-    selectorChallenge.classList.add("hidden");
-    selectorSummary.innerHTML = "";
     selectorControls.innerHTML = "";
     puzzleList.innerHTML =
       "<p>Nu s-au putut \u00eenc\u0103rca rebus-urile. Verific\u0103 conexiunea.</p>";
@@ -774,8 +789,7 @@ btnHintWord.addEventListener("click", () => {
 });
 
 btnBack.addEventListener("click", () => {
-  saveCurrentProgress();
-  showTab("puzzles");
+  showTab(activeTab);
 });
 
 btnCloseModal.addEventListener("click", () => {

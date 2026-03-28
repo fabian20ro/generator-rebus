@@ -18,7 +18,7 @@ from generator.assessment.benchmark_policy import (
 
 class BenchmarkPolicyTests(unittest.TestCase):
     def test_working_baseline_is_named_but_not_hardcoded_as_metrics(self):
-        self.assertEqual("baseline_results_20260321", WORKING_BASELINE_DESCRIPTION)
+        self.assertEqual("baseline_results_20260328_v16", WORKING_BASELINE_DESCRIPTION)
 
     def test_working_dataset_counts_match_curated_reset(self):
         self.assertEqual(70, WORKING_DATASET_SIZE)
@@ -43,7 +43,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
                         "commit\tcomposite\tpass_rate\tavg_semantic\tavg_rebus\tstatus\tdescription",
                         "aaa111\t72.0\t0.250\t8.8\t7.9\tkeep\tolder",
                         "bbb222\t72.5\t0.260\t8.9\t8.0\tdiscard\tignored",
-                        "ccc333\t73.3\t0.300\t9.1\t8.1\tkeep\tbaseline_results_20260321",
+                        "ccc333\t73.3\t0.300\t9.1\t8.1\tkeep\tbaseline_results_20260328_v16",
                     ]
                 ),
                 encoding="utf-8",
@@ -57,7 +57,7 @@ class BenchmarkPolicyTests(unittest.TestCase):
                     "avg_semantic": "9.1",
                     "avg_rebus": "8.1",
                     "status": "keep",
-                    "description": "baseline_results_20260321",
+                    "description": "baseline_results_20260328_v16",
                 },
                 load_latest_kept_result(results_path),
             )

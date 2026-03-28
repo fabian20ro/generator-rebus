@@ -48,7 +48,7 @@ export function deriveChallenges(
       id: "resume_progress",
       title: "Reia un rebus în curs",
       description: inProgressCount > 0
-        ? "Ai deja un progres salvat. Revino la el din secțiunea Continuă."
+        ? "Ai deja un progres salvat. Deschide fila ⏳ ca să-l reiei."
         : "Pornește un rebus și lasă-l pregătit pentru o sesiune următoare.",
       progressLabel: inProgressCount > 0 ? `${inProgressCount} gata de reluat` : "0/1",
       done: inProgressCount > 0,

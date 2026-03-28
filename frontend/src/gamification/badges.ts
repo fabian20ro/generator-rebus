@@ -80,6 +80,34 @@ export const BADGE_DEFINITIONS: Badge[] = [
     icon: "\uD83D\uDC51",
     category: "milestone",
   },
+  {
+    id: "solved_100",
+    name: "Centenar",
+    description: "Rezolvă 100 de rebusuri",
+    icon: "\uD83D\uDCAF",
+    category: "milestone",
+  },
+  {
+    id: "solved_200",
+    name: "Bicentenar",
+    description: "Rezolvă 200 de rebusuri",
+    icon: "\uD83C\uDFC6",
+    category: "milestone",
+  },
+  {
+    id: "solved_500",
+    name: "Legendă",
+    description: "Rezolvă 500 de rebusuri",
+    icon: "\uD83C\uDF96\uFE0F",
+    category: "milestone",
+  },
+  {
+    id: "solved_1000",
+    name: "Mileniul Rebusului",
+    description: "Rezolvă 1000 de rebusuri",
+    icon: "\uD83C\uDF1E",
+    category: "milestone",
+  },
 
   // --- Special badges ---
   {
@@ -136,10 +164,15 @@ export function evaluateBadges(data: PlayerData): EarnedBadge[] {
       case "solved_5":
       case "solved_10":
       case "solved_20":
-      case "solved_50": {
+      case "solved_50":
+      case "solved_100":
+      case "solved_200":
+      case "solved_500":
+      case "solved_1000": {
         const MILESTONES: Record<string, number> = {
           solved_1: 1, solved_2: 2, solved_5: 5,
           solved_10: 10, solved_20: 20, solved_50: 50,
+          solved_100: 100, solved_200: 200, solved_500: 500, solved_1000: 1000,
         };
         const target = MILESTONES[badge.id];
         if (target && count >= target) {

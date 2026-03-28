@@ -53,7 +53,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   // List published puzzles
   if (path === "/puzzles") {
-    const supabaseUrl = `${env.SUPABASE_URL}/rest/v1/crossword_puzzles?published=eq.true&select=id,title,theme,description,grid_size,difficulty,created_at,repaired_at&order=repaired_at.desc.nullslast,created_at.desc`;
+    const supabaseUrl = `${env.SUPABASE_URL}/rest/v1/crossword_puzzles?published=eq.true&select=id,title,theme,description,grid_size,difficulty,pass_rate,created_at,repaired_at&order=repaired_at.desc.nullslast,created_at.desc`;
     return proxyToSupabase(supabaseUrl, env);
   }
 
