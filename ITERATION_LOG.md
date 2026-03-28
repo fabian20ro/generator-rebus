@@ -501,6 +501,14 @@
 **Promoted:** no
 
 <!-- new entries above this line, most recent first -->
+### [2026-03-28] — Keep exact-size mobile scroller position and add explicit left/right affordances
+**Context:** after the emoji-tab refactor, user reported the `Toate 7..15` size row was horizontally clipped on mobile with no obvious hint that more options existed, and selecting an off-screen size snapped the control back to the far left on rerender.
+**Happened:** Updated `frontend/src/components/puzzle-selector.ts` so the exact-size filter stores horizontal scroll state across rerenders, restores the previous visible zone, and scrolls the active chip back into view with `nearest` alignment. Added explicit left/right scroller buttons plus overflow-aware enable/disable behavior, and styled the new mobile affordances in `frontend/src/styles/gamification.css` and `frontend/src/styles/responsive.css`.
+**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+**Outcome:** success
+**Insight:** horizontally scrollable mobile filters need both discoverability and position persistence; otherwise state changes feel like navigation jumps even when the selection itself is correct.
+**Promoted:** no
+
 ### [2026-03-28] — Refactor frontend to emoji-first status tabs with exact-size filtering and organic unlock gating
 **Context:** user wanted the frontend discovery flow rebuilt around compact top-level status tabs and less chrome before real puzzles: `🧩` available as default, conditional `⏳` / `✅` / `📊`, always-visible `🏆`, exact-size filter row only in `🧩`, no duplicate “in curs/nou/rezolvat” framing, plus organic per-size reveal based on highest `pass_rate`.
 **Happened:** Added a pure derived-state layer in `frontend/src/gamification/puzzle-status.ts` to centralize meaningful progress detection, puzzle status buckets, conditional tab visibility, solved-count-per-size, and organic `🧩` candidate selection (`3 * (1 + solvedCountForSize)` with `pass_rate` ranking and null-rate fallback by recency). Replaced the old selector chrome in `frontend/src/main.ts` + `frontend/src/components/puzzle-selector.ts` with a dynamic emoji nav, exact-size scroller (`Toate 7..15`), and three lean puzzle list modes (`available`, `in_progress`, `solved`). Split the old mixed progress screen into `frontend/src/components/statistics-panel.ts` and `frontend/src/components/rewards-panel.ts`, moved challenges/badges under `🏆`, and kept metrics/history under `📊`. Extended milestone badges to `100/200/500/1000` solves, updated tutorial/challenge copy to match the new IA, tightened mobile/list styling, and exposed `pass_rate` from the worker `/puzzles` response plus frontend summary typing.

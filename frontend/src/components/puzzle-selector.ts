@@ -3,6 +3,8 @@ import { PUZZLE_SIZE_OPTIONS, type AppTab } from "../gamification/puzzle-status"
 
 export type PuzzleListMode = Extract<AppTab, "available" | "in_progress" | "solved">;
 
+let sizeRowScrollLeft = 0;
+
 function formatDateLabel(value?: string | null): string {
   if (!value) return "";
   const d = new Date(value);
@@ -75,10 +77,30 @@ export function renderAvailableControls(
   const toolbar = document.createElement("div");
   toolbar.className = "selector-toolbar selector-toolbar--sizes";
 
+  const scroller = document.createElement("div");
+  scroller.className = "selector-size-scroller";
+
+  const leftButton = document.createElement("button");
+  leftButton.type = "button";
+  leftButton.className = "selector-size-arrow selector-size-arrow--left";
+  leftButton.textContent = "<";
+  leftButton.setAttribute("aria-label", "Arată dimensiunile din stânga");
+
   const row = document.createElement("div");
   row.className = "selector-size-row";
   row.setAttribute("role", "group");
   row.setAttribute("aria-label", "Filtru dimensiune");
+
+  const rightButton = document.createElement("button");
+  rightButton.type = "button";
+  rightButton.className = "selector-size-arrow selector-size-arrow--right";
+  rightButton.textContent = ">";
+  rightButton.setAttribute("aria-label", "Arată dimensiunile din dreapta");
+
+  const handleSelection = (next: AvailableTabBrowseState["size"]): void => {
+    sizeRowScrollLeft = row.scrollLeft;
+    onSizeChange(next);
+  };
 
   const allButton = document.createElement("button");
   allButton.type = "button";
@@ -89,7 +111,7 @@ export function renderAvailableControls(
   }
   allButton.textContent = "Toate";
   allButton.title = "Toate dimensiunile";
-  allButton.addEventListener("click", () => onSizeChange("all"));
+  allButton.addEventListener("click", () => handleSelection("all"));
   row.appendChild(allButton);
 
   for (const size of PUZZLE_SIZE_OPTIONS) {
@@ -102,12 +124,46 @@ export function renderAvailableControls(
     }
     button.textContent = String(size);
     button.title = `${size}x${size}`;
-    button.addEventListener("click", () => onSizeChange(size));
+    button.addEventListener("click", () => handleSelection(size));
     row.appendChild(button);
   }
 
-  toolbar.appendChild(row);
+  const syncArrows = (): void => {
+    const maxScrollLeft = Math.max(0, row.scrollWidth - row.clientWidth);
+    const canScroll = maxScrollLeft > 4;
+    scroller.classList.toggle("selector-size-scroller--overflow", canScroll);
+    leftButton.classList.toggle("hidden", !canScroll);
+    rightButton.classList.toggle("hidden", !canScroll);
+    leftButton.disabled = row.scrollLeft <= 4;
+    rightButton.disabled = row.scrollLeft >= maxScrollLeft - 4;
+  };
+
+  leftButton.addEventListener("click", () => {
+    row.scrollBy({ left: -160, behavior: "smooth" });
+  });
+
+  rightButton.addEventListener("click", () => {
+    row.scrollBy({ left: 160, behavior: "smooth" });
+  });
+
+  row.addEventListener("scroll", () => {
+    sizeRowScrollLeft = row.scrollLeft;
+    syncArrows();
+  });
+
+  scroller.appendChild(leftButton);
+  scroller.appendChild(row);
+  scroller.appendChild(rightButton);
+  toolbar.appendChild(scroller);
   container.appendChild(toolbar);
+
+  requestAnimationFrame(() => {
+    row.scrollLeft = sizeRowScrollLeft;
+    const active = row.querySelector<HTMLElement>(".size-chip--active");
+    active?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    sizeRowScrollLeft = row.scrollLeft;
+    syncArrows();
+  });
 }
 
 export function renderPuzzleList(

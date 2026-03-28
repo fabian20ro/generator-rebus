@@ -68,6 +68,16 @@
     gap: 0.35rem;
   }
 
+  .selector-size-scroller {
+    gap: 0.25rem;
+  }
+
+  .selector-size-arrow {
+    width: 2rem;
+    height: 2rem;
+    font-size: 0.95rem;
+  }
+
   .stats-summary {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

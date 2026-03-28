@@ -18,6 +18,17 @@
   overflow: hidden;
 }
 
+.selector-size-scroller {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.selector-size-scroller--overflow {
+  position: relative;
+}
+
 .selector-size-row {
   display: flex;
   gap: 0.45rem;
@@ -28,6 +39,25 @@
 
 .selector-size-row::-webkit-scrollbar {
   display: none;
+}
+
+.selector-size-arrow {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid rgba(26, 26, 26, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #475569;
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.selector-size-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .size-chip {
