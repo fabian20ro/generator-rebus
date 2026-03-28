@@ -5,3 +5,5 @@ commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
 25ba423	70.8	0.286	8.9	7.8	discard	manual_v4/v4exp003 | rewrite add positive out-of-family periphrasis line | system/rewrite.md
 25ba423	74.2	0.314	9.0	7.9	discard	manual_v4/v4exp004 | rewrite positive header with sense-first and referent-first rules | system/rewrite.md
 25ba423	69.1	0.271	8.8	7.8	discard	manual_v4/v4exp005 | rewrite positive header with Romanian-register and lexical-distance lines | system/rewrite.md
+5d4341f	72.6	0.300	8.9	7.9	discard	manual_v4/v4exp006 | rewrite add explicit redundancy-cut rule | system/rewrite.md
+5d4341f	72.7	0.300	9.0	7.9	discard	manual_v4/v4exp007 | rewrite prefer 4-9 words when exactness survives | system/rewrite.md
