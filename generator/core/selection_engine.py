@@ -45,6 +45,26 @@ def choose_clue_version(
     a_summary = a.definition
     b_summary = b.definition
     if clue_versions_equivalent(a, b):
+        a_rank = clue_rank(a)
+        b_rank = clue_rank(b)
+        if a_rank > b_rank:
+            return a, SelectionDecision(
+                winner="A",
+                used_tiebreak=False,
+                reason="equivalent_after_normalization",
+                a_summary=a_summary,
+                b_summary=b_summary,
+                winner_summary=a_summary,
+            )
+        if b_rank > a_rank:
+            return b, SelectionDecision(
+                winner="B",
+                used_tiebreak=False,
+                reason="equivalent_after_normalization",
+                a_summary=a_summary,
+                b_summary=b_summary,
+                winner_summary=b_summary,
+            )
         return a, SelectionDecision(
             winner="A",
             used_tiebreak=False,

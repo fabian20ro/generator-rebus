@@ -151,6 +151,8 @@ def default_families(experiment_set: str = DEFAULT_EXPERIMENT_SET) -> dict[str, 
         priority = runner.V3_EXPERIMENT_FAMILY_PRIORITY
     elif experiment_set == "v4":
         priority = runner.V4_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v5":
+        priority = runner.V5_EXPERIMENT_FAMILY_PRIORITY
     else:
         priority = runner.EXPERIMENT_FAMILY_PRIORITY
     families = {name: default_family_state(name) for name in priority}
@@ -800,6 +802,8 @@ def select_next_experiment(
         family_priority = runner.V3_EXPERIMENT_FAMILY_PRIORITY
     elif experiment_set == "v4":
         family_priority = runner.V4_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v5":
+        family_priority = runner.V5_EXPERIMENT_FAMILY_PRIORITY
     else:
         family_priority = runner.EXPERIMENT_FAMILY_PRIORITY
     for family in family_priority:

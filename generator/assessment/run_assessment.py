@@ -110,6 +110,13 @@ class AssessmentResult:
         return sum(_best_rebus(c) for c in rated) / len(rated) if rated else 0.0
 
     @property
+    def tier_balanced_pass_rate(self) -> float:
+        if not self.tier_results:
+            return 0.0
+        included = [tr.pass_rate for tr in self.tier_results.values() if tr.total > 0]
+        return sum(included) / len(included) if included else 0.0
+
+    @property
     def composite(self) -> float:
         return self.pass_rate * 100 + self.avg_semantic * 3 + self.avg_rebus * 2
 
@@ -122,6 +129,7 @@ class AssessmentResult:
         return {
             "composite": round(self.composite, 1),
             "pass_rate": round(self.pass_rate, 3),
+            "tier_balanced_pass_rate": round(self.tier_balanced_pass_rate, 3),
             "avg_semantic": round(self.avg_semantic, 1),
             "avg_rebus": round(self.avg_rebus, 1),
             "tiers": {
@@ -436,6 +444,7 @@ def _print_report(result: AssessmentResult) -> None:
     print("=" * 60)
     print(f"Composite score: {result.composite:.1f}")
     print(f"Pass rate:       {result.pass_rate:.1%}")
+    print(f"Tier-balanced:   {result.tier_balanced_pass_rate:.1%}")
     print(f"Avg semantic:    {result.avg_semantic:.1f}/10")
     print(f"Avg rebus:       {result.avg_rebus:.1f}/10")
 

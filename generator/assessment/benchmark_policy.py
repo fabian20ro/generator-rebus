@@ -25,6 +25,10 @@ V4_CAMPAIGN_STOP_STALE_FAMILIES = 3
 V4_FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 3
 V4_FAMILY_STOP_TOTAL_NON_KEEPS = 3
 V4_FAMILY_STOP_REPEAT_PRIMARY = 3
+V5_CAMPAIGN_STOP_STALE_FAMILIES = 3
+V5_FAMILY_STOP_CONSECUTIVE_NON_KEEPS = 3
+V5_FAMILY_STOP_TOTAL_NON_KEEPS = 3
+V5_FAMILY_STOP_REPEAT_PRIMARY = 3
 WORKING_DATASET_TIER_COUNTS = {
     "low": 30,
     "medium": 25,
@@ -96,6 +100,11 @@ V4_EXPERIMENT_FAMILY_PRIORITY = (
     "rewrite_rule_readditions",
     "rewrite_header_variants",
     "rewrite_compactness_bias",
+)
+V5_EXPERIMENT_FAMILY_PRIORITY = (
+    "header_signal_isolation",
+    "header_signal_blends",
+    "precision_support",
 )
 
 

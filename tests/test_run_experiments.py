@@ -94,6 +94,15 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertEqual("rewrite_compactness_bias", mod.V4_EXPERIMENTS[-1].family)
         self.assertEqual("system/rewrite.md", mod.V4_EXPERIMENTS[0].file)
 
+    def test_v5_campaign_has_8_unique_experiments(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(8, len(mod.V5_EXPERIMENTS))
+        self.assertEqual(8, len({exp.name for exp in mod.V5_EXPERIMENTS}))
+        self.assertEqual("header_signal_isolation", mod.V5_EXPERIMENTS[0].family)
+        self.assertEqual("precision_support", mod.V5_EXPERIMENTS[-1].family)
+        self.assertEqual("system/rewrite.md", mod.V5_EXPERIMENTS[0].file)
+
     def test_cleanup_round_matches_requested_file_order(self):
         mod = _load_run_experiments_module()
         first_round_files = [exp.file for exp in mod.EXPERIMENTS[:12]]
@@ -126,7 +135,7 @@ class RunExperimentsTests(unittest.TestCase):
     def test_active_manifest_edit_anchors_exist_in_current_prompts(self):
         mod = _load_run_experiments_module()
 
-        for experiments in (mod.V2_EXPERIMENTS, mod.V3_EXPERIMENTS, mod.V4_EXPERIMENTS):
+        for experiments in (mod.V2_EXPERIMENTS, mod.V3_EXPERIMENTS, mod.V4_EXPERIMENTS, mod.V5_EXPERIMENTS):
             for exp in experiments:
                 for edit in exp.edits:
                     prompt_path = mod.PROMPTS_DIR / edit.file

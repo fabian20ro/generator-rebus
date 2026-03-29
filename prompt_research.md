@@ -15,9 +15,9 @@ Statuses:
 - `discard`: bad idea in current form
 
 Current experiment families:
-1. `rewrite_rule_readditions`
-2. `rewrite_header_variants`
-3. `rewrite_compactness_bias`
+1. `header_signal_isolation`
+2. `header_signal_blends`
+3. `precision_support`
 
 Family stop rules:
 - stop after 3 consecutive non-keeps
@@ -31,6 +31,7 @@ Selection rules:
 - no verify/rate/temperature changes in this batch
 - no multi-file bundles before a clear `keep`
 - avoid negative bans that repeat the unwanted token; prefer positive Romanian-sense / referent-first phrasing
+- start from the confirmed `v4exp001` prompt as incumbent
 
 Interpretation rules:
 - exact-answer recovery beats creativity
@@ -39,14 +40,14 @@ Interpretation rules:
 
 Manual runbook:
 - baseline only:
-  - `.venv/bin/python -u -m generator.assessment.run_assessment --description "baseline_results_20260328_v16" --json-out logs/baseline_results_20260328_v16.json`
-- one-off `v4` probe; fresh ad-hoc state/log dir:
-  - `.venv/bin/python scripts/run_experiments.py --experiment-set v4 --start-from 1 --end-at 1 --log-path build/manual_v4/experiment_log.json --assessment-logs-dir build/manual_v4/assessment_logs --description-prefix manual_v4/ --stream-assessment-output`
-- `v4` probes:
-  - `1-3` = positive guardrails for Romanian register, referent-first wording, lexical distance
-  - `4-5` = positive header variants
-  - `6-8` = compactness bias variants
+  - `.venv/bin/python -u -m generator.assessment.run_assessment --description "baseline_results_20260329_v4exp001" --json-out logs/baseline_results_20260329_v4exp001.json`
+- one-off `v5` probe; fresh ad-hoc state/log dir:
+  - `.venv/bin/python scripts/run_experiments.py --experiment-set v5 --start-from 1 --end-at 1 --log-path build/manual_v5/experiment_log.json --assessment-logs-dir build/manual_v5/assessment_logs --description-prefix manual_v5/ --stream-assessment-output`
+- `v5` probes:
+  - `1-3` = isolate header/context/periphrasis signal from `exp004`
+  - `4-5` = blend best `exp004` framing pieces onto `exp001`
+  - `6-8` = add form-sensitive and rare-sense precision support
 - monitor:
-  - `tail -f build/manual_v4/assessment_logs/v4exp001.log`
+  - `tail -f build/manual_v5/assessment_logs/v5exp001.log`
   - `tail -n 5 generator/assessment/results.tsv`
-  - `python3 -m json.tool build/manual_v4/assessment_logs/v4exp001.json | less`
+  - `python3 -m json.tool build/manual_v5/assessment_logs/v5exp001.json | less`

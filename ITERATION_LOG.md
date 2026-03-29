@@ -484,6 +484,22 @@
 **Insight:** title validation rules that affect acceptance thresholds and persistence need to live before scoring, but fallback titles should remain a last-resort output only; otherwise maintenance and initial publish paths diverge and score metadata becomes meaningless.
 **Promoted:** yes — see LESSONS_LEARNED entry on separating title screening from fallback selection.
 
+### [2026-03-29] — Confirm `v4exp001`, prepare `v5`, rotate ledger for fresh incumbent baseline
+**Context:** the three-run confirmation series for `v4exp001` finished and showed stable gains over the previous baseline, so the next move was to lock in a clean baseline workflow and start a new batch that isolates the useful framing signal seen in near-miss `v4exp004`.
+**Happened:** Read the confirmation rows (`77.0`, `76.9`, `73.8`; average composite `75.9`, average pass `0.333`) and kept `v4exp001` as the working prompt. Added a new `v5` experiment set in `scripts/run_experiments.py`, `generator/assessment/benchmark_policy.py`, and `scripts/prompt_autoresearch.py` with eight rewrite-only probes: header-signal isolation, header blends, and precision-support lines. Updated `prompt_research.md` for the new baseline/runbook, archived the completed ledger to `generator/assessment/results8.tsv`, and reset `generator/assessment/results.tsv` to header-only so the next official incumbent baseline can be recorded cleanly.
+**Verification:** `.venv/bin/python scripts/run_experiments.py --experiment-set v5 --dry-run`; `.venv/bin/python -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_benchmark_policy.py tests/test_run_assessment.py tests/test_selection_engine.py` (`57 passed`).
+**Outcome:** success
+**Insight:** confirmation-series rows should not be left as the live incumbent ledger for future experiments; rotate them into an archive and record one dedicated baseline row for the adopted prompt before starting the next batch.
+**Promoted:** no
+
+### [2026-03-28] — Fix equivalent-definition selection bias and add tier-balanced pass metric
+**Context:** after `v4`, review suggested two follow-ups before changing experiment policy: avoid undercounting passes when pass1/pass2 produce the same normalized definition, and expose a secondary pass metric that does not let the larger low/medium tiers dominate interpretation.
+**Happened:** Updated `generator/core/selection_engine.py` so `choose_clue_version()` no longer auto-picks variant A when two definitions normalize to the same text; it now prefers the stronger assessed version, including verified-over-unverified. Added `tier_balanced_pass_rate` to `generator/assessment/run_assessment.py` output and console reporting, defined as the mean of present per-tier pass rates, while keeping canonical `pass_rate` and composite unchanged.
+**Verification:** `.venv/bin/python -m pytest tests/test_selection_engine.py tests/test_run_assessment.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py` (`49 passed`).
+**Outcome:** success
+**Insight:** assessment can silently undercount real wins if equivalent clue texts default to the earlier pass instead of the better-verified pass; normalize-first selection still needs assessment-aware tie resolution.
+**Promoted:** no
+
 ### [2026-03-28] — Reframe `v4` rewrite experiments away from negative banned-token phrasing
 **Context:** user flagged a plausible local-model failure mode: negated wording like “nu folosești engleză” can still bias weaker models toward the forbidden token just by mentioning it.
 **Happened:** Rewrote the `v4` manifest in `scripts/run_experiments.py` so the exploratory rewrite variants now use positive Romanian-register, referent-first, and lexical-distance phrasing instead of explicit negative bans mentioning the unwanted token. Updated `prompt_research.md` to record the new hypothesis and `v4` probe descriptions.

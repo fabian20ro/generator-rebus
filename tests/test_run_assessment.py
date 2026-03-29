@@ -90,6 +90,21 @@ class RunAssessmentTests(unittest.TestCase):
         )
         self.assertEqual(1, len(result.candidates))
 
+    def test_assessment_result_exposes_tier_balanced_pass_rate(self):
+        result = mod.AssessmentResult(
+            tier_results={
+                "low": mod.TierResult(tier="low", total=30, passed=6),
+                "medium": mod.TierResult(tier="medium", total=25, passed=5),
+                "high": mod.TierResult(tier="high", total=15, passed=12),
+            }
+        )
+
+        self.assertAlmostEqual((0.2 + 0.2 + 0.8) / 3, result.tier_balanced_pass_rate)
+        self.assertEqual(
+            round((0.2 + 0.2 + 0.8) / 3, 3),
+            result.to_dict()["tier_balanced_pass_rate"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

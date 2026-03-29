@@ -49,6 +49,11 @@ from generator.assessment.benchmark_policy import (
     V4_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
     V4_FAMILY_STOP_REPEAT_PRIMARY,
     V4_FAMILY_STOP_TOTAL_NON_KEEPS,
+    V5_CAMPAIGN_STOP_STALE_FAMILIES,
+    V5_EXPERIMENT_FAMILY_PRIORITY,
+    V5_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
+    V5_FAMILY_STOP_REPEAT_PRIMARY,
+    V5_FAMILY_STOP_TOTAL_NON_KEEPS,
     V2_EXPERIMENT_FAMILY_PRIORITY,
     V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
     V2_FAMILY_STOP_REPEAT_PRIMARY,
@@ -92,11 +97,18 @@ V4_EXPERIMENT_PRESETS = {
     "rewrite-header-variants": (4, 5),
     "rewrite-compactness-bias": (6, 8),
 }
+V5_EXPERIMENT_PRESETS = {
+    "full": (1, 8),
+    "header-signal-isolation": (1, 3),
+    "header-signal-blends": (4, 5),
+    "precision-support": (6, 8),
+}
 EXPERIMENT_PRESETS_BY_SET = {
     "v1": EXPERIMENT_PRESETS,
     "v2": V2_EXPERIMENT_PRESETS,
     "v3": V3_EXPERIMENT_PRESETS,
     "v4": V4_EXPERIMENT_PRESETS,
+    "v5": V5_EXPERIMENT_PRESETS,
 }
 TARGET_DIRECTION_BLOCKS = {
     "verify-examples": "verify",
@@ -223,6 +235,8 @@ def _family_priority(family: str, experiment_set: str = "v1") -> int:
         priority_order = V3_EXPERIMENT_FAMILY_PRIORITY
     elif experiment_set == "v4":
         priority_order = V4_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v5":
+        priority_order = V5_EXPERIMENT_FAMILY_PRIORITY
     else:
         priority_order = EXPERIMENT_FAMILY_PRIORITY
     try:
@@ -1348,11 +1362,103 @@ V4_EXPERIMENTS = [
 _validate_experiment_list(V4_EXPERIMENTS)
 assert len(V4_EXPERIMENTS) == 8, len(V4_EXPERIMENTS)
 
+V5_EXPERIMENTS = [
+    Experiment(
+        "v5exp001",
+        "rewrite replace compact ban header with sense-first header only",
+        [_edit(
+            SYS_REWRITE,
+            "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.",
+            "IMPORTANT: Livrezi un indiciu românesc natural, orientat strict spre sensul corect.",
+        )],
+        family="header_signal_isolation",
+        priority=_family_priority("header_signal_isolation", "v5"),
+        tags=("header_signal_isolation",),
+    ),
+    Experiment(
+        "v5exp002",
+        "rewrite add soft context-distinctive line",
+        [_edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Descrii sensul prin rol, efect, loc sau context distinctiv.")],
+        family="header_signal_isolation",
+        priority=_family_priority("header_signal_isolation", "v5"),
+        tags=("header_signal_isolation",),
+    ),
+    Experiment(
+        "v5exp003",
+        "rewrite add short out-of-family periphrasis line",
+        [_edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Alegi o perifrază scurtă din afara familiei lexicale a termenului.")],
+        family="header_signal_isolation",
+        priority=_family_priority("header_signal_isolation", "v5"),
+        tags=("header_signal_isolation",),
+    ),
+    Experiment(
+        "v5exp004",
+        "rewrite blend sense-first header with soft context line",
+        [
+            _edit(
+                SYS_REWRITE,
+                "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.",
+                "IMPORTANT: Livrezi un indiciu românesc natural, orientat strict spre sensul corect.",
+            ),
+            _edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Descrii sensul prin rol, efect, loc sau context distinctiv."),
+        ],
+        family="header_signal_blends",
+        priority=_family_priority("header_signal_blends", "v5"),
+        tags=("header_signal_blends",),
+    ),
+    Experiment(
+        "v5exp005",
+        "rewrite blend sense-first header with short periphrasis line",
+        [
+            _edit(
+                SYS_REWRITE,
+                "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.",
+                "IMPORTANT: Livrezi un indiciu românesc natural, orientat strict spre sensul corect.",
+            ),
+            _edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Alegi o perifrază scurtă din afara familiei lexicale a termenului."),
+        ],
+        family="header_signal_blends",
+        priority=_family_priority("header_signal_blends", "v5"),
+        tags=("header_signal_blends",),
+    ),
+    Experiment(
+        "v5exp006",
+        "rewrite add explicit flexion-form precision line",
+        [_edit_after(SYS_REWRITE, "- Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.", "- Pentru forme flexionare, fixezi persoana, numărul, timpul sau funcția cerută.")],
+        family="precision_support",
+        priority=_family_priority("precision_support", "v5"),
+        tags=("precision_support",),
+    ),
+    Experiment(
+        "v5exp007",
+        "rewrite add rare-or-technical specificity line",
+        [_edit_after(SYS_REWRITE, "- Fă definiția mai precisă decât cea veche.", "- Când sensul bun este rar sau tehnic, păstrezi detaliul distinctiv și nu-l generalizezi.")],
+        family="precision_support",
+        priority=_family_priority("precision_support", "v5"),
+        tags=("precision_support",),
+    ),
+    Experiment(
+        "v5exp008",
+        "rewrite combine flexion precision with rare-sense specificity",
+        [
+            _edit_after(SYS_REWRITE, "- Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.", "- Pentru forme flexionare, fixezi persoana, numărul, timpul sau funcția cerută."),
+            _edit_after(SYS_REWRITE, "- Fă definiția mai precisă decât cea veche.", "- Când sensul bun este rar sau tehnic, păstrezi detaliul distinctiv și nu-l generalizezi."),
+        ],
+        family="precision_support",
+        priority=_family_priority("precision_support", "v5"),
+        tags=("precision_support",),
+    ),
+]
+
+_validate_experiment_list(V5_EXPERIMENTS)
+assert len(V5_EXPERIMENTS) == 8, len(V5_EXPERIMENTS)
+
 EXPERIMENT_SETS = {
     "v1": V1_EXPERIMENTS,
     "v2": V2_EXPERIMENTS,
     "v3": V3_EXPERIMENTS,
     "v4": V4_EXPERIMENTS,
+    "v5": V5_EXPERIMENTS,
 }
 EXPERIMENTS = V1_EXPERIMENTS
 
@@ -1765,6 +1871,8 @@ def family_stop_consecutive_non_keeps(experiment_set: str) -> int:
         return V3_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
     if experiment_set == "v4":
         return V4_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
+    if experiment_set == "v5":
+        return V5_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
     return FAMILY_STOP_CONSECUTIVE_NON_KEEPS
 
 
@@ -1775,6 +1883,8 @@ def family_stop_total_non_keeps(experiment_set: str) -> int:
         return V3_FAMILY_STOP_TOTAL_NON_KEEPS
     if experiment_set == "v4":
         return V4_FAMILY_STOP_TOTAL_NON_KEEPS
+    if experiment_set == "v5":
+        return V5_FAMILY_STOP_TOTAL_NON_KEEPS
     return FAMILY_STOP_TOTAL_NON_KEEPS
 
 
@@ -1785,6 +1895,8 @@ def campaign_stop_stale_families(experiment_set: str) -> int:
         return V3_CAMPAIGN_STOP_STALE_FAMILIES
     if experiment_set == "v4":
         return V4_CAMPAIGN_STOP_STALE_FAMILIES
+    if experiment_set == "v5":
+        return V5_CAMPAIGN_STOP_STALE_FAMILIES
     return CAMPAIGN_STOP_STALE_FAMILIES
 
 
@@ -1795,6 +1907,8 @@ def family_stop_repeat_primary(experiment_set: str) -> int:
         return V3_FAMILY_STOP_REPEAT_PRIMARY
     if experiment_set == "v4":
         return V4_FAMILY_STOP_REPEAT_PRIMARY
+    if experiment_set == "v5":
+        return V5_FAMILY_STOP_REPEAT_PRIMARY
     return V2_FAMILY_STOP_REPEAT_PRIMARY
 
 

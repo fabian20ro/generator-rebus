@@ -48,6 +48,16 @@ class SelectionEngineTests(unittest.TestCase):
 
         self.assertGreater(verified_rank, unverified_rank)
 
+    def test_equivalent_normalized_definitions_prefer_verified_version(self):
+        first = _version("Definiție exactă", verified=False, semantic=10, rebus=10)
+        second = _version("  definiție exactă ", verified=True, semantic=8, rebus=7)
+
+        chosen, decision = choose_clue_version(first, second)
+
+        self.assertIs(chosen, second)
+        self.assertEqual("equivalent_after_normalization", decision.reason)
+        self.assertEqual("B", decision.winner)
+
 
 if __name__ == "__main__":
     unittest.main()
