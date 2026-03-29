@@ -567,6 +567,14 @@
 **Insight:** once LM Studio starts honoring reasoning params, old completion budgets may become invalid immediately because reasoning tokens consume the same completion budget; phase-specific retuning is mandatory.
 **Promoted:** yes — see LESSONS_LEARNED entry on LM Studio reasoning and completion budgets.
 
+### [2026-03-30] — Show full solution when reopening a solved puzzle in the UI
+**Context:** user reported that opening a puzzle from the solved tab showed an empty grid instead of the finished answer.
+**Happened:** Traced the bug to `frontend/src/main.ts`: solved puzzles skip `loadProgress()`, but the fetched `/solution` payload was only stored in `gridState.solution` for hint/check logic while the renderer displays `gridState.cells`. Added a solved-view path that hydrates `cells` from `solution`, marks all letter cells as revealed, clears pencil marks, flips a new `isSolvedView` flag on `GridState`, disables toolbar actions, and makes grid inputs `readOnly`. Added small disabled/readonly styling in `frontend/src/styles/grid.css`.
+**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+**Outcome:** success
+**Insight:** if UI rendering uses editable cell state separate from canonical solution state, solved-history reopen flows must explicitly hydrate the visible cells; attaching the solution only for hint logic is not enough.
+**Promoted:** no
+
 <!-- new entries above this line, most recent first -->
 ### [2026-03-28] — Keep exact-size mobile scroller position and add explicit left/right affordances
 **Context:** after the emoji-tab refactor, user reported the `Toate 7..15` size row was horizontally clipped on mobile with no obvious hint that more options existed, and selecting an off-screen size snapped the control back to the far left on rerender.

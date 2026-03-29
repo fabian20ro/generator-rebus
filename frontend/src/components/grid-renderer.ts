@@ -15,6 +15,7 @@ export interface GridState {
   revealed: boolean[][]; // true = revealed by hint
   pencilCells: boolean[][]; // true = entered in pencil mode
   solution: (string | null)[][] | null;
+  isSolvedView: boolean;
   clues: Clue[];
   activeRow: number;
   activeCol: number;
@@ -50,6 +51,7 @@ export function createGridState(
     revealed,
     pencilCells,
     solution: null,
+    isSolvedView: false,
     clues,
     activeRow: -1,
     activeCol: -1,
@@ -201,6 +203,7 @@ export function createGrid(
       input.autocomplete = "off";
       input.autocapitalize = "characters";
       input.setAttribute("aria-label", `Rând ${r + 1}, Coloană ${c + 1}`);
+      input.readOnly = state.isSolvedView;
 
       cell.appendChild(input);
       container.appendChild(cell);
@@ -258,6 +261,8 @@ export function updateGrid(
       } else {
         input.removeAttribute("aria-current");
       }
+
+      input.readOnly = state.isSolvedView;
 
       // Update input value only when it differs (avoids cursor jump)
       const displayVal = cellValue && cellValue !== "!" && cellValue !== "#" ? cellValue : "";

@@ -118,6 +118,29 @@ let availableBrowseState: AvailableTabBrowseState = {
   size: "all",
 };
 
+function isSolvedGridView(): boolean {
+  return !!gridState?.isSolvedView;
+}
+
+function setPuzzleInteractionDisabled(disabled: boolean): void {
+  btnCheck.toggleAttribute("disabled", disabled);
+  btnHintLetter.toggleAttribute("disabled", disabled);
+  btnHintWord.toggleAttribute("disabled", disabled);
+  btnPencil.toggleAttribute("disabled", disabled);
+}
+
+function hydrateSolvedGridFromSolution(state: GridState): boolean {
+  if (!state.solution) return false;
+
+  state.cells = state.solution.map((row, r) =>
+    row.map((cell, c) => (state.template[r][c] ? cell : "#"))
+  );
+  state.revealed = state.template.map((row) => row.map((isLetter) => isLetter));
+  state.pencilCells = state.template.map((row) => row.map(() => false));
+  state.isSolvedView = true;
+  return true;
+}
+
 function formatDateLabel(value?: string | null): string {
   if (!value) return "";
   const d = new Date(value);
@@ -350,6 +373,7 @@ const debouncedSaveProgress = debounce(() => saveCurrentProgress(), 500);
 
 function saveCurrentProgress(): void {
   if (!currentPuzzleId || !gridState) return;
+  if (gridState.isSolvedView) return;
   if (isPuzzleAlreadySolved(currentPuzzleId)) return;
   const elapsed = Math.round((Date.now() - puzzleStartTime) / 1000);
   const cleanCells = gridState.cells.map((row) =>
@@ -394,12 +418,14 @@ function renderPencilButton(): void {
 
 // --- Grid callback helpers (defined once, always reference current gridState) ---
 function onGridCellClick(row: number, col: number): void {
+  if (isSolvedGridView()) return;
   handleCellClick(gridState!, row, col);
   refresh();
   focusCell(gridContainer, row, col);
 }
 
 function onGridCellInput(row: number, col: number, value: string): void {
+  if (isSolvedGridView()) return;
   cellHistory.push(deepCopyCells(gridState!.cells));
   handleCellInput(gridState!, row, col, value);
   if (value) {
@@ -414,6 +440,7 @@ function onGridCellInput(row: number, col: number, value: string): void {
 }
 
 function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
+  if (isSolvedGridView()) return;
   // Undo/Redo shortcuts
   if ((e.ctrlKey || e.metaKey) && e.key === "z") {
     e.preventDefault();
@@ -591,6 +618,7 @@ function handleCompletion(): void {
 async function loadPuzzle(id: string): Promise<void> {
   try {
     puzzleListScrollY = window.scrollY;
+    const alreadySolved = isPuzzleAlreadySolved(id);
 
     // Fetch puzzle and solution in parallel
     const [puzzleResult, solutionResult] = await Promise.allSettled([
@@ -619,13 +647,21 @@ async function loadPuzzle(id: string): Promise<void> {
       gridState.solution = JSON.parse(solutionResult.value.solution);
     }
 
+    setPuzzleInteractionDisabled(false);
+
     // Restore saved progress if available
-    const savedRaw = isPuzzleAlreadySolved(id) ? null : loadProgress(id);
+    const savedRaw = alreadySolved ? null : loadProgress(id);
     const saved = savedRaw && hasFilledCells(savedRaw) ? savedRaw : null;
     if (savedRaw && !saved) {
       clearProgress(id);
     }
-    if (saved && saved.cells.length === gridState.size &&
+    if (alreadySolved) {
+      if (hydrateSolvedGridFromSolution(gridState)) {
+        pencilMode = false;
+        renderPencilButton();
+        setPuzzleInteractionDisabled(true);
+      }
+    } else if (saved && saved.cells.length === gridState.size &&
         saved.cells.every((row) => row.length === gridState!.size)) {
       gridState.cells = saved.cells;
       if (saved.revealed && saved.revealed.length === gridState.size) {
@@ -639,7 +675,7 @@ async function loadPuzzle(id: string): Promise<void> {
       puzzleStartTime = Date.now() - saved.elapsedSeconds * 1000;
     }
 
-    const puzzleStatus = isPuzzleAlreadySolved(id)
+    const puzzleStatus = alreadySolved
       ? "Rezolvat"
       : saved
         ? "În curs"
@@ -719,6 +755,7 @@ async function showPuzzleList(): Promise<void> {
 // --- Button handlers ---
 btnCheck.addEventListener("click", () => {
   if (!gridState) return;
+  if (gridState.isSolvedView) return;
   const result = checkPuzzle(gridState);
   if (!result.success) {
     if (result.reason === "not_enough_points") {
@@ -752,6 +789,7 @@ btnCheck.addEventListener("click", () => {
 
 btnHintLetter.addEventListener("click", () => {
   if (!gridState) return;
+  if (gridState.isSolvedView) return;
   const result = revealLetter(gridState, currentDifficulty);
   if (result.success) {
     hintsUsedCount++;
@@ -771,6 +809,7 @@ btnHintLetter.addEventListener("click", () => {
 
 btnHintWord.addEventListener("click", () => {
   if (!gridState) return;
+  if (gridState.isSolvedView) return;
   const result = revealWord(gridState, currentDifficulty);
   if (result.success) {
     hintsUsedCount++;
@@ -797,6 +836,7 @@ btnCloseModal.addEventListener("click", () => {
 });
 
 btnPencil.addEventListener("click", async () => {
+  if (isSolvedGridView()) return;
   if (!pencilMode) {
     const shouldEnable = await showPencilHelpIfNeeded();
     if (!shouldEnable) {
