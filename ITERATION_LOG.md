@@ -484,6 +484,14 @@
 **Insight:** title validation rules that affect acceptance thresholds and persistence need to live before scoring, but fallback titles should remain a last-resort output only; otherwise maintenance and initial publish paths diverge and score metadata becomes meaningless.
 **Promoted:** yes — see LESSONS_LEARNED entry on separating title screening from fallback selection.
 
+### [2026-03-29] — Point working policy at `baseline_results_20260329_v4exp001`
+**Context:** user confirmed the fresh baseline run on the adopted `v4exp001` prompt had been recorded in `generator/assessment/results.tsv`, so the policy label needed to stop pointing at the older March 28 baseline.
+**Happened:** Updated `WORKING_BASELINE_DESCRIPTION` in `generator/assessment/benchmark_policy.py` to `baseline_results_20260329_v4exp001` and aligned `tests/test_benchmark_policy.py` string expectations to the new incumbent label.
+**Verification:** `.venv/bin/python -m pytest tests/test_benchmark_policy.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py` (`52 passed`).
+**Outcome:** success
+**Insight:** once a fresh incumbent baseline row is written after ledger rotation, update the working baseline label immediately; otherwise autoresearch will compare future experiments against the wrong named control even if `results.tsv` is current.
+**Promoted:** no
+
 ### [2026-03-29] — Apply phase-specific reasoning profiles for GPT-OSS
 **Context:** after LM Studio restart, `/api/v1/models` finally exposed `capabilities.reasoning` for `openai/gpt-oss-20b`, and the user wanted reusable request-time reasoning configuration with stronger effort on generation/rewrite/rating.
 **Happened:** Updated the centralized chat helper path so `gpt-oss` now uses `reasoning_effort="medium"` for definition generate/rewrite/rate calls, `reasoning_effort="low"` for verify/tiebreak/title calls, and no reasoning parameters for `eurolllm`. Also normalized the long-output cap from `2048` to `2000` tokens in definition generation and title generation. Kept `reasoning_tokens` unset because live LM Studio chat-completions behavior did not respect it predictably and unsupported models (`eurolllm`) still 500 when receiving reasoning params.
