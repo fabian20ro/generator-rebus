@@ -22,6 +22,7 @@ from .core.puzzle_metrics import (
 )
 from .core.rewrite_engine import run_rewrite_loop
 from .core.runtime_logging import install_process_logging, path_timestamp
+from .core.supabase_ops import execute_logged_update
 from .phases.theme import TitleGenerationResult, generate_creative_title_result
 from .redefine import build_working_puzzle
 
@@ -147,7 +148,12 @@ def _generate_title(
 def _persist_puzzle_metadata(supabase, puzzle_id: str, payload: dict[str, object], *, dry_run: bool) -> None:
     if dry_run:
         return
-    supabase.table("crossword_puzzles").update(payload).eq("id", puzzle_id).execute()
+    execute_logged_update(
+        supabase,
+        "crossword_puzzles",
+        payload,
+        eq_filters={"id": puzzle_id},
+    )
 
 
 def _persist_clues(supabase, puzzle_id: str, clue_rows: list[dict], puzzle, *, dry_run: bool) -> None:
@@ -164,13 +170,16 @@ def _persist_clues(supabase, puzzle_id: str, clue_rows: list[dict], puzzle, *, d
             clue_id = key_to_id.get((direction, clue.start_row, clue.start_col))
             if not clue_id:
                 continue
-            supabase.table("crossword_clues").update(
+            execute_logged_update(
+                supabase,
+                "crossword_clues",
                 {
                     "definition": clue.definition,
                     "verify_note": clue.verify_note or "",
                     "verified": bool(clue.verified),
-                }
-            ).eq("id", clue_id).eq("puzzle_id", puzzle_id).execute()
+                },
+                eq_filters={"id": clue_id, "puzzle_id": puzzle_id},
+            )
 
 
 def repair_puzzle(

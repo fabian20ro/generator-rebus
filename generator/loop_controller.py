@@ -13,7 +13,8 @@ from pathlib import Path
 
 from .config import VERIFY_CANDIDATE_COUNT
 from .core.runtime_logging import human_timestamp, install_process_logging, path_timestamp
-from .core.size_tuning import OVERNIGHT_LOOP_SIZES
+from .core.size_tuning import OVERNIGHT_LOOP_SIZES, SUPPORTED_GRID_SIZES
+from .core.supabase_ops import create_service_role_client
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,48 @@ class LoopRunResult:
     seed: int
     exit_code: int
     latest_run_dir: str
+
+
+def fetch_puzzle_size_counts(*, client=None, batch_size: int = 1000) -> dict[int, int]:
+    client = client or create_service_role_client()
+    counts: dict[int, int] = {}
+    offset = 0
+    while True:
+        response = (
+            client.table("crossword_puzzles")
+            .select("grid_size")
+            .range(offset, offset + batch_size - 1)
+            .execute()
+        )
+        rows = response.data or []
+        if not rows:
+            break
+        for row in rows:
+            size = int(row.get("grid_size") or 0)
+            if size in SUPPORTED_GRID_SIZES:
+                counts[size] = counts.get(size, 0) + 1
+        if len(rows) < batch_size:
+            break
+        offset += batch_size
+    return counts
+
+
+def choose_balanced_size(
+    counts: dict[int, int],
+    *,
+    supported_sizes: tuple[int, ...] = SUPPORTED_GRID_SIZES,
+) -> tuple[int, dict[int, int]]:
+    inventory = {size: int(counts.get(size, 0) or 0) for size in supported_sizes}
+    selected_size = min(inventory.items(), key=lambda item: (item[1], item[0]))[0]
+    return selected_size, inventory
+
+
+def select_auto_size(*, client=None) -> int:
+    counts = fetch_puzzle_size_counts(client=client)
+    selected_size, inventory = choose_balanced_size(counts)
+    summary = " ".join(f"{size}:{inventory[size]}" for size in sorted(inventory))
+    print(f"Auto-selected size={selected_size} inventory={summary}")
+    return selected_size
 
 
 def _latest_batch_dir(output_root: Path) -> str:
@@ -130,9 +173,12 @@ def run_cycle(
     env: dict[str, str] | None = None,
     multi_model: bool = False,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    auto_size: bool = False,
+    supabase_client=None,
 ) -> list[LoopRunResult]:
     results: list[LoopRunResult] = []
-    for size in sizes:
+    sizes_to_run = [select_auto_size(client=supabase_client)] if auto_size else list(sizes)
+    for size in sizes_to_run:
         results.append(
             run_size(
                 size,
@@ -177,6 +223,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=VERIFY_CANDIDATE_COUNT,
         help=f"How many verifier candidates to request per clue (default: {VERIFY_CANDIDATE_COUNT})",
     )
+    parser.add_argument(
+        "--auto-size",
+        action="store_true",
+        help="Choose the next puzzle size from current crossword_puzzles inventory",
+    )
     return parser
 
 
@@ -197,7 +248,9 @@ def main() -> None:
 
         with open(log_path, "a", encoding="utf-8") as log_file:
             log_file.write(
-                f"[{human_timestamp()}] loop started sizes={' '.join(map(str, args.sizes))}\n"
+                f"[{human_timestamp()}] loop started "
+                f"mode={'auto-size' if args.auto_size else 'fixed'} "
+                f"sizes={' '.join(map(str, args.sizes))}\n"
             )
 
         while True:
@@ -212,6 +265,7 @@ def main() -> None:
                 env=os.environ.copy(),
                 multi_model=args.multi_model,
                 verify_candidates=max(1, args.verify_candidates),
+                auto_size=args.auto_size,
             )
             time.sleep(args.sleep_seconds)
     finally:

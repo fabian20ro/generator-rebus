@@ -31,6 +31,7 @@ from .core.pipeline_state import (
 )
 from .core.rewrite_engine import run_rewrite_loop
 from .core.runtime_logging import install_process_logging, path_timestamp
+from .core.supabase_ops import execute_logged_update
 
 REDEFINE_ROUNDS = 7
 _CLUE_SELECT_FIELD_SETS = (
@@ -170,7 +171,12 @@ def _persist_puzzle_metadata(
 ) -> None:
     if dry_run:
         return
-    supabase.table("crossword_puzzles").update(payload).eq("id", puzzle_id).execute()
+    execute_logged_update(
+        supabase,
+        "crossword_puzzles",
+        payload,
+        eq_filters={"id": puzzle_id},
+    )
 
 
 def _apply_clue_version(target: WorkingClue, source: WorkingClue) -> None:
@@ -350,9 +356,12 @@ def redefine_puzzle(
             f"'{_compact_log_text(current['definition'])}' -> '{_compact_log_text(desired['definition'])}'"
         )
         if not dry_run:
-            supabase.table("crossword_clues").update(
-                update_payload
-            ).eq("id", row["id"]).eq("puzzle_id", puzzle_id).execute()
+            execute_logged_update(
+                supabase,
+                "crossword_clues",
+                update_payload,
+                eq_filters={"id": row["id"], "puzzle_id": puzzle_id},
+            )
         row.update(update_payload)
         _apply_clue_version(target_clue, source_clue)
         persistence_puzzle.assessment = score_puzzle_state(persistence_puzzle)

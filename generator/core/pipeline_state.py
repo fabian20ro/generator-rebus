@@ -42,6 +42,7 @@ class ClueAssessment:
     feedback: str = ""
     scores: ClueScores = field(default_factory=ClueScores)
     failure_reason: ClueFailureReason | None = None
+    rewrite_rejection_reason: str = ""
     rarity_only_override: bool = False
     form_mismatch: bool = False
     form_mismatch_detail: str = ""

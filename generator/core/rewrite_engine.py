@@ -5,7 +5,12 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 
-from .ai_clues import choose_better_clue_variant, generate_definition, rewrite_definition
+from .ai_clues import (
+    RewriteAttemptResult,
+    choose_better_clue_variant,
+    generate_definition,
+    rewrite_definition,
+)
 from .lm_runtime import LmRuntime
 from .pipeline_state import (
     ClueCandidateVersion,
@@ -107,7 +112,7 @@ def _build_pending_candidates(
     dex_defs: str,
     failure_history: list[tuple[str, list[str]]],
     use_hybrid: bool,
-) -> tuple[list[PendingCandidate], bool]:
+) -> tuple[list[PendingCandidate], bool, str]:
     pending: list[PendingCandidate] = []
     seen: set[str] = set()
 
@@ -129,6 +134,7 @@ def _build_pending_candidates(
         )
 
     had_error = False
+    rewrite_rejection_reason = ""
     if clue.current.definition.startswith("["):
         _maybe_add(
             generate_definition(
@@ -144,10 +150,10 @@ def _build_pending_candidates(
             source="generate",
             strategy_label="fresh_only",
         )
-        return pending, had_error
+        return pending, had_error, rewrite_rejection_reason
 
     try:
-        rewrite_candidate = rewrite_definition(
+        rewrite_result = rewrite_definition(
             client,
             clue.word_normalized,
             clue.word_original,
@@ -162,7 +168,13 @@ def _build_pending_candidates(
             dex_definitions=dex_defs,
             failure_history=failure_history or None,
             model=current_model.model_id,
+            return_diagnostics=True,
         )
+        if isinstance(rewrite_result, RewriteAttemptResult):
+            rewrite_candidate = rewrite_result.definition
+            rewrite_rejection_reason = rewrite_result.last_rejection
+        else:
+            rewrite_candidate = str(rewrite_result or "")
         _maybe_add(rewrite_candidate, source="rewrite", strategy_label="rewrite")
     except Exception as exc:
         had_error = True
@@ -185,7 +197,7 @@ def _build_pending_candidates(
             had_error = True
             print(f"  Fresh generate failed for {clue.word_normalized}: {exc}")
 
-    return pending, had_error
+    return pending, had_error, rewrite_rejection_reason
 
 
 def _evaluate_single_candidate(
@@ -385,7 +397,7 @@ def run_rewrite_loop(
             )
             if use_hybrid:
                 hybrid_attempted_words.add(clue.word_normalized)
-            pending_candidates, had_error = _build_pending_candidates(
+            pending_candidates, had_error, rewrite_rejection_reason = _build_pending_candidates(
                 clue,
                 client=client,
                 theme=theme,
@@ -402,6 +414,7 @@ def run_rewrite_loop(
             outcome.had_error = outcome.had_error or had_error
 
             if pending_candidates:
+                clue.current.assessment.rewrite_rejection_reason = ""
                 outcome.changed_definition = True
                 changed_words.add(clue.word_normalized)
                 consecutive_failures[clue.word_normalized] = 0
@@ -421,6 +434,8 @@ def run_rewrite_loop(
                         f"fresh='{_compact_log_text(pending_candidates[1].definition)}'"
                     )
             else:
+                if rewrite_rejection_reason:
+                    clue.current.assessment.rewrite_rejection_reason = rewrite_rejection_reason
                 consecutive_failures[clue.word_normalized] = consecutive_failures.get(clue.word_normalized, 0) + 1
                 if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
                     stuck_words.add(clue.word_normalized)

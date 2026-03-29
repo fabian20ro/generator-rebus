@@ -17,6 +17,7 @@ from .diacritics import normalize
 from .llm_text import clean_llm_text_response
 from .model_manager import PRIMARY_MODEL, chat_reasoning_options
 from .quality import ENGLISH_HOMOGRAPH_HINTS
+from .runtime_logging import log
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
 USAGE_SUFFIX_PRECEDENCE: list[tuple[str, tuple[str, ...]]] = [
@@ -152,6 +153,12 @@ class VerifyResult:
         return self.candidates[0] if self.candidates else ""
 
 
+@dataclass(frozen=True)
+class RewriteAttemptResult:
+    definition: str
+    last_rejection: str = ""
+
+
 def compute_rebus_score(guessability: int, creativity: int) -> int:
     return round(0.75 * guessability + 0.25 * creativity)
 
@@ -191,6 +198,34 @@ def _chat_completion_create(
         max_tokens=max_tokens,
         **chat_reasoning_options(model, purpose=purpose),
     )
+
+
+def _log_if_completion_truncated(
+    response,
+    *,
+    model: str,
+    purpose: str,
+    max_tokens: int,
+) -> None:
+    choice = response.choices[0] if getattr(response, "choices", None) else None
+    finish_reason = getattr(choice, "finish_reason", None)
+    if finish_reason != "length":
+        return
+    usage = getattr(response, "usage", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    details = getattr(usage, "completion_tokens_details", None)
+    reasoning_tokens = getattr(details, "reasoning_tokens", None)
+    parts = [
+        f"completion truncated: purpose={purpose}",
+        f"model={model}",
+        f"finish_reason={finish_reason}",
+        f"max_tokens={max_tokens}",
+    ]
+    if completion_tokens is not None:
+        parts.append(f"completion_tokens={completion_tokens}")
+    if reasoning_tokens is not None:
+        parts.append(f"reasoning_tokens={reasoning_tokens}")
+    log("  [" + " ".join(parts) + "]")
 
 
 def contains_english_markers(text: str | None) -> bool:
@@ -665,7 +700,8 @@ def rewrite_definition(
     wrong_guesses: list[str] | None = None,
     temperature: float | None = None,
     model: str | None = None,
-) -> str:
+    return_diagnostics: bool = False,
+) -> str | RewriteAttemptResult:
     """Rewrite a failed or low-rated clue using feedback."""
     display_word = original if original else word.lower()
     feedback_parts = []
@@ -694,6 +730,7 @@ def rewrite_definition(
     print(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
     print(f"  [LLM user prompt]\n{prompt}")
 
+    last_rejection = ""
     for attempt in range(retries):
         try:
             resolved_model = _resolve_model_name(model)
@@ -705,28 +742,41 @@ def rewrite_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=temperature if temperature is not None else 0.3,
-                max_tokens=220,
+                max_tokens=2000,
                 purpose="definition_rewrite",
+            )
+            _log_if_completion_truncated(
+                response,
+                model=resolved_model,
+                purpose="definition_rewrite",
+                max_tokens=2000,
             )
             definition = _clean_response(response.choices[0].message.content)
             if definition == "[NECLAR]":
-                return definition
+                result = RewriteAttemptResult(definition=definition)
+                return result if return_diagnostics else result.definition
             definition = _normalize_definition_usage_suffix(definition, required_suffix)
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
             rejection = _validate_definition(word, definition)
             if rejection:
+                last_rejection = rejection
                 print(f"    [rewrite rejected {word}: {rejection}]")
                 prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
-            return definition
+            result = RewriteAttemptResult(definition=definition)
+            return result if return_diagnostics else result.definition
         except Exception:
             if attempt < retries - 1:
                 time.sleep(2)
             else:
                 raise
 
-    return previous_definition
+    result = RewriteAttemptResult(
+        definition=previous_definition,
+        last_rejection=last_rejection,
+    )
+    return result if return_diagnostics else result.definition
 
 
 def verify_definition_candidates(
@@ -817,8 +867,14 @@ def rate_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=260,
+                max_tokens=2000,
                 purpose="definition_rate",
+            )
+            _log_if_completion_truncated(
+                response,
+                model=resolved_model,
+                purpose="definition_rate",
+                max_tokens=2000,
             )
             raw = response.choices[0].message.content or ""
             fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)

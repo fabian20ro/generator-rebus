@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from generator.core.ai_clues import RewriteAttemptResult
 from generator.core.pipeline_state import (
     ClueAssessment,
     ClueCandidateVersion,
@@ -265,6 +266,111 @@ class RewriteEngineTests(unittest.TestCase):
         self.assertEqual(1, mock_rewrite_definition.call_count)
         self.assertEqual(0, mock_generate_definition.call_count)
         self.assertEqual("rewrite_only", result.outcomes["FIRISOR"].selected_strategy)
+
+    @patch("generator.core.rewrite_engine.LmRuntime")
+    @patch("generator.core.rewrite_engine.rewrite_definition")
+    @patch("generator.core.rewrite_engine.rate_working_puzzle")
+    @patch("generator.core.rewrite_engine.verify_working_puzzle")
+    def test_last_rewrite_rejection_is_injected_next_round_when_no_better_signal(
+        self,
+        mock_verify,
+        mock_rate,
+        mock_rewrite_definition,
+        mock_session_cls,
+    ):
+        mock_session_cls.return_value = self._session_mock()
+        puzzle = _make_puzzle()
+        mock_rewrite_definition.side_effect = [
+            RewriteAttemptResult("Diminutiv al lui fir.", "too short (0 chars)"),
+            RewriteAttemptResult("Diminutiv al lui fir.", "too short (0 chars)"),
+        ]
+
+        def _verify(puzzle, _client, skip_words=None, **_kwargs):
+            for clue in all_working_clues(puzzle):
+                if skip_words and clue.word_normalized in skip_words:
+                    continue
+                clue.current.assessment.verified = False
+                clue.current.assessment.verify_candidates = []
+                clue.current.assessment.wrong_guess = ""
+            return 0, len(all_working_clues(puzzle))
+
+        def _rate(puzzle, _client, skip_words=None, **_kwargs):
+            for clue in all_working_clues(puzzle):
+                if skip_words and clue.word_normalized in skip_words:
+                    continue
+                clue.current.assessment.verified = False
+                clue.current.assessment.feedback = ""
+                clue.current.assessment.scores = ClueScores(
+                    semantic_exactness=3,
+                    answer_targeting=3,
+                    creativity=6,
+                    rebus_score=3,
+                )
+            return 0.0, 0.0, len(all_working_clues(puzzle))
+
+        mock_verify.side_effect = _verify
+        mock_rate.side_effect = _rate
+        dex = MagicMock()
+        dex.get.return_value = ""
+        dex.uncertain_short_definitions.return_value = []
+
+        run_rewrite_loop(
+            puzzle,
+            client=MagicMock(),
+            rounds=2,
+            theme="Test",
+            multi_model=False,
+            dex=dex,
+        )
+
+        second_kwargs = mock_rewrite_definition.call_args_list[1].kwargs
+        self.assertEqual("too short (0 chars)", second_kwargs["bad_example_reason"])
+
+    @patch("generator.core.rewrite_engine.LmRuntime")
+    @patch("generator.core.rewrite_engine.generate_definition")
+    @patch("generator.core.rewrite_engine.rewrite_definition")
+    @patch("generator.core.rewrite_engine.rate_working_puzzle")
+    @patch("generator.core.rewrite_engine.verify_working_puzzle")
+    def test_valid_candidate_overrides_rewrite_rejection_for_next_round(
+        self,
+        mock_verify,
+        mock_rate,
+        mock_rewrite_definition,
+        mock_generate_definition,
+        mock_session_cls,
+    ):
+        mock_session_cls.return_value = self._session_mock()
+        puzzle = _make_puzzle()
+        mock_rewrite_definition.side_effect = [
+            RewriteAttemptResult("Diminutiv al lui fir.", "too short (0 chars)"),
+            RewriteAttemptResult("Diminutiv al lui fir.", "too short (0 chars)"),
+        ]
+        mock_generate_definition.side_effect = ["variantă fresh", "variantă fresh 2"]
+        verify_side_effect, rate_side_effect = self._evaluation_side_effect(
+            {
+                "Diminutiv al lui fir.": (False, 3, 3),
+                "variantă fresh": (False, 3, 3),
+                "variantă fresh 2": (False, 3, 3),
+            }
+        )
+        mock_verify.side_effect = verify_side_effect
+        mock_rate.side_effect = rate_side_effect
+        dex = MagicMock()
+        dex.get.return_value = ""
+        dex.uncertain_short_definitions.return_value = []
+
+        run_rewrite_loop(
+            puzzle,
+            client=MagicMock(),
+            rounds=2,
+            theme="Test",
+            multi_model=False,
+            dex=dex,
+            hybrid_deanchor=True,
+        )
+
+        second_kwargs = mock_rewrite_definition.call_args_list[1].kwargs
+        self.assertEqual("Duce la alte răspunsuri: ALTCEVA.", second_kwargs["bad_example_reason"])
 
     @patch("generator.core.rewrite_engine.LmRuntime")
     @patch("generator.core.rewrite_engine.generate_definition")

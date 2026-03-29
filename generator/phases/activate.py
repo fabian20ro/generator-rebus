@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from supabase import create_client
 from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from ..core.supabase_ops import execute_logged_update
 
 
 def set_published(puzzle_id: str, published: bool) -> str:
@@ -22,10 +23,12 @@ def set_published(puzzle_id: str, published: bool) -> str:
     action = "Activating" if new_state else "Deactivating"
     print(f"{action} puzzle {puzzle_id}...")
 
-    result = (client.table("crossword_puzzles")
-              .update({"published": new_state})
-              .eq("id", puzzle_id)
-              .execute())
+    result = execute_logged_update(
+        client,
+        "crossword_puzzles",
+        {"published": new_state},
+        eq_filters={"id": puzzle_id},
+    )
 
     if result.data:
         title = result.data[0].get("title", "Untitled")

@@ -17,6 +17,7 @@ from .core.ai_clues import create_client as create_ai_client
 from .core.lm_runtime import LmRuntime
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
 from .core.runtime_logging import install_process_logging, path_timestamp
+from .core.supabase_ops import execute_logged_update
 from .phases.theme import (
     FALLBACK_TITLES,
     MAX_TITLE_ROUNDS,
@@ -171,9 +172,12 @@ def _backfill_title_score(
     if dry_run:
         puzzle_row["title_score"] = score
         return
-    supabase.table("crossword_puzzles").update(
-        {"title_score": score, "updated_at": _now_iso()}
-    ).eq("id", puzzle_row["id"]).execute()
+    execute_logged_update(
+        supabase,
+        "crossword_puzzles",
+        {"title_score": score, "updated_at": _now_iso()},
+        eq_filters={"id": puzzle_row["id"]},
+    )
     puzzle_row["title_score"] = score
 
 
@@ -424,9 +428,12 @@ def _apply_title_result(
         print(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}" (score={title_result.score})')
 
     if not dry_run:
-        supabase.table("crossword_puzzles").update(
-            {"title": new_title, "title_score": title_result.score, "updated_at": _now_iso()}
-        ).eq("id", puzzle_id).execute()
+        execute_logged_update(
+            supabase,
+            "crossword_puzzles",
+            {"title": new_title, "title_score": title_result.score, "updated_at": _now_iso()},
+            eq_filters={"id": puzzle_id},
+        )
     puzzle_row["title"] = new_title
     puzzle_row["title_score"] = title_result.score
     return True

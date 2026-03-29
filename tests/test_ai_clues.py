@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from generator.core.ai_clues import (
     DefinitionRating,
+    RewriteAttemptResult,
     _clean_response,
     _extract_usage_suffix_from_dex,
     _normalize_definition_usage_suffix,
@@ -79,6 +80,7 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertIsNotNone(rating)
         self.assertEqual("medium", client.calls[0]["reasoning_effort"])
+        self.assertEqual(2000, client.calls[0]["max_tokens"])
 
     def test_rate_definition_does_not_send_reasoning_effort_for_non_gpt_oss(self):
         client = _RecordingClient([
@@ -117,6 +119,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertNotIn("Exemplu de definiție rea de evitat", client.prompts[0])
+        self.assertEqual(2000, client.calls[0]["max_tokens"])
 
     def test_rewrite_prompt_includes_bad_example_when_provided(self):
         client = _RecordingClient(["Definiție mai bună"])
@@ -729,6 +732,29 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual("Îndemnarea unui câine să atace o persoană.", definition)
         self.assertEqual(2, len(client.prompts))
         self.assertIn("dangling ending", client.prompts[1])
+
+    def test_rewrite_definition_returns_last_structural_rejection_when_requested(self):
+        client = _RecordingClient(["Pământ"])
+
+        result = rewrite_definition(
+            client,
+            word="MUL",
+            original="mul",
+            theme="",
+            previous_definition="Pământ",
+            wrong_guess="ARG",
+            retries=1,
+            model=PRIMARY_MODEL.model_id,
+            return_diagnostics=True,
+        )
+
+        self.assertEqual(
+            RewriteAttemptResult(
+                definition="Pământ",
+                last_rejection="single-word gloss",
+            ),
+            result,
+        )
 
 
 if __name__ == "__main__":

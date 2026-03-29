@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-03-30] Persist rewrite structural rejection reasons, auto-balance overnight sizes, and centralize Supabase update logs
+
+**Context:** user wanted failed rewrite attempts to remember exact structural rejection causes across rounds, `run_batch_loop.sh` to stop looping blindly through `7..15`, and Supabase updates to emit a generic centralized log message.
+**Happened:** Added `RewriteAttemptResult` in `generator/core/ai_clues.py` and kept `rewrite_definition()` backward-compatible by returning a string by default while exposing `return_diagnostics=True` for the rewrite engine. Extended `ClueAssessment` with `rewrite_rejection_reason`, updated `generator/core/rewrite_engine.py` to persist the last structural rejection only when rewrite produced no usable candidate, and updated `_synthesize_failure_reason()` to prefer verify/rating signals before falling back to that structural reason. Added `generator/core/supabase_ops.py` with shared `execute_logged_update(...)` and switched current Supabase update sites in `activate`, `redefine`, `repair_puzzles`, and `retitle` to use it. Extended `generator.loop_controller` with `--auto-size`, live counting of `crossword_puzzles.grid_size`, missing-size-as-zero balancing, and smallest-size tie-break; updated `run_batch_loop.sh` to launch loop controller with `--auto-size`.
+**Verification:** `python3 -m pytest tests/test_loop_controller.py tests/test_ai_clues.py tests/test_rewrite_engine.py tests/test_batch_publish.py -q` (`120 passed in 0.71s`); `python3 -m py_compile generator/core/ai_clues.py generator/core/pipeline_state.py generator/core/rewrite_engine.py generator/core/score_helpers.py generator/core/supabase_ops.py generator/loop_controller.py generator/phases/activate.py generator/redefine.py generator/repair_puzzles.py generator/retitle.py`
+**Outcome:** success
+**Insight:** rewrite structural failures need their own persisted channel distinct from verify/rate failure reasons, and overnight size balancing belongs in the Python controller against live Supabase inventory rather than in a blind shell size loop.
+**Promoted:** yes
+
+---
+
 ### [2026-03-26] Make both title models generate per round and share text cleanup with clue generation
 
 **Context:** user observed that `gpt-oss-20b` still often returned empty title content or weak short-title behavior even after increasing token budget, while definition generation remained stable. They wanted title generation to behave more like definition generation: lower temperature, shared output cleanup, and both models allowed to generate candidates instead of only using the secondary model as an empty-response fallback.
@@ -547,6 +558,14 @@
 **Outcome:** success
 **Insight:** after rotating `results.tsv` for a fresh baseline, policy constants that name the incumbent must be updated immediately; otherwise manual runs and automated selection disagree about which prompt is the control.
 **Promoted:** no
+
+### [2026-03-30] — Raise rewrite/rate completion budgets for LM Studio medium reasoning
+**Context:** today’s redefine run (`20260329_153843`) collapsed candidate scores and produced mass `too short (0 chars)` / `JSON invalid` failures right after LM Studio started honoring `reasoning_effort`.
+**Happened:** Compared yesterday vs today logs, traced the regression to `gpt-oss` rewrite/rate calls using `reasoning_effort="medium"` with old low completion budgets, reproduced the exact failure mode live on `PROMPT` and `ABA`, then updated `generator/core/ai_clues.py` so `rewrite_definition()` and `rate_definition()` now send `max_tokens=2000`. Added truncation logging that records `purpose`, `model`, `max_tokens`, `completion_tokens`, and `reasoning_tokens` when a call ends with `finish_reason="length"`. Updated `tests/test_ai_clues.py` expectations for the new budgets.
+**Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_model_manager.py -q` (`77 passed`); live checks via `rewrite_definition()` / `rate_definition()` on `PROMPT` and `ABA` returned valid text / valid `DefinitionRating` objects instead of empty outputs.
+**Outcome:** success
+**Insight:** once LM Studio starts honoring reasoning params, old completion budgets may become invalid immediately because reasoning tokens consume the same completion budget; phase-specific retuning is mandatory.
+**Promoted:** yes — see LESSONS_LEARNED entry on LM Studio reasoning and completion budgets.
 
 <!-- new entries above this line, most recent first -->
 ### [2026-03-28] — Keep exact-size mobile scroller position and add explicit left/right affordances

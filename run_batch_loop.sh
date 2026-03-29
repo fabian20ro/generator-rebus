@@ -7,4 +7,4 @@ cd "$ROOT_DIR"
 
 cargo build --release --manifest-path "$ROOT_DIR/crossword_engine/Cargo.toml"
 
-exec .venv/bin/python -m generator.loop_controller "$@"
+exec .venv/bin/python -m generator.loop_controller --auto-size "$@"

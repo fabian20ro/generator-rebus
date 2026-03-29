@@ -109,6 +109,8 @@ def _synthesize_failure_reason(clue: WorkingClue) -> str:
         if ("rar" in normalized_feedback or "comun" in normalized_feedback) and (assessment.scores.semantic_exactness or 0) >= 8:
             return "Definiția trebuie făcută mai exactă, nu tratată ca defect doar pentru raritate."
         return assessment.feedback
+    if assessment.rewrite_rejection_reason:
+        return assessment.rewrite_rejection_reason
     if assessment.failure_reason:
         return assessment.failure_reason.message
 

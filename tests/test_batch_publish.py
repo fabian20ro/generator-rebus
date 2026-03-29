@@ -606,6 +606,41 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertIn("exactă", reason)
 
+    def test_failure_reason_uses_rewrite_rejection_when_no_better_signal_exists(self):
+        clue = working_clue_from_entry(
+            ClueEntry(
+                row_number=1,
+                word_normalized="ARACI",
+                word_original="",
+                definition="Bețe de sprijin pentru viță",
+                verified=False,
+                verify_note="",
+            )
+        )
+        clue.current.assessment.rewrite_rejection_reason = "too short (0 chars)"
+
+        reason = _synthesize_failure_reason(clue)
+
+        self.assertEqual("too short (0 chars)", reason)
+
+    def test_failure_reason_prefers_feedback_over_rewrite_rejection(self):
+        clue = working_clue_from_entry(
+            ClueEntry(
+                row_number=1,
+                word_normalized="ARACI",
+                word_original="",
+                definition="Bețe de sprijin pentru viță",
+                verified=False,
+                verify_note="",
+            )
+        )
+        clue.current.assessment.feedback = "Definiția este prea vagă."
+        clue.current.assessment.rewrite_rejection_reason = "too short (0 chars)"
+
+        reason = _synthesize_failure_reason(clue)
+
+        self.assertEqual("Definiția este prea vagă.", reason)
+
     @patch("generator.batch_publish.LmRuntime")
     @patch("generator.batch_publish.upload_puzzle")
     @patch("generator.batch_publish._prepare_puzzle_for_publication")

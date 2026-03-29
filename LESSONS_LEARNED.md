@@ -30,6 +30,8 @@
 
 **[2026-03-24]** If phase-1 fills only normalized answers, later stages must pin one concrete variant per clue before generation starts — grouping metadata by normalized word is not enough. If `word_type` / `word_original` / DEX context are re-selected on each access, the same clue can drift across define/verify/rewrite/title steps. Resolve one variant once per puzzle clue, then carry that pinned choice through the rest of the pipeline.
 
+**[2026-03-30]** Rewrite loops need a persistent structural-rejection channel separate from evaluation failure reasons — internal rewrite validation failures like `too short`, `single-word gloss`, or `dangling ending` vanish between rounds if they are only used for same-call retries. Store the last structural rejection on the clue assessment itself, clear it when a valid candidate replaces the clue in the same round, and let failure synthesis prefer verify/rating signals before falling back to that structural reason.
+
 ## Testing & Quality
 **[2026-03-18]** `rate_puzzle()` tests must mock `DexProvider.for_puzzle()` — otherwise `tests/test_verify.py` can hang or become environment-dependent during DEX prefetch. Unit tests for verify/rate flow should stub DEX access explicitly.
 
@@ -40,6 +42,8 @@
 
 ## Dependencies & External Services
 <!-- **[YYYY-MM-DD]** title — explanation -->
+
+**[2026-03-30]** LM Studio `reasoning_effort` needs completion-budget retuning, not just a flag flip — on local `gpt-oss` runs, enabling `reasoning_effort="medium"` can spend most or all `max_tokens` inside `completion_tokens_details.reasoning_tokens`. Small legacy budgets that were safe before reasoning support (`rewrite` ~220, `rate` ~260) can then terminate with `finish_reason="length"` and empty visible output / missing JSON. When LM Studio server support changes, revalidate token budgets per phase and log truncated completions with reasoning-token counts.
 
 **[2026-03-23]** LM Studio orchestration must separate transport ids from audit labels and forbid implicit model routing — `display_name` is for logs/metrics, `model_id` is for API calls. If generation/title/tiebreak code falls back to `"default"` or passes labels like `gpt-oss-20b` where LM Studio expects the exact downloaded id, live state drift turns into hard-to-reproduce 400/500 load failures. Keep one runtime that reconciles against `/api/v1/models`, and pass explicit `model_id` on every chat completion call.
 
@@ -105,6 +109,8 @@
 **[2026-03-18]** One log per experiment beats one monolithic campaign log — full multistep assessments are too verbose to share a single append-only file. Use a campaign JSON/TSV for summaries and a separate `expNNN.log` file for each assessment run.
 
 **[2026-03-20]** Live git experiment commits are not enough to reconstruct winning prompt state — when the runner commits prompt edits before assessment and later tries to commit results, ignored log paths or interrupted runs can desynchronize git history, prompt backups, and the results TSV. Treat the results TSV as score history, not as authoritative prompt-state history; restore or diff prompt backups explicitly before starting the next campaign.
+
+**[2026-03-30]** Overnight size balancing should come from live inventory, not a blind fixed loop — if the goal is to keep puzzle counts even across `grid_size`, a static `7..15` loop overproduces already-abundant sizes. Put the balancing logic in the Python loop controller, query current `crossword_puzzles` counts, treat missing sizes as zero, and let the shell entrypoint only enable that mode.
 
 ---
 
