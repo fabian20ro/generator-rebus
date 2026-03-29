@@ -7,9 +7,11 @@ from generator.core.model_manager import (
     ModelConfig,
     PRIMARY_MODEL,
     SECONDARY_MODEL,
+    chat_reasoning_options,
     ensure_model_loaded,
     get_loaded_models,
     get_loaded_model_instances,
+    get_model_config,
     list_loaded_model_instances,
     _post_json,
     switch_model,
@@ -27,13 +29,31 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual(config.model_id, "test/model")
         self.assertEqual(config.display_name, "test-model")
         self.assertEqual(config.context_length, 4096)
+        self.assertIsNone(config.reasoning_effort)
 
     def test_primary_model_config(self):
         self.assertIn("gpt-oss", PRIMARY_MODEL.model_id)
         self.assertEqual(PRIMARY_MODEL.context_length, 8192)
+        self.assertEqual("low", PRIMARY_MODEL.reasoning_effort)
 
     def test_secondary_model_config(self):
         self.assertIn("eurollm", SECONDARY_MODEL.model_id)
+        self.assertIsNone(SECONDARY_MODEL.reasoning_effort)
+
+    def test_get_model_config_returns_known_model(self):
+        self.assertEqual(PRIMARY_MODEL, get_model_config(PRIMARY_MODEL.model_id))
+
+    def test_chat_reasoning_options_return_low_for_primary_default(self):
+        self.assertEqual({"reasoning_effort": "low"}, chat_reasoning_options(PRIMARY_MODEL.model_id))
+
+    def test_chat_reasoning_options_return_medium_for_primary_generate(self):
+        self.assertEqual(
+            {"reasoning_effort": "medium"},
+            chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_generate"),
+        )
+
+    def test_chat_reasoning_options_empty_for_secondary(self):
+        self.assertEqual({}, chat_reasoning_options(SECONDARY_MODEL.model_id))
 
     def test_get_loaded_models_returns_empty_on_failure(self):
         with patch("generator.core.model_manager._get_json", side_effect=Exception("offline")):

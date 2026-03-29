@@ -15,7 +15,7 @@ from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
 from .llm_text import clean_llm_text_response
-from .model_manager import PRIMARY_MODEL
+from .model_manager import PRIMARY_MODEL, chat_reasoning_options
 from .quality import ENGLISH_HOMOGRAPH_HINTS
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
@@ -173,6 +173,24 @@ def _resolve_model_name(model: str | None) -> str:
 
 def _clean_response(text: str | None) -> str:
     return clean_llm_text_response(text)
+
+
+def _chat_completion_create(
+    client: OpenAI,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+    purpose: str = "default",
+):
+    return client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        **chat_reasoning_options(model, purpose=purpose),
+    )
 
 
 def contains_english_markers(text: str | None) -> bool:
@@ -597,14 +615,17 @@ def generate_definition(
 
     for attempt in range(retries):
         try:
-            response = client.chat.completions.create(
-                model=_resolve_model_name(model),
+            resolved_model = _resolve_model_name(model)
+            response = _chat_completion_create(
+                client,
+                model=resolved_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=temperature if temperature is not None else 0.2,
-                max_tokens=2048,
+                max_tokens=2000,
+                purpose="definition_generate",
             )
             definition = _clean_response(response.choices[0].message.content)
             if definition == "[NECLAR]":
@@ -675,14 +696,17 @@ def rewrite_definition(
 
     for attempt in range(retries):
         try:
-            response = client.chat.completions.create(
-                model=_resolve_model_name(model),
+            resolved_model = _resolve_model_name(model)
+            response = _chat_completion_create(
+                client,
+                model=resolved_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=temperature if temperature is not None else 0.3,
                 max_tokens=220,
+                purpose="definition_rewrite",
             )
             definition = _clean_response(response.choices[0].message.content)
             if definition == "[NECLAR]":
@@ -723,14 +747,17 @@ def verify_definition_candidates(
 
     last_candidates: list[str] = []
     for attempt in range(2):
-        response = client.chat.completions.create(
-            model=_resolve_model_name(model),
+        resolved_model = _resolve_model_name(model)
+        response = _chat_completion_create(
+            client,
+            model=resolved_model,
             messages=[
                 {"role": "system", "content": load_system_prompt("verify")},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
             max_tokens=320,
+            purpose="definition_verify",
         )
         raw = response.choices[0].message.content or ""
         candidates = _extract_verify_candidates(raw, answer_length, max_guesses=max_guesses)
@@ -781,14 +808,17 @@ def rate_definition(
 
     for attempt in range(2):
         try:
-            response = client.chat.completions.create(
-                model=_resolve_model_name(model),
+            resolved_model = _resolve_model_name(model)
+            response = _chat_completion_create(
+                client,
+                model=resolved_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
                 max_tokens=260,
+                purpose="definition_rate",
             )
             raw = response.choices[0].message.content or ""
             fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
@@ -837,14 +867,17 @@ def choose_better_clue_variant(
 ) -> str:
     prompt = _build_clue_tiebreak_prompt(word, answer_length, definition_a, definition_b)
     try:
-        response = client.chat.completions.create(
-            model=_resolve_model_name(model),
+        resolved_model = _resolve_model_name(model)
+        response = _chat_completion_create(
+            client,
+            model=resolved_model,
             messages=[
                 {"role": "system", "content": load_system_prompt("clue_tiebreaker")},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
             max_tokens=20,
+            purpose="clue_tiebreaker",
         )
         return _pick_tiebreak_winner(response.choices[0].message.content or "")
     except Exception:
@@ -859,14 +892,17 @@ def choose_better_puzzle_variant(
 ) -> str:
     prompt = _build_puzzle_tiebreak_prompt(summary_a, summary_b)
     try:
-        response = client.chat.completions.create(
-            model=_resolve_model_name(model),
+        resolved_model = _resolve_model_name(model)
+        response = _chat_completion_create(
+            client,
+            model=resolved_model,
             messages=[
                 {"role": "system", "content": load_system_prompt("puzzle_tiebreaker")},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
             max_tokens=20,
+            purpose="puzzle_tiebreaker",
         )
         return _pick_tiebreak_winner(response.choices[0].message.content or "")
     except Exception:

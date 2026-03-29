@@ -44,6 +44,64 @@ class _RecordingClient:
 
 
 class AiCluesTests(unittest.TestCase):
+    def test_generate_definition_sends_medium_reasoning_effort_for_gpt_oss(self):
+        client = _RecordingClient(["Locuință pentru oameni."])
+
+        generate_definition(
+            client,
+            word="CASA",
+            original="casa",
+            theme="",
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("medium", client.calls[0]["reasoning_effort"])
+        self.assertEqual(2000, client.calls[0]["max_tokens"])
+
+    def test_rate_definition_sends_medium_reasoning_effort_for_gpt_oss(self):
+        client = _RecordingClient([
+            json.dumps({
+                "semantic_score": 9,
+                "guessability_score": 6,
+                "creativity_score": 5,
+                "feedback": "Definiția este corectă.",
+            })
+        ])
+
+        rating = rate_definition(
+            client,
+            word="ARACI",
+            original="araci",
+            definition="Bețe de sprijin pentru viță",
+            answer_length=5,
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertIsNotNone(rating)
+        self.assertEqual("medium", client.calls[0]["reasoning_effort"])
+
+    def test_rate_definition_does_not_send_reasoning_effort_for_non_gpt_oss(self):
+        client = _RecordingClient([
+            json.dumps({
+                "semantic_score": 9,
+                "guessability_score": 6,
+                "creativity_score": 5,
+                "feedback": "Definiția este corectă.",
+            })
+        ])
+
+        rating = rate_definition(
+            client,
+            word="ARACI",
+            original="araci",
+            definition="Bețe de sprijin pentru viță",
+            answer_length=5,
+            model="eurollm-22b-instruct-2512-mlx-nvfp4",
+        )
+
+        self.assertIsNotNone(rating)
+        self.assertNotIn("reasoning_effort", client.calls[0])
+
     def test_rewrite_prompt_omits_bad_example_by_default(self):
         client = _RecordingClient(["Definiție mai bună"])
 
@@ -363,7 +421,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
-        self.assertEqual(2048, client.calls[0]["max_tokens"])
+        self.assertEqual(2000, client.calls[0]["max_tokens"])
 
     def test_verify_definition_candidates_passes_explicit_model(self):
         client = _RecordingClient(["1. BAR\n2. TUN"])

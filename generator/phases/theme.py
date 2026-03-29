@@ -9,7 +9,7 @@ import sys
 from dataclasses import dataclass
 from collections.abc import Iterable
 
-from ..core.ai_clues import create_client
+from ..core.ai_clues import _chat_completion_create, create_client
 from ..core.diacritics import normalize
 from ..core.llm_text import clean_llm_text_response
 from ..core.lm_runtime import LmRuntime
@@ -262,7 +262,8 @@ def rate_title_creativity(
     )
     for attempt in range(2):
         try:
-            response = client.chat.completions.create(
+            response = _chat_completion_create(
+                client,
                 model=model_config.model_id,
                 messages=[
                     {"role": "system", "content": load_system_prompt("title_rate")},
@@ -270,6 +271,7 @@ def rate_title_creativity(
                 ],
                 temperature=0.1,
                 max_tokens=260,
+                purpose="title_rate",
             )
             raw = response.choices[0].message.content or ""
             fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
@@ -334,14 +336,16 @@ def _generate_single_title(
     )
 
     try:
-        response = client.chat.completions.create(
+        response = _chat_completion_create(
+            client,
             model=model_config.model_id,
             messages=[
                 {"role": "system", "content": load_system_prompt("theme")},
                 {"role": "user", "content": prompt},
             ],
             temperature=temperature,
-            max_tokens=2048,
+            max_tokens=2000,
+            purpose="title_generate",
         )
         return response.choices[0].message.content or ""
     except Exception:

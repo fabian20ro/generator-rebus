@@ -17,6 +17,7 @@ class ModelConfig:
     model_id: str
     display_name: str
     context_length: int = 8192
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -28,11 +29,38 @@ class LoadedModelInstance:
 PRIMARY_MODEL = ModelConfig(
     model_id="openai/gpt-oss-20b",
     display_name="gpt-oss-20b",
+    reasoning_effort="low",
 )
 SECONDARY_MODEL = ModelConfig(
     model_id="eurollm-22b-instruct-2512-mlx-nvfp4",
     display_name="eurollm-22b",
 )
+MODEL_CONFIGS = (
+    PRIMARY_MODEL,
+    SECONDARY_MODEL,
+)
+
+
+def get_model_config(model_id: str) -> ModelConfig | None:
+    normalized = str(model_id or "").strip()
+    for config in MODEL_CONFIGS:
+        if config.model_id == normalized:
+            return config
+    return None
+
+
+def chat_reasoning_options(model_id: str, *, purpose: str = "default") -> dict[str, str]:
+    config = get_model_config(model_id)
+    if not config or not config.reasoning_effort:
+        return {}
+    effort = config.reasoning_effort
+    if config.model_id == PRIMARY_MODEL.model_id and purpose in {
+        "definition_generate",
+        "definition_rewrite",
+        "definition_rate",
+    }:
+        effort = "medium"
+    return {"reasoning_effort": effort}
 
 
 def _api_url(path: str) -> str:

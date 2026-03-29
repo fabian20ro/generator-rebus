@@ -128,7 +128,8 @@ class GenerateSingleTitleTests(unittest.TestCase):
         )
         self.assertEqual("  Metale și Ecouri  ", result)
         self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
-        self.assertEqual(2048, client.calls[0]["max_tokens"])
+        self.assertEqual(2000, client.calls[0]["max_tokens"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
 
     def test_returns_empty_on_failure(self):
         result = _generate_single_title(
@@ -219,6 +220,7 @@ class RateTitleCreativityTests(unittest.TestCase):
         )
         self.assertEqual(7, score)
         self.assertEqual("bun titlu", feedback)
+        self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(SECONDARY_MODEL.model_id, client.calls[0]["model"])
 
     def test_extracts_json_from_markdown_fence(self):

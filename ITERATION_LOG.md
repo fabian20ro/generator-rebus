@@ -484,6 +484,22 @@
 **Insight:** title validation rules that affect acceptance thresholds and persistence need to live before scoring, but fallback titles should remain a last-resort output only; otherwise maintenance and initial publish paths diverge and score metadata becomes meaningless.
 **Promoted:** yes — see LESSONS_LEARNED entry on separating title screening from fallback selection.
 
+### [2026-03-29] — Apply phase-specific reasoning profiles for GPT-OSS
+**Context:** after LM Studio restart, `/api/v1/models` finally exposed `capabilities.reasoning` for `openai/gpt-oss-20b`, and the user wanted reusable request-time reasoning configuration with stronger effort on generation/rewrite/rating.
+**Happened:** Updated the centralized chat helper path so `gpt-oss` now uses `reasoning_effort="medium"` for definition generate/rewrite/rate calls, `reasoning_effort="low"` for verify/tiebreak/title calls, and no reasoning parameters for `eurolllm`. Also normalized the long-output cap from `2048` to `2000` tokens in definition generation and title generation. Kept `reasoning_tokens` unset because live LM Studio chat-completions behavior did not respect it predictably and unsupported models (`eurolllm`) still 500 when receiving reasoning params.
+**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_ai_clues.py tests/test_theme.py tests/test_run_assessment.py` (`109 passed`). Live sanity check against `http://127.0.0.1:1234/v1/chat/completions` returned `OK` for `gpt-oss` with `reasoning_effort=medium` and showed higher `completion_tokens_details.reasoning_tokens`.
+**Outcome:** success
+**Insight:** once per-model reasoning controls exist, the useful granularity is phase-level, not model-level only — short deterministic verifier/tiebreak calls should stay cheap, while longer creative/analytic passes can spend more reasoning budget.
+**Promoted:** no
+
+### [2026-03-29] — Add `reasoning_effort=low` for GPT-OSS chat completions
+**Context:** user installed an LM Studio update that accepts `reasoning_effort` on OpenAI-compatible `/v1/chat/completions` and wanted `gpt-oss` calls to default to low effort.
+**Happened:** Extended `generator/core/model_manager.py` with optional per-model `reasoning_effort`, set `PRIMARY_MODEL` (`openai/gpt-oss-20b`) to `low`, and added `chat_reasoning_options()` lookup. Routed clue-generation, rewrite, verify, rate, tiebreak, and theme/title chat calls through a shared helper in `generator/core/ai_clues.py` so LM Studio requests include `reasoning_effort` only for configured models. Added payload tests in `tests/test_model_manager.py`, `tests/test_ai_clues.py`, and `tests/test_theme.py`.
+**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_ai_clues.py tests/test_theme.py tests/test_run_assessment.py` (`107 passed`). Also checked `curl -s http://127.0.0.1:1234/api/v1/models`; current live response still does not expose a `reasoning` field, so dynamic autodetect is not yet available from the running server.
+**Outcome:** success
+**Insight:** when a serving layer gains request-time model controls before it reliably exposes capability metadata, the safest integration is static per-model config plus a single request helper, not speculative autodetect spread across call sites.
+**Promoted:** no
+
 ### [2026-03-29] — Confirm `v4exp001`, prepare `v5`, rotate ledger for fresh incumbent baseline
 **Context:** the three-run confirmation series for `v4exp001` finished and showed stable gains over the previous baseline, so the next move was to lock in a clean baseline workflow and start a new batch that isolates the useful framing signal seen in near-miss `v4exp004`.
 **Happened:** Read the confirmation rows (`77.0`, `76.9`, `73.8`; average composite `75.9`, average pass `0.333`) and kept `v4exp001` as the working prompt. Added a new `v5` experiment set in `scripts/run_experiments.py`, `generator/assessment/benchmark_policy.py`, and `scripts/prompt_autoresearch.py` with eight rewrite-only probes: header-signal isolation, header blends, and precision-support lines. Updated `prompt_research.md` for the new baseline/runbook, archived the completed ledger to `generator/assessment/results8.tsv`, and reset `generator/assessment/results.tsv` to header-only so the next official incumbent baseline can be recorded cleanly.
