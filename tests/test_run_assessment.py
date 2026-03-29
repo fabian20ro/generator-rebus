@@ -19,6 +19,18 @@ class _DummyRuntime:
         return None
 
 
+class _DummyDexProvider:
+    def __init__(self, lookup_map=None):
+        self.lookup_map = lookup_map or {}
+        self.prefetch_calls = []
+
+    def prefetch(self, words, originals=None, *, fetch_missing=True):
+        self.prefetch_calls.append((list(words), dict(originals or {}), fetch_missing))
+
+    def lookup(self, word):
+        return self.lookup_map.get(word)
+
+
 class RunAssessmentTests(unittest.TestCase):
     def test_run_assessment_uses_separate_generate_and_rewrite_temperatures(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -103,6 +115,37 @@ class RunAssessmentTests(unittest.TestCase):
         self.assertEqual(
             round((0.2 + 0.2 + 0.8) / 3, 3),
             result.to_dict()["tier_balanced_pass_rate"],
+        )
+
+    def test_refresh_dataset_dex_definitions_prefers_provider_then_falls_back(self):
+        provider = _DummyDexProvider({"CASA": "- Definiție live"})
+        dataset = [
+            {
+                "word": "CASA",
+                "display_word": "casă",
+                "dex_definitions": "- Definiție dataset",
+            },
+            {
+                "word": "MASA",
+                "display_word": "masă",
+                "dex_definitions": "- Masă din dataset",
+            },
+        ]
+
+        with mock.patch.object(mod, "create_provider", return_value=provider):
+            refreshed = mod._refresh_dataset_dex_definitions(dataset)
+
+        self.assertEqual("- Definiție live", refreshed[0]["dex_definitions"])
+        self.assertEqual("- Masă din dataset", refreshed[1]["dex_definitions"])
+        self.assertEqual(
+            [
+                (
+                    ["CASA", "MASA"],
+                    {"CASA": "casă", "MASA": "masă"},
+                    False,
+                )
+            ],
+            provider.prefetch_calls,
         )
 
 

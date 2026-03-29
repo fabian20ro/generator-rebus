@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -31,6 +32,7 @@ from generator.assessment.benchmark_policy import (
     CONTROL_WORD_REPEAT_FAIL_ACTION,
     CONTROL_WORD_WATCH,
     DIRECTION_FOLLOWUP_PRESETS,
+    EXPERIMENT_COMPARISON_RUNS,
     EXPERIMENT_FAMILY_PRIORITY,
     EXPERIMENT_BLOCK_RANGES,
     FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
@@ -54,6 +56,11 @@ from generator.assessment.benchmark_policy import (
     V5_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
     V5_FAMILY_STOP_REPEAT_PRIMARY,
     V5_FAMILY_STOP_TOTAL_NON_KEEPS,
+    V6_CAMPAIGN_STOP_STALE_FAMILIES,
+    V6_EXPERIMENT_FAMILY_PRIORITY,
+    V6_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
+    V6_FAMILY_STOP_REPEAT_PRIMARY,
+    V6_FAMILY_STOP_TOTAL_NON_KEEPS,
     V2_EXPERIMENT_FAMILY_PRIORITY,
     V2_FAMILY_STOP_CONSECUTIVE_NON_KEEPS,
     V2_FAMILY_STOP_REPEAT_PRIMARY,
@@ -103,12 +110,19 @@ V5_EXPERIMENT_PRESETS = {
     "header-signal-blends": (4, 5),
     "precision-support": (6, 8),
 }
+V6_EXPERIMENT_PRESETS = {
+    "full": (1, 8),
+    "verify": (1, 4),
+    "rate": (5, 6),
+    "definition": (7, 8),
+}
 EXPERIMENT_PRESETS_BY_SET = {
     "v1": EXPERIMENT_PRESETS,
     "v2": V2_EXPERIMENT_PRESETS,
     "v3": V3_EXPERIMENT_PRESETS,
     "v4": V4_EXPERIMENT_PRESETS,
     "v5": V5_EXPERIMENT_PRESETS,
+    "v6": V6_EXPERIMENT_PRESETS,
 }
 TARGET_DIRECTION_BLOCKS = {
     "verify-examples": "verify",
@@ -237,6 +251,8 @@ def _family_priority(family: str, experiment_set: str = "v1") -> int:
         priority_order = V4_EXPERIMENT_FAMILY_PRIORITY
     elif experiment_set == "v5":
         priority_order = V5_EXPERIMENT_FAMILY_PRIORITY
+    elif experiment_set == "v6":
+        priority_order = V6_EXPERIMENT_FAMILY_PRIORITY
     else:
         priority_order = EXPERIMENT_FAMILY_PRIORITY
     try:
@@ -1453,12 +1469,140 @@ V5_EXPERIMENTS = [
 _validate_experiment_list(V5_EXPERIMENTS)
 assert len(V5_EXPERIMENTS) == 8, len(V5_EXPERIMENTS)
 
+V6_EXPERIMENTS = [
+    Experiment(
+        "v6exp001",
+        "verify replace translation fallback with Romanian-only line",
+        [_edit(
+            SYS_VERIFY,
+            "- Gândești și răspunzi numai în română.\n- Dacă primul cuvânt care îți vine este în engleză, îl traduci mental și răspunzi în română.\n",
+            "- Lucrezi cap-coadă în română.\n",
+        )],
+        family="verify_romanian_only",
+        priority=_family_priority("verify_romanian_only", "v6"),
+        tags=("verify_romanian_only",),
+    ),
+    Experiment(
+        "v6exp002",
+        "verify compress resolution steps around exact-form elimination",
+        [_edit(
+            SYS_VERIFY,
+            "Proces de rezolvare:\n1. Citește definiția atent.\n2. Gândește la 1-3 cuvinte românești care se potrivesc.\n3. Verifică pentru fiecare: are exact lungimea cerută?\n4. Păstrează doar variantele care respectă lungimea.\n",
+            "Proces de rezolvare:\n1. Propui 1-3 variante românești.\n2. Elimini imediat formele cu lungime, gen, număr sau flexiune incompatibilă.\n3. Păstrezi doar varianta care se potrivește exact definiției.\n",
+        )],
+        family="verify_resolution_compaction",
+        priority=_family_priority("verify_resolution_compaction", "v6"),
+        tags=("verify_resolution_compaction",),
+    ),
+    Experiment(
+        "v6exp003",
+        "verify add targeted fragile-word examples ETAN and FERMENT",
+        [_edit_before(
+            SYS_VERIFY,
+            "Definiție: Se trage un semnal de pericol\nRăspuns: ALARMA\n",
+            _block(
+                _verify_example("Hidrocarbură saturată cu doi atomi de carbon", "ETAN"),
+                _verify_example("Agent al fermentării", "FERMENT"),
+            ),
+        )],
+        family="verify_targeted_examples",
+        priority=_family_priority("verify_targeted_examples", "v6"),
+        tags=("verify_targeted_examples",),
+    ),
+    Experiment(
+        "v6exp004",
+        "verify user makes exact-length and exact-form filtering explicit",
+        [_edit(
+            USR_VERIFY,
+            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nExcluzi orice variantă care nu are exact {answer_length} litere.\nScrie fiecare variantă pe rând separat, fără explicații.\n",
+            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nVerifici mai întâi lungimea exactă, apoi sensul.\nElimini din start orice formă cu altă lungime, alt gen, alt număr sau altă flexiune.\nScrie fiecare variantă pe rând separat, fără explicații.\n",
+        )],
+        family="verify_user_exactness",
+        priority=_family_priority("verify_user_exactness", "v6"),
+        tags=("verify_user_exactness",),
+    ),
+    Experiment(
+        "v6exp005",
+        "rate tighten guessability around exact answer at this length",
+        [_edit(
+            SYS_RATE,
+            "- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe de completat, ar scrie exact cuvântul-răspuns? 9-10 = un singur cuvânt posibil la această lungime, 7-8 = probabil corect, 5-6 = mai multe opțiuni, 1-3 = ar scrie altceva cu certitudine\n",
+            "- guessability_score: dacă un rezolvitor ar vedea definiția și exact {answer_length} căsuțe, ar scrie chiar răspunsul cerut? 9-10 = răspunsul exact iese clar la această lungime, 7-8 = probabil corect, 5-6 = rămân mai multe opțiuni, 1-3 = ar scrie alt cuvânt cu certitudine\n",
+        )],
+        family="rate_exact_answer_calibration",
+        priority=_family_priority("rate_exact_answer_calibration", "v6"),
+        tags=("rate_exact_answer_calibration",),
+    ),
+    Experiment(
+        "v6exp006",
+        "rate add rare-sense guessability rule and technical example",
+        [
+            _edit_before(
+                SYS_RATE,
+                RATE_FEEDBACK_MARKER,
+                "- pentru un sens rar sau tehnic, guessability_score rămâne mare doar dacă definiția fixează domeniul, funcția sau trăsătura distinctivă",
+            ),
+            _edit_before(
+                SYS_RATE,
+                RATE_JSON_MARKER,
+                'Exemplu sens tehnic:\n{"semantic_score": 9, "guessability_score": 8, "creativity_score": 4, "feedback": "Detaliul de domeniu fixează sensul tehnic și duce la răspunsul exact."}\n',
+            ),
+        ],
+        family="rate_rare_sense_calibration",
+        priority=_family_priority("rate_rare_sense_calibration", "v6"),
+        tags=("rate_rare_sense_calibration",),
+    ),
+    Experiment(
+        "v6exp007",
+        "definition replace negative English framing with positive Romanian-sense framing",
+        [
+            _edit(
+                SYS_DEFINITION,
+                "IMPORTANT: Toate cuvintele sunt exclusiv în limba ROMÂNĂ. Chiar dacă arată ca un cuvânt englezesc, definește-l DOAR cu sensul românesc.\n",
+                "IMPORTANT: Lucrezi numai cu sensuri românești reale și formulezi totul în română firească.\n",
+            ),
+            _edit(
+                SYS_DEFINITION,
+                "- Tot textul este exclusiv în română. Nu folosești engleză.\n",
+                "- Formulezi definiția în română firească, de dicționar și rebus.\n",
+            ),
+            _edit(
+                SYS_DEFINITION,
+                "- Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].\n",
+                "- Dacă nu găsești un sens românesc real, răspunzi [NECLAR].\n",
+            ),
+        ],
+        family="definition_positive_romanian_sense",
+        priority=_family_priority("definition_positive_romanian_sense", "v6"),
+        tags=("definition_positive_romanian_sense",),
+    ),
+    Experiment(
+        "v6exp008",
+        "definition add broader-neighbor counterexamples for ATU and FERMENT",
+        [_edit_before(
+            SYS_DEFINITION,
+            "ARDE -> Ceva care se întâmplă [GREȘIT - prea vag]\n",
+            _block(
+                "ATU -> Avantaj la joc [GREȘIT - prea larg; nu fixează cartea decisivă]",
+                "FERMENT -> Substanță care schimbă ceva [GREȘIT - categorie prea largă]",
+            ) + "\n",
+        )],
+        family="definition_vague_neighbor_counterexamples",
+        priority=_family_priority("definition_vague_neighbor_counterexamples", "v6"),
+        tags=("definition_vague_neighbor_counterexamples",),
+    ),
+]
+
+_validate_experiment_list(V6_EXPERIMENTS)
+assert len(V6_EXPERIMENTS) == 8, len(V6_EXPERIMENTS)
+
 EXPERIMENT_SETS = {
     "v1": V1_EXPERIMENTS,
     "v2": V2_EXPERIMENTS,
     "v3": V3_EXPERIMENTS,
     "v4": V4_EXPERIMENTS,
     "v5": V5_EXPERIMENTS,
+    "v6": V6_EXPERIMENTS,
 }
 EXPERIMENTS = V1_EXPERIMENTS
 
@@ -1590,6 +1734,180 @@ def save_best_result_summary(backup_dir: Path, result: dict) -> None:
     )
 
 
+def _mean(values: list[float]) -> float:
+    return statistics.fmean(values) if values else 0.0
+
+
+def _stddev(values: list[float]) -> float:
+    return statistics.stdev(values) if len(values) > 1 else 0.0
+
+
+def _run_metric(run: dict, key: str) -> float:
+    return float(run.get(key, 0.0))
+
+
+def _aggregate_candidates(runs: list[dict]) -> list[dict]:
+    per_word: dict[str, dict[str, object]] = {}
+    run_count = len(runs)
+    for run in runs:
+        for row in run.get("candidates", []):
+            word = row.get("word")
+            if not word:
+                continue
+            entry = per_word.setdefault(
+                word,
+                {
+                    "word": word,
+                    "tier": row.get("tier", ""),
+                    "verified_runs": 0,
+                    "semantic": [],
+                    "rebus": [],
+                },
+            )
+            if row.get("verified"):
+                entry["verified_runs"] = int(entry["verified_runs"]) + 1
+            if "semantic" in row:
+                entry["semantic"].append(float(row.get("semantic", 0.0)))
+            if "rebus" in row:
+                entry["rebus"].append(float(row.get("rebus", 0.0)))
+
+    candidates: list[dict] = []
+    for word in sorted(per_word):
+        entry = per_word[word]
+        verified_runs = int(entry["verified_runs"])
+        verified_rate = verified_runs / run_count if run_count else 0.0
+        candidates.append(
+            {
+                "word": word,
+                "tier": entry["tier"],
+                "verified": verified_runs * 2 >= run_count if run_count else False,
+                "verified_runs": verified_runs,
+                "verified_rate": round(verified_rate, 3),
+                "semantic": round(_mean(entry["semantic"]), 1),
+                "rebus": round(_mean(entry["rebus"]), 1),
+            }
+        )
+    return candidates
+
+
+def aggregate_result_runs(
+    runs: list[dict],
+    *,
+    label: str,
+    description_prefix: str,
+    raw_results: list[dict[str, object]],
+) -> dict:
+    if not runs:
+        return {
+            "label": label,
+            "description_prefix": description_prefix,
+            "run_count": 0,
+            "composite": 0.0,
+            "pass_rate": 0.0,
+            "tier_balanced_pass_rate": 0.0,
+            "avg_semantic": 0.0,
+            "avg_rebus": 0.0,
+            "metrics": {},
+            "tiers": {},
+            "protected_control_summary": {},
+            "candidates": [],
+            "raw_results": raw_results,
+        }
+
+    metrics = {
+        key: {
+            "mean": round(_mean([_run_metric(run, key) for run in runs]), 3 if "rate" in key else 1),
+            "stddev": round(_stddev([_run_metric(run, key) for run in runs]), 3 if "rate" in key else 1),
+        }
+        for key in ("composite", "pass_rate", "tier_balanced_pass_rate", "avg_semantic", "avg_rebus")
+    }
+
+    tier_names = sorted(
+        {
+            tier_name
+            for run in runs
+            for tier_name in run.get("tiers", {})
+        }
+    )
+    tiers = {}
+    for tier_name in tier_names:
+        pass_values = [float(run.get("tiers", {}).get(tier_name, {}).get("pass_rate", 0.0)) for run in runs]
+        semantic_values = [float(run.get("tiers", {}).get(tier_name, {}).get("avg_semantic", 0.0)) for run in runs]
+        rebus_values = [float(run.get("tiers", {}).get(tier_name, {}).get("avg_rebus", 0.0)) for run in runs]
+        count = int(runs[0].get("tiers", {}).get(tier_name, {}).get("count", 0))
+        tiers[tier_name] = {
+            "pass_rate": round(_mean(pass_values), 3),
+            "pass_rate_stddev": round(_stddev(pass_values), 3),
+            "avg_semantic": round(_mean(semantic_values), 1),
+            "avg_semantic_stddev": round(_stddev(semantic_values), 1),
+            "avg_rebus": round(_mean(rebus_values), 1),
+            "avg_rebus_stddev": round(_stddev(rebus_values), 1),
+            "count": count,
+        }
+
+    protected = {}
+    for tier_name in {"high", "easy", "control"}:
+        if tier_name not in tiers:
+            continue
+        protected[tier_name] = {
+            "pass_rate": tiers[tier_name]["pass_rate"],
+            "pass_rate_stddev": tiers[tier_name]["pass_rate_stddev"],
+            "avg_semantic": tiers[tier_name]["avg_semantic"],
+            "avg_rebus": tiers[tier_name]["avg_rebus"],
+            "count": tiers[tier_name]["count"],
+        }
+
+    return {
+        "label": label,
+        "description_prefix": description_prefix,
+        "run_count": len(runs),
+        "composite": round(metrics["composite"]["mean"], 1),
+        "composite_stddev": round(metrics["composite"]["stddev"], 1),
+        "pass_rate": round(metrics["pass_rate"]["mean"], 3),
+        "pass_rate_stddev": round(metrics["pass_rate"]["stddev"], 3),
+        "tier_balanced_pass_rate": round(metrics["tier_balanced_pass_rate"]["mean"], 3),
+        "tier_balanced_pass_rate_stddev": round(metrics["tier_balanced_pass_rate"]["stddev"], 3),
+        "avg_semantic": round(metrics["avg_semantic"]["mean"], 1),
+        "avg_semantic_stddev": round(metrics["avg_semantic"]["stddev"], 1),
+        "avg_rebus": round(metrics["avg_rebus"]["mean"], 1),
+        "avg_rebus_stddev": round(metrics["avg_rebus"]["stddev"], 1),
+        "metrics": metrics,
+        "tiers": tiers,
+        "protected_control_summary": protected,
+        "candidates": _aggregate_candidates(runs),
+        "raw_results": raw_results,
+    }
+
+
+def comparison_summary_path(assessment_logs_dir: Path, exp_name: str) -> Path:
+    return assessment_logs_dir / f"{exp_name}.comparison.json"
+
+
+def batch_word_signal_details(current: dict, incumbent: dict | None) -> dict[str, dict[str, object]]:
+    details: dict[str, dict[str, object]] = {}
+    if not incumbent:
+        return details
+    current_rows = candidate_map(current)
+    incumbent_rows = candidate_map(incumbent)
+    run_count = int(current.get("run_count") or incumbent.get("run_count") or 1)
+    for word, old_row in incumbent_rows.items():
+        new_row = current_rows.get(word)
+        if not new_row:
+            continue
+        old_runs = int(old_row.get("verified_runs", int(bool(old_row.get("verified")))))
+        new_runs = int(new_row.get("verified_runs", int(bool(new_row.get("verified")))))
+        if old_runs == new_runs:
+            continue
+        details[word] = {
+            "tier": str(new_row.get("tier") or old_row.get("tier") or ""),
+            "incumbent_verified_runs": old_runs,
+            "candidate_verified_runs": new_runs,
+            "run_count": run_count,
+            "delta_verified_runs": new_runs - old_runs,
+        }
+    return details
+
+
 @dataclass(frozen=True)
 class WordSignal:
     gained_low_medium: tuple[str, ...] = ()
@@ -1618,6 +1936,7 @@ class ClassificationDecision:
     delta: float
     protected_regression: bool
     pass_regression: bool
+    tier_balanced_regression: bool
     uncertain_reason: str | None
     research_signal: bool
     signal: WordSignal
@@ -1705,16 +2024,30 @@ def classify_experiment_result(
     has_regression = protected_regression(current, incumbent)
     incumbent_pass = float(incumbent.get("pass_rate", 0.0)) if incumbent else 0.0
     current_pass = float(current["pass_rate"])
+    incumbent_tier_balanced = float(incumbent.get("tier_balanced_pass_rate", 0.0)) if incumbent else 0.0
+    current_tier_balanced = float(current.get("tier_balanced_pass_rate", 0.0))
     pass_regression = bool(incumbent and current_pass < incumbent_pass)
+    tier_balanced_regression = bool(incumbent and current_tier_balanced < incumbent_tier_balanced)
     signal = summarize_word_signal(current, incumbent)
 
-    if composite > best_composite and not has_regression and not pass_regression:
+    improved_core_metric = (
+        current_pass > incumbent_pass
+        or current_tier_balanced > incumbent_tier_balanced
+        or (
+            incumbent is not None
+            and current_pass == incumbent_pass
+            and current_tier_balanced == incumbent_tier_balanced
+            and composite > best_composite
+        )
+    )
+    if improved_core_metric and not has_regression and not pass_regression and not tier_balanced_regression:
         if signal.lost_primary_fragile:
             return ClassificationDecision(
                 "discard",
                 delta,
                 has_regression,
                 pass_regression,
+                tier_balanced_regression,
                 None,
                 False,
                 signal,
@@ -1724,6 +2057,7 @@ def classify_experiment_result(
             delta,
             has_regression,
             pass_regression,
+            tier_balanced_regression,
             None,
             False,
             signal,
@@ -1734,6 +2068,7 @@ def classify_experiment_result(
         and delta >= -UNCERTAINTY_DELTA
         and (current_pass - incumbent_pass) >= NEAR_MISS_PASS_DELTA
         and not has_regression
+        and not tier_balanced_regression
         and not signal.lost_protected_controls
         and not signal.lost_high
         and not signal.lost_primary_fragile
@@ -1742,6 +2077,7 @@ def classify_experiment_result(
         incumbent is not None
         and len(signal.gained_low_medium) >= RESEARCH_SIGNAL_MIN_GAINED_WORDS
         and not has_regression
+        and not tier_balanced_regression
         and not signal.lost_protected_controls
         and not signal.lost_high
         and not signal.lost_primary_fragile
@@ -1753,6 +2089,7 @@ def classify_experiment_result(
             delta,
             has_regression,
             pass_regression,
+            tier_balanced_regression,
             "near_miss",
             False,
             signal,
@@ -1763,6 +2100,7 @@ def classify_experiment_result(
             delta,
             has_regression,
             pass_regression,
+            tier_balanced_regression,
             "research_signal",
             True,
             signal,
@@ -1772,6 +2110,7 @@ def classify_experiment_result(
         delta,
         has_regression,
         pass_regression,
+        tier_balanced_regression,
         None,
         False,
         signal,
@@ -1825,6 +2164,12 @@ def experiment_index(exp_name: str) -> int:
         return int(exp_name[5:])
     if exp_name.startswith("v3exp"):
         return int(exp_name[5:])
+    if exp_name.startswith("v4exp"):
+        return int(exp_name[5:])
+    if exp_name.startswith("v5exp"):
+        return int(exp_name[5:])
+    if exp_name.startswith("v6exp"):
+        return int(exp_name[5:])
     if not exp_name.startswith("exp"):
         raise ValueError(f"Unsupported experiment name: {exp_name}")
     return int(exp_name[3:])
@@ -1835,6 +2180,12 @@ def block_name_for_experiment(exp_name: str) -> str:
         return get_experiment(exp_name, "v2").family
     if exp_name.startswith("v3exp"):
         return get_experiment(exp_name, "v3").family
+    if exp_name.startswith("v4exp"):
+        return get_experiment(exp_name, "v4").family
+    if exp_name.startswith("v5exp"):
+        return get_experiment(exp_name, "v5").family
+    if exp_name.startswith("v6exp"):
+        return get_experiment(exp_name, "v6").family
     index = experiment_index(exp_name)
     for block_name, (start, end) in EXPERIMENT_BLOCK_RANGES.items():
         if start <= index <= end:
@@ -1852,6 +2203,12 @@ def get_experiment(name: str, experiment_set: str | None = None) -> Experiment:
             experiment_set = "v2"
         elif name.startswith("v3exp"):
             experiment_set = "v3"
+        elif name.startswith("v4exp"):
+            experiment_set = "v4"
+        elif name.startswith("v5exp"):
+            experiment_set = "v5"
+        elif name.startswith("v6exp"):
+            experiment_set = "v6"
         else:
             experiment_set = "v1"
     for exp in experiments_for_set(experiment_set):
@@ -1873,6 +2230,8 @@ def family_stop_consecutive_non_keeps(experiment_set: str) -> int:
         return V4_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
     if experiment_set == "v5":
         return V5_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
+    if experiment_set == "v6":
+        return V6_FAMILY_STOP_CONSECUTIVE_NON_KEEPS
     return FAMILY_STOP_CONSECUTIVE_NON_KEEPS
 
 
@@ -1885,6 +2244,8 @@ def family_stop_total_non_keeps(experiment_set: str) -> int:
         return V4_FAMILY_STOP_TOTAL_NON_KEEPS
     if experiment_set == "v5":
         return V5_FAMILY_STOP_TOTAL_NON_KEEPS
+    if experiment_set == "v6":
+        return V6_FAMILY_STOP_TOTAL_NON_KEEPS
     return FAMILY_STOP_TOTAL_NON_KEEPS
 
 
@@ -1897,6 +2258,8 @@ def campaign_stop_stale_families(experiment_set: str) -> int:
         return V4_CAMPAIGN_STOP_STALE_FAMILIES
     if experiment_set == "v5":
         return V5_CAMPAIGN_STOP_STALE_FAMILIES
+    if experiment_set == "v6":
+        return V6_CAMPAIGN_STOP_STALE_FAMILIES
     return CAMPAIGN_STOP_STALE_FAMILIES
 
 
@@ -1909,6 +2272,8 @@ def family_stop_repeat_primary(experiment_set: str) -> int:
         return V4_FAMILY_STOP_REPEAT_PRIMARY
     if experiment_set == "v5":
         return V5_FAMILY_STOP_REPEAT_PRIMARY
+    if experiment_set == "v6":
+        return V6_FAMILY_STOP_REPEAT_PRIMARY
     return V2_FAMILY_STOP_REPEAT_PRIMARY
 
 
@@ -2288,6 +2653,52 @@ def run_assessment(
     return payload
 
 
+def run_replicated_assessment_series(
+    *,
+    description: str,
+    label: str,
+    run_count: int,
+    assessment_logs_dir: Path,
+    file_stem: str,
+    stream_output: bool,
+    assessment_overrides: dict[str, float | int | str] | None = None,
+) -> dict:
+    runs: list[dict] = []
+    raw_results: list[dict[str, object]] = []
+    for run_index in range(1, run_count + 1):
+        run_description = f"{description} [{label} run {run_index}/{run_count}]"
+        run_log_path = assessment_logs_dir / f"{file_stem}.{label}.run{run_index}.log"
+        run_json_path = assessment_logs_dir / f"{file_stem}.{label}.run{run_index}.json"
+        payload = run_assessment(
+            run_description,
+            assessment_log_path=run_log_path,
+            assessment_json_path=run_json_path,
+            stream_output=stream_output,
+            assessment_overrides=assessment_overrides,
+        )
+        if payload.get("error"):
+            return payload
+        runs.append(payload)
+        raw_results.append(
+            {
+                "description": run_description,
+                "log_path": str(run_log_path),
+                "json_path": str(run_json_path),
+                "composite": float(payload["composite"]),
+                "pass_rate": float(payload["pass_rate"]),
+                "tier_balanced_pass_rate": float(payload.get("tier_balanced_pass_rate", 0.0)),
+                "avg_semantic": float(payload["avg_semantic"]),
+                "avg_rebus": float(payload["avg_rebus"]),
+            }
+        )
+    return aggregate_result_runs(
+        runs,
+        label=label,
+        description_prefix=description,
+        raw_results=raw_results,
+    )
+
+
 def load_log(log_path: Path) -> list[dict]:
     """Load experiment log from JSON."""
     if log_path.exists():
@@ -2334,6 +2745,8 @@ def main() -> None:
                         help="Directory for per-experiment assessment logs")
     parser.add_argument("--stream-assessment-output", action="store_true",
                         help="Also print inner assessment logs to stdout")
+    parser.add_argument("--comparison-runs", type=int, default=EXPERIMENT_COMPARISON_RUNS,
+                        help="Replicated assessment runs for incumbent and candidate comparison")
     parser.add_argument("--git-live-commit", action="store_true",
                         help="Commit experiment state immediately after applying each edit")
     parser.add_argument("--git-live-push", action="store_true",
@@ -2393,6 +2806,7 @@ def main() -> None:
         print(f"Experiment log: {args.log_path}")
         print(f"Best-prompt backup: {args.backup_dir}")
         print(f"Assessment logs dir: {args.assessment_logs_dir}")
+        print(f"Comparison runs per side: {args.comparison_runs}")
         if args.git_live_commit:
             print("Git live commit: enabled")
         if args.git_live_push:
@@ -2444,10 +2858,56 @@ def main() -> None:
                 skipped += 1
                 continue
 
-            results_snapshot = snapshot_results_tsv()
-            assessment_log_path = args.assessment_logs_dir / f"{exp.name}.log"
-            assessment_json_path = args.assessment_logs_dir / f"{exp.name}.json"
             prompt_paths = [PROMPTS_DIR / file for file in exp.files]
+            comparison_json_path = comparison_summary_path(args.assessment_logs_dir, exp.name)
+            assessment_json_path = args.assessment_logs_dir / f"{exp.name}.json"
+
+            restore_prompts(args.backup_dir)
+
+            try:
+                incumbent_summary = run_replicated_assessment_series(
+                    description=assessment_description,
+                    label="incumbent",
+                    run_count=max(args.comparison_runs, 1),
+                    assessment_logs_dir=args.assessment_logs_dir,
+                    file_stem=exp.name,
+                    stream_output=args.stream_assessment_output,
+                    assessment_overrides=exp.assessment_overrides,
+                )
+            except KeyboardInterrupt:
+                print("\n  [INTERRUPTED] Restoring incumbent prompts")
+                restore_prompts(args.backup_dir)
+                raise SystemExit(130) from None
+
+            if incumbent_summary.get("error"):
+                entry = {
+                    "name": exp.name,
+                    "assessment_description": assessment_description,
+                    "assessment_json": str(assessment_json_path),
+                    "comparison_summary": str(comparison_json_path),
+                    "file": exp.file,
+                    "files": exp.files,
+                    "find": exp.find,
+                    "replace": exp.replace,
+                    "desc": exp.desc,
+                    "status": "error",
+                    "best_composite": best_composite,
+                    "comparison_runs": max(args.comparison_runs, 1),
+                    "comparison_basis": "replicated_reset_regime",
+                    "failed_side": "incumbent",
+                }
+                log.append(entry)
+                save_log(args.log_path, log)
+                skipped += 1
+                restore_prompts(args.backup_dir)
+                append_results_row(assessment_description, "error", incumbent_summary)
+                continue
+
+            if not apply_experiment(exp):
+                print("  [ERROR] Experiment could not be re-applied after incumbent baseline run")
+                restore_prompts(args.backup_dir)
+                skipped += 1
+                continue
 
             if args.git_live_commit:
                 git_stage_commit_push(
@@ -2459,17 +2919,18 @@ def main() -> None:
                 )
 
             try:
-                result = run_assessment(
-                    assessment_description,
-                    assessment_log_path=assessment_log_path,
-                    assessment_json_path=assessment_json_path,
+                result = run_replicated_assessment_series(
+                    description=assessment_description,
+                    label="candidate",
+                    run_count=max(args.comparison_runs, 1),
+                    assessment_logs_dir=args.assessment_logs_dir,
+                    file_stem=exp.name,
                     stream_output=args.stream_assessment_output,
                     assessment_overrides=exp.assessment_overrides,
                 )
             except KeyboardInterrupt:
                 print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
                 restore_prompts(args.backup_dir)
-                restore_results_tsv(results_snapshot)
                 if args.git_live_commit:
                     git_stage_commit_push(
                         prompt_paths,
@@ -2484,8 +2945,8 @@ def main() -> None:
                 entry = {
                     "name": exp.name,
                     "assessment_description": assessment_description,
-                    "assessment_log": str(assessment_log_path),
                     "assessment_json": str(assessment_json_path),
+                    "comparison_summary": str(comparison_json_path),
                     "file": exp.file,
                     "files": exp.files,
                     "find": exp.find,
@@ -2493,16 +2954,18 @@ def main() -> None:
                     "desc": exp.desc,
                     "status": "error",
                     "best_composite": best_composite,
+                    "comparison_runs": max(args.comparison_runs, 1),
+                    "comparison_basis": "replicated_reset_regime",
+                    "failed_side": "candidate",
                 }
                 log.append(entry)
                 save_log(args.log_path, log)
                 skipped += 1
                 restore_prompts(args.backup_dir)
-                restore_results_tsv(results_snapshot)
                 append_results_row(assessment_description, "error", result)
                 if args.git_live_commit:
                     git_stage_commit_push(
-                        [*prompt_paths, RESULTS_TSV],
+                        [RESULTS_TSV],
                         f"error | {assessment_description}",
                         push=args.git_live_push,
                         remote=args.git_live_remote,
@@ -2515,8 +2978,41 @@ def main() -> None:
             print_control_watch_summary(control_watch)
             decision = classify_experiment_result(
                 result,
-                best_result_summary,
-                best_composite,
+                incumbent_summary,
+                float(incumbent_summary["composite"]),
+            )
+            word_delta_summary = batch_word_signal_details(result, incumbent_summary)
+            comparison_summary = {
+                "assessment_description": assessment_description,
+                "comparison_basis": "replicated_reset_regime",
+                "run_count": max(args.comparison_runs, 1),
+                "incumbent": incumbent_summary,
+                "candidate": result,
+                "decision": {
+                    "status": decision.status,
+                    "composite_delta": round(decision.delta, 1),
+                    "pass_rate_delta": round(float(result["pass_rate"]) - float(incumbent_summary["pass_rate"]), 3),
+                    "tier_balanced_pass_rate_delta": round(
+                        float(result.get("tier_balanced_pass_rate", 0.0)) - float(incumbent_summary.get("tier_balanced_pass_rate", 0.0)),
+                        3,
+                    ),
+                    "protected_regression": decision.protected_regression,
+                    "pass_regression": decision.pass_regression,
+                    "tier_balanced_regression": decision.tier_balanced_regression,
+                    "uncertain_reason": decision.uncertain_reason,
+                    "research_signal": decision.research_signal,
+                    "word_signal": decision.signal.to_dict(),
+                    "word_deltas": word_delta_summary,
+                },
+            }
+            comparison_json_path.parent.mkdir(parents=True, exist_ok=True)
+            assessment_json_path.write_text(
+                json.dumps(result, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            comparison_json_path.write_text(
+                json.dumps(comparison_summary, ensure_ascii=False, indent=2),
+                encoding="utf-8",
             )
             status = decision.status
             symbol = {
@@ -2525,15 +3021,16 @@ def main() -> None:
                 "discard": "✗ No improvement",
             }[status]
             print(
-                f"  {symbol}: {best_composite:.1f} → {composite:.1f} "
-                f"(pass={float(result['pass_rate']):.3f} sem={float(result['avg_semantic']):.1f} reb={float(result['avg_rebus']):.1f})"
+                f"  {symbol}: {float(incumbent_summary['composite']):.1f} → {composite:.1f} "
+                f"(pass={float(result['pass_rate']):.3f} tier={float(result.get('tier_balanced_pass_rate', 0.0)):.3f} "
+                f"sem={float(result['avg_semantic']):.1f} reb={float(result['avg_rebus']):.1f})"
             )
 
             entry = {
                 "name": exp.name,
                 "assessment_description": assessment_description,
-                "assessment_log": str(assessment_log_path),
                 "assessment_json": str(assessment_json_path),
+                "comparison_summary": str(comparison_json_path),
                 "file": exp.file,
                 "files": exp.files,
                 "find": exp.find,
@@ -2542,12 +3039,14 @@ def main() -> None:
                 "status": status,
                 "composite": composite,
                 "pass_rate": float(result["pass_rate"]),
+                "tier_balanced_pass_rate": float(result.get("tier_balanced_pass_rate", 0.0)),
                 "avg_semantic": float(result["avg_semantic"]),
                 "avg_rebus": float(result["avg_rebus"]),
-                "prev_best": best_composite,
+                "prev_best": float(incumbent_summary["composite"]),
                 "delta": round(decision.delta, 1),
                 "protected_regression": decision.protected_regression,
                 "pass_regression": decision.pass_regression,
+                "tier_balanced_regression": decision.tier_balanced_regression,
                 "uncertain_reason": decision.uncertain_reason,
                 "research_signal": decision.research_signal,
                 "family": exp.family,
@@ -2555,7 +3054,12 @@ def main() -> None:
                 "target_words": list(exp.target_words),
                 "prerequisites": list(exp.prerequisites),
                 "assessment_overrides": dict(exp.assessment_overrides or {}),
+                "comparison_runs": max(args.comparison_runs, 1),
+                "comparison_basis": "replicated_reset_regime",
+                "incumbent_summary": incumbent_summary,
+                "candidate_summary": result,
                 "word_signal": decision.signal.to_dict(),
+                "word_deltas": word_delta_summary,
                 "control_watch": control_watch,
             }
             log.append(entry)
@@ -2571,7 +3075,7 @@ def main() -> None:
                 print(f"  New best: {best_composite:.1f}")
                 if args.git_live_commit:
                     git_stage_commit_push(
-                        [RESULTS_TSV, assessment_json_path],
+                        [*prompt_paths, RESULTS_TSV, comparison_json_path],
                         f"keep | {assessment_description}",
                         push=args.git_live_push,
                         remote=args.git_live_remote,
@@ -2579,7 +3083,6 @@ def main() -> None:
                     )
             else:
                 restore_prompts(args.backup_dir)
-                restore_results_tsv(results_snapshot)
                 append_results_row(assessment_description, status, result)
                 if status == "uncertain":
                     uncertain += 1
@@ -2587,7 +3090,7 @@ def main() -> None:
                     discarded += 1
                 if args.git_live_commit:
                     git_stage_commit_push(
-                        [RESULTS_TSV, assessment_json_path],
+                        [RESULTS_TSV, comparison_json_path],
                         f"{status} | {assessment_description}",
                         push=args.git_live_push,
                         remote=args.git_live_remote,

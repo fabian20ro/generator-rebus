@@ -1,10 +1,1 @@
 commit	composite	pass_rate	avg_semantic	avg_rebus	status	description
-6e61e1b	72.7	0.314	8.7	7.5	keep	baseline_results_20260329_v4exp001
-6d9862c	71.8	0.329	8.3	7.0	discard	manual_v5/v5exp001 | rewrite replace compact ban header with sense-first header only | system/rewrite.md
-6d9862c	65.6	0.257	8.5	7.2	discard	manual_v5/v5exp002 | rewrite add soft context-distinctive line | system/rewrite.md
-6d9862c	71.2	0.314	8.5	7.2	discard	manual_v5/v5exp003 | rewrite add short out-of-family periphrasis line | system/rewrite.md
-6d9862c	65.4	0.257	8.4	7.2	discard	manual_v5/v5exp004 | rewrite blend sense-first header with soft context line | system/rewrite.md
-6d9862c	65.3	0.257	8.5	7.1	discard	manual_v5/v5exp005 | rewrite blend sense-first header with short periphrasis line | system/rewrite.md
-6d9862c	64.8	0.257	8.3	7.0	discard	manual_v5/v5exp006 | rewrite add explicit flexion-form precision line | system/rewrite.md
-6d9862c	67.9	0.286	8.4	7.1	discard	manual_v5/v5exp007 | rewrite add rare-or-technical specificity line | system/rewrite.md
-6d9862c	69.3	0.300	8.4	7.1	discard	manual_v5/v5exp008 | rewrite combine flexion precision with rare-sense specificity | system/rewrite.md

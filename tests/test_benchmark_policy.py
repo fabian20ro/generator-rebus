@@ -6,6 +6,7 @@ from generator.assessment.benchmark_policy import (
     CONTROL_WORD_REPEAT_FAIL_ACTION,
     CONTROL_WORD_WATCH,
     DIRECTION_FOLLOWUP_PRESETS,
+    EXPERIMENT_COMPARISON_RUNS,
     EXPERIMENT_BLOCK_RANGES,
     FOLLOWUP_PRIORITY,
     HISTORICAL_PROMPT_EVIDENCE,
@@ -32,7 +33,22 @@ class BenchmarkPolicyTests(unittest.TestCase):
         )
 
     def test_results4_stays_historical_evidence_only(self):
-        self.assertEqual(("results4.tsv",), HISTORICAL_PROMPT_EVIDENCE)
+        self.assertEqual(
+            (
+                "results1.tsv",
+                "results2.tsv",
+                "results3.tsv",
+                "results4.tsv",
+                "results5.tsv",
+                "results6.tsv",
+                "results7.tsv",
+                "results8.tsv",
+            ),
+            HISTORICAL_PROMPT_EVIDENCE,
+        )
+
+    def test_reset_regime_uses_three_run_comparisons(self):
+        self.assertEqual(3, EXPERIMENT_COMPARISON_RUNS)
 
     def test_load_latest_kept_result_reads_results_tsv(self):
         with TemporaryDirectory() as tmpdir:

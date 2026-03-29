@@ -524,6 +524,14 @@
 **Insight:** assessment can silently undercount real wins if equivalent clue texts default to the earlier pass instead of the better-verified pass; normalize-first selection still needs assessment-aware tie resolution.
 **Promoted:** no
 
+### [2026-03-29] — Reset benchmark regime, refresh assessment DEX, and open `v6`
+**Context:** after `v5` went `8/8 discard`, user wanted the benchmark lane reset around replicated evidence, fresh DEX text, and a new verify/rate/definition batch instead of more rewrite-first tuning.
+**Happened:** Updated `generator/assessment/run_assessment.py` to refresh `dex_definitions` through `DexProvider` cache/Supabase lookup before falling back to `dataset.json`. Refactored `scripts/run_experiments.py` to compare candidates through replicated incumbent/candidate batches (`--comparison-runs`, default `3`), emit machine-readable comparison summaries under the assessment log dir, and use `tier_balanced_pass_rate` in keep/discard logic instead of single-run composite alone. Added `v6` with 8 experiments focused on `verify`, `rate`, then `definition`; wired policy/autoresearch/docs/tests for `v6`; expanded historical-evidence policy to `results1.tsv` through `results8.tsv`.
+**Verification:** `.venv/bin/python -m pytest tests/test_run_assessment.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_benchmark_policy.py` (`61 passed`); `python3 -m py_compile generator/assessment/run_assessment.py scripts/run_experiments.py scripts/prompt_autoresearch.py`; `.venv/bin/python scripts/run_experiments.py --experiment-set v6 --dry-run`.
+**Outcome:** success
+**Insight:** once benchmark semantics drift, runner logic must stop treating old ledger highs or one noisy run as the source of truth; replicated machine-readable comparisons and refreshed upstream context need to become the default control surface.
+**Promoted:** yes — added reset-regime lesson to `LESSONS_LEARNED.md`
+
 ### [2026-03-28] — Reframe `v4` rewrite experiments away from negative banned-token phrasing
 **Context:** user flagged a plausible local-model failure mode: negated wording like “nu folosești engleză” can still bias weaker models toward the forbidden token just by mentioning it.
 **Happened:** Rewrote the `v4` manifest in `scripts/run_experiments.py` so the exploratory rewrite variants now use positive Romanian-register, referent-first, and lexical-distance phrasing instead of explicit negative bans mentioning the unwanted token. Updated `prompt_research.md` to record the new hypothesis and `v4` probe descriptions.

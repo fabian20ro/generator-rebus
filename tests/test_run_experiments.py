@@ -103,6 +103,15 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertEqual("precision_support", mod.V5_EXPERIMENTS[-1].family)
         self.assertEqual("system/rewrite.md", mod.V5_EXPERIMENTS[0].file)
 
+    def test_v6_campaign_has_8_unique_experiments(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(8, len(mod.V6_EXPERIMENTS))
+        self.assertEqual(8, len({exp.name for exp in mod.V6_EXPERIMENTS}))
+        self.assertEqual("verify_romanian_only", mod.V6_EXPERIMENTS[0].family)
+        self.assertEqual("definition_vague_neighbor_counterexamples", mod.V6_EXPERIMENTS[-1].family)
+        self.assertEqual("system/verify.md", mod.V6_EXPERIMENTS[0].file)
+
     def test_cleanup_round_matches_requested_file_order(self):
         mod = _load_run_experiments_module()
         first_round_files = [exp.file for exp in mod.EXPERIMENTS[:12]]
@@ -135,7 +144,7 @@ class RunExperimentsTests(unittest.TestCase):
     def test_active_manifest_edit_anchors_exist_in_current_prompts(self):
         mod = _load_run_experiments_module()
 
-        for experiments in (mod.V2_EXPERIMENTS, mod.V3_EXPERIMENTS, mod.V4_EXPERIMENTS, mod.V5_EXPERIMENTS):
+        for experiments in (mod.V2_EXPERIMENTS, mod.V3_EXPERIMENTS, mod.V4_EXPERIMENTS, mod.V5_EXPERIMENTS, mod.V6_EXPERIMENTS):
             for exp in experiments:
                 for edit in exp.edits:
                     prompt_path = mod.PROMPTS_DIR / edit.file
@@ -222,12 +231,14 @@ class RunExperimentsTests(unittest.TestCase):
             {
                 "composite": 74.0,
                 "pass_rate": 0.343,
+                "tier_balanced_pass_rate": 0.410,
                 "protected_control_summary": {},
                 "candidates": [],
             },
             {
                 "composite": 74.2,
                 "pass_rate": 0.343,
+                "tier_balanced_pass_rate": 0.410,
                 "protected_control_summary": {},
                 "candidates": [],
             },
@@ -238,6 +249,7 @@ class RunExperimentsTests(unittest.TestCase):
         self.assertAlmostEqual(-0.2, decision.delta)
         self.assertFalse(decision.protected_regression)
         self.assertFalse(decision.pass_regression)
+        self.assertFalse(decision.tier_balanced_regression)
         self.assertEqual("near_miss", decision.uncertain_reason)
 
     def test_classify_experiment_result_marks_research_signal_uncertain(self):
@@ -246,6 +258,7 @@ class RunExperimentsTests(unittest.TestCase):
             {
                 "composite": 73.0,
                 "pass_rate": 0.300,
+                "tier_balanced_pass_rate": 0.420,
                 "protected_control_summary": {"high": {"pass_rate": 0.900}},
                 "candidates": [
                     {"word": "A", "tier": "low", "verified": True},
@@ -257,6 +270,7 @@ class RunExperimentsTests(unittest.TestCase):
             {
                 "composite": 74.0,
                 "pass_rate": 0.314,
+                "tier_balanced_pass_rate": 0.420,
                 "protected_control_summary": {"high": {"pass_rate": 0.900}},
                 "candidates": [
                     {"word": "A", "tier": "low", "verified": False},
@@ -278,6 +292,7 @@ class RunExperimentsTests(unittest.TestCase):
             {
                 "composite": 74.1,
                 "pass_rate": 0.343,
+                "tier_balanced_pass_rate": 0.420,
                 "protected_control_summary": {"high": {"pass_rate": 0.800}},
                 "candidates": [
                     {"word": "ADAPOST", "tier": "high", "verified": False},
@@ -286,6 +301,7 @@ class RunExperimentsTests(unittest.TestCase):
             {
                 "composite": 74.2,
                 "pass_rate": 0.343,
+                "tier_balanced_pass_rate": 0.420,
                 "protected_control_summary": {"high": {"pass_rate": 0.900}},
                 "candidates": [
                     {"word": "ADAPOST", "tier": "high", "verified": True},
@@ -302,6 +318,7 @@ class RunExperimentsTests(unittest.TestCase):
             {
                 "composite": 74.1,
                 "pass_rate": 0.343,
+                "tier_balanced_pass_rate": 0.420,
                 "protected_control_summary": {"high": {"pass_rate": 0.900}},
                 "candidates": [
                     {"word": "AZ", "tier": "low", "verified": False},
@@ -310,6 +327,7 @@ class RunExperimentsTests(unittest.TestCase):
             {
                 "composite": 74.0,
                 "pass_rate": 0.343,
+                "tier_balanced_pass_rate": 0.420,
                 "protected_control_summary": {"high": {"pass_rate": 0.900}},
                 "candidates": [
                     {"word": "AZ", "tier": "low", "verified": True},
@@ -320,6 +338,72 @@ class RunExperimentsTests(unittest.TestCase):
 
         self.assertEqual("discard", decision.status)
         self.assertEqual(("AZ",), decision.signal.lost_primary_fragile)
+
+    def test_aggregate_result_runs_records_mean_stddev_and_majority_candidates(self):
+        mod = _load_run_experiments_module()
+        summary = mod.aggregate_result_runs(
+            [
+                {
+                    "composite": 73.0,
+                    "pass_rate": 0.300,
+                    "tier_balanced_pass_rate": 0.400,
+                    "avg_semantic": 8.8,
+                    "avg_rebus": 7.4,
+                    "tiers": {"high": {"pass_rate": 0.8, "avg_semantic": 9.0, "avg_rebus": 8.0, "count": 15}},
+                    "candidates": [{"word": "ETAN", "tier": "high", "verified": True, "semantic": 9, "rebus": 8}],
+                },
+                {
+                    "composite": 75.0,
+                    "pass_rate": 0.329,
+                    "tier_balanced_pass_rate": 0.460,
+                    "avg_semantic": 8.9,
+                    "avg_rebus": 7.6,
+                    "tiers": {"high": {"pass_rate": 0.867, "avg_semantic": 9.1, "avg_rebus": 8.1, "count": 15}},
+                    "candidates": [{"word": "ETAN", "tier": "high", "verified": True, "semantic": 9, "rebus": 8}],
+                },
+                {
+                    "composite": 74.0,
+                    "pass_rate": 0.314,
+                    "tier_balanced_pass_rate": 0.430,
+                    "avg_semantic": 8.7,
+                    "avg_rebus": 7.5,
+                    "tiers": {"high": {"pass_rate": 0.8, "avg_semantic": 9.0, "avg_rebus": 8.0, "count": 15}},
+                    "candidates": [{"word": "ETAN", "tier": "high", "verified": False, "semantic": 8, "rebus": 7}],
+                },
+            ],
+            label="candidate",
+            description_prefix="manual_v6/v6exp001",
+            raw_results=[],
+        )
+
+        self.assertEqual(3, summary["run_count"])
+        self.assertAlmostEqual(74.0, summary["composite"])
+        self.assertIn("stddev", summary["metrics"]["pass_rate"])
+        self.assertEqual(2, summary["candidates"][0]["verified_runs"])
+        self.assertTrue(summary["candidates"][0]["verified"])
+
+    def test_classify_experiment_result_uses_tier_balanced_regression(self):
+        mod = _load_run_experiments_module()
+        decision = mod.classify_experiment_result(
+            {
+                "composite": 75.0,
+                "pass_rate": 0.329,
+                "tier_balanced_pass_rate": 0.430,
+                "protected_control_summary": {"high": {"pass_rate": 0.900}},
+                "candidates": [],
+            },
+            {
+                "composite": 74.0,
+                "pass_rate": 0.314,
+                "tier_balanced_pass_rate": 0.450,
+                "protected_control_summary": {"high": {"pass_rate": 0.900}},
+                "candidates": [],
+            },
+            74.0,
+        )
+
+        self.assertEqual("discard", decision.status)
+        self.assertTrue(decision.tier_balanced_regression)
 
     def test_resolve_experiment_window_defaults_to_full_manifest(self):
         mod = _load_run_experiments_module()
@@ -363,6 +447,19 @@ class RunExperimentsTests(unittest.TestCase):
                 end_at=None,
                 preset="system-factor-temperatures",
                 experiment_set="v3",
+            ),
+        )
+
+    def test_resolve_experiment_window_supports_v6_verify_preset(self):
+        mod = _load_run_experiments_module()
+
+        self.assertEqual(
+            (1, 4),
+            mod.resolve_experiment_window(
+                start_from=None,
+                end_at=None,
+                preset="verify",
+                experiment_set="v6",
             ),
         )
 

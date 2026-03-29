@@ -179,6 +179,20 @@ class PromptAutoresearchTests(unittest.TestCase):
         self.assertEqual("header_signal_isolation", next_exp.family)
         self.assertEqual("v5exp001", next_exp.name)
 
+    def test_select_next_experiment_respects_v6_family_priority(self):
+        mod = _load_module()
+        families = mod.default_families("v6")
+        state = {
+            "attempted_experiments": [],
+            "current_family": None,
+            "experiment_set": "v6",
+        }
+
+        next_exp = mod.select_next_experiment(state, families)
+
+        self.assertEqual("verify_romanian_only", next_exp.family)
+        self.assertEqual("v6exp001", next_exp.name)
+
     def test_main_rebuild_state_exits_without_running_trials(self):
         mod = _load_module()
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -26,6 +26,7 @@ from ..core.ai_clues import (
     rate_definition,
     verify_definition_candidates,
 )
+from ..core.dex_cache import create_provider
 from ..core.diacritics import normalize
 from ..core.model_manager import (
     PRIMARY_MODEL,
@@ -224,6 +225,37 @@ def _load_dataset(path: Path) -> list[dict]:
         return json.load(f)
 
 
+def _refresh_dataset_dex_definitions(dataset: list[dict]) -> list[dict]:
+    """Prefer cached/live DEX text over stale dataset snapshots when available."""
+    if not dataset:
+        return dataset
+    try:
+        dex = create_provider()
+        words = [entry["word"] for entry in dataset if entry.get("word")]
+        originals = {
+            entry["word"]: entry.get("display_word") or entry["word"].lower()
+            for entry in dataset
+            if entry.get("word")
+        }
+        dex.prefetch(words, originals=originals, fetch_missing=False)
+        refreshed = 0
+        updated_dataset: list[dict] = []
+        for entry in dataset:
+            updated = dict(entry)
+            word = entry.get("word")
+            live_defs = dex.lookup(word) if word else None
+            if live_defs:
+                updated["dex_definitions"] = live_defs
+                refreshed += 1
+            updated_dataset.append(updated)
+        if refreshed:
+            print(f"Refreshed DEX text for {refreshed}/{len(dataset)} assessment words from DexProvider cache")
+        return updated_dataset
+    except Exception as exc:
+        print(f"DEX refresh unavailable; using dataset snapshot ({exc})")
+        return dataset
+
+
 def _git_short_hash() -> str:
     try:
         result = subprocess.run(
@@ -294,6 +326,7 @@ def run_assessment(
 ) -> AssessmentResult:
     """Run the multi-model generate → cross-verify → cross-rate pipeline."""
     dataset = _load_dataset(dataset_path)
+    dataset = _refresh_dataset_dex_definitions(dataset)
     client = create_client()
     result = AssessmentResult()
     phase_times: dict[str, float] = {}
