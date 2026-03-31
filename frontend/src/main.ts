@@ -1008,6 +1008,10 @@ document.addEventListener("visibilitychange", () => {
     saveCurrentProgress();
   }
 });
+window.addEventListener("resize", () => {
+  if (!gridState) return;
+  refresh();
+});
 
 // --- Init ---
 applySavedFontSize();

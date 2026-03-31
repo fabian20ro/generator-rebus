@@ -7,6 +7,10 @@ import type { Clue } from "../db/puzzle-repository";
 import type { GridState } from "./grid-renderer";
 import { findActiveClue } from "./grid-renderer";
 
+const MAX_FONT_SIZE_REM = 1.05;
+const MIN_FONT_SIZE_REM = 0.66;
+const FONT_STEP_REM = 0.04;
+
 export function renderDefinitionBar(
   container: HTMLElement,
   state: GridState
@@ -15,6 +19,7 @@ export function renderDefinitionBar(
   if (!clue) {
     container.textContent = "";
     container.classList.add("definition-bar--empty");
+    container.style.removeProperty("--definition-font-size");
     return;
   }
 
@@ -33,4 +38,17 @@ export function renderDefinitionBar(
 
   container.appendChild(badge);
   container.appendChild(text);
+  fitDefinitionText(container, text);
+}
+
+function fitDefinitionText(container: HTMLElement, text: HTMLElement): void {
+  let fontSize = MAX_FONT_SIZE_REM;
+  text.style.fontSize = `${fontSize}rem`;
+
+  while (fontSize > MIN_FONT_SIZE_REM && text.scrollHeight > text.clientHeight + 1) {
+    fontSize = Math.max(MIN_FONT_SIZE_REM, fontSize - FONT_STEP_REM);
+    text.style.fontSize = `${fontSize}rem`;
+  }
+
+  container.style.setProperty("--definition-font-size", `${fontSize}rem`);
 }

@@ -91,17 +91,18 @@
 .definition-bar {
   width: 100%;
   max-width: min(90vw, 500px);
-  min-height: 2.5rem;
-  padding: 0.5rem 0.75rem;
+  min-height: 5.8rem;
+  padding: 0.55rem 0.75rem 0.6rem;
   background: var(--card-bg);
   border: 2px solid var(--black-cell);
   border-bottom: none;
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   gap: 0.5rem;
-  font-size: 1.15rem;
-  line-height: 1.3;
+  line-height: 1.25;
   transition: opacity 0.15s;
+  overflow: hidden;
 }
 
 .definition-bar--empty {
@@ -122,8 +123,15 @@
 }
 
 .definition-bar__text {
+  display: block;
   font-style: italic;
   color: var(--text);
+  font-size: var(--definition-font-size, 1.05rem);
+  line-height: 1.25;
+  min-height: calc(1em * 3 * 1.25);
+  max-height: calc(1em * 3 * 1.25);
+  overflow: hidden;
+  text-wrap: pretty;
 }
 
 /* --- Header points display --- */

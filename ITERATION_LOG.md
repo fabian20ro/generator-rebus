@@ -567,6 +567,22 @@
 **Insight:** once LM Studio starts honoring reasoning params, old completion budgets may become invalid immediately because reasoning tokens consume the same completion budget; phase-specific retuning is mandatory.
 **Promoted:** yes — see LESSONS_LEARNED entry on LM Studio reasoning and completion budgets.
 
+### [2026-03-31] — Make crossword grid letters bold
+**Context:** user wanted the letters entered into the crossword grid to read more strongly.
+**Happened:** Updated `frontend/src/styles/grid.css` so `.cell__input` now uses `font-weight: 700` instead of the previous semi-bold setting.
+**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+**Outcome:** success
+**Insight:** crossword cell typography benefits from decisively heavier weight than surrounding UI copy; half-bold can still look washed out once the grid borders and number marks compete for contrast.
+**Promoted:** no
+
+### [2026-03-31] — Stabilize definition bar height and auto-shrink long clue text
+**Context:** user wanted the active clue box above the grid to always reserve room for three text rows, shrink long clue text until it fits, stop making the grid jump vertically, and remove the `16/44` counter from between the clue box and the grid.
+**Happened:** Updated `frontend/src/styles/gamification.css` so the definition bar now has a stable three-line height and the clue text is constrained to a fixed three-line text box. Extended `frontend/src/components/definition-bar.ts` with a small font-fit loop that starts from the normal clue font size and steps downward until the clue text fits inside that three-line area. Hid `progress-counter` in `frontend/src/styles/grid.css` so the `16/44` indicator no longer appears between the clue box and the grid. Added a lightweight `resize` refresh hook in `frontend/src/main.ts` so the definition text is re-fitted when the viewport width changes.
+**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+**Outcome:** success
+**Insight:** if dynamic clue text lives above a fixed-aspect-ratio grid, the safest way to avoid layout jitter is to stabilize the container height first and only then fit the typography into that box; doing only one of the two still causes visible vertical movement.
+**Promoted:** no
+
 ### [2026-03-31] — Make crossword backspace retreat to the previous square
 **Context:** user clarified that the backspace behavior on the custom keyboard should move back to the previous crossword square instead of acting like a stationary delete on the current one.
 **Happened:** Updated `frontend/src/components/input-handler.ts` so `Backspace` now behaves like crossword backspace: if the current cell has a letter, it clears it and moves to the previous square on the active direction; if the current cell is already empty, it moves back first and clears that previous square. Wired the touch remote in `frontend/src/main.ts` to use the same shared backspace helper, and updated the touch keyboard button copy in `frontend/index.html` to describe backspace semantics instead of plain delete semantics.
