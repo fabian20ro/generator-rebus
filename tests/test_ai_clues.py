@@ -3,7 +3,9 @@ import unittest
 from types import SimpleNamespace
 
 from generator.core.ai_clues import (
+    DefinitionComparisonVote,
     DefinitionRating,
+    compare_definition_variants,
     RewriteAttemptResult,
     _clean_response,
     _extract_usage_suffix_from_dex,
@@ -17,9 +19,10 @@ from generator.core.ai_clues import (
     generate_definition,
     rate_definition,
     rewrite_definition,
+    run_definition_referee,
     verify_definition_candidates,
 )
-from generator.core.model_manager import PRIMARY_MODEL
+from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.prompts.loader import load_system_prompt
 
 
@@ -209,6 +212,77 @@ class AiCluesTests(unittest.TestCase):
         self.assertIsNotNone(rating)
         self.assertEqual(2, len(client.prompts))
         self.assertIn("strict cu un singur obiect JSON valid", client.prompts[1])
+
+    def test_generate_definition_includes_existing_canonical_definitions(self):
+        client = _RecordingClient(["Locuință pentru oameni."])
+
+        generate_definition(
+            client,
+            word="CASA",
+            original="casa",
+            theme="",
+            existing_canonical_definitions=["Clădire destinată locuirii."],
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertIn("Definiții canonice deja folosite", client.prompts[0])
+        self.assertIn("Clădire destinată locuirii.", client.prompts[0])
+
+    def test_compare_definition_variants_parses_structured_json(self):
+        client = _RecordingClient([
+            json.dumps({
+                "same_meaning": True,
+                "better": "B",
+                "reason": "B este mai scurtă.",
+            })
+        ])
+
+        vote = compare_definition_variants(
+            client,
+            word="LA",
+            answer_length=2,
+            definition_a="Prepoziție care indică locul.",
+            definition_b="Prepoziție care indică destinația sau locul.",
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertTrue(vote.same_meaning)
+        self.assertEqual("B", vote.better)
+        self.assertIn("scurtă", vote.reason)
+
+    def test_run_definition_referee_remaps_swapped_votes_back_to_original_orientation(self):
+        class _Runtime:
+            def __init__(self):
+                self.activated = []
+
+            def activate(self, model):
+                self.activated.append(model.model_id)
+                return model
+
+        runtime = _Runtime()
+        client = object()
+        votes = [
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
+        ]
+
+        with unittest.mock.patch("generator.core.ai_clues.compare_definition_variants", side_effect=votes):
+            result = run_definition_referee(
+                client,
+                runtime,
+                word="LA",
+                answer_length=2,
+                definition_a="A",
+                definition_b="B",
+            )
+
+        self.assertEqual(6, result.same_meaning_votes)
+        self.assertEqual(2, result.better_a_votes)
+        self.assertEqual(4, result.better_b_votes)
 
 
     def test_clean_response_strips_model_tokens(self):

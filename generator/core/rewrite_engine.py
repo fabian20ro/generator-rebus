@@ -11,6 +11,7 @@ from .ai_clues import (
     generate_definition,
     rewrite_definition,
 )
+from .clue_canon import ClueCanonService
 from .lm_runtime import LmRuntime
 from .pipeline_state import (
     ClueCandidateVersion,
@@ -104,6 +105,7 @@ def _build_pending_candidates(
     client,
     theme: str,
     current_model,
+    clue_canon: ClueCanonService | None,
     wrong_guess: str,
     wrong_guesses: list[str],
     rating_feedback: str,
@@ -135,6 +137,9 @@ def _build_pending_candidates(
 
     had_error = False
     rewrite_rejection_reason = ""
+    existing_canonical_definitions = (
+        clue_canon.fetch_prompt_examples(clue.word_normalized) if clue_canon is not None else []
+    )
     if clue.current.definition.startswith("["):
         _maybe_add(
             generate_definition(
@@ -145,6 +150,7 @@ def _build_pending_candidates(
                 retries=3,
                 word_type=clue.word_type,
                 dex_definitions=dex_defs,
+                existing_canonical_definitions=existing_canonical_definitions,
                 model=current_model.model_id,
             ),
             source="generate",
@@ -166,6 +172,7 @@ def _build_pending_candidates(
             bad_example_reason=bad_example_reason,
             word_type=clue.word_type,
             dex_definitions=dex_defs,
+            existing_canonical_definitions=existing_canonical_definitions,
             failure_history=failure_history or None,
             model=current_model.model_id,
             return_diagnostics=True,
@@ -190,6 +197,7 @@ def _build_pending_candidates(
                 retries=3,
                 word_type=clue.word_type,
                 dex_definitions=dex_defs,
+                existing_canonical_definitions=existing_canonical_definitions,
                 model=current_model.model_id,
             )
             _maybe_add(fresh_candidate, source="generate", strategy_label="fresh_generate")
@@ -277,12 +285,14 @@ def run_rewrite_loop(
     dex: DexProvider | None = None,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
     hybrid_deanchor: bool = False,
+    clue_canon: ClueCanonService | None = None,
     runtime: LmRuntime | None = None,
 ) -> RewriteLoopResult:
     """Verify, rate, rewrite, and restore best clue versions for a puzzle."""
     if dex is None:
         dex = DexProvider.for_puzzle(puzzle)
 
+    clue_canon = clue_canon or ClueCanonService()
     runtime = runtime or LmRuntime(multi_model=multi_model)
     current_model = runtime.activate_initial_evaluator()
     if multi_model:
@@ -402,6 +412,7 @@ def run_rewrite_loop(
                 client=client,
                 theme=theme,
                 current_model=current_model,
+                clue_canon=clue_canon,
                 wrong_guess=wrong_guess,
                 wrong_guesses=wrong_guesses,
                 rating_feedback=rating_feedback,

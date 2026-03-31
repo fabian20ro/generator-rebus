@@ -11,6 +11,9 @@ from supabase import create_client as create_supabase_client
 
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from .core.ai_clues import create_client as create_ai_client
+from .core.clue_canon import ClueCanonService
+from .core.clue_canon_store import ClueCanonStore
+from .core.clue_rating import extract_creativity_score, extract_rebus_score, extract_semantic_score
 from .core.lm_runtime import LmRuntime
 from .core.pipeline_state import all_working_clues, puzzle_from_working_state
 from .core.prompt_runtime import preload_runtime_prompts, prompt_runtime_audit
@@ -156,10 +159,24 @@ def _persist_puzzle_metadata(supabase, puzzle_id: str, payload: dict[str, object
     )
 
 
-def _persist_clues(supabase, puzzle_id: str, clue_rows: list[dict], puzzle, *, dry_run: bool) -> None:
+def _persist_clues(
+    supabase,
+    puzzle_id: str,
+    clue_rows: list[dict],
+    puzzle,
+    *,
+    ai_client,
+    runtime: LmRuntime,
+    dry_run: bool,
+) -> None:
     if dry_run:
         return
 
+    clue_canon = ClueCanonService(
+        store=ClueCanonStore(client=supabase),
+        client=ai_client,
+        runtime=runtime,
+    )
     key_to_id = {
         ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row["id"]
         for row in clue_rows
@@ -170,12 +187,23 @@ def _persist_clues(supabase, puzzle_id: str, clue_rows: list[dict], puzzle, *, d
             clue_id = key_to_id.get((direction, clue.start_row, clue.start_col))
             if not clue_id:
                 continue
+            verify_note = clue.verify_note or ""
+            decision = clue_canon.resolve_definition(
+                word_normalized=clue.word_normalized,
+                word_original=clue.word_original,
+                definition=clue.definition,
+                verified=bool(clue.verified),
+                semantic_score=extract_semantic_score(verify_note),
+                rebus_score=extract_rebus_score(verify_note),
+                creativity_score=extract_creativity_score(verify_note),
+            )
             execute_logged_update(
                 supabase,
                 "crossword_clues",
                 {
-                    "definition": clue.definition,
-                    "verify_note": clue.verify_note or "",
+                    "definition": decision.canonical_definition,
+                    "canonical_definition_id": decision.canonical_definition_id,
+                    "verify_note": verify_note,
                     "verified": bool(clue.verified),
                 },
                 eq_filters={"id": clue_id, "puzzle_id": puzzle_id},
@@ -271,7 +299,15 @@ def repair_puzzle(
     }
     print(f"  [{puzzle_id}] accepted — '{puzzle_row.get('title', '')}' -> '{candidate_puzzle.title}'")
     _persist_puzzle_metadata(supabase, puzzle_id, puzzle_payload, dry_run=dry_run)
-    _persist_clues(supabase, puzzle_id, clue_rows, candidate_puzzle, dry_run=dry_run)
+    _persist_clues(
+        supabase,
+        puzzle_id,
+        clue_rows,
+        candidate_puzzle,
+        ai_client=ai_client,
+        runtime=runtime,
+        dry_run=dry_run,
+    )
     print(
         f"  [{puzzle_id}] rewrite summary "
         f"{rewrite_result.initial_passed}/{rewrite_result.total} -> "

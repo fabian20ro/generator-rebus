@@ -145,6 +145,12 @@
   background: #475569;
 }
 
+.btn-pencil__icon {
+  display: none;
+  font-size: 1rem;
+  line-height: 1;
+}
+
 .btn:disabled,
 .btn:hover:disabled {
   cursor: default;
@@ -162,6 +168,122 @@
   background: rgba(255, 255, 255, 0.2);
   font-size: 0.78rem;
   line-height: 1.2;
+}
+
+.touch-remote {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  width: min(100%, 500px);
+  margin-top: 0.75rem;
+  padding: 0.7rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow);
+}
+
+.touch-remote__row {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.touch-remote__row--top {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+}
+
+.touch-remote__row--middle {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  padding-inline: 1rem;
+}
+
+.touch-remote__row--bottom {
+  grid-template-columns: minmax(3.5rem, 1.15fr) repeat(7, minmax(0, 1fr)) minmax(3.5rem, 1.15fr);
+}
+
+.touch-remote__key {
+  min-height: 3rem;
+  border: 1px solid rgba(26, 26, 26, 0.08);
+  border-radius: 14px;
+  background: #f8fafc;
+  color: var(--text);
+  font-size: 1.02rem;
+  font-weight: 700;
+  font-family: "Georgia", "Times New Roman", serif;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+  transition: transform 0.1s, background 0.15s, box-shadow 0.15s;
+}
+
+.touch-remote__key:hover {
+  background: #e2e8f0;
+}
+
+.touch-remote__key:active {
+  transform: translateY(1px);
+}
+
+.touch-remote__key:disabled {
+  cursor: default;
+  opacity: 0.55;
+  transform: none;
+}
+
+.touch-remote__key--direction,
+.touch-remote__key--delete {
+  background: #1e293b;
+  color: #fff;
+}
+
+.touch-remote__key--direction:hover,
+.touch-remote__key--delete:hover {
+  background: #0f172a;
+}
+
+.touch-remote__direction-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+}
+
+.touch-remote__direction-core {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.touch-remote__arrow {
+  position: absolute;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.32);
+  transition: color 0.15s, transform 0.15s;
+}
+
+.touch-remote__arrow--up {
+  top: -0.05rem;
+}
+
+.touch-remote__arrow--right {
+  right: -0.05rem;
+}
+
+.touch-remote__arrow--down {
+  bottom: -0.05rem;
+}
+
+.touch-remote__arrow--left {
+  left: -0.05rem;
+}
+
+.touch-remote__key--horizontal .touch-remote__arrow--left,
+.touch-remote__key--horizontal .touch-remote__arrow--right,
+.touch-remote__key--vertical .touch-remote__arrow--up,
+.touch-remote__key--vertical .touch-remote__arrow--down {
+  color: #fff;
+  transform: scale(1.15);
 }
 
 /* Clues */

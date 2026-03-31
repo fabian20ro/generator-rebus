@@ -160,6 +160,23 @@ python -m generator activate a1b2c3d4-e5f6-7890-abcd-ef1234567890
 - Skip `verify` and use `--force` on upload
 - Edit any intermediate `.md` file in a text editor between phases
 
+## Canonical clue backfill
+
+Use the repo-root wrapper to refactor/backfill canonical clue definitions through the existing CLI:
+
+```bash
+# Dry-run report only
+./run_clue_canon_backfill.sh --dry-run
+
+# Full apply across all eligible words
+./run_clue_canon_backfill.sh --apply
+
+# Target one word / limit the batch
+./run_clue_canon_backfill.sh --dry-run --word APA --limit 10 --min-count 3
+```
+
+If you omit both `--apply` and `--dry-run`, the wrapper defaults to `--apply`.
+
 ## Markdown format
 
 Each phase progressively adds to the same markdown structure:

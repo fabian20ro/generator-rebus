@@ -13,7 +13,7 @@ export function handleCellClick(
 
   // Toggle direction if clicking the same cell
   if (row === state.activeRow && col === state.activeCol) {
-    state.activeDirection = state.activeDirection === "H" ? "V" : "H";
+    toggleDirection(state);
   }
 
   state.activeRow = row;
@@ -54,7 +54,7 @@ export function handleKeyDown(
       return true;
 
     case "Enter":
-      state.activeDirection = state.activeDirection === "H" ? "V" : "H";
+      toggleDirection(state);
       e.preventDefault();
       return true;
 
@@ -105,6 +105,22 @@ export function handleKeyDown(
       return false;
     }
   }
+}
+
+export function handleVirtualLetter(state: GridState, value: string): void {
+  if (!hasActiveCell(state)) return;
+  const normalized = value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 1);
+  if (!normalized) return;
+  handleCellInput(state, state.activeRow, state.activeCol, normalized);
+}
+
+export function deleteActiveCell(state: GridState): void {
+  if (!hasActiveCell(state)) return;
+  state.cells[state.activeRow][state.activeCol] = null;
+}
+
+export function toggleDirection(state: GridState): void {
+  state.activeDirection = state.activeDirection === "H" ? "V" : "H";
 }
 
 function advanceCursor(state: GridState): void {
@@ -170,4 +186,14 @@ function jumpToNextSlot(state: GridState, reverse: boolean): void {
   const nextClue = dirClues[nextIdx];
   state.activeRow = nextClue.start_row;
   state.activeCol = nextClue.start_col;
+}
+
+function hasActiveCell(state: GridState): boolean {
+  return (
+    state.activeRow >= 0 &&
+    state.activeRow < state.size &&
+    state.activeCol >= 0 &&
+    state.activeCol < state.size &&
+    state.template[state.activeRow][state.activeCol]
+  );
 }

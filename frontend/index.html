@@ -63,11 +63,73 @@
                 class="btn btn-pencil"
                 type="button"
                 title="Marchează literele noi ca tentative"
+                aria-label="Creion oprit. Marchează literele noi ca tentative."
                 aria-pressed="false"
               >
+                <span class="btn-pencil__icon" aria-hidden="true">✏️</span>
                 <span class="btn-pencil__label">Creion</span>
                 <span class="btn-pencil__state">Oprit</span>
               </button>
+            </div>
+            <div id="touch-remote" class="touch-remote hidden" aria-label="Telecomandă rebus">
+              <div class="touch-remote__row touch-remote__row--top">
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="Q">Q</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="W">W</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="E">E</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="R">R</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="T">T</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="Y">Y</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="U">U</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="I">I</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="O">O</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="P">P</button>
+              </div>
+              <div class="touch-remote__row touch-remote__row--middle">
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="A">A</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="S">S</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="D">D</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="F">F</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="G">G</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="H">H</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="J">J</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="K">K</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="L">L</button>
+              </div>
+              <div class="touch-remote__row touch-remote__row--bottom">
+                <button
+                  id="touch-remote-direction"
+                  class="touch-remote__key touch-remote__key--direction"
+                  type="button"
+                  data-remote-action="direction"
+                  aria-label="Direcție activă: orizontală"
+                  title="Schimbă orientarea definiției"
+                >
+                  <span class="touch-remote__direction-icon" aria-hidden="true">
+                    <span class="touch-remote__arrow touch-remote__arrow--up">↑</span>
+                    <span class="touch-remote__arrow touch-remote__arrow--right">→</span>
+                    <span class="touch-remote__arrow touch-remote__arrow--down">↓</span>
+                    <span class="touch-remote__arrow touch-remote__arrow--left">←</span>
+                    <span class="touch-remote__direction-core"></span>
+                  </span>
+                </button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="Z">Z</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="X">X</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="C">C</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="V">V</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="B">B</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="N">N</button>
+                <button class="touch-remote__key" type="button" data-remote-action="key" data-key="M">M</button>
+                <button
+                  id="touch-remote-delete"
+                  class="touch-remote__key touch-remote__key--delete"
+                  type="button"
+                  data-remote-action="delete"
+                  aria-label="Șterge litera curentă"
+                  title="Șterge litera curentă"
+                >
+                  ⌫
+                </button>
+              </div>
             </div>
           </div>
           <div class="clues-container">

@@ -33,3 +33,21 @@ def execute_logged_update(
         f"payload_keys=[{keys_text}] rows={row_count}"
     )
     return result
+
+
+def execute_logged_insert(
+    client,
+    table: str,
+    payload: dict[str, object] | list[dict[str, object]],
+):
+    result = client.table(table).insert(payload).execute()
+    row_count = len(result.data or [])
+    if isinstance(payload, list):
+        keys = sorted({key for row in payload for key in row})
+    else:
+        keys = sorted(payload)
+    keys_text = ", ".join(keys)
+    log(
+        f"[supabase insert] table={table} payload_keys=[{keys_text}] rows={row_count}"
+    )
+    return result

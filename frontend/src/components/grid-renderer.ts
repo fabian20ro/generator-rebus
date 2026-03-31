@@ -16,6 +16,7 @@ export interface GridState {
   pencilCells: boolean[][]; // true = entered in pencil mode
   solution: (string | null)[][] | null;
   isSolvedView: boolean;
+  touchRemoteEnabled: boolean;
   clues: Clue[];
   activeRow: number;
   activeCol: number;
@@ -52,6 +53,7 @@ export function createGridState(
     pencilCells,
     solution: null,
     isSolvedView: false,
+    touchRemoteEnabled: false,
     clues,
     activeRow: -1,
     activeCol: -1,
@@ -175,6 +177,7 @@ export function createGrid(
       cell.dataset.row = String(r);
       cell.dataset.col = String(c);
       cell.setAttribute("role", "gridcell");
+      cell.tabIndex = -1;
 
       if (!state.template[r][c]) {
         cell.classList.add("cell--black");
@@ -202,8 +205,9 @@ export function createGrid(
       input.dataset.col = String(c);
       input.autocomplete = "off";
       input.autocapitalize = "characters";
+      input.inputMode = state.touchRemoteEnabled ? "none" : "text";
       input.setAttribute("aria-label", `Rând ${r + 1}, Coloană ${c + 1}`);
-      input.readOnly = state.isSolvedView;
+      input.readOnly = state.isSolvedView || state.touchRemoteEnabled;
 
       cell.appendChild(input);
       container.appendChild(cell);
@@ -262,7 +266,8 @@ export function updateGrid(
         input.removeAttribute("aria-current");
       }
 
-      input.readOnly = state.isSolvedView;
+      input.inputMode = state.touchRemoteEnabled ? "none" : "text";
+      input.readOnly = state.isSolvedView || state.touchRemoteEnabled;
 
       // Update input value only when it differs (avoids cursor jump)
       const displayVal = cellValue && cellValue !== "!" && cellValue !== "#" ? cellValue : "";
@@ -343,14 +348,16 @@ export function findActiveClue(state: GridState): Clue | undefined {
 export function focusCell(
   container: HTMLElement,
   row: number,
-  col: number
+  col: number,
+  options: { native?: boolean } = {}
 ): void {
   const ref = cellRefs.get(`${row},${col}`);
   if (ref) {
+    const target = options.native === false ? ref.cell : ref.input;
     try {
-      ref.input.focus({ preventScroll: true });
+      target.focus({ preventScroll: true });
     } catch {
-      ref.input.focus();
+      target.focus();
     }
   }
 }

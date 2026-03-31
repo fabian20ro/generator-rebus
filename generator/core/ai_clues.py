@@ -12,10 +12,12 @@ from openai import OpenAI
 
 from ..config import LMSTUDIO_BASE_URL, VERIFY_CANDIDATE_COUNT
 from ..prompts.loader import load_system_prompt, load_user_template
+from .clue_canon import aggregate_referee_votes
+from .clue_canon_types import DefinitionComparisonVote, DefinitionRefereeResult
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
 from .llm_text import clean_llm_text_response
-from .model_manager import PRIMARY_MODEL, chat_reasoning_options
+from .model_manager import PRIMARY_MODEL, SECONDARY_MODEL, chat_reasoning_options
 from .quality import ENGLISH_HOMOGRAPH_HINTS
 from .runtime_logging import log
 
@@ -395,6 +397,21 @@ def _build_generate_prompt(display_word: str, word: str, length: int, word_type:
     return prompt
 
 
+def _append_existing_canonical_definitions(prompt: str, existing_definitions: list[str] | None) -> str:
+    if not existing_definitions:
+        return prompt
+    lines = [f"- {definition}" for definition in existing_definitions if definition]
+    if not lines:
+        return prompt
+    return (
+        prompt
+        + "\nDefiniții canonice deja folosite pentru același cuvânt:\n"
+        + "\n".join(lines)
+        + "\nEvită să reformulezi aceeași idee aproape identic. "
+          "Dacă poți, alege un alt unghi semantic clar distinct."
+    )
+
+
 def _build_rewrite_prompt(
     display_word: str,
     word: str,
@@ -502,6 +519,15 @@ def _build_rate_prompt(display_word: str, word: str, definition: str, answer_len
 
 def _build_clue_tiebreak_prompt(word: str, answer_length: int, definition_a: str, definition_b: str) -> str:
     return load_user_template("clue_tiebreak").format(
+        word=word,
+        answer_length=answer_length,
+        definition_a=definition_a,
+        definition_b=definition_b,
+    )
+
+
+def _build_clue_compare_prompt(word: str, answer_length: int, definition_a: str, definition_b: str) -> str:
+    return load_user_template("clue_compare").format(
         word=word,
         answer_length=answer_length,
         definition_a=definition_a,
@@ -636,6 +662,7 @@ def generate_definition(
     retries: int = 3,
     word_type: str = "",
     dex_definitions: str = "",
+    existing_canonical_definitions: list[str] | None = None,
     temperature: float | None = None,
     model: str | None = None,
 ) -> str:
@@ -643,6 +670,7 @@ def generate_definition(
     display_word = original if original else word.lower()
     length = len(word)
     prompt = _build_generate_prompt(display_word, word, length, word_type=word_type, dex_definitions=dex_definitions)
+    prompt = _append_existing_canonical_definitions(prompt, existing_canonical_definitions)
     system_prompt = load_system_prompt("definition")
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     print(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
@@ -696,6 +724,7 @@ def rewrite_definition(
     bad_example_reason: str = "",
     word_type: str = "",
     dex_definitions: str = "",
+    existing_canonical_definitions: list[str] | None = None,
     failure_history: list[tuple[str, list[str]]] | None = None,
     wrong_guesses: list[str] | None = None,
     temperature: float | None = None,
@@ -725,6 +754,7 @@ def rewrite_definition(
         word_type=word_type, dex_definitions=dex_definitions,
         failure_history=failure_history,
     )
+    prompt = _append_existing_canonical_definitions(prompt, existing_canonical_definitions)
     system_prompt = load_system_prompt("rewrite")
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     print(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
@@ -911,6 +941,121 @@ def rate_definition(
             pass
 
     return None
+
+
+def _extract_json_object(raw: str) -> dict | None:
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw or "", re.DOTALL)
+    bare_match = re.search(r"\{.*\}", raw or "", re.DOTALL)
+    match = fence_match or bare_match
+    if not match:
+        return None
+    json_str = match.group(1) if fence_match and match is fence_match else match.group()
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
+
+
+def compare_definition_variants(
+    client: OpenAI,
+    word: str,
+    answer_length: int,
+    definition_a: str,
+    definition_b: str,
+    *,
+    model: str | None = None,
+) -> DefinitionComparisonVote:
+    prompt = _build_clue_compare_prompt(word, answer_length, definition_a, definition_b)
+    retry_prompt = (
+        "\nRăspunde strict cu un singur obiect JSON valid de forma "
+        '{"same_meaning": true|false, "better": "A"|"B"|"equal", "reason": "..."} '
+        "fără text suplimentar."
+    )
+    resolved_model = _resolve_model_name(model)
+    for attempt in range(2):
+        try:
+            response = _chat_completion_create(
+                client,
+                model=resolved_model,
+                messages=[
+                    {"role": "system", "content": load_system_prompt("clue_compare")},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                max_tokens=300,
+                purpose="clue_compare",
+            )
+            data = _extract_json_object(response.choices[0].message.content or "")
+            if not data:
+                prompt += retry_prompt
+                continue
+            better = str(data.get("better", "equal")).strip().upper()
+            if better not in {"A", "B", "EQUAL"}:
+                better = "equal"
+            else:
+                better = better.lower() if better == "EQUAL" else better
+            return DefinitionComparisonVote(
+                model_id=resolved_model,
+                same_meaning=bool(data.get("same_meaning")),
+                better=better,
+                reason=str(data.get("reason", "")).strip(),
+            )
+        except Exception:
+            if attempt == 0:
+                prompt += retry_prompt
+                continue
+    return DefinitionComparisonVote(
+        model_id=resolved_model,
+        same_meaning=False,
+        better="equal",
+        reason="compare_failed",
+    )
+
+
+def run_definition_referee(
+    client: OpenAI,
+    runtime,
+    word: str,
+    answer_length: int,
+    definition_a: str,
+    definition_b: str,
+) -> DefinitionRefereeResult:
+    votes: list[DefinitionComparisonVote] = []
+    schedule = (
+        (PRIMARY_MODEL, False),
+        (PRIMARY_MODEL, True),
+        (PRIMARY_MODEL, False),
+        (SECONDARY_MODEL, True),
+        (SECONDARY_MODEL, False),
+        (SECONDARY_MODEL, True),
+    )
+    for model_config, swap in schedule:
+        if runtime is not None:
+            runtime.activate(model_config)
+        left = definition_b if swap else definition_a
+        right = definition_a if swap else definition_b
+        vote = compare_definition_variants(
+            client,
+            word,
+            answer_length,
+            left,
+            right,
+            model=model_config.model_id,
+        )
+        if swap:
+            better = vote.better
+            if better == "A":
+                better = "B"
+            elif better == "B":
+                better = "A"
+            vote = DefinitionComparisonVote(
+                model_id=vote.model_id,
+                same_meaning=vote.same_meaning,
+                better=better,
+                reason=vote.reason,
+            )
+        votes.append(vote)
+    return aggregate_referee_votes(votes)
 
 
 def choose_better_clue_variant(

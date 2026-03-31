@@ -23,6 +23,9 @@ import {
   handleCellClick,
   handleCellInput,
   handleKeyDown,
+  handleVirtualLetter,
+  deleteActiveCell,
+  toggleDirection,
 } from "./components/input-handler";
 import {
   renderAvailableControls,
@@ -101,6 +104,13 @@ const completionDetails = document.getElementById("completion-details")!;
 const navTabs = document.getElementById("nav-tabs")!;
 const btnPencil = document.getElementById("btn-pencil")!;
 const btnPencilState = btnPencil.querySelector(".btn-pencil__state")!;
+const touchRemote = document.getElementById("touch-remote")!;
+const touchRemoteDirection = document.getElementById(
+  "touch-remote-direction"
+) as HTMLButtonElement;
+const touchRemoteButtons = Array.from(
+  touchRemote.querySelectorAll<HTMLButtonElement>("button")
+);
 
 // --- State ---
 let gridState: GridState | null = null;
@@ -117,9 +127,20 @@ let activeTab: AppTab = "available";
 let availableBrowseState: AvailableTabBrowseState = {
   size: "all",
 };
+const touchRemoteEnabled = detectTouchRemoteEnabled();
+
+document.documentElement.classList.toggle(
+  "touch-remote-enabled",
+  touchRemoteEnabled
+);
 
 function isSolvedGridView(): boolean {
   return !!gridState?.isSolvedView;
+}
+
+function detectTouchRemoteEnabled(): boolean {
+  const coarsePointer = window.matchMedia?.("(any-pointer: coarse)").matches;
+  return navigator.maxTouchPoints > 0 || !!coarsePointer;
 }
 
 function setPuzzleInteractionDisabled(disabled: boolean): void {
@@ -127,6 +148,7 @@ function setPuzzleInteractionDisabled(disabled: boolean): void {
   btnHintLetter.toggleAttribute("disabled", disabled);
   btnHintWord.toggleAttribute("disabled", disabled);
   btnPencil.toggleAttribute("disabled", disabled);
+  renderTouchRemote();
 }
 
 function hydrateSolvedGridFromSolution(state: GridState): boolean {
@@ -351,12 +373,15 @@ function renderCurrentTab(): void {
 function showTab(tab: AppTab): void {
   saveCurrentProgress();
   activeTab = tab;
+  gridState = null;
+  currentPuzzleId = null;
 
   puzzleView.classList.add("hidden");
   puzzleTitle.textContent = "";
   setPuzzleMeta();
   btnBack.classList.add("hidden");
   navTabs.classList.remove("hidden");
+  renderTouchRemote();
 
   renderCurrentTab();
 }
@@ -411,9 +436,96 @@ function renderPencilButton(): void {
   btnPencil.classList.toggle("btn-pencil--active", pencilMode);
   btnPencil.setAttribute("aria-pressed", String(pencilMode));
   btnPencilState.textContent = pencilMode ? "Pornit" : "Oprit";
-  btnPencil.title = pencilMode
+  const title = pencilMode
     ? "Literele noi vor fi marcate ca tentative"
     : "Literele noi vor fi introduse ca răspuns final";
+  btnPencil.title = title;
+  btnPencil.setAttribute(
+    "aria-label",
+    pencilMode
+      ? "Creion pornit. Literele noi vor fi marcate ca tentative."
+      : "Creion oprit. Literele noi vor fi introduse ca răspuns final."
+  );
+}
+
+function focusActiveCell(): void {
+  if (!gridState || gridState.activeRow < 0 || gridState.activeCol < 0) return;
+  focusCell(gridContainer, gridState.activeRow, gridState.activeCol, {
+    native: !touchRemoteEnabled,
+  });
+}
+
+function renderTouchRemote(): void {
+  const showRemote =
+    touchRemoteEnabled && !!gridState && !gridState.isSolvedView;
+  touchRemote.classList.toggle("hidden", !showRemote);
+
+  const disabled = !showRemote;
+  for (const button of touchRemoteButtons) {
+    button.disabled = disabled;
+  }
+
+  if (!showRemote || !gridState) {
+    touchRemoteDirection.classList.remove(
+      "touch-remote__key--horizontal",
+      "touch-remote__key--vertical"
+    );
+    return;
+  }
+
+  const isHorizontal = gridState.activeDirection === "H";
+  touchRemoteDirection.classList.toggle(
+    "touch-remote__key--horizontal",
+    isHorizontal
+  );
+  touchRemoteDirection.classList.toggle(
+    "touch-remote__key--vertical",
+    !isHorizontal
+  );
+  touchRemoteDirection.setAttribute(
+    "aria-label",
+    isHorizontal
+      ? "Direcție activă: orizontală. Apasă pentru verticală."
+      : "Direcție activă: verticală. Apasă pentru orizontală."
+  );
+}
+
+function performVirtualLetter(letter: string): void {
+  if (!gridState || isSolvedGridView()) return;
+  if (gridState.activeRow < 0 || gridState.activeCol < 0) return;
+
+  const row = gridState.activeRow;
+  const col = gridState.activeCol;
+  cellHistory.push(deepCopyCells(gridState.cells));
+  handleVirtualLetter(gridState, letter);
+  gridState.pencilCells[row][col] = pencilMode;
+  refresh();
+  focusActiveCell();
+  debouncedSaveProgress();
+
+  if (isPuzzleComplete(gridState)) {
+    handleCompletion();
+  }
+}
+
+function performVirtualDelete(): void {
+  if (!gridState || isSolvedGridView()) return;
+  if (gridState.activeRow < 0 || gridState.activeCol < 0) return;
+
+  cellHistory.push(deepCopyCells(gridState.cells));
+  deleteActiveCell(gridState);
+  refresh();
+  focusActiveCell();
+  debouncedSaveProgress();
+}
+
+function performDirectionToggle(): void {
+  if (!gridState || isSolvedGridView()) return;
+  if (gridState.activeRow < 0 || gridState.activeCol < 0) return;
+
+  toggleDirection(gridState);
+  refresh();
+  focusActiveCell();
 }
 
 // --- Grid callback helpers (defined once, always reference current gridState) ---
@@ -421,7 +533,7 @@ function onGridCellClick(row: number, col: number): void {
   if (isSolvedGridView()) return;
   handleCellClick(gridState!, row, col);
   refresh();
-  focusCell(gridContainer, row, col);
+  focusActiveCell();
 }
 
 function onGridCellInput(row: number, col: number, value: string): void {
@@ -432,7 +544,7 @@ function onGridCellInput(row: number, col: number, value: string): void {
     gridState!.pencilCells[row][col] = pencilMode;
   }
   refresh();
-  focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
+  focusActiveCell();
   debouncedSaveProgress();
   if (isPuzzleComplete(gridState!)) {
     handleCompletion();
@@ -481,7 +593,7 @@ function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
       gridState.pencilCells[row][col] = pencilMode;
     }
     refresh();
-    focusCell(gridContainer, gridState!.activeRow, gridState!.activeCol);
+    focusActiveCell();
     debouncedSaveProgress();
   }
 }
@@ -491,7 +603,7 @@ function onClueClick(clue: Clue): void {
   gridState!.activeCol = clue.start_col;
   gridState!.activeDirection = clue.direction;
   refresh();
-  focusCell(gridContainer, clue.start_row, clue.start_col);
+  focusActiveCell();
 }
 
 /** Whether createGrid has been called for the current puzzle. */
@@ -517,6 +629,7 @@ function refresh(): void {
   renderClues(cluesH, cluesV, gridState, onClueClick);
 
   renderDefinitionBar(definitionBar, gridState);
+  renderTouchRemote();
 
   // Update progress counter
   updateProgressCounter(gridState);
@@ -633,6 +746,7 @@ async function loadPuzzle(id: string): Promise<void> {
     const template: boolean[][] = JSON.parse(data.puzzle.grid_template);
 
     gridState = createGridState(data.puzzle.grid_size, template, data.clues);
+    gridState.touchRemoteEnabled = touchRemoteEnabled;
     gridInitialised = false; // force createGrid on next refresh
     cellHistory.clear();
     currentPuzzleId = id;
@@ -710,7 +824,7 @@ async function loadPuzzle(id: string): Promise<void> {
           gridState.activeRow = r;
           gridState.activeCol = c;
           refresh();
-          focusCell(gridContainer, r, c);
+          focusActiveCell();
           return;
         }
       }
@@ -733,6 +847,7 @@ async function showPuzzleList(): Promise<void> {
   puzzleTitle.textContent = "";
   setPuzzleMeta();
   progressCounter.textContent = "";
+  renderTouchRemote();
   navTabs.classList.remove("hidden");
   btnBack.classList.add("hidden");
   selectorControls.innerHTML = "";
@@ -853,6 +968,26 @@ btnPencil.addEventListener("click", async () => {
   renderPencilButton();
 });
 
+touchRemote.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    "[data-remote-action]"
+  );
+  if (!button || button.disabled) return;
+
+  const action = button.dataset.remoteAction;
+  if (action === "key") {
+    performVirtualLetter(button.dataset.key || "");
+    return;
+  }
+  if (action === "delete") {
+    performVirtualDelete();
+    return;
+  }
+  if (action === "direction") {
+    performDirectionToggle();
+  }
+});
+
 // --- PWA: check for service worker updates every 3 minutes ---
 import { registerSW } from "virtual:pwa-register";
 
@@ -878,6 +1013,7 @@ document.addEventListener("visibilitychange", () => {
 applySavedFontSize();
 initFontScaler(document.querySelector(".clues-container")!);
 renderPencilButton();
+renderTouchRemote();
 updatePointsDisplay();
 showPuzzleList();
 showTutorialIfNeeded();

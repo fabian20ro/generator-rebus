@@ -4,6 +4,7 @@ from __future__ import annotations
 from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.ai_clues import create_client, generate_definition
+from ..core.clue_canon import ClueCanonService
 from ..core.dex_cache import DexProvider
 from ..core.lm_runtime import LmRuntime
 from ..core.model_manager import ModelConfig, PRIMARY_MODEL
@@ -70,12 +71,14 @@ def generate_definitions_for_state(
     client: OpenAI,
     dex: DexProvider | None = None,
     *,
+    clue_canon: ClueCanonService | None = None,
     runtime: LmRuntime | None = None,
     model_config: ModelConfig | None = None,
 ) -> None:
     theme = state.title or "Rebus Românesc"
     print(f"Theme: {theme}")
     selected_model = model_config or PRIMARY_MODEL
+    clue_canon = clue_canon or ClueCanonService()
     if runtime is not None:
         selected_model = runtime.activate(selected_model)
 
@@ -91,10 +94,12 @@ def generate_definitions_for_state(
             else:
                 print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'})...")
             try:
+                existing_canonical_definitions = clue_canon.fetch_prompt_examples(clue.word_normalized)
                 definition = generate_definition(
                     client, clue.word_normalized, clue.word_original, theme,
                     word_type=clue.word_type,
                     dex_definitions=dex_defs,
+                    existing_canonical_definitions=existing_canonical_definitions,
                     model=selected_model.model_id,
                 )
             except Exception as e:
@@ -131,6 +136,7 @@ def generate_definitions_for_puzzle(
         state,
         client,
         dex=dex,
+        clue_canon=ClueCanonService(),
         runtime=runtime,
         model_config=model_config,
     )
@@ -149,7 +155,14 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     state = working_puzzle_from_puzzle(puzzle, split_compound=True)
     dex = DexProvider.for_puzzle(state)
     runtime = LmRuntime(multi_model=False)
-    generate_definitions_for_state(state, client, dex=dex, runtime=runtime, model_config=PRIMARY_MODEL)
+    generate_definitions_for_state(
+        state,
+        client,
+        dex=dex,
+        clue_canon=ClueCanonService(),
+        runtime=runtime,
+        model_config=PRIMARY_MODEL,
+    )
     puzzle = puzzle_from_working_state(state)
 
     md = write_with_definitions(puzzle)

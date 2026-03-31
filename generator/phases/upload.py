@@ -1,10 +1,13 @@
 """Phase 7: Upload a verified puzzle to Supabase."""
 
 from __future__ import annotations
+from datetime import datetime, timezone
 import json
 import sys
 from supabase import create_client
 from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from ..core.clue_canon import ClueCanonService
+from ..core.clue_canon_store import ClueCanonStore
 from ..core.markdown_io import parse_markdown
 from ..core.slot_extractor import Slot, extract_slots
 
@@ -30,6 +33,10 @@ def _grid_to_json(grid: list[list[str]]) -> tuple[str, str]:
 
 def _clean_definition(definition: str) -> str:
     return definition.split("→", 1)[0].strip()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _slots_with_words(grid: list[list[str]]) -> list[tuple[Slot, str]]:
@@ -127,6 +134,8 @@ def upload_puzzle(
     print(f"  Clues: {len(clue_records)}")
 
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    clue_canon = ClueCanonService(store=ClueCanonStore(client=client))
+    created_timestamp = _now_iso()
 
     # Insert puzzle
     puzzle_data = {
@@ -141,6 +150,8 @@ def upload_puzzle(
     }
     if metadata:
         puzzle_data.update(metadata)
+    puzzle_data["created_at"] = created_timestamp
+    puzzle_data["updated_at"] = created_timestamp
 
     result = client.table("crossword_puzzles").insert(puzzle_data).execute()
     puzzle_id = result.data[0]["id"]
@@ -149,6 +160,14 @@ def upload_puzzle(
     # Insert clues
     if clue_records:
         for record in clue_records:
+            decision = clue_canon.resolve_definition(
+                word_normalized=record["word_normalized"],
+                word_original=record["word_original"],
+                definition=record["definition"],
+            )
+            record["definition"] = decision.canonical_definition
+            if clue_canon.store.is_enabled():
+                record["canonical_definition_id"] = decision.canonical_definition_id
             record["puzzle_id"] = puzzle_id
         client.table("crossword_clues").insert(clue_records).execute()
         for record in clue_records:
@@ -156,7 +175,7 @@ def upload_puzzle(
                   f"{record['word_normalized']}: {record['definition'][:80]}")
 
     print(f"Uploaded! Puzzle ID: {puzzle_id}")
-    print(f"Run 'python rebus.py activate {puzzle_id}' to publish it.")
+    print(f"Run 'python -m generator activate {puzzle_id}' to publish it.")
     return puzzle_id
 
 

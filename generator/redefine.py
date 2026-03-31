@@ -21,6 +21,8 @@ from .core.puzzle_metrics import (
 from .core.score_helpers import _compact_log_text
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from .core.ai_clues import create_client as create_ai_client
+from .core.clue_canon import ClueCanonService
+from .core.clue_canon_store import ClueCanonStore
 from .core.lm_runtime import LmRuntime
 from .core.pipeline_state import (
     WorkingClue,
@@ -37,7 +39,7 @@ REDEFINE_ROUNDS = 7
 _CLUE_SELECT_FIELD_SETS = (
     (
         "id, puzzle_id, word_normalized, word_original, definition, direction, "
-        "start_row, start_col, length, clue_number, verify_note, verified"
+        "start_row, start_col, length, clue_number, verify_note, verified, canonical_definition_id"
     ),
     (
         "id, puzzle_id, word_normalized, word_original, definition, direction, "
@@ -188,7 +190,7 @@ def _apply_clue_version(target: WorkingClue, source: WorkingClue) -> None:
 
 def _clue_update_payload(row: dict, desired: dict[str, object]) -> dict[str, object]:
     payload = {"definition": desired["definition"]}
-    for field in ("verify_note", "verified"):
+    for field in ("verify_note", "verified", "canonical_definition_id"):
         if field in row:
             payload[field] = desired[field]
     return payload
@@ -331,6 +333,11 @@ def redefine_puzzle(
     candidate_clues = _working_clue_map(candidate_puzzle)
     persistence_puzzle = copy.deepcopy(baseline_puzzle)
     persistence_clues = _working_clue_map(persistence_puzzle)
+    clue_canon = ClueCanonService(
+        store=ClueCanonStore(client=supabase),
+        client=client,
+        runtime=runtime,
+    )
 
     updated_count = 0
     for row in clue_rows:
@@ -340,11 +347,25 @@ def redefine_puzzle(
         source_clue = candidate_clues.get(key)
         if not desired or not target_clue or not source_clue:
             continue
+        final_version = source_clue.active_version()
+        decision = clue_canon.resolve_definition(
+            word_normalized=source_clue.word_normalized,
+            word_original=source_clue.word_original,
+            definition=str(desired["definition"]),
+            verified=bool(desired.get("verified")),
+            semantic_score=final_version.assessment.scores.semantic_exactness,
+            rebus_score=final_version.assessment.scores.rebus_score,
+            creativity_score=final_version.assessment.scores.creativity,
+        )
+        desired = dict(desired)
+        desired["definition"] = decision.canonical_definition
+        desired["canonical_definition_id"] = decision.canonical_definition_id
         update_payload = _clue_update_payload(row, desired)
         current = {
             "definition": row.get("definition", "") or "",
             "verify_note": row.get("verify_note", "") or "",
             "verified": bool(row.get("verified")),
+            "canonical_definition_id": row.get("canonical_definition_id"),
         }
         comparable_current = {field: current[field] for field in update_payload}
         if comparable_current == update_payload:
