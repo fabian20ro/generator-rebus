@@ -44,12 +44,7 @@ export function handleKeyDown(
 ): boolean {
   switch (e.key) {
     case "Backspace":
-      if (!state.cells[row][col]) {
-        // Move back if cell is empty
-        retreatCursor(state);
-      } else {
-        state.cells[row][col] = null;
-      }
+      backspaceActiveCell(state);
       e.preventDefault();
       return true;
 
@@ -116,6 +111,29 @@ export function handleVirtualLetter(state: GridState, value: string): void {
 
 export function deleteActiveCell(state: GridState): void {
   if (!hasActiveCell(state)) return;
+  state.cells[state.activeRow][state.activeCol] = null;
+}
+
+export function backspaceActiveCell(state: GridState): void {
+  if (!hasActiveCell(state)) return;
+
+  if (state.cells[state.activeRow][state.activeCol]) {
+    state.cells[state.activeRow][state.activeCol] = null;
+    const originalRow = state.activeRow;
+    const originalCol = state.activeCol;
+    retreatCursor(state);
+    if (state.activeRow === originalRow && state.activeCol === originalCol) {
+      return;
+    }
+    return;
+  }
+
+  const originalRow = state.activeRow;
+  const originalCol = state.activeCol;
+  retreatCursor(state);
+  if (state.activeRow === originalRow && state.activeCol === originalCol) {
+    return;
+  }
   state.cells[state.activeRow][state.activeCol] = null;
 }
 

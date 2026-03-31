@@ -567,6 +567,14 @@
 **Insight:** once LM Studio starts honoring reasoning params, old completion budgets may become invalid immediately because reasoning tokens consume the same completion budget; phase-specific retuning is mandatory.
 **Promoted:** yes — see LESSONS_LEARNED entry on LM Studio reasoning and completion budgets.
 
+### [2026-03-31] — Make crossword backspace retreat to the previous square
+**Context:** user clarified that the backspace behavior on the custom keyboard should move back to the previous crossword square instead of acting like a stationary delete on the current one.
+**Happened:** Updated `frontend/src/components/input-handler.ts` so `Backspace` now behaves like crossword backspace: if the current cell has a letter, it clears it and moves to the previous square on the active direction; if the current cell is already empty, it moves back first and clears that previous square. Wired the touch remote in `frontend/src/main.ts` to use the same shared backspace helper, and updated the touch keyboard button copy in `frontend/index.html` to describe backspace semantics instead of plain delete semantics.
+**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+**Outcome:** success
+**Insight:** the virtual keyboard should reuse the same editing primitive names as the physical keyboard; if a `⌫` button is implemented as `Delete`, users notice the mismatch immediately because the crossword cursor model makes backtracking part of the core typing flow.
+**Promoted:** no
+
 ### [2026-03-31] — Run periodic maintenance on agent memory/config files
 **Context:** user asked for the periodic maintenance pass described by the AI agent config guide: audit `AGENTS.md`, `CLAUDE.md`, `LESSONS_LEARNED.md`, `ITERATION_LOG.md`, and sub-agents for stale references, overlap, and hierarchy violations.
 **Happened:** Audited root memory files and `.claude/agents/`. Confirmed `CLAUDE.md` is still the required one-line redirect, sub-agent table matches the actual `.claude/agents/` directory, and all current agent files stay under the intended size envelope. Found one concrete integrity bug: `AGENTS.md` referenced `SETUP_AI_AGENT_CONFIG.md`, but that file did not exist in the repo. Added `SETUP_AI_AGENT_CONFIG.md` with the full setup + periodic maintenance protocol so the reference is now valid and future maintenance has a canonical on-disk source. No `AGENTS.md` growth was needed, and no obvious stale lessons or agent-file mismatches required cleanup in this pass.

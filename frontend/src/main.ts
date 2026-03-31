@@ -24,7 +24,7 @@ import {
   handleCellInput,
   handleKeyDown,
   handleVirtualLetter,
-  deleteActiveCell,
+  backspaceActiveCell,
   toggleDirection,
 } from "./components/input-handler";
 import {
@@ -513,7 +513,7 @@ function performVirtualDelete(): void {
   if (gridState.activeRow < 0 || gridState.activeCol < 0) return;
 
   cellHistory.push(deepCopyCells(gridState.cells));
-  deleteActiveCell(gridState);
+  backspaceActiveCell(gridState);
   refresh();
   focusActiveCell();
   debouncedSaveProgress();
