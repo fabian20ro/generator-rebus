@@ -14,6 +14,7 @@ from supabase import create_client as create_supabase_client
 
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from .core.ai_clues import create_client as create_ai_client
+from .core.clue_canon_store import ClueCanonStore
 from .core.lm_runtime import LmRuntime
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
 from .core.runtime_logging import install_process_logging, path_timestamp
@@ -145,13 +146,10 @@ def _stored_title_score(puzzle_row: dict) -> int | None:
 
 def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
     """Fetch all clues for a puzzle."""
-    result = (
-        supabase.table("crossword_clues")
-        .select("word_normalized, definition")
-        .eq("puzzle_id", puzzle_id)
-        .execute()
+    return ClueCanonStore(client=supabase).fetch_clue_rows(
+        puzzle_id=puzzle_id,
+        extra_fields=("word_normalized",),
     )
-    return result.data or []
 
 
 def _finalize_title_result(state: _RetitleBatchState) -> TitleGenerationResult:

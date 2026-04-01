@@ -18,11 +18,11 @@ from .core.puzzle_metrics import (
     puzzle_metadata_payload,
     score_puzzle_state,
 )
-from .core.score_helpers import _compact_log_text
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from .core.ai_clues import create_client as create_ai_client
 from .core.clue_canon import ClueCanonService
 from .core.clue_canon_store import ClueCanonStore
+from .core.clue_logging import clue_label_from_row, log_canonical_event, log_definition_event
 from .core.lm_runtime import LmRuntime
 from .core.pipeline_state import (
     WorkingClue,
@@ -36,22 +36,6 @@ from .core.runtime_logging import install_process_logging, path_timestamp
 from .core.supabase_ops import execute_logged_update
 
 REDEFINE_ROUNDS = 7
-_CLUE_SELECT_FIELD_SETS = (
-    (
-        "id, puzzle_id, word_normalized, word_original, definition, direction, "
-        "start_row, start_col, length, clue_number, verify_note, verified, canonical_definition_id"
-    ),
-    (
-        "id, puzzle_id, word_normalized, word_original, definition, direction, "
-        "start_row, start_col, length, clue_number, verified"
-    ),
-    (
-        "id, puzzle_id, word_normalized, word_original, definition, direction, "
-        "start_row, start_col, length, clue_number"
-    ),
-)
-
-
 def fetch_puzzles(
     supabase,
     *,
@@ -88,23 +72,7 @@ def _puzzle_sort_key(row: dict) -> tuple[object, ...]:
 
 def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
     """Fetch all clues for a puzzle with fields needed for rewriting."""
-    last_error = None
-    for fields in _CLUE_SELECT_FIELD_SETS:
-        try:
-            result = (
-                supabase.table("crossword_clues")
-                .select(fields)
-                .eq("puzzle_id", puzzle_id)
-                .execute()
-            )
-            return result.data or []
-        except Exception as exc:
-            last_error = exc
-            if "does not exist" not in str(exc):
-                raise
-    if last_error is not None:
-        raise last_error
-    return []
+    return ClueCanonStore(client=supabase).fetch_clue_rows(puzzle_id=puzzle_id)
 
 
 def _now_iso() -> str:
@@ -188,12 +156,13 @@ def _apply_clue_version(target: WorkingClue, source: WorkingClue) -> None:
     target.locked = source.locked
 
 
-def _clue_update_payload(row: dict, desired: dict[str, object]) -> dict[str, object]:
-    payload = {"definition": desired["definition"]}
-    for field in ("verify_note", "verified", "canonical_definition_id"):
-        if field in row:
-            payload[field] = desired[field]
-    return payload
+def _clue_update_payload(store: ClueCanonStore, row: dict, desired: dict[str, object]) -> dict[str, object]:
+    return store.build_clue_definition_payload(
+        definition=str(desired["definition"]),
+        canonical_definition_id=desired.get("canonical_definition_id"),
+        verify_note=str(desired["verify_note"]),
+        verified=bool(desired["verified"]),
+    )
 
 
 def _desired_clue_payloads(puzzle: WorkingPuzzle) -> dict[tuple[str, int, int], dict[str, object]]:
@@ -338,6 +307,7 @@ def redefine_puzzle(
         client=client,
         runtime=runtime,
     )
+    clue_store = clue_canon.store
 
     updated_count = 0
     for row in clue_rows:
@@ -360,7 +330,16 @@ def redefine_puzzle(
         desired = dict(desired)
         desired["definition"] = decision.canonical_definition
         desired["canonical_definition_id"] = decision.canonical_definition_id
-        update_payload = _clue_update_payload(row, desired)
+        clue_ref = clue_label_from_row(row)
+        log_canonical_event(
+            decision.action,
+            puzzle_id=puzzle_id,
+            clue_ref=clue_ref,
+            candidate_definition=str(desired_payloads.get(key, {}).get("definition") or ""),
+            canonical_definition=decision.canonical_definition,
+            detail=decision.decision_note or None,
+        )
+        update_payload = _clue_update_payload(clue_store, row, desired)
         current = {
             "definition": row.get("definition", "") or "",
             "verify_note": row.get("verify_note", "") or "",
@@ -372,9 +351,13 @@ def redefine_puzzle(
             continue
 
         word = row.get("word_normalized", "")
-        print(
-            f"  [{puzzle_id}] {word}: "
-            f"'{_compact_log_text(current['definition'])}' -> '{_compact_log_text(desired['definition'])}'"
+        log_definition_event(
+            "redefine",
+            puzzle_id=puzzle_id,
+            clue_ref=clue_ref,
+            before=current["definition"],
+            after=desired["definition"],
+            detail=f"verified={bool(desired.get('verified'))}",
         )
         if not dry_run:
             execute_logged_update(

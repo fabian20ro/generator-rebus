@@ -5,6 +5,7 @@ from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
 from ..core.ai_clues import create_client, generate_definition
 from ..core.clue_canon import ClueCanonService
+from ..core.clue_logging import clue_label_from_working_clue, log_definition_event
 from ..core.dex_cache import DexProvider
 from ..core.lm_runtime import LmRuntime
 from ..core.model_manager import ModelConfig, PRIMARY_MODEL
@@ -84,15 +85,17 @@ def generate_definitions_for_state(
 
     for label, clues in (("horizontal", state.horizontal_clues), ("vertical", state.vertical_clues)):
         print(f"Generating {label} definitions...")
+        direction = "H" if label == "horizontal" else "V"
         for clue in clues:
             if clue.current.definition:
                 continue
+            clue_ref = clue_label_from_working_clue(clue, direction=direction)
             dex_defs = dex.get(clue.word_normalized, clue.word_original) if dex else None
             dex_defs = dex_defs or ""
             if dex_defs:
-                print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'}) [DEX context available]")
+                print(f"  Defining: {clue_ref} ({clue.word_original or '?'}) [DEX context available]")
             else:
-                print(f"  Defining: {clue.word_normalized} ({clue.word_original or '?'})...")
+                print(f"  Defining: {clue_ref} ({clue.word_original or '?'})...")
             try:
                 existing_canonical_definitions = clue_canon.fetch_prompt_examples(clue.word_normalized)
                 definition = generate_definition(
@@ -104,7 +107,13 @@ def generate_definitions_for_state(
                 )
             except Exception as e:
                 definition = f"[Definiție lipsă: {e}]"
-            print(f"    → {definition}")
+            log_definition_event(
+                "generated",
+                clue_ref=clue_ref,
+                before="",
+                after=definition,
+                detail=f"model={selected_model.display_name}",
+            )
             set_current_definition(
                 clue,
                 definition,

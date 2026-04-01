@@ -8,6 +8,7 @@ from supabase import create_client
 from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from ..core.clue_canon import ClueCanonService
 from ..core.clue_canon_store import ClueCanonStore
+from ..core.clue_logging import clue_label_from_row, log_canonical_event
 from ..core.markdown_io import parse_markdown
 from ..core.slot_extractor import Slot, extract_slots
 
@@ -134,7 +135,8 @@ def upload_puzzle(
     print(f"  Clues: {len(clue_records)}")
 
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    clue_canon = ClueCanonService(store=ClueCanonStore(client=client))
+    clue_store = ClueCanonStore(client=client)
+    clue_canon = ClueCanonService(store=clue_store)
     created_timestamp = _now_iso()
 
     # Insert puzzle
@@ -160,19 +162,34 @@ def upload_puzzle(
     # Insert clues
     if clue_records:
         for record in clue_records:
+            original_definition = record["definition"]
             decision = clue_canon.resolve_definition(
                 word_normalized=record["word_normalized"],
                 word_original=record["word_original"],
                 definition=record["definition"],
             )
-            record["definition"] = decision.canonical_definition
-            if clue_canon.store.is_enabled():
-                record["canonical_definition_id"] = decision.canonical_definition_id
+            resolved_payload = clue_store.build_clue_definition_payload(
+                definition=decision.canonical_definition,
+                canonical_definition_id=decision.canonical_definition_id,
+            )
+            if "definition" in record and "definition" not in resolved_payload:
+                del record["definition"]
+            record.update(resolved_payload)
             record["puzzle_id"] = puzzle_id
+            log_canonical_event(
+                decision.action,
+                puzzle_id=puzzle_id,
+                clue_ref=clue_label_from_row(record),
+                candidate_definition=original_definition,
+                canonical_definition=decision.canonical_definition,
+                detail=decision.decision_note or None,
+            )
         client.table("crossword_clues").insert(clue_records).execute()
         for record in clue_records:
-            print(f"  [DB] {record['direction']}{record['clue_number']} "
-                  f"{record['word_normalized']}: {record['definition'][:80]}")
+            print(
+                f"  [DB] {clue_label_from_row(record)}: "
+                f"{(record.get('definition') or '')[:80]}"
+            )
 
     print(f"Uploaded! Puzzle ID: {puzzle_id}")
     print(f"Run 'python -m generator activate {puzzle_id}' to publish it.")

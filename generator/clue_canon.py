@@ -26,6 +26,7 @@ from .core.clue_canon_types import (
     DefinitionRefereeInput,
     DefinitionRefereeResult,
 )
+from .core.clue_logging import log_canonical_event
 from .core.clue_rating import (
     extract_creativity_score,
     extract_rebus_score,
@@ -34,7 +35,6 @@ from .core.clue_rating import (
 from .core.lm_runtime import LmRuntime
 from .core.runtime_logging import log, path_timestamp
 
-PAGE_SIZE = 1000
 DEFAULT_REFEREE_BATCH_SIZE = 50
 
 
@@ -73,25 +73,7 @@ class _PendingReferee:
 
 
 def _fetch_clue_rows(store: ClueCanonStore) -> list[dict]:
-    rows: list[dict] = []
-    offset = 0
-    while True:
-        batch = (
-            store.client.table("crossword_clues")
-            .select(
-                "id, puzzle_id, word_normalized, word_original, definition, "
-                "verify_note, verified, canonical_definition_id"
-            )
-            .range(offset, offset + PAGE_SIZE - 1)
-            .execute()
-            .data
-            or []
-        )
-        rows.extend(batch)
-        if len(batch) < PAGE_SIZE:
-            break
-        offset += PAGE_SIZE
-    return rows
+    return store.fetch_clue_rows()
 
 
 def _enrich_rows(rows: list[dict]) -> list[ClueDefinitionRecord]:
@@ -218,6 +200,13 @@ def _apply_referee_results(
             existing.winner_votes = result.winner_votes
             existing.decision_note = "existing canonical kept"
             stats.near_merges += 1
+            log_canonical_event(
+                "merge-keep",
+                clue_ref=state.word,
+                candidate_definition=cluster.primary.definition,
+                canonical_definition=existing.primary.definition,
+                detail=f"votes same={result.same_meaning_votes}/6 winner={result.winner_votes}/6",
+            )
             state.current = None
             continue
         if result.merge_allowed and result.winner == "A":
@@ -227,6 +216,13 @@ def _apply_referee_results(
             cluster.decision_note = "new candidate promoted"
             state.selected[item.existing_index] = cluster
             stats.near_merges += 1
+            log_canonical_event(
+                "merge-promote",
+                clue_ref=state.word,
+                candidate_definition=existing.primary.definition,
+                canonical_definition=cluster.primary.definition,
+                detail=f"votes same={result.same_meaning_votes}/6 winner={result.winner_votes}/6",
+            )
             state.current = None
             continue
         bucket = classify_disagreement_bucket(result)
@@ -235,6 +231,16 @@ def _apply_referee_results(
         elif bucket == 4:
             stats.disagreement_4_of_6 += 1
         if result.disagreement:
+            log_canonical_event(
+                "disagreement",
+                clue_ref=state.word,
+                candidate_definition=cluster.primary.definition,
+                canonical_definition=existing.primary.definition,
+                detail=(
+                    f"same={result.same_meaning_votes}/6 "
+                    f"betterA={result.better_a_votes} betterB={result.better_b_votes}"
+                ),
+            )
             review_handle.write(json.dumps({
                 "word": state.word,
                 "definition_a": cluster.primary.definition,

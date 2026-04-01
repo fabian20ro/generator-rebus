@@ -18,6 +18,7 @@ _SCHEMA_CHECKS: tuple[tuple[str, str], ...] = (
     ("canonical_clue_aliases", "id"),
     ("crossword_clues", "id, canonical_definition_id"),
 )
+_CLUE_PAGE_SIZE = 1000
 
 
 class ClueCanonStore:
@@ -28,6 +29,7 @@ class ClueCanonStore:
         self._word_cache: dict[str, list[CanonicalDefinition]] = {}
         self._alias_cache: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
         self._canonical_lookup: dict[tuple[str, str], CanonicalDefinition] = {}
+        self._crossword_clues_columns: dict[str, bool] = {}
         if self.client is None:
             try:
                 self.client = create_service_role_client()
@@ -188,7 +190,7 @@ class ClueCanonStore:
         canonical_definition_id: str,
         definition: str,
     ) -> None:
-        if not self.is_enabled():
+        if self.client is None:
             return
         filters = {"id": clue_id}
         if puzzle_id:
@@ -196,10 +198,10 @@ class ClueCanonStore:
         execute_logged_update(
             self.client,
             "crossword_clues",
-            {
-                "canonical_definition_id": canonical_definition_id,
-                "definition": definition,
-            },
+            self.build_clue_definition_payload(
+                definition=definition,
+                canonical_definition_id=canonical_definition_id,
+            ),
             eq_filters=filters,
         )
 
@@ -251,6 +253,161 @@ class ClueCanonStore:
             },
         )
         self._alias_cache[word_normalized].add(dedupe_key)
+
+    def has_crossword_clues_column(self, column: str) -> bool:
+        if self.client is None:
+            return False
+        if column in self._crossword_clues_columns:
+            return self._crossword_clues_columns[column]
+        try:
+            self.client.table("crossword_clues").select(f"id, {column}").limit(1).execute()
+            available = True
+        except Exception as exc:
+            if "does not exist" not in str(exc):
+                raise
+            available = False
+        self._crossword_clues_columns[column] = available
+        return available
+
+    def supports_legacy_definition_column(self) -> bool:
+        return self.has_crossword_clues_column("definition")
+
+    def supports_canonical_definition_column(self) -> bool:
+        return self.has_crossword_clues_column("canonical_definition_id")
+
+    def build_clue_definition_payload(
+        self,
+        *,
+        definition: str | None = None,
+        canonical_definition_id: str | None = None,
+        verify_note: str | None = None,
+        verified: bool | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {}
+        if canonical_definition_id is not None and self.supports_canonical_definition_column():
+            payload["canonical_definition_id"] = canonical_definition_id
+        if definition is not None and self.supports_legacy_definition_column():
+            payload["definition"] = definition
+        if verify_note is not None and self.has_crossword_clues_column("verify_note"):
+            payload["verify_note"] = verify_note
+        if verified is not None and self.has_crossword_clues_column("verified"):
+            payload["verified"] = verified
+        return payload
+
+    def fetch_clue_rows(
+        self,
+        *,
+        puzzle_id: str | None = None,
+        extra_fields: tuple[str, ...] = (),
+    ) -> list[dict]:
+        if self.client is None:
+            return []
+        select_fields = [
+            "id",
+            "puzzle_id",
+            "word_normalized",
+            "word_original",
+            "direction",
+            "start_row",
+            "start_col",
+            "length",
+            "clue_number",
+        ]
+        for field in ("verify_note", "verified", "canonical_definition_id"):
+            if self.has_crossword_clues_column(field):
+                select_fields.append(field)
+        for field in extra_fields:
+            if field not in select_fields and self.has_crossword_clues_column(field):
+                select_fields.append(field)
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            query = self.client.table("crossword_clues").select(", ".join(select_fields))
+            if puzzle_id:
+                query = query.eq("puzzle_id", puzzle_id)
+                batch = query.execute().data or []
+            else:
+                batch = query.range(offset, offset + _CLUE_PAGE_SIZE - 1).execute().data or []
+            rows.extend(batch)
+            if puzzle_id or len(batch) < _CLUE_PAGE_SIZE:
+                break
+            offset += _CLUE_PAGE_SIZE
+        return self.hydrate_clue_definitions(rows, puzzle_id=puzzle_id)
+
+    def hydrate_clue_definitions(
+        self,
+        rows: list[dict],
+        *,
+        puzzle_id: str | None = None,
+    ) -> list[dict]:
+        if not rows:
+            return rows
+        canonical_ids = [
+            str(row.get("canonical_definition_id") or "").strip()
+            for row in rows
+            if row.get("canonical_definition_id")
+        ]
+        canonical_by_id = self.fetch_canonical_definitions_by_ids(canonical_ids)
+        for row in rows:
+            row["definition_source"] = "missing"
+            canonical_id = str(row.get("canonical_definition_id") or "").strip()
+            canonical_definition = canonical_by_id.get(canonical_id)
+            if canonical_definition:
+                row["definition"] = canonical_definition
+                row["definition_source"] = "canonical"
+        missing_rows = [row for row in rows if not row.get("definition")]
+        if missing_rows and self.supports_legacy_definition_column():
+            legacy_by_id = self._fetch_legacy_definitions(
+                [str(row.get("id") or "") for row in missing_rows],
+                puzzle_id=puzzle_id,
+            )
+            for row in missing_rows:
+                legacy_definition = legacy_by_id.get(str(row.get("id") or ""))
+                if legacy_definition:
+                    row["definition"] = legacy_definition
+                    row["definition_source"] = "legacy"
+                else:
+                    row["definition"] = row.get("definition") or ""
+        else:
+            for row in missing_rows:
+                row["definition"] = row.get("definition") or ""
+        return rows
+
+    def fetch_canonical_definitions_by_ids(self, canonical_ids: list[str]) -> dict[str, str]:
+        if not canonical_ids or not self.is_enabled():
+            return {}
+        unique_ids = sorted({canonical_id for canonical_id in canonical_ids if canonical_id})
+        definitions: dict[str, str] = {}
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            result = (
+                self.client.table("canonical_clue_definitions")
+                .select("id, definition")
+                .in_("id", chunk)
+                .execute()
+            )
+            for row in result.data or []:
+                definitions[str(row.get("id") or "")] = str(row.get("definition") or "")
+        return definitions
+
+    def _fetch_legacy_definitions(
+        self,
+        clue_ids: list[str],
+        *,
+        puzzle_id: str | None = None,
+    ) -> dict[str, str]:
+        if not clue_ids or self.client is None or not self.supports_legacy_definition_column():
+            return {}
+        query = self.client.table("crossword_clues").select("id, definition")
+        if puzzle_id:
+            query = query.eq("puzzle_id", puzzle_id)
+        else:
+            query = query.in_("id", clue_ids)
+        result = query.execute()
+        return {
+            str(row.get("id") or ""): str(row.get("definition") or "")
+            for row in (result.data or [])
+        }
 
     def _prime_canonical_cache(self, row: CanonicalDefinition) -> None:
         self._canonical_lookup[(row.word_normalized, row.definition_norm)] = row

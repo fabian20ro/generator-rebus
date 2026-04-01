@@ -13,6 +13,7 @@ from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_CO
 from .core.ai_clues import create_client as create_ai_client
 from .core.clue_canon import ClueCanonService
 from .core.clue_canon_store import ClueCanonStore
+from .core.clue_logging import clue_label, clue_label_from_row, log_canonical_event, log_definition_event
 from .core.clue_rating import extract_creativity_score, extract_rebus_score, extract_semantic_score
 from .core.lm_runtime import LmRuntime
 from .core.pipeline_state import all_working_clues, puzzle_from_working_state
@@ -56,16 +57,7 @@ def fetch_puzzles(
 
 
 def fetch_clues(supabase, puzzle_id: str) -> list[dict]:
-    result = (
-        supabase.table("crossword_clues")
-        .select(
-            "id, puzzle_id, word_normalized, word_original, definition, direction, "
-            "start_row, start_col, length, clue_number, verify_note, verified"
-        )
-        .eq("puzzle_id", puzzle_id)
-        .execute()
-    )
-    return result.data or []
+    return ClueCanonStore(client=supabase).fetch_clue_rows(puzzle_id=puzzle_id)
 
 
 def _priority_key(row: dict) -> tuple[object, ...]:
@@ -177,6 +169,11 @@ def _persist_clues(
         client=ai_client,
         runtime=runtime,
     )
+    clue_store = clue_canon.store
+    row_by_key = {
+        ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row
+        for row in clue_rows
+    }
     key_to_id = {
         ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row["id"]
         for row in clue_rows
@@ -187,6 +184,7 @@ def _persist_clues(
             clue_id = key_to_id.get((direction, clue.start_row, clue.start_col))
             if not clue_id:
                 continue
+            row = row_by_key.get((direction, clue.start_row, clue.start_col), {})
             verify_note = clue.verify_note or ""
             decision = clue_canon.resolve_definition(
                 word_normalized=clue.word_normalized,
@@ -197,15 +195,39 @@ def _persist_clues(
                 rebus_score=extract_rebus_score(verify_note),
                 creativity_score=extract_creativity_score(verify_note),
             )
+            clue_ref = clue_label(
+                word=clue.word_normalized,
+                direction=direction,
+                clue_number=getattr(clue, "row_number", None),
+                start_row=clue.start_row,
+                start_col=clue.start_col,
+            )
+            log_canonical_event(
+                decision.action,
+                puzzle_id=puzzle_id,
+                clue_ref=clue_ref,
+                candidate_definition=clue.definition,
+                canonical_definition=decision.canonical_definition,
+                detail=decision.decision_note or None,
+            )
+            if row:
+                log_definition_event(
+                    "repair-persist",
+                    puzzle_id=puzzle_id,
+                    clue_ref=clue_label_from_row(row),
+                    before=str(row.get("definition") or ""),
+                    after=decision.canonical_definition,
+                    detail=f"verified={bool(clue.verified)}",
+                )
             execute_logged_update(
                 supabase,
                 "crossword_clues",
-                {
-                    "definition": decision.canonical_definition,
-                    "canonical_definition_id": decision.canonical_definition_id,
-                    "verify_note": verify_note,
-                    "verified": bool(clue.verified),
-                },
+                clue_store.build_clue_definition_payload(
+                    definition=decision.canonical_definition,
+                    canonical_definition_id=decision.canonical_definition_id,
+                    verify_note=verify_note,
+                    verified=bool(clue.verified),
+                ),
                 eq_filters={"id": clue_id, "puzzle_id": puzzle_id},
             )
 

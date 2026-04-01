@@ -12,6 +12,7 @@ from .ai_clues import (
     rewrite_definition,
 )
 from .clue_canon import ClueCanonService
+from .clue_logging import clue_label_from_working_clue, log_definition_event
 from .lm_runtime import LmRuntime
 from .pipeline_state import (
     ClueCandidateVersion,
@@ -380,8 +381,9 @@ def run_rewrite_loop(
         for clue in candidates:
             outcome = outcomes[clue.word_normalized]
             outcome.was_candidate = True
+            clue_ref = clue_label_from_working_clue(clue)
             if _is_locked_clue(clue):
-                print(f"  {clue.word_normalized}: blocat la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
+                print(f"  {clue_ref}: blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
                 continue
 
             wrong_guess = clue.current.assessment.wrong_guess
@@ -432,15 +434,16 @@ def run_rewrite_loop(
                 pending_candidates_by_word[clue.word_normalized] = pending_candidates
                 if len(pending_candidates) == 1:
                     only = pending_candidates[0]
-                    print(
-                        f"  {clue.word_normalized}: "
-                        f"'{_compact_log_text(clue.current.definition)}' -> "
-                        f"'{_compact_log_text(only.definition)}' "
-                        f"[{only.strategy_label if use_hybrid else only.source}]"
+                    log_definition_event(
+                        "rewrite-candidate",
+                        clue_ref=clue_ref,
+                        before=clue.current.definition,
+                        after=only.definition,
+                        detail=only.strategy_label if use_hybrid else only.source,
                     )
                 else:
                     print(
-                        f"  {clue.word_normalized}: hybrid "
+                        f"  {clue_ref}: hybrid "
                         f"rewrite='{_compact_log_text(pending_candidates[0].definition)}' | "
                         f"fresh='{_compact_log_text(pending_candidates[1].definition)}'"
                     )
@@ -451,7 +454,7 @@ def run_rewrite_loop(
                 if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
                     stuck_words.add(clue.word_normalized)
                     print(
-                        f"  {clue.word_normalized}: marcată ca blocată după "
+                        f"  {clue_ref}: marcată ca blocată după "
                         f"{consecutive_failures[clue.word_normalized]} încercări eșuate consecutive"
                     )
 

@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-04-01] Decouple clue flows from `crossword_clues.definition` and standardize clue/canonical logs
+
+**Context:** user wanted code made safe for dropping the legacy `crossword_clues.definition` column after canonical migration, plus clearer clue-generation / merge / redefine logging with maintainable shared formatting.
+**Happened:** Added clue-definition compatibility methods to `ClueCanonStore`: schema probing for legacy/canonical columns, hydrated clue fetches that resolve canonical text first and fall back to legacy text only when needed, batched canonical-id lookups, and payload builders that only materialize `definition` when the legacy column still exists. Switched `redefine`, `repair_puzzles`, `retitle`, and clue-canon backfill reads onto that helper; switched upload / attach / redefine / repair writes onto the shared payload builder. Added `generator/core/clue_logging.py` and routed generation, rewrite, upload, redefine, repair, and clue-canon merge/disagreement messages through common clue/canonical event formatting. Updated the Cloudflare worker puzzle-clue fetch path to resolve clue text via `canonical_definition_id` first, with legacy definition fallback only if still available.
+**Verification:** `python3 -m py_compile generator/core/clue_canon_store.py generator/core/clue_logging.py generator/clue_canon.py generator/phases/define.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py generator/retitle.py generator/core/rewrite_engine.py tests/test_clue_canon_store.py`; `python3 -m pytest tests/test_clue_canon_store.py tests/test_clue_canon.py tests/test_ai_clues.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_retitle.py -q` (`129 passed`). Could not run Worker TypeScript typecheck in-session because no local `tsc` / `worker/node_modules` is present.
+**Outcome:** success
+**Insight:** schema migrations around canonicalized clue text stay tractable only if both reads and writes go through one compatibility surface; the same centralization also gives one place to standardize clue-event logging instead of hand-formatting strings in every flow.
+**Promoted:** yes
+
+---
+
 ### [2026-04-01] Batch clue-canon referee work across words to avoid per-comparison model thrash
 
 **Context:** user flagged that clue-canon backfill can touch ~12k clues, so loading/unloading LM Studio models per comparison is too expensive; requirement: backfill batching only, no regressions in other clue-canon flows, logging/extensibility considered.

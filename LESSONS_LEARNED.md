@@ -16,6 +16,8 @@
 
 **[2026-03-14]** Two-model architecture prevents self-reinforcing hallucinations — when same LLM rates its own definitions, it agrees with itself. Alternate gpt-oss-20b and eurollm-22b across rewrite rounds. Model B rates Model A's work. Cross-model verification broke the feedback loop.
 
+**[2026-04-01]** Canonical-clue schema changes need one compatibility layer for clue text hydration and persistence — once `crossword_clues.definition` becomes legacy, scattered `select(...definition...)` and `update({"definition": ...})` calls turn every flow into a migration risk. Keep one adapter that resolves effective clue text from `canonical_definition_id` first, falls back to legacy `definition` only when that column still exists, and makes every writer ask the adapter which fields to materialize.
+
 ## Code Patterns & Pitfalls
 
 **[2026-03-14]** Short words (OU, AT, OF) need special handling — for 2-letter words, any definition almost inevitably contains the answer. English homograph hints inject correct Romanian meaning. Preset definitions (AT, OF) bypass LLM entirely. `_definition_describes_english_meaning()` guard rejects English-meaning definitions.
