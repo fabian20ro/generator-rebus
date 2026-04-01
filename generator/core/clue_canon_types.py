@@ -43,6 +43,15 @@ class DefinitionComparisonVote:
 
 
 @dataclass(frozen=True)
+class DefinitionRefereeInput:
+    request_id: str
+    word: str
+    answer_length: int
+    definition_a: str
+    definition_b: str
+
+
+@dataclass(frozen=True)
 class DefinitionRefereeResult:
     same_meaning_votes: int
     better_a_votes: int

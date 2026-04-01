@@ -1,6 +1,7 @@
 import json
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from generator.core.ai_clues import (
     DefinitionComparisonVote,
@@ -19,9 +20,11 @@ from generator.core.ai_clues import (
     generate_definition,
     rate_definition,
     rewrite_definition,
+    run_definition_referee_batch,
     run_definition_referee,
     verify_definition_candidates,
 )
+from generator.core.clue_canon_types import DefinitionRefereeInput
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.prompts.loader import load_system_prompt
 
@@ -270,7 +273,7 @@ class AiCluesTests(unittest.TestCase):
             DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
         ]
 
-        with unittest.mock.patch("generator.core.ai_clues.compare_definition_variants", side_effect=votes):
+        with mock.patch("generator.core.ai_clues.compare_definition_variants", side_effect=votes):
             result = run_definition_referee(
                 client,
                 runtime,
@@ -283,6 +286,59 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(6, result.same_meaning_votes)
         self.assertEqual(2, result.better_a_votes)
         self.assertEqual(4, result.better_b_votes)
+
+    def test_run_definition_referee_batch_groups_activations_by_model(self):
+        class _Runtime:
+            def __init__(self):
+                self.activated = []
+
+            def activate(self, model):
+                self.activated.append(model.model_id)
+                return model
+
+        runtime = _Runtime()
+        client = object()
+        votes = [
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="B"),
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="B"),
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="B"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
+        ]
+        requests = [
+            DefinitionRefereeInput(
+                request_id="r1",
+                word="LA",
+                answer_length=2,
+                definition_a="A1",
+                definition_b="B1",
+            ),
+            DefinitionRefereeInput(
+                request_id="r2",
+                word="SI",
+                answer_length=2,
+                definition_a="A2",
+                definition_b="B2",
+            ),
+        ]
+
+        with mock.patch("generator.core.ai_clues.compare_definition_variants", side_effect=votes):
+            results = run_definition_referee_batch(client, runtime, requests)
+
+        self.assertEqual([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], runtime.activated)
+        self.assertEqual(6, results["r1"].same_meaning_votes)
+        self.assertEqual(2, results["r1"].better_a_votes)
+        self.assertEqual(4, results["r1"].better_b_votes)
+        self.assertEqual(6, results["r2"].same_meaning_votes)
+        self.assertEqual(4, results["r2"].better_a_votes)
+        self.assertEqual(2, results["r2"].better_b_votes)
 
 
     def test_clean_response_strips_model_tokens(self):

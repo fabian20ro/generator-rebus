@@ -20,16 +20,22 @@ from .core.clue_canon import (
     update_reduction_stats,
 )
 from .core.clue_canon_store import ClueCanonStore
-from .core.clue_canon_types import BackfillStats, CanonicalDefinition, ClueDefinitionRecord
+from .core.clue_canon_types import (
+    BackfillStats,
+    ClueDefinitionRecord,
+    DefinitionRefereeInput,
+    DefinitionRefereeResult,
+)
 from .core.clue_rating import (
     extract_creativity_score,
     extract_rebus_score,
     extract_semantic_score,
 )
 from .core.lm_runtime import LmRuntime
-from .core.runtime_logging import path_timestamp
+from .core.runtime_logging import log, path_timestamp
 
 PAGE_SIZE = 1000
+DEFAULT_REFEREE_BATCH_SIZE = 50
 
 
 @dataclass
@@ -39,6 +45,31 @@ class _WorkingCluster:
     same_meaning_votes: int | None = None
     winner_votes: int | None = None
     decision_note: str = ""
+
+
+@dataclass
+class _MergeState:
+    word: str
+    clusters: list[_WorkingCluster]
+    selected: list[_WorkingCluster] = field(default_factory=list)
+    next_cluster_index: int = 0
+    current: _WorkingCluster | None = None
+    compare_index: int = 0
+    waiting: bool = False
+
+    def finished(self) -> bool:
+        return (
+            not self.waiting
+            and self.current is None
+            and self.next_cluster_index >= len(self.clusters)
+        )
+
+
+@dataclass(frozen=True)
+class _PendingReferee:
+    request_id: str
+    state_index: int
+    existing_index: int
 
 
 def _fetch_clue_rows(store: ClueCanonStore) -> list[dict]:
@@ -115,72 +146,147 @@ def _build_initial_clusters(rows: list[ClueDefinitionRecord], stats: BackfillSta
     return clusters
 
 
-def _merge_clusters(
-    service: ClueCanonService,
-    word: str,
-    clusters: list[_WorkingCluster],
+def _collect_pending_referees(
+    states: list[_MergeState],
+    *,
+    max_requests: int,
+    next_request_id: int,
+) -> tuple[list[DefinitionRefereeInput], list[_PendingReferee], int]:
+    requests: list[DefinitionRefereeInput] = []
+    pending: list[_PendingReferee] = []
+    for state_index, state in enumerate(states):
+        if state.waiting:
+            continue
+        while len(requests) < max_requests:
+            if state.current is None:
+                if state.next_cluster_index >= len(state.clusters):
+                    break
+                state.current = state.clusters[state.next_cluster_index]
+                state.next_cluster_index += 1
+                state.compare_index = 0
+            while state.compare_index < len(state.selected):
+                existing = state.selected[state.compare_index]
+                if _likely_cluster_match(state.current.primary, existing.primary):
+                    request_id = f"cmp-{next_request_id}"
+                    next_request_id += 1
+                    requests.append(
+                        DefinitionRefereeInput(
+                            request_id=request_id,
+                            word=state.word,
+                            answer_length=len(state.word),
+                            definition_a=state.current.primary.definition,
+                            definition_b=existing.primary.definition,
+                        )
+                    )
+                    pending.append(
+                        _PendingReferee(
+                            request_id=request_id,
+                            state_index=state_index,
+                            existing_index=state.compare_index,
+                        )
+                    )
+                    state.waiting = True
+                    break
+                state.compare_index += 1
+            if state.waiting:
+                break
+            state.selected.append(state.current)
+            state.current = None
+        if len(requests) >= max_requests:
+            break
+    return requests, pending, next_request_id
+
+
+def _apply_referee_results(
+    states: list[_MergeState],
+    pending: list[_PendingReferee],
+    results: dict[str, DefinitionRefereeResult],
     review_handle,
     stats: BackfillStats,
-) -> list[_WorkingCluster]:
-    selected: list[_WorkingCluster] = []
-    for cluster in clusters:
-        merged = False
-        for index, existing in enumerate(list(selected)):
-            if not _likely_cluster_match(cluster.primary, existing.primary):
-                continue
-            result = service._run_referee(
-                cluster.primary,
-                CanonicalDefinition(
-                    id=existing.primary.id or f"cluster-{existing.primary.definition_norm}",
-                    word_normalized=existing.primary.word_normalized,
-                    word_original_seed=existing.primary.word_original,
-                    definition=existing.primary.definition,
-                    definition_norm=existing.primary.definition_norm,
-                    verified=existing.primary.verified,
-                    semantic_score=existing.primary.semantic_score,
-                    rebus_score=existing.primary.rebus_score,
-                    creativity_score=existing.primary.creativity_score,
-                    usage_count=len(existing.members),
-                ),
-            )
-            if result.merge_allowed and result.winner == "B":
-                existing.members.extend(cluster.members)
-                existing.same_meaning_votes = result.same_meaning_votes
-                existing.winner_votes = result.winner_votes
-                existing.decision_note = "existing canonical kept"
-                stats.near_merges += 1
-                merged = True
+) -> None:
+    for item in pending:
+        state = states[item.state_index]
+        state.waiting = False
+        cluster = state.current
+        if cluster is None:
+            continue
+        existing = state.selected[item.existing_index]
+        result = results[item.request_id]
+        if result.merge_allowed and result.winner == "B":
+            existing.members.extend(cluster.members)
+            existing.same_meaning_votes = result.same_meaning_votes
+            existing.winner_votes = result.winner_votes
+            existing.decision_note = "existing canonical kept"
+            stats.near_merges += 1
+            state.current = None
+            continue
+        if result.merge_allowed and result.winner == "A":
+            cluster.members.extend(existing.members)
+            cluster.same_meaning_votes = result.same_meaning_votes
+            cluster.winner_votes = result.winner_votes
+            cluster.decision_note = "new candidate promoted"
+            state.selected[item.existing_index] = cluster
+            stats.near_merges += 1
+            state.current = None
+            continue
+        bucket = classify_disagreement_bucket(result)
+        if bucket == 3:
+            stats.disagreement_3_of_6 += 1
+        elif bucket == 4:
+            stats.disagreement_4_of_6 += 1
+        if result.disagreement:
+            review_handle.write(json.dumps({
+                "word": state.word,
+                "definition_a": cluster.primary.definition,
+                "definition_b": existing.primary.definition,
+                "same_meaning_votes": result.same_meaning_votes,
+                "better_a_votes": result.better_a_votes,
+                "better_b_votes": result.better_b_votes,
+                "equal_votes": result.equal_votes,
+            }, ensure_ascii=False) + "\n")
+            state.selected.append(cluster)
+            state.current = None
+            continue
+        state.compare_index += 1
+
+
+def _merge_word_batch(
+    service: ClueCanonService,
+    bucket_batch: list[tuple[str, list[_WorkingCluster]]],
+    review_handle,
+    stats: BackfillStats,
+    *,
+    referee_batch_size: int,
+) -> list[tuple[str, list[_WorkingCluster]]]:
+    # Round-robin word states let backfill collect many pending comparisons
+    # before switching models, while preserving per-word merge order.
+    states = [
+        _MergeState(word=word, clusters=clusters)
+        for word, clusters in bucket_batch
+    ]
+    next_request_id = 1
+    while True:
+        requests, pending, next_request_id = _collect_pending_referees(
+            states,
+            max_requests=max(referee_batch_size, 1),
+            next_request_id=next_request_id,
+        )
+        if not requests:
+            if all(state.finished() for state in states):
                 break
-            if result.merge_allowed and result.winner == "A":
-                cluster.members.extend(existing.members)
-                cluster.same_meaning_votes = result.same_meaning_votes
-                cluster.winner_votes = result.winner_votes
-                cluster.decision_note = "new candidate promoted"
-                selected[index] = cluster
-                stats.near_merges += 1
-                merged = True
-                break
-            bucket = classify_disagreement_bucket(result)
-            if bucket == 3:
-                stats.disagreement_3_of_6 += 1
-            elif bucket == 4:
-                stats.disagreement_4_of_6 += 1
-            if result.disagreement:
-                review_handle.write(json.dumps({
-                    "word": word,
-                    "definition_a": cluster.primary.definition,
-                    "definition_b": existing.primary.definition,
-                    "same_meaning_votes": result.same_meaning_votes,
-                    "better_a_votes": result.better_a_votes,
-                    "better_b_votes": result.better_b_votes,
-                    "equal_votes": result.equal_votes,
-                }, ensure_ascii=False) + "\n")
-                merged = True
-                selected.append(cluster)
-                break
-        if not merged:
-            selected.append(cluster)
-    return selected
+            continue
+        log(
+            "clue_canon referee batch "
+            f"comparisons={len(requests)} words={len({request.word for request in requests})}"
+        )
+        results = service._run_referee_batch(requests)
+        _apply_referee_results(states, pending, results, review_handle, stats)
+    return [(state.word, state.selected) for state in states]
+
+
+def _chunked(items: list[tuple[str, list[ClueDefinitionRecord]]], size: int) -> list[list[tuple[str, list[ClueDefinitionRecord]]]]:
+    chunk_size = max(size, 1)
+    return [items[index:index + chunk_size] for index in range(0, len(items), chunk_size)]
 
 
 def _apply_clusters(
@@ -241,10 +347,24 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--word", help="Only process one normalized word.")
     backfill.add_argument("--limit", type=int, help="Only process the top N hottest words.")
     backfill.add_argument("--min-count", type=int, default=2, help="Only process words with at least this many clues.")
+    backfill.add_argument(
+        "--referee-batch-size",
+        type=int,
+        default=DEFAULT_REFEREE_BATCH_SIZE,
+        help="How many near-duplicate comparisons to referee per batch before switching models.",
+    )
     return parser
 
 
-def run_backfill(*, dry_run: bool, apply: bool, word: str | None, limit: int | None, min_count: int) -> int:
+def run_backfill(
+    *,
+    dry_run: bool,
+    apply: bool,
+    word: str | None,
+    limit: int | None,
+    min_count: int,
+    referee_batch_size: int,
+) -> int:
     if dry_run == apply:
         raise SystemExit("Specify exactly one of --dry-run or --apply")
 
@@ -267,16 +387,28 @@ def run_backfill(*, dry_run: bool, apply: bool, word: str | None, limit: int | N
 
     processed_words = 0
     with review_path.open("w", encoding="utf-8") as review_handle:
-        for bucket_word, bucket_rows in buckets:
-            before = len(bucket_rows)
-            clusters = _build_initial_clusters(bucket_rows, stats)
-            clusters = _merge_clusters(service, bucket_word, clusters, review_handle, stats)
-            after = len(clusters)
-            stats.standalone_canonicals += after
-            update_reduction_stats(stats, word=bucket_word, before=before, after=after)
-            _apply_clusters(store, bucket_word, clusters, dry_run=dry_run)
-            processed_words += 1
-            print(f"[{bucket_word}] clues={before} canonicals={after}")
+        for bucket_chunk in _chunked(buckets, referee_batch_size):
+            prepared_chunk = [
+                (bucket_word, _build_initial_clusters(bucket_rows, stats))
+                for bucket_word, bucket_rows in bucket_chunk
+            ]
+            merged_chunk = _merge_word_batch(
+                service,
+                prepared_chunk,
+                review_handle,
+                stats,
+                referee_batch_size=referee_batch_size,
+            )
+            merged_by_word = dict(merged_chunk)
+            for bucket_word, bucket_rows in bucket_chunk:
+                clusters = merged_by_word[bucket_word]
+                before = len(bucket_rows)
+                after = len(clusters)
+                stats.standalone_canonicals += after
+                update_reduction_stats(stats, word=bucket_word, before=before, after=after)
+                _apply_clusters(store, bucket_word, clusters, dry_run=dry_run)
+                processed_words += 1
+                print(f"[{bucket_word}] clues={before} canonicals={after}")
 
     summary = {
         "total_rows": stats.total_rows,
@@ -289,6 +421,7 @@ def run_backfill(*, dry_run: bool, apply: bool, word: str | None, limit: int | N
         "top_reductions": stats.reduced_words,
         "disagreement_report": str(review_path),
         "mode": "dry-run" if dry_run else "apply",
+        "referee_batch_size": referee_batch_size,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     (report_dir / "summary.json").write_text(
@@ -307,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
             word=args.word,
             limit=args.limit,
             min_count=args.min_count,
+            referee_batch_size=args.referee_batch_size,
         )
     raise SystemExit(args.command)
 

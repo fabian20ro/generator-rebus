@@ -43,6 +43,8 @@
 ## Dependencies & External Services
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
+**[2026-04-01]** High-volume two-model referee passes should batch comparisons by model, not finish one item at a time — if a backfill/inference loop alternates `primary -> secondary` for every single comparison, LM Studio spends most of the run unloading and reloading models. Keep the 6-vote semantics, but collect a bounded queue of comparison requests, run all primary votes first, then all secondary votes, and isolate that batching path to offline/high-volume jobs so live single-item flows stay simple.
+
 **[2026-03-30]** LM Studio `reasoning_effort` needs completion-budget retuning, not just a flag flip — on local `gpt-oss` runs, enabling `reasoning_effort="medium"` can spend most or all `max_tokens` inside `completion_tokens_details.reasoning_tokens`. Small legacy budgets that were safe before reasoning support (`rewrite` ~220, `rate` ~260) can then terminate with `finish_reason="length"` and empty visible output / missing JSON. When LM Studio server support changes, revalidate token budgets per phase and log truncated completions with reasoning-token counts.
 
 **[2026-03-23]** LM Studio orchestration must separate transport ids from audit labels and forbid implicit model routing — `display_name` is for logs/metrics, `model_id` is for API calls. If generation/title/tiebreak code falls back to `"default"` or passes labels like `gpt-oss-20b` where LM Studio expects the exact downloaded id, live state drift turns into hard-to-reproduce 400/500 load failures. Keep one runtime that reconciles against `/api/v1/models`, and pass explicit `model_id` on every chat completion call.
@@ -102,6 +104,8 @@
 **[2026-03-26]** Multi-model title loops must activate models just-in-time, not prebuild an alternating model list by calling activators up front — eager activation unloads the first generator before its own API call, produces misleading `[model]` logs, and turns valid orchestration bugs into fake prompt-quality failures. Keep rejected-history and corrective hints scoped per generator, and do not let empty-output retries pollute semantic rejection context.
 
 ## Process & Workflow
+**[2026-04-01]** `set -u` shell wrappers must not expand empty Bash arrays on macOS bash 3.2 — patterns like `args=("$@")` followed by `"${args[@]}"` can still throw `unbound variable` when no CLI args were passed. Scan `"$@"` directly, branch on `$#`, and only materialize/expand an array after guaranteeing at least one element.
+
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 
 **[2026-03-18]** Interrupted prompt campaigns can leave prompt files mid-experiment — if a run stops due to power loss or crash, compare `generator/prompts/` against the campaign backup dir before trusting the working tree. The current prompt files may contain the next experiment's unreviewed edit even when no result was recorded.

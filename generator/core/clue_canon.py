@@ -12,6 +12,7 @@ from .clue_canon_types import (
     CanonicalDecision,
     CanonicalDefinition,
     ClueDefinitionRecord,
+    DefinitionRefereeInput,
     DefinitionRefereeResult,
     NearDuplicateCandidate,
 )
@@ -334,6 +335,23 @@ class ClueCanonService:
             len(record.word_normalized),
             record.definition,
             canonical.definition,
+        )
+
+    def _run_referee_batch(
+        self,
+        requests: list[DefinitionRefereeInput],
+    ) -> dict[str, DefinitionRefereeResult]:
+        if not requests:
+            return {}
+        if self.client is None:
+            from .ai_clues import create_client
+            self.client = create_client()
+        from .ai_clues import run_definition_referee_batch
+
+        return run_definition_referee_batch(
+            self.client,
+            self.runtime,
+            requests,
         )
 
     def _attach_if_possible(

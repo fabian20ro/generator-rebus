@@ -17,6 +17,28 @@
 
 ---
 
+### [2026-04-01] Batch clue-canon referee work across words to avoid per-comparison model thrash
+
+**Context:** user flagged that clue-canon backfill can touch ~12k clues, so loading/unloading LM Studio models per comparison is too expensive; requirement: backfill batching only, no regressions in other clue-canon flows, logging/extensibility considered.
+**Happened:** Traced the hot path: `run_backfill()` merged words one-by-one, and every near-duplicate comparison ran a full `primary votes -> secondary votes` cycle before moving on. Added `DefinitionRefereeInput` plus `run_definition_referee_batch()` in `generator/core/ai_clues.py`, keeping the same 6-vote schedule but grouping many requests under one primary activation and one secondary activation. Added `ClueCanonService._run_referee_batch()` for reuse, then replaced backfill’s local merge loop with a round-robin `_MergeState` batch state machine in `generator/clue_canon.py` that preserves per-word merge order while collecting up to `--referee-batch-size` pending comparisons across a chunk of words. Kept single-item `resolve_definition()` behavior unchanged, preserved existing per-comparison audit payloads, and added a lightweight batch log plus summary field for batch size.
+**Verification:** `python3 -m py_compile generator/core/ai_clues.py generator/core/clue_canon.py generator/core/clue_canon_types.py generator/clue_canon.py tests/test_ai_clues.py tests/test_clue_canon.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_redefine.py tests/test_repair_puzzles.py -q` (`100 passed`).
+**Outcome:** success
+**Insight:** high-volume two-model referee jobs need a dedicated batched execution path; reusing the exact vote semantics while moving model activation to batch boundaries gives most of the win without complicating live clue-resolution flows.
+**Promoted:** yes
+
+---
+
+### [2026-04-01] Fix empty-arg crash in `run_clue_canon_backfill.sh`
+
+**Context:** user ran `./run_clue_canon_backfill.sh` with no extra args; wrapper crashed immediately with `line 34: args[@]: unbound variable`.
+**Happened:** Read local lessons first, then traced the failure to `set -euo pipefail` under macOS `bash 3.2.57`: the script built `args=("$@")` and later expanded `"${args[@]}"` even when no CLI args were supplied. Reworked the wrapper to scan `"$@"` directly for `--apply|--dry-run`, branch on `$#`, and only build/expand `args` after guaranteeing at least one element (`--apply` default when empty).
+**Verification:** reproduced the fixed control flow in `bash -lc` with `set -euo pipefail` for two cases: no args produced `--apply`; `--word APA --limit 10` produced `--apply --word APA --limit 10`. Did not run the real backfill command itself in-session, to avoid triggering live apply behavior during a wrapper-only fix.
+**Outcome:** success
+**Insight:** on this repo's macOS shell baseline, empty array expansion is not safe under `nounset`; thin helper scripts should prefer `$#`/`"$@"` gating over assuming empty arrays behave portably.
+**Promoted:** yes
+
+---
+
 ### [2026-03-30] Persist rewrite structural rejection reasons, auto-balance overnight sizes, and centralize Supabase update logs
 
 **Context:** user wanted failed rewrite attempts to remember exact structural rejection causes across rounds, `run_batch_loop.sh` to stop looping blindly through `7..15`, and Supabase updates to emit a generic centralized log message.

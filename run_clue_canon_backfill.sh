@@ -24,17 +24,21 @@ if [[ -x ".venv/bin/python" ]]; then
   PYTHON_BIN=".venv/bin/python"
 fi
 
-args=("$@")
 has_mode=0
-for arg in "${args[@]}"; do
+for arg in "$@"; do
   if [[ "$arg" == "--apply" || "$arg" == "--dry-run" ]]; then
     has_mode=1
     break
   fi
 done
 
-if [[ "$has_mode" -eq 0 ]]; then
-  args=("--apply" "${args[@]}")
+if [[ "$#" -eq 0 ]]; then
+  args=(--apply)
+else
+  args=("$@")
+  if [[ "$has_mode" -eq 0 ]]; then
+    args=(--apply "${args[@]}")
+  fi
 fi
 
 exec "$PYTHON_BIN" -m generator.clue_canon backfill "${args[@]}"

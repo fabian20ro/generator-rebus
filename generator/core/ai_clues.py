@@ -13,7 +13,11 @@ from openai import OpenAI
 from ..config import LMSTUDIO_BASE_URL, VERIFY_CANDIDATE_COUNT
 from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_canon import aggregate_referee_votes
-from .clue_canon_types import DefinitionComparisonVote, DefinitionRefereeResult
+from .clue_canon_types import (
+    DefinitionComparisonVote,
+    DefinitionRefereeInput,
+    DefinitionRefereeResult,
+)
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
 from .llm_text import clean_llm_text_response
@@ -22,6 +26,10 @@ from .quality import ENGLISH_HOMOGRAPH_HINTS
 from .runtime_logging import log
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
+REFEREE_VOTE_SCHEDULE = (
+    (PRIMARY_MODEL, (False, True, False)),
+    (SECONDARY_MODEL, (True, False, True)),
+)
 USAGE_SUFFIX_PRECEDENCE: list[tuple[str, tuple[str, ...]]] = [
     ("(arh.)", (r"\bARHAIC\b", r"\bARHAISM\b", r"\bARH\.\b", r"\bIN LIMBAJ ARHAIC\b")),
     ("(inv.)", (r"\bINVECHIT\b", r"\bIESIT DIN UZ\b", r"\bINV\.\b")),
@@ -1012,6 +1020,54 @@ def compare_definition_variants(
     )
 
 
+def _remap_swapped_vote(vote: DefinitionComparisonVote) -> DefinitionComparisonVote:
+    better = vote.better
+    if better == "A":
+        better = "B"
+    elif better == "B":
+        better = "A"
+    return DefinitionComparisonVote(
+        model_id=vote.model_id,
+        same_meaning=vote.same_meaning,
+        better=better,
+        reason=vote.reason,
+    )
+
+
+def run_definition_referee_batch(
+    client: OpenAI,
+    runtime,
+    requests: list[DefinitionRefereeInput],
+) -> dict[str, DefinitionRefereeResult]:
+    if not requests:
+        return {}
+    votes_by_request_id: dict[str, list[DefinitionComparisonVote]] = {
+        request.request_id: [] for request in requests
+    }
+    for model_config, swaps in REFEREE_VOTE_SCHEDULE:
+        if runtime is not None:
+            runtime.activate(model_config)
+        for swap in swaps:
+            for request in requests:
+                left = request.definition_b if swap else request.definition_a
+                right = request.definition_a if swap else request.definition_b
+                vote = compare_definition_variants(
+                    client,
+                    request.word,
+                    request.answer_length,
+                    left,
+                    right,
+                    model=model_config.model_id,
+                )
+                votes_by_request_id[request.request_id].append(
+                    _remap_swapped_vote(vote) if swap else vote
+                )
+    return {
+        request_id: aggregate_referee_votes(votes)
+        for request_id, votes in votes_by_request_id.items()
+    }
+
+
 def run_definition_referee(
     client: OpenAI,
     runtime,
@@ -1020,42 +1076,19 @@ def run_definition_referee(
     definition_a: str,
     definition_b: str,
 ) -> DefinitionRefereeResult:
-    votes: list[DefinitionComparisonVote] = []
-    schedule = (
-        (PRIMARY_MODEL, False),
-        (PRIMARY_MODEL, True),
-        (PRIMARY_MODEL, False),
-        (SECONDARY_MODEL, True),
-        (SECONDARY_MODEL, False),
-        (SECONDARY_MODEL, True),
-    )
-    for model_config, swap in schedule:
-        if runtime is not None:
-            runtime.activate(model_config)
-        left = definition_b if swap else definition_a
-        right = definition_a if swap else definition_b
-        vote = compare_definition_variants(
-            client,
-            word,
-            answer_length,
-            left,
-            right,
-            model=model_config.model_id,
-        )
-        if swap:
-            better = vote.better
-            if better == "A":
-                better = "B"
-            elif better == "B":
-                better = "A"
-            vote = DefinitionComparisonVote(
-                model_id=vote.model_id,
-                same_meaning=vote.same_meaning,
-                better=better,
-                reason=vote.reason,
+    return run_definition_referee_batch(
+        client,
+        runtime,
+        [
+            DefinitionRefereeInput(
+                request_id="single",
+                word=word,
+                answer_length=answer_length,
+                definition_a=definition_a,
+                definition_b=definition_b,
             )
-        votes.append(vote)
-    return aggregate_referee_votes(votes)
+        ],
+    )["single"]
 
 
 def choose_better_clue_variant(

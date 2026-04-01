@@ -1,5 +1,7 @@
 import unittest
+from io import StringIO
 
+from generator.clue_canon import _build_initial_clusters, _merge_word_batch
 from generator.core.clue_canon import (
     aggregate_referee_votes,
     build_definition_record,
@@ -9,7 +11,7 @@ from generator.core.clue_canon import (
     generate_near_duplicate_candidates,
     normalize_definition_text,
 )
-from generator.core.clue_canon_types import DefinitionComparisonVote
+from generator.core.clue_canon_types import BackfillStats, DefinitionComparisonVote, DefinitionRefereeResult
 
 
 class ClueCanonTests(unittest.TestCase):
@@ -118,6 +120,77 @@ class ClueCanonTests(unittest.TestCase):
         self.assertEqual(2, result.better_b_votes)
         self.assertTrue(result.disagreement)
         self.assertEqual(3, classify_disagreement_bucket(result))
+
+    def test_merge_word_batch_batches_referee_requests_without_changing_word_results(self):
+        class _Service:
+            def __init__(self):
+                self.batches = []
+
+            def _run_referee_batch(self, requests):
+                self.batches.append([request.request_id for request in requests])
+                return {
+                    request.request_id: DefinitionRefereeResult(
+                        same_meaning_votes=6,
+                        better_a_votes=0,
+                        better_b_votes=6,
+                        equal_votes=0,
+                        votes=[],
+                    )
+                    for request in requests
+                }
+
+        service = _Service()
+        stats = BackfillStats()
+        review = StringIO()
+        bucket_batch = [
+            (
+                "LA",
+                _build_initial_clusters([
+                    build_definition_record({
+                        "id": "1",
+                        "word_normalized": "LA",
+                        "word_original": "la",
+                        "definition": "Prepoziție care indică locul.",
+                    }),
+                    build_definition_record({
+                        "id": "2",
+                        "word_normalized": "LA",
+                        "word_original": "la",
+                        "definition": "Prepoziție care indică destinația sau locul.",
+                    }),
+                ], stats),
+            ),
+            (
+                "SI",
+                _build_initial_clusters([
+                    build_definition_record({
+                        "id": "3",
+                        "word_normalized": "SI",
+                        "word_original": "și",
+                        "definition": "Conjuncție care leagă termeni.",
+                    }),
+                    build_definition_record({
+                        "id": "4",
+                        "word_normalized": "SI",
+                        "word_original": "și",
+                        "definition": "Conjuncție care unește termeni sau propoziții.",
+                    }),
+                ], stats),
+            ),
+        ]
+
+        merged = _merge_word_batch(
+            service,
+            bucket_batch,
+            review,
+            stats,
+            referee_batch_size=50,
+        )
+
+        self.assertEqual(1, len(service.batches))
+        self.assertEqual(2, len(service.batches[0]))
+        self.assertEqual({"LA": 1, "SI": 1}, {word: len(clusters) for word, clusters in merged})
+        self.assertEqual(2, stats.near_merges)
 
 
 if __name__ == "__main__":
