@@ -57,7 +57,6 @@ from .core.pipeline_state import (
     working_clue_from_entry,
     working_puzzle_from_puzzle,
 )
-from .core.plateau import has_plateaued
 from .core.puzzle_metrics import (
     build_puzzle_description,
     puzzle_metadata_payload,
@@ -77,7 +76,6 @@ from .core.score_helpers import (
     LOCKED_REBUS,
     LOCKED_SEMANTIC,
     MAX_CONSECUTIVE_FAILURES,
-    PLATEAU_LOOKBACK,
     _coerce_working_clue,
     _compact_log_text,
     _extract_guessability_score,

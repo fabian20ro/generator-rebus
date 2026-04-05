@@ -9,7 +9,6 @@ from generator.batch_publish import (
     Candidate,
     LOCKED_REBUS,
     MAX_REWRITE_ROUNDS,
-    PLATEAU_LOOKBACK,
     PreparedPuzzle,
     _backfill_generated_model,
     _best_candidate,
@@ -836,6 +835,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual(MAX_REWRITE_ROUNDS, args.rewrite_rounds)
 
     def test_plateau_constants(self):
+        from generator.core.score_helpers import PLATEAU_LOOKBACK
         self.assertEqual(7, PLATEAU_LOOKBACK)
         self.assertEqual(30, MAX_REWRITE_ROUNDS)
 
