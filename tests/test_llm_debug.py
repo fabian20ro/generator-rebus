@@ -134,6 +134,9 @@ class LlmDebugTests(unittest.TestCase):
 
 
 class DebugParserTests(unittest.TestCase):
+    def tearDown(self):
+        set_llm_debug_enabled(False)
+
     def test_loop_and_batch_publish_accept_debug(self):
         loop_args = build_loop_parser().parse_args(["--debug"])
         batch_args = build_batch_publish_parser().parse_args(["--debug"])

@@ -340,7 +340,7 @@ def _chat_completion_create_streaming(
     content_parts: list[str] = []
     reasoning_parts: list[str] = []
     finish_reason: str | None = None
-    stream = client.chat.completions.create(
+    response = client.chat.completions.create(
         model=model,
         messages=messages,
         temperature=temperature,
@@ -348,8 +348,12 @@ def _chat_completion_create_streaming(
         stream=True,
         **reasoning_options,
     )
+    # Support non-streaming mocks and fallbacks
+    if not hasattr(response, "__iter__"):
+        return response
+
     try:
-        for chunk in stream:
+        for chunk in response:
             choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
             if choice is None:
                 continue
