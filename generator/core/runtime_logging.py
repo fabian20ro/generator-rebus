@@ -14,9 +14,9 @@ from typing import TextIO
 
 
 _TIMESTAMP_PREFIX_RE = re.compile(
-    r"^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)?\]\s?"
+    r"^\[?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)?\]?(?:\s+(?:DEBUG|INFO|WARN|ERROR))?\s?"
 )
-_LEVEL_PREFIX_RE = re.compile(r"^(\s*)\[(DEBUG|INFO|WARN|ERROR)\]\s")
+_LEVEL_PREFIX_RE = re.compile(r"^(\s*)(?:\[(DEBUG|INFO|WARN|ERROR)\]|(DEBUG|INFO|WARN|ERROR))\s+")
 
 
 def human_timestamp() -> str:
@@ -80,7 +80,7 @@ class TimestampedWriter:
         if self._at_line_start:
             rendered = _ensure_level_prefix(text)
             if text != "\n" and not _TIMESTAMP_PREFIX_RE.match(text):
-                rendered = f"[{human_timestamp()}] {rendered}"
+                rendered = f"{human_timestamp()} {rendered}"
         for stream in self._streams:
             stream.write(rendered)
             stream.flush()
@@ -173,16 +173,18 @@ def _ensure_level_prefix(message: str, *, default_level: str = "INFO") -> str:
         return text
     if _TIMESTAMP_PREFIX_RE.match(text):
         return text
-    match = _LEVEL_PREFIX_RE.match(text)
-    if match:
-        return text
     stripped = text.lstrip()
     leading = text[: len(text) - len(stripped)]
-    return f"{leading}[{default_level}] {stripped}"
+    match = _LEVEL_PREFIX_RE.match(text)
+    if match:
+        level = match.group(2) or match.group(3) or default_level
+        rest = text[match.end():]
+        return f"{level} {leading}{rest}"
+    return f"{default_level} {leading}{stripped}"
 
 
 def format_human_log_line(message: str, *, level: str = "INFO") -> str:
-    return f"[{human_timestamp()}] {_ensure_level_prefix(message, default_level=level)}"
+    return f"{human_timestamp()} {_ensure_level_prefix(message, default_level=level)}"
 
 
 def log(message: str, *, level: str = "INFO") -> None:

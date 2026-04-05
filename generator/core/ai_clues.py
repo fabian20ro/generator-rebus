@@ -25,7 +25,12 @@ from .clue_canon_types import (
 from .clue_family import clue_uses_same_family, forbidden_definition_stems
 from .diacritics import normalize
 from .llm_text import clean_llm_text_response
-from .model_manager import PRIMARY_MODEL, SECONDARY_MODEL, chat_reasoning_options
+from .model_manager import (
+    PRIMARY_MODEL,
+    SECONDARY_MODEL,
+    chat_max_tokens,
+    chat_reasoning_options,
+)
 from .quality import ENGLISH_HOMOGRAPH_HINTS
 from .runtime_logging import llm_debug_enabled, log
 
@@ -1040,6 +1045,7 @@ def generate_definition(
     for attempt in range(retries):
         try:
             resolved_model = _resolve_model_name(model)
+            max_tokens = chat_max_tokens(resolved_model)
             response = _chat_completion_create(
                 client,
                 model=resolved_model,
@@ -1048,7 +1054,7 @@ def generate_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=temperature if temperature is not None else 0.2,
-                max_tokens=2000,
+                max_tokens=max_tokens,
                 purpose="definition_generate",
             )
             definition = _clean_response(response.choices[0].message.content)
@@ -1135,6 +1141,7 @@ def rewrite_definition(
     for attempt in range(retries):
         try:
             resolved_model = _resolve_model_name(model)
+            max_tokens = chat_max_tokens(resolved_model)
             response = _chat_completion_create(
                 client,
                 model=resolved_model,
@@ -1143,7 +1150,7 @@ def rewrite_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=temperature if temperature is not None else 0.3,
-                max_tokens=2000,
+                max_tokens=max_tokens,
                 purpose="definition_rewrite",
             )
             definition = _clean_response(response.choices[0].message.content)
@@ -1196,6 +1203,7 @@ def verify_definition_candidates(
     last_candidates: list[str] = []
     for attempt in range(2):
         resolved_model = _resolve_model_name(model)
+        max_tokens = chat_max_tokens(resolved_model)
         response = _chat_completion_create(
             client,
             model=resolved_model,
@@ -1204,7 +1212,7 @@ def verify_definition_candidates(
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=320,
+            max_tokens=max_tokens,
             purpose="definition_verify",
         )
         raw = response.choices[0].message.content or ""
@@ -1266,6 +1274,7 @@ def rate_definition(
     for attempt in range(2):
         try:
             resolved_model = _resolve_model_name(model)
+            max_tokens = chat_max_tokens(resolved_model)
             response = _chat_completion_create(
                 client,
                 model=resolved_model,
@@ -1274,7 +1283,7 @@ def rate_definition(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=2000,
+                max_tokens=max_tokens,
                 purpose="definition_rate",
             )
             raw = response.choices[0].message.content or ""
@@ -1357,6 +1366,7 @@ def rewrite_merged_canonical_definition(
     model: str | None = None,
 ) -> MergeRewriteAttemptResult:
     resolved_model = _resolve_model_name(model)
+    max_tokens = chat_max_tokens(resolved_model)
     system_prompt = (
         "Ești editor de definiții scurte pentru rebus românesc. "
         "Răspunzi cu o singură definiție românească, simplă, completă, fără markdown, fără etichete, fără explicații."
@@ -1382,7 +1392,7 @@ def rewrite_merged_canonical_definition(
             {"role": "user", "content": prompt},
         ],
         temperature=0.2,
-        max_tokens=120,
+        max_tokens=max_tokens,
         purpose="canonical_merge_rewrite",
     )
     definition = _clean_response(response.choices[0].message.content)
@@ -1551,6 +1561,7 @@ def _compare_definition_variant_attempt(
         "fără text suplimentar."
     )
     resolved_model = _resolve_model_name(model)
+    max_tokens = chat_max_tokens(resolved_model)
     for attempt in range(2):
         compare_started = time.monotonic()
         try:
@@ -1562,7 +1573,7 @@ def _compare_definition_variant_attempt(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=120,
+                max_tokens=max_tokens,
                 purpose="clue_compare",
             )
             elapsed = time.monotonic() - compare_started
@@ -1868,6 +1879,7 @@ def choose_better_clue_variant(
     )
     try:
         resolved_model = _resolve_model_name(model)
+        max_tokens = chat_max_tokens(resolved_model)
         response = _chat_completion_create(
             client,
             model=resolved_model,
@@ -1876,7 +1888,7 @@ def choose_better_clue_variant(
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=20,
+            max_tokens=max_tokens,
             purpose="clue_tiebreaker",
         )
         return _pick_tiebreak_winner(response.choices[0].message.content or "")
@@ -1893,6 +1905,7 @@ def choose_better_puzzle_variant(
     prompt = _build_puzzle_tiebreak_prompt(summary_a, summary_b)
     try:
         resolved_model = _resolve_model_name(model)
+        max_tokens = chat_max_tokens(resolved_model)
         response = _chat_completion_create(
             client,
             model=resolved_model,
@@ -1901,7 +1914,7 @@ def choose_better_puzzle_variant(
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=20,
+            max_tokens=max_tokens,
             purpose="puzzle_tiebreaker",
         )
         return _pick_tiebreak_winner(response.choices[0].message.content or "")

@@ -845,3 +845,19 @@
 **Outcome:** success
 **Insight:** language-guard filters on Romanian text must run after diacritic normalization, and human log formatting is safer when timestamp/severity policy lives in one central writer instead of ad-hoc callsite strings.
 **Promoted:** yes — see LESSONS_LEARNED entry on normalized English-marker tokenization.
+
+### [2026-04-06] — Centralize LM completion budgets per model across clue + title flows
+**Context:** user inspected April 6 logs and saw Gemma repeatedly hit `finish_reason=length` at `max_tokens=2000`, then asked for one strict global per-model budget policy: Gemma `4000`, GPT-OSS `2000`, EuroLLM `200`, applied everywhere.
+**Happened:** Extended `generator/core/model_manager.py` with `ModelConfig.max_completion_tokens` plus `chat_max_tokens(...)`, set catalog budgets for Gemma/GPT-OSS/EuroLLM, and replaced all hardcoded `_chat_completion_create(... max_tokens=...)` literals in `generator/core/ai_clues.py` and `generator/phases/theme.py` so generate/rewrite/verify/rate/compare/merge/tiebreak/title calls all inherit the resolved model budget. Updated `tests/test_model_manager.py`, `tests/test_ai_clues.py`, and `tests/test_theme.py` to assert model-derived budgets instead of old purpose-specific literals and added secondary-budget coverage.
+**Verification:** `python3 -m pytest tests/test_model_manager.py tests/test_ai_clues.py tests/test_theme.py` (`129 passed`).
+**Outcome:** success
+**Insight:** when reasoning policy is already registry-driven, completion budget should live in the same model registry; otherwise log-driven budget changes become a brittle hunt through per-purpose literals.
+**Promoted:** no
+
+### [2026-04-06] — Reformat human logs to `timestamp LEVEL message` with post-level indentation
+**Context:** user wanted human logs to place severity immediately after the timestamp, remove square brackets from both timestamp and severity, and keep any indentation after the severity token instead of before it.
+**Happened:** Updated `generator/core/runtime_logging.py` so `TimestampedWriter` and `format_human_log_line(...)` now emit `YYYY-MM-DDTHH:MM:SS LEVEL ...` lines, normalize legacy `[WARN]`/`[DEBUG]` style prefixes into plain `WARN`/`DEBUG`, preserve old already-timestamped lines without double-prefixing, and move leading spaces to after the severity token (`INFO   message`). Added/updated coverage in `tests/test_runtime_logging.py` for plain lines, existing severity normalization, indentation placement, and formatted loop-log lines. Verified debug-stream and loop-controller paths still behave with `tests/test_llm_debug.py` and `tests/test_loop_controller.py`.
+**Verification:** `python3 -m pytest tests/test_runtime_logging.py tests/test_llm_debug.py tests/test_loop_controller.py` (`28 passed`).
+**Outcome:** success
+**Insight:** severity normalization should happen before indentation is rendered; otherwise streamed debug channels and manual log-file writes drift into different visual layouts.
+**Promoted:** no

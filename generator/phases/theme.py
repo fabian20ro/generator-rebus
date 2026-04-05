@@ -16,6 +16,7 @@ from ..core.lm_runtime import LmRuntime
 from ..core.markdown_io import parse_markdown, write_with_definitions
 from ..core.model_manager import (
     ModelConfig,
+    chat_max_tokens,
     get_active_models,
     get_active_primary_model,
     get_active_secondary_model,
@@ -268,6 +269,7 @@ def rate_title_creativity(
     )
     for attempt in range(2):
         try:
+            max_tokens = chat_max_tokens(model_config)
             response = _chat_completion_create(
                 client,
                 model=model_config.model_id,
@@ -276,7 +278,7 @@ def rate_title_creativity(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.1,
-                max_tokens=260,
+                max_tokens=max_tokens,
                 purpose="title_rate",
             )
             raw = response.choices[0].message.content or ""
@@ -342,6 +344,7 @@ def _generate_single_title(
     )
 
     try:
+        max_tokens = chat_max_tokens(model_config)
         response = _chat_completion_create(
             client,
             model=model_config.model_id,
@@ -350,7 +353,7 @@ def _generate_single_title(
                 {"role": "user", "content": prompt},
             ],
             temperature=temperature,
-            max_tokens=2000,
+            max_tokens=max_tokens,
             purpose="title_generate",
         )
         return response.choices[0].message.content or ""

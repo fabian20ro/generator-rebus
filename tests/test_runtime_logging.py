@@ -25,9 +25,9 @@ class TimestampedWriterTests(unittest.TestCase):
 
         output = target.getvalue()
         self.assertIn("hello", output)
-        self.assertTrue(output.startswith("["))
-        self.assertIn("[INFO] hello", output)
-        self.assertNotIn("+", output.split("]")[0])
+        self.assertRegex(output, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} INFO hello\n$")
+        self.assertNotIn("[INFO]", output)
+        self.assertNotIn("[", output.split(" hello")[0])
 
     def test_does_not_double_prefix_existing_timestamp(self):
         target = StringIO()
@@ -49,7 +49,7 @@ class TimestampedWriterTests(unittest.TestCase):
         writer.write("\n")
 
         self.assertIn("hello", first)
-        self.assertEqual(first.count("["), second.count("["))
+        self.assertEqual(first.count("INFO"), second.count("INFO"))
         self.assertIn("hello world\n", target.getvalue())
 
     def test_preserves_existing_severity_without_adding_info(self):
@@ -60,8 +60,17 @@ class TimestampedWriterTests(unittest.TestCase):
         writer.flush()
 
         output = target.getvalue()
-        self.assertIn("[WARN] problem", output)
-        self.assertNotIn("[INFO] [WARN]", output)
+        self.assertRegex(output, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} WARN problem\n$")
+        self.assertNotIn("INFO [WARN]", output)
+
+    def test_moves_indentation_after_severity(self):
+        target = StringIO()
+        writer = TimestampedWriter(target)
+
+        writer.write("  hello\n")
+        writer.flush()
+
+        self.assertRegex(target.getvalue(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} INFO   hello\n$")
 
     def test_human_timestamp_omits_timezone_offset(self):
         stamp = human_timestamp()
@@ -69,7 +78,7 @@ class TimestampedWriterTests(unittest.TestCase):
 
     def test_format_human_log_line_adds_timestamp_and_info(self):
         rendered = format_human_log_line("loop started")
-        self.assertRegex(rendered, r"^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\] \[INFO\] loop started$")
+        self.assertRegex(rendered, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} INFO loop started$")
 
 
 class AuditTests(unittest.TestCase):
@@ -89,7 +98,7 @@ class AuditTests(unittest.TestCase):
 
             output = log_path.read_text(encoding="utf-8")
             self.assertIn("hello log", output)
-            self.assertTrue(output.startswith("["))
+            self.assertRegex(output, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} INFO hello log\n$")
 
     def test_audit_writes_jsonl_record(self):
         with TemporaryDirectory() as tmpdir:

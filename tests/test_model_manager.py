@@ -7,6 +7,7 @@ from generator.core.model_manager import (
     ModelConfig,
     PRIMARY_MODEL,
     SECONDARY_MODEL,
+    chat_max_tokens,
     chat_reasoning_options,
     ensure_model_loaded,
     get_active_model_labels,
@@ -29,23 +30,27 @@ class ModelManagerTests(unittest.TestCase):
             registry_key="test_model",
             model_id="test/model",
             display_name="test-model",
+            max_completion_tokens=1234,
             context_length=4096,
         )
         self.assertEqual(config.registry_key, "test_model")
         self.assertEqual(config.model_id, "test/model")
         self.assertEqual(config.display_name, "test-model")
+        self.assertEqual(config.max_completion_tokens, 1234)
         self.assertEqual(config.context_length, 4096)
         self.assertEqual({}, dict(config.reasoning_by_purpose))
 
     def test_primary_model_config(self):
         self.assertEqual("gemma4_26b_a4b", PRIMARY_MODEL.registry_key)
         self.assertIn("gemma", PRIMARY_MODEL.model_id)
+        self.assertEqual(4000, PRIMARY_MODEL.max_completion_tokens)
         self.assertEqual(PRIMARY_MODEL.context_length, 8192)
         self.assertEqual("low", PRIMARY_MODEL.reasoning_by_purpose["default"])
 
     def test_secondary_model_config(self):
         self.assertEqual("eurollm_22b", SECONDARY_MODEL.registry_key)
         self.assertIn("eurollm", SECONDARY_MODEL.model_id)
+        self.assertEqual(200, SECONDARY_MODEL.max_completion_tokens)
         self.assertIsNone(SECONDARY_MODEL.reasoning_by_purpose["default"])
 
     def test_get_model_config_returns_known_model(self):
@@ -89,8 +94,13 @@ class ModelManagerTests(unittest.TestCase):
     def test_chat_reasoning_options_empty_for_secondary(self):
         self.assertEqual({}, chat_reasoning_options(SECONDARY_MODEL.model_id))
 
+    def test_chat_max_tokens_return_model_budget(self):
+        self.assertEqual(4000, chat_max_tokens(PRIMARY_MODEL))
+        self.assertEqual(200, chat_max_tokens(SECONDARY_MODEL.model_id))
+
     def test_chat_reasoning_options_support_gpt_oss_profiles(self):
         gpt_oss = get_model_by_key("gpt_oss_20b")
+        self.assertEqual(2000, chat_max_tokens(gpt_oss))
         self.assertEqual(
             {"reasoning_effort": "medium"},
             chat_reasoning_options(gpt_oss, purpose="definition_generate"),
@@ -105,6 +115,7 @@ class ModelManagerTests(unittest.TestCase):
             registry_key="legacy",
             model_id="legacy/model",
             display_name="legacy",
+            max_completion_tokens=777,
             reasoning_by_purpose={"default": "off", "definition_generate": "on"},
         )
         self.assertEqual(
@@ -121,6 +132,7 @@ class ModelManagerTests(unittest.TestCase):
             registry_key="bad",
             model_id="bad/model",
             display_name="bad",
+            max_completion_tokens=777,
             reasoning_by_purpose={"default": "banana"},
         )
         with self.assertRaises(ValueError):

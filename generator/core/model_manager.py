@@ -18,6 +18,7 @@ class ModelConfig:
     registry_key: str
     model_id: str
     display_name: str
+    max_completion_tokens: int
     context_length: int = 8192
     reasoning_by_purpose: Mapping[str, str | None] = field(default_factory=dict)
 
@@ -33,6 +34,7 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
         registry_key="gemma4_26b_a4b",
         model_id="google/gemma-4-26b-a4b",
         display_name="gemma-4",
+        max_completion_tokens=4000,
         reasoning_by_purpose={
             "default": "low",
             "definition_generate": "low",
@@ -45,6 +47,7 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
         registry_key="gpt_oss_20b",
         model_id="openai/gpt-oss-20b",
         display_name="gpt-oss-20b",
+        max_completion_tokens=2000,
         reasoning_by_purpose={
             "default": "low",
             "definition_generate": "medium",
@@ -57,6 +60,7 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
         registry_key="eurollm_22b",
         model_id="eurollm-22b-instruct-2512-mlx-nvfp4",
         display_name="eurollm-22b",
+        max_completion_tokens=200,
         reasoning_by_purpose={
             "default": None,
         },
@@ -125,6 +129,13 @@ def chat_reasoning_options(
         return {}
     normalized_effort = _normalize_reasoning_effort(effort)
     return {"reasoning_effort": normalized_effort}
+
+
+def chat_max_tokens(model: str | ModelConfig | None) -> int:
+    config = model if isinstance(model, ModelConfig) else get_model_config(str(model or ""))
+    if not config:
+        raise KeyError(f"Unknown model for max token lookup: {model}")
+    return config.max_completion_tokens
 
 
 def _normalize_reasoning_effort(effort: str) -> str:

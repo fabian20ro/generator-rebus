@@ -28,7 +28,7 @@ from generator.core.ai_clues import (
     verify_definition_candidates,
 )
 from generator.core.clue_canon_types import DefinitionRefereeInput
-from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
+from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, chat_max_tokens
 from generator.prompts.loader import load_system_prompt
 
 
@@ -93,7 +93,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual("low", client.calls[0]["reasoning_effort"])
-        self.assertEqual(2000, client.calls[0]["max_tokens"])
+        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_rate_definition_sends_medium_reasoning_effort_for_primary_model(self):
         client = _RecordingClient([
@@ -116,7 +116,7 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertIsNotNone(rating)
         self.assertEqual("low", client.calls[0]["reasoning_effort"])
-        self.assertEqual(2000, client.calls[0]["max_tokens"])
+        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_verify_definition_candidates_sends_low_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["CASA"])
@@ -151,6 +151,7 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertIsNotNone(rating)
         self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual(chat_max_tokens(SECONDARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_rewrite_prompt_omits_bad_example_by_default(self):
         client = _RecordingClient(["Definiție mai bună"])
@@ -167,7 +168,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertNotIn("Exemplu de definiție rea de evitat", client.prompts[0])
-        self.assertEqual(2000, client.calls[0]["max_tokens"])
+        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_rewrite_prompt_includes_bad_example_when_provided(self):
         client = _RecordingClient(["Definiție mai bună"])
@@ -294,7 +295,7 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual("B", vote.better)
         self.assertEqual("", vote.reason)
 
-    def test_compare_definition_variants_uses_low_reasoning_and_small_token_budget(self):
+    def test_compare_definition_variants_uses_low_reasoning_and_model_budget(self):
         client = _RecordingClient([
             json.dumps({
                 "same_meaning": True,
@@ -312,7 +313,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual("low", client.calls[0]["reasoning_effort"])
-        self.assertEqual(120, client.calls[0]["max_tokens"])
+        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_chat_completion_logs_reasoning_budget_warning(self):
         response = SimpleNamespace(
@@ -695,7 +696,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
-        self.assertEqual(2000, client.calls[0]["max_tokens"])
+        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_verify_definition_candidates_passes_explicit_model(self):
         client = _RecordingClient(["1. BAR\n2. TUN"])
@@ -708,6 +709,18 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
+
+    def test_verify_definition_candidates_uses_secondary_global_budget(self):
+        client = _RecordingClient(["1. BAR\n2. TUN"])
+
+        verify_definition_candidates(
+            client,
+            "Recipient mare pentru vin",
+            answer_length=3,
+            model=SECONDARY_MODEL.model_id,
+        )
+
+        self.assertEqual(chat_max_tokens(SECONDARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_rate_definition_passes_explicit_model(self):
         client = _RecordingClient([
