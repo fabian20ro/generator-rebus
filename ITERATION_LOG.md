@@ -741,6 +741,14 @@
 **Insight:** when referee logic needs provenance, tests and runtime both must operate at the attempt/diagnostic layer, not the old bare-vote layer; otherwise model-contribution failures disappear into ordinary disagreement paths.
 **Promoted:** no
 
+### [2026-04-05] — Add bulk puzzle-definition audit wrapper for UI clue integrity
+**Context:** user wanted a reusable `.sh` check that scans all puzzles for UI-breaking missing definitions or clue-slot mismatches, with minimal Supabase traffic and future operator reuse.
+**Happened:** Added `generator/puzzle_definition_audit.py` as a standalone audit command and `run_puzzle_definition_audit.sh` as the root wrapper. The audit now bulk-fetches puzzle metadata from `crossword_puzzles`, bulk-fetches clue rows from `crossword_clue_effective` by chunked puzzle-id batches, derives expected slots from `grid_template` via `slot_extractor`, and flags missing slot rows, blank definitions, duplicate rows, orphan rows, and clue-count mismatches. Added small store helpers for paged puzzle fetches and bulk clue fetches, stable ordering for paginated reads, JSON/JSONL report output, and tests for integrity cases plus wrapper argument forwarding.
+**Verification:** `python3 -m pytest tests/test_puzzle_definition_audit.py tests/test_clue_canon_store.py` (`18 passed`); `python3 -m py_compile generator/puzzle_definition_audit.py generator/core/clue_canon_store.py tests/test_puzzle_definition_audit.py`; `./run_puzzle_definition_audit.sh --help`.
+**Outcome:** success
+**Insight:** puzzle-integrity audits should treat `grid_template` as the source of truth for expected clues and compare in memory after bulk reads; per-puzzle fetch loops waste Supabase calls and hide slot-row mismatches that blank-definition-only checks miss.
+**Promoted:** yes — see LESSONS_LEARNED entry on bulk integrity audits using structural truth.
+
 ### [2026-04-05] — Reorder finalize cutover migration to replace dependent view before dropping legacy column
 **Context:** user hit the final clue-cutover migration failure `cannot drop column definition ... because view crossword_clue_effective depends on it` and asked whether `DROP COLUMN ... CASCADE` was safe.
 **Happened:** Inspected the add-schema migration, finalize migration, and canonical-only schema. Found finalize order was wrong: it tried to drop `crossword_clues.definition` before replacing the compatibility view that still referenced `cc.definition`. Updated `migrations/20260402_finalize_canonical_clue_cutover.sql` to keep the null-pointer guard and `SET NOT NULL`, then `CREATE OR REPLACE VIEW crossword_clue_effective` in canonical-only form, and only then `DROP COLUMN IF EXISTS definition`. Also added dependency-preflight SQL snippets and an explicit warning against blind `CASCADE`.

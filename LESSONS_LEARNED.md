@@ -142,6 +142,8 @@
 
 **[2026-04-05]** Backfill “eligible rows” must match the cutover invariant being measured — if cutover requires `crossword_clues.canonical_definition_id IS NULL = 0`, a backfill restricted to `verified=true` will misleadingly report `eligible_rows=0` while thousands of unverified null pointers remain. Separate “verified rows allowed to drive merges” from “all rows that still need a canonical pointer”.
 
+**[2026-04-05]** Puzzle clue-integrity audits should use structural truth plus bulk reads — if the goal is “UI-safe puzzle load,” checking only blank definitions misses missing-slot rows, duplicates, and orphan clues. Fetch puzzle metadata once, fetch clue rows in bulk by puzzle-id chunks, derive expected slots from `grid_template`, and compare client-side instead of doing one query per puzzle.
+
 ---
 
 ## Archive

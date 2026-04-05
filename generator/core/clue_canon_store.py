@@ -22,6 +22,7 @@ _SCHEMA_CHECKS: tuple[tuple[str, str], ...] = (
     ("canonical_clue_aliases", "id"),
     ("crossword_clue_effective", "id, canonical_definition_id, definition"),
     ("crossword_clues", "id, canonical_definition_id"),
+    ("crossword_puzzles", "id, grid_template, published"),
 )
 _CLUE_PAGE_SIZE = 1000
 _UUID_RE = re.compile(
@@ -468,6 +469,101 @@ class ClueCanonStore:
             if puzzle_id or len(batch) < _CLUE_PAGE_SIZE:
                 break
             offset += _CLUE_PAGE_SIZE
+        return rows
+
+    def fetch_puzzle_rows(
+        self,
+        *,
+        published_only: bool = False,
+        puzzle_id: str | None = None,
+        limit: int | None = None,
+        extra_fields: tuple[str, ...] = (),
+    ) -> list[dict]:
+        if self.client is None:
+            return []
+        select_fields = [
+            "id",
+            "title",
+            "published",
+            "grid_size",
+            "grid_template",
+            "created_at",
+            "repaired_at",
+        ]
+        for field in extra_fields:
+            if field not in select_fields:
+                select_fields.append(field)
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            query = self.client.table("crossword_puzzles").select(", ".join(select_fields)).order("id")
+            if published_only:
+                query = query.eq("published", True)
+            if puzzle_id:
+                query = query.eq("id", puzzle_id)
+            if puzzle_id:
+                batch = query.execute().data or []
+            else:
+                page_size = _CLUE_PAGE_SIZE
+                if limit is not None:
+                    remaining = limit - len(rows)
+                    if remaining <= 0:
+                        break
+                    page_size = min(page_size, remaining)
+                batch = query.range(offset, offset + page_size - 1).execute().data or []
+            rows.extend(batch)
+            if puzzle_id or len(batch) < _CLUE_PAGE_SIZE or (limit is not None and len(rows) >= limit):
+                break
+            offset += _CLUE_PAGE_SIZE
+        return rows[:limit] if limit is not None else rows
+
+    def fetch_clue_rows_for_puzzle_ids(
+        self,
+        puzzle_ids: list[str],
+        *,
+        extra_fields: tuple[str, ...] = (),
+    ) -> list[dict]:
+        if self.client is None:
+            return []
+        unique_ids = sorted({
+            str(puzzle_id or "").strip()
+            for puzzle_id in puzzle_ids
+            if str(puzzle_id or "").strip()
+        })
+        if not unique_ids:
+            return []
+        select_fields = [
+            "id",
+            "puzzle_id",
+            "direction",
+            "start_row",
+            "start_col",
+            "length",
+            "clue_number",
+            "definition",
+        ]
+        for field in extra_fields:
+            if field not in select_fields:
+                select_fields.append(field)
+        rows: list[dict] = []
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            offset = 0
+            while True:
+                query = (
+                    self.client.table("crossword_clue_effective")
+                    .select(", ".join(select_fields))
+                    .in_("puzzle_id", chunk)
+                    .order("puzzle_id")
+                    .order("direction")
+                    .order("clue_number")
+                    .range(offset, offset + _CLUE_PAGE_SIZE - 1)
+                )
+                batch = query.execute().data or []
+                rows.extend(batch)
+                if len(batch) < _CLUE_PAGE_SIZE:
+                    break
+                offset += _CLUE_PAGE_SIZE
         return rows
 
     def fetch_backfill_source_rows(
