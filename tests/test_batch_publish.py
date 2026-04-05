@@ -31,6 +31,7 @@ from generator.batch_publish import (
 )
 from generator.core.clue_rating import append_rating_to_note
 from generator.core.markdown_io import ClueEntry, write_with_definitions
+from generator.core.model_manager import PRIMARY_MODEL
 from generator.core.pipeline_state import (
     ClueScores,
     PuzzleAssessment,
@@ -499,9 +500,9 @@ class BatchPublishTests(unittest.TestCase):
             vertical_clues=[],
         )
 
-        _backfill_generated_model(puzzle, "gpt-oss-20b")
+        _backfill_generated_model(puzzle, PRIMARY_MODEL.display_name)
 
-        self.assertEqual("gpt-oss-20b", puzzle.horizontal_clues[0].current.generated_by)
+        self.assertEqual(PRIMARY_MODEL.display_name, puzzle.horizontal_clues[0].current.generated_by)
 
     @patch("generator.batch_publish.generate_title_for_final_puzzle_result")
     @patch("generator.batch_publish._rewrite_failed_clues")

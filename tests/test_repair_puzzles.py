@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from generator.core.model_manager import SECONDARY_MODEL
 from generator.core.pipeline_state import ClueAssessment, ClueScores, PuzzleAssessment
 from generator.core.puzzle_metrics import PuzzleEvaluationResult
 from generator.phases.theme import TitleGenerationResult
@@ -20,20 +21,25 @@ def _make_clue_row(
     clue_id: str = "clue-1",
     row: int = 0,
     col: int = 0,
+    word_type: str = "",
+    canonical_definition_id: str | None = None,
 ) -> dict:
     return {
         "id": clue_id,
         "puzzle_id": "puzzle-1",
         "word_normalized": word,
         "word_original": word.lower(),
+        "word_type": word_type,
         "definition": definition,
         "direction": direction,
         "start_row": row,
         "start_col": col,
         "length": len(word),
         "clue_number": 1,
+        "canonical_definition_id": canonical_definition_id,
         "verify_note": "",
         "verified": False,
+        "definition_source": "canonical" if canonical_definition_id else "legacy",
     }
 
 
@@ -55,6 +61,8 @@ def _assessment(min_rebus: int, *, avg_rebus: float | None = None, verified_coun
 class _SupabaseFixture:
     def __init__(self, clue_rows: list[dict]):
         self.supabase = MagicMock()
+        self._canonical_rows: list[dict] = []
+        self._next_canonical_id = 1
 
         self.puzzle_select = MagicMock()
         self.puzzle_select.eq.return_value = self.puzzle_select
@@ -68,6 +76,7 @@ class _SupabaseFixture:
 
         self.clue_select = MagicMock()
         self.clue_select.eq.return_value = self.clue_select
+        self.clue_select.limit.return_value = self.clue_select
         self.clue_select.execute.return_value = SimpleNamespace(data=clue_rows)
         self.clue_update = MagicMock()
         self.clue_update.eq.return_value = self.clue_update
@@ -76,11 +85,58 @@ class _SupabaseFixture:
         self.clue_table.select.return_value = self.clue_select
         self.clue_table.update.return_value = self.clue_update
 
+        self.clue_effective_select = MagicMock()
+        self.clue_effective_select.eq.return_value = self.clue_effective_select
+        self.clue_effective_select.limit.return_value = self.clue_effective_select
+        self.clue_effective_select.execute.return_value = SimpleNamespace(data=clue_rows)
+        self.clue_effective_table = MagicMock()
+        self.clue_effective_table.select.return_value = self.clue_effective_select
+
+        self.canonical_select = MagicMock()
+        self.canonical_select.eq.return_value = self.canonical_select
+        self.canonical_select.limit.return_value = self.canonical_select
+        self.canonical_select.in_.return_value = self.canonical_select
+        self.canonical_select.execute.side_effect = lambda: SimpleNamespace(data=list(self._canonical_rows))
+        self.canonical_insert = MagicMock()
+
+        def _canonical_insert_execute():
+            payload = dict(self.canonical_insert_payload)
+            payload.setdefault("id", f"canon-{self._next_canonical_id}")
+            self._next_canonical_id += 1
+            self._canonical_rows.append(payload)
+            return SimpleNamespace(data=[payload])
+
+        self.canonical_insert.execute.side_effect = _canonical_insert_execute
+        self.canonical_table = MagicMock()
+        self.canonical_table.select.return_value = self.canonical_select
+
+        def _canonical_insert(payload):
+            self.canonical_insert_payload = payload
+            return self.canonical_insert
+
+        self.canonical_table.insert.side_effect = _canonical_insert
+
+        self.alias_select = MagicMock()
+        self.alias_select.eq.return_value = self.alias_select
+        self.alias_select.limit.return_value = self.alias_select
+        self.alias_select.execute.return_value = SimpleNamespace(data=[])
+        self.alias_insert = MagicMock()
+        self.alias_insert.execute.return_value = SimpleNamespace(data=[])
+        self.alias_table = MagicMock()
+        self.alias_table.select.return_value = self.alias_select
+        self.alias_table.insert.return_value = self.alias_insert
+
         def _table(name: str):
             if name == "crossword_puzzles":
                 return self.puzzle_table
             if name == "crossword_clues":
                 return self.clue_table
+            if name == "crossword_clue_effective":
+                return self.clue_effective_table
+            if name == "canonical_clue_definitions":
+                return self.canonical_table
+            if name == "canonical_clue_aliases":
+                return self.alias_table
             raise AssertionError(name)
 
         self.supabase.table.side_effect = _table
@@ -132,7 +188,7 @@ class RepairPuzzleTests(unittest.TestCase):
             assessment=_assessment(5),
             passed=1,
             total=1,
-            evaluator_model="eurollm-22b",
+            evaluator_model=SECONDARY_MODEL.display_name,
         )
         mock_run_rewrite.return_value = SimpleNamespace(initial_passed=1, final_passed=1, total=1)
         mock_score_state.return_value = _assessment(5)
@@ -187,7 +243,7 @@ class RepairPuzzleTests(unittest.TestCase):
             assessment=_assessment(5),
             passed=1,
             total=1,
-            evaluator_model="eurollm-22b",
+            evaluator_model=SECONDARY_MODEL.display_name,
         )
 
         def _rewrite(puzzle, *_args, **_kwargs):
@@ -232,7 +288,7 @@ class RepairPuzzleTests(unittest.TestCase):
         self.assertIn("updated_at", puzzle_payload)
 
         clue_payload = fixture.clue_table.update.call_args[0][0]
-        self.assertEqual("Înălțime naturală", clue_payload["definition"])
+        self.assertTrue(clue_payload["canonical_definition_id"].startswith("canon-"))
         self.assertTrue(clue_payload["verified"])
         self.assertIn("Scor rebus: 7/10", clue_payload["verify_note"])
 

@@ -9,9 +9,13 @@ from generator.core.model_manager import (
     SECONDARY_MODEL,
     chat_reasoning_options,
     ensure_model_loaded,
+    get_active_model_labels,
+    get_active_primary_model,
+    get_active_secondary_model,
     get_loaded_models,
     get_loaded_model_instances,
     get_model_config,
+    get_model_by_key,
     list_loaded_model_instances,
     _post_json,
     switch_model,
@@ -22,29 +26,53 @@ from generator.core.model_manager import (
 class ModelManagerTests(unittest.TestCase):
     def test_model_config_creation(self):
         config = ModelConfig(
+            registry_key="test_model",
             model_id="test/model",
             display_name="test-model",
             context_length=4096,
         )
+        self.assertEqual(config.registry_key, "test_model")
         self.assertEqual(config.model_id, "test/model")
         self.assertEqual(config.display_name, "test-model")
         self.assertEqual(config.context_length, 4096)
-        self.assertIsNone(config.reasoning_effort)
+        self.assertEqual({}, dict(config.reasoning_by_purpose))
 
     def test_primary_model_config(self):
-        self.assertIn("gpt-oss", PRIMARY_MODEL.model_id)
+        self.assertEqual("gemma4_26b_a4b", PRIMARY_MODEL.registry_key)
+        self.assertIn("gemma", PRIMARY_MODEL.model_id)
         self.assertEqual(PRIMARY_MODEL.context_length, 8192)
-        self.assertEqual("low", PRIMARY_MODEL.reasoning_effort)
+        self.assertEqual("none", PRIMARY_MODEL.reasoning_by_purpose["default"])
 
     def test_secondary_model_config(self):
+        self.assertEqual("eurollm_22b", SECONDARY_MODEL.registry_key)
         self.assertIn("eurollm", SECONDARY_MODEL.model_id)
-        self.assertIsNone(SECONDARY_MODEL.reasoning_effort)
+        self.assertIsNone(SECONDARY_MODEL.reasoning_by_purpose["default"])
 
     def test_get_model_config_returns_known_model(self):
         self.assertEqual(PRIMARY_MODEL, get_model_config(PRIMARY_MODEL.model_id))
 
-    def test_chat_reasoning_options_return_low_for_primary_default(self):
-        self.assertEqual({"reasoning_effort": "low"}, chat_reasoning_options(PRIMARY_MODEL.model_id))
+    def test_get_model_by_key_returns_known_model(self):
+        self.assertEqual(PRIMARY_MODEL, get_model_by_key("gemma4_26b_a4b"))
+
+    def test_active_model_accessors_follow_central_pair(self):
+        self.assertEqual(PRIMARY_MODEL, get_active_primary_model())
+        self.assertEqual(SECONDARY_MODEL, get_active_secondary_model())
+        self.assertEqual(
+            [PRIMARY_MODEL.display_name, SECONDARY_MODEL.display_name],
+            get_active_model_labels(multi_model=True),
+        )
+
+    def test_active_model_accessors_change_when_pair_constant_changes(self):
+        with patch("generator.core.model_manager.ACTIVE_MODEL_KEYS", ("gpt_oss_20b", "gemma4_26b_a4b")):
+            self.assertEqual("gpt_oss_20b", get_active_primary_model().registry_key)
+            self.assertEqual("gemma4_26b_a4b", get_active_secondary_model().registry_key)
+            self.assertEqual(
+                ["gpt-oss-20b", "gemma-4"],
+                get_active_model_labels(multi_model=True),
+            )
+
+    def test_chat_reasoning_options_return_none_for_primary_default(self):
+        self.assertEqual({"reasoning_effort": "none"}, chat_reasoning_options(PRIMARY_MODEL.model_id))
 
     def test_chat_reasoning_options_return_medium_for_primary_generate(self):
         self.assertEqual(
@@ -52,8 +80,51 @@ class ModelManagerTests(unittest.TestCase):
             chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_generate"),
         )
 
+    def test_chat_reasoning_options_return_medium_for_primary_compare(self):
+        self.assertEqual(
+            {"reasoning_effort": "none"},
+            chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="clue_compare"),
+        )
+
     def test_chat_reasoning_options_empty_for_secondary(self):
         self.assertEqual({}, chat_reasoning_options(SECONDARY_MODEL.model_id))
+
+    def test_chat_reasoning_options_support_gpt_oss_profiles(self):
+        gpt_oss = get_model_by_key("gpt_oss_20b")
+        self.assertEqual(
+            {"reasoning_effort": "medium"},
+            chat_reasoning_options(gpt_oss, purpose="definition_generate"),
+        )
+        self.assertEqual(
+            {"reasoning_effort": "low"},
+            chat_reasoning_options(gpt_oss, purpose="title_generate"),
+        )
+
+    def test_chat_reasoning_options_normalize_legacy_aliases(self):
+        config = ModelConfig(
+            registry_key="legacy",
+            model_id="legacy/model",
+            display_name="legacy",
+            reasoning_by_purpose={"default": "off", "definition_generate": "on"},
+        )
+        self.assertEqual(
+            {"reasoning_effort": "none"},
+            chat_reasoning_options(config),
+        )
+        self.assertEqual(
+            {"reasoning_effort": "medium"},
+            chat_reasoning_options(config, purpose="definition_generate"),
+        )
+
+    def test_chat_reasoning_options_raise_for_unsupported_value(self):
+        config = ModelConfig(
+            registry_key="bad",
+            model_id="bad/model",
+            display_name="bad",
+            reasoning_by_purpose={"default": "banana"},
+        )
+        with self.assertRaises(ValueError):
+            chat_reasoning_options(config)
 
     def test_get_loaded_models_returns_empty_on_failure(self):
         with patch("generator.core.model_manager._get_json", side_effect=Exception("offline")):
@@ -142,13 +213,13 @@ class GetLoadedModelInstancesTests(unittest.TestCase):
         mock_get.return_value = {
             "models": [
                 {
-                    "key": "openai/gpt-oss-20b",
+                    "key": PRIMARY_MODEL.model_id,
                     "loaded_instances": [{"identifier": "inst-001"}],
                 }
             ]
         }
         result = get_loaded_model_instances()
-        self.assertEqual(result, {"openai/gpt-oss-20b": "inst-001"})
+        self.assertEqual(result, {PRIMARY_MODEL.model_id: "inst-001"})
 
     @patch("generator.core.model_manager._get_json")
     def test_dict_style_falls_back_to_id(self, mock_get):

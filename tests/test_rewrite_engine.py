@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from generator.core.ai_clues import RewriteAttemptResult
+from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.core.pipeline_state import (
     ClueAssessment,
     ClueCandidateVersion,
@@ -39,8 +40,8 @@ def _make_puzzle() -> WorkingPuzzle:
 class RewriteEngineTests(unittest.TestCase):
     def _session_mock(self):
         session = MagicMock()
-        writer = MagicMock(display_name="gpt-oss-20b", model_id="writer-model")
-        evaluator = MagicMock(display_name="eurollm-22b", model_id="evaluator-model")
+        writer = MagicMock(display_name=PRIMARY_MODEL.display_name, model_id="writer-model")
+        evaluator = MagicMock(display_name=SECONDARY_MODEL.display_name, model_id="evaluator-model")
         session.activate_initial_evaluator.return_value = writer
         session.alternate.return_value = evaluator
         session.switch_count = 0
@@ -95,8 +96,8 @@ class RewriteEngineTests(unittest.TestCase):
         mock_audit,
     ):
         session = MagicMock()
-        session.activate_initial_evaluator.return_value = MagicMock(display_name="gpt-oss-20b")
-        session.alternate.return_value = MagicMock(display_name="gpt-oss-20b")
+        session.activate_initial_evaluator.return_value = MagicMock(display_name=PRIMARY_MODEL.display_name)
+        session.alternate.return_value = MagicMock(display_name=PRIMARY_MODEL.display_name)
         session.switch_count = 0
         mock_session_cls.return_value = session
 

@@ -71,7 +71,7 @@ from generator.assessment.benchmark_policy import (
     V3_FAMILY_STOP_REPEAT_PRIMARY,
     V3_FAMILY_STOP_TOTAL_NON_KEEPS,
 )
-from generator.core.runtime_logging import install_process_logging, path_timestamp
+from generator.core.runtime_logging import install_process_logging, log, path_timestamp
 
 PROMPTS_DIR = PROJECT_ROOT / "generator" / "prompts"
 RESULTS_TSV = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
@@ -2127,24 +2127,24 @@ def apply_experiment(exp: Experiment) -> bool:
         filepath = PROMPTS_DIR / edit.file
         if filepath not in new_contents:
             if not filepath.exists():
-                print(f"  [SKIP] File not found: {filepath}")
+                log(f"  [SKIP] File not found: {filepath}")
                 return False
             new_contents[filepath] = filepath.read_text(encoding="utf-8")
 
         content = new_contents[filepath]
         if edit.find in edit.replace and edit.replace in content:
-            print(f"  [SKIP] Replacement text already present in {edit.file}")
+            log(f"  [SKIP] Replacement text already present in {edit.file}")
             return False
         if edit.find not in content and edit.replace and edit.replace in content:
-            print(f"  [SKIP] Replacement text already present in {edit.file}")
+            log(f"  [SKIP] Replacement text already present in {edit.file}")
             return False
         if edit.find not in content:
-            print(f"  [SKIP] Find text not found in {edit.file}")
+            log(f"  [SKIP] Find text not found in {edit.file}")
             return False
 
         updated = content.replace(edit.find, edit.replace, 1)
         if updated == content:
-            print(f"  [SKIP] No change after replacement in {edit.file}")
+            log(f"  [SKIP] No change after replacement in {edit.file}")
             return False
         new_contents[filepath] = updated
 
@@ -2448,33 +2448,33 @@ def print_control_watch_summary(summary: dict[str, object]) -> None:
         f"{word}={'pass' if words[word]['verified'] else 'fail'}"
         for word in CONTROL_WORD_WATCH
     )
-    print(f"  control watch: {status_text}")
+    log(f"  control watch: {status_text}")
     repeated = summary.get(CONTROL_WORD_REPEAT_FAIL_ACTION, [])
     if repeated:
-        print(f"  {CONTROL_WORD_REPEAT_FAIL_ACTION}: {', '.join(repeated)}")
+        log(f"  {CONTROL_WORD_REPEAT_FAIL_ACTION}: {', '.join(repeated)}")
 
 
 def print_log_summary(
-    log: list[dict],
+    entries: list[dict],
     baseline_status: dict[str, bool] | None = None,
 ) -> None:
-    cleanup = summarize_cleanup_block(log)
-    direction = classify_prompt_direction(log)
-    latest_control, repeated_failures = summarize_log_control_watch(log, baseline_status)
-    print("Pilot summary:")
-    print(
+    cleanup = summarize_cleanup_block(entries)
+    direction = classify_prompt_direction(entries)
+    latest_control, repeated_failures = summarize_log_control_watch(entries, baseline_status)
+    log("Pilot summary:")
+    log(
         "  cleanup:"
         f" keep={cleanup['keep']}"
         f" uncertain={cleanup['uncertain']}"
         f" discard={cleanup['discard']}"
         f" stop_cleanup={'yes' if cleanup['stop_cleanup'] else 'no'}"
     )
-    print(f"  direction: {direction}")
-    print(f"  next presets: {', '.join(recommend_next_presets(log))}")
+    log(f"  direction: {direction}")
+    log(f"  next presets: {', '.join(recommend_next_presets(entries))}")
     if latest_control is not None:
         print_control_watch_summary(latest_control)
     if repeated_failures:
-        print(f"  action: {CONTROL_WORD_REPEAT_FAIL_ACTION} {', '.join(repeated_failures)}")
+        log(f"  action: {CONTROL_WORD_REPEAT_FAIL_ACTION} {', '.join(repeated_failures)}")
 
 
 def resolve_experiment_window(
@@ -2530,7 +2530,7 @@ def git_stage_commit_push(
         stage_targets.append(str(resolved.relative_to(PROJECT_ROOT)))
 
     if not stage_targets:
-        print(f"  [git] No existing paths to stage for: {message}")
+        log(f"  [git] No existing paths to stage for: {message}")
         return False
 
     add_result = subprocess.run(
@@ -2540,7 +2540,7 @@ def git_stage_commit_push(
         text=True,
     )
     if add_result.returncode != 0:
-        print(f"  [git] add failed for '{message}': {add_result.stderr.strip()}")
+        log(f"  [git] add failed for '{message}': {add_result.stderr.strip()}")
         return False
 
     commit_result = subprocess.run(
@@ -2552,12 +2552,12 @@ def git_stage_commit_push(
     combined_output = (commit_result.stdout or "") + (commit_result.stderr or "")
     if commit_result.returncode != 0:
         if "nothing to commit" in combined_output.lower():
-            print(f"  [git] Nothing to commit for: {message}")
+            log(f"  [git] Nothing to commit for: {message}")
             return True
-        print(f"  [git] commit failed for '{message}': {combined_output.strip()}")
+        log(f"  [git] commit failed for '{message}': {combined_output.strip()}")
         return False
 
-    print(f"  [git] committed: {message}")
+    log(f"  [git] committed: {message}")
     if not push:
         return True
 
@@ -2569,10 +2569,10 @@ def git_stage_commit_push(
     )
     if push_result.returncode != 0:
         push_output = (push_result.stdout or "") + (push_result.stderr or "")
-        print(f"  [git] push failed for '{message}': {push_output.strip()}")
+        log(f"  [git] push failed for '{message}': {push_output.strip()}")
         return False
 
-    print(f"  [git] pushed: {remote}/{branch}")
+    log(f"  [git] pushed: {remote}/{branch}")
     return True
 
 
@@ -2594,10 +2594,10 @@ def run_assessment(
     for key, value in (assessment_overrides or {}).items():
         flag = f"--{str(key).replace('_', '-')}"
         cmd.extend([flag, str(value)])
-    print(f"  Running assessment: {description}")
+    log(f"  Running assessment: {description}")
     if assessment_log_path is not None:
         assessment_log_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"  Assessment log: {assessment_log_path}")
+        log(f"  Assessment log: {assessment_log_path}")
     start = time.monotonic()
 
     process = subprocess.Popen(
@@ -2622,7 +2622,8 @@ def run_assessment(
                     log_file.write(line)
                     log_file.flush()
                 if stream_output:
-                    print(line, end="")
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
                 continue
 
             returncode = process.poll()
@@ -2641,10 +2642,10 @@ def run_assessment(
     result = process.wait()
 
     elapsed = time.monotonic() - start
-    print(f"  Assessment completed in {elapsed:.0f}s")
+    log(f"  Assessment completed in {elapsed:.0f}s")
 
     if result != 0:
-        print(f"  [ERROR] Assessment failed with exit code {result}")
+        log(f"  [ERROR] Assessment failed with exit code {result}")
         return {"composite": 0.0, "pass_rate": 0.0, "avg_semantic": 0.0, "avg_rebus": 0.0, "error": True}
     if assessment_json_path is None or not assessment_json_path.exists():
         return {"composite": 0.0, "pass_rate": 0.0, "avg_semantic": 0.0, "avg_rebus": 0.0, "error": True}
@@ -2776,10 +2777,10 @@ def main() -> None:
             for i, exp in enumerate(selected_experiments, 1):
                 if i < start_from or i > end_at:
                     continue
-                print(f"{i:3d}. [{exp.name}] {exp.desc}")
-                print(f"     File: {exp.file}")
-            print(f"\nSelection: experiments {start_from}-{end_at}")
-            print(f"Selected: {end_at - start_from + 1} / {len(selected_experiments)} experiments")
+                log(f"{i:3d}. [{exp.name}] {exp.desc}")
+                log(f"     File: {exp.file}")
+            log(f"\nSelection: experiments {start_from}-{end_at}")
+            log(f"Selected: {end_at - start_from + 1} / {len(selected_experiments)} experiments")
             return
 
         if args.assessment_logs_dir is None:
@@ -2791,31 +2792,31 @@ def main() -> None:
 
         if args.reset_log and args.log_path.exists():
             args.log_path.unlink()
-        log = load_log(args.log_path)
-        completed_names = {entry["name"] for entry in log}
+        experiment_log = load_log(args.log_path)
+        completed_names = {entry["name"] for entry in experiment_log}
 
         best_result_summary = load_best_result_summary(args.backup_dir)
         best_composite = get_last_composite()
         if best_result_summary is not None:
             best_composite = max(best_composite, float(best_result_summary.get("composite", best_composite)))
-        print(f"Starting composite: {best_composite:.1f}")
-        print(f"Experiment set: {args.experiment_set}")
-        print(f"Total experiments: {len(selected_experiments)}")
-        print(f"Preset: {args.preset}")
-        print(f"Selection: experiments {start_from}-{end_at}")
-        print(f"Experiment log: {args.log_path}")
-        print(f"Best-prompt backup: {args.backup_dir}")
-        print(f"Assessment logs dir: {args.assessment_logs_dir}")
-        print(f"Comparison runs per side: {args.comparison_runs}")
+        log(f"Starting composite: {best_composite:.1f}")
+        log(f"Experiment set: {args.experiment_set}")
+        log(f"Total experiments: {len(selected_experiments)}")
+        log(f"Preset: {args.preset}")
+        log(f"Selection: experiments {start_from}-{end_at}")
+        log(f"Experiment log: {args.log_path}")
+        log(f"Best-prompt backup: {args.backup_dir}")
+        log(f"Assessment logs dir: {args.assessment_logs_dir}")
+        log(f"Comparison runs per side: {args.comparison_runs}")
         if args.git_live_commit:
-            print("Git live commit: enabled")
+            log("Git live commit: enabled")
         if args.git_live_push:
-            print(f"Git live push: {args.git_live_remote}/{args.git_live_branch}")
+            log(f"Git live push: {args.git_live_remote}/{args.git_live_branch}")
         if args.description_prefix:
-            print(f"Description prefix: {args.description_prefix}")
+            log(f"Description prefix: {args.description_prefix}")
 
         backup_prompts(args.backup_dir)
-        print(f"Best prompts backed up to {args.backup_dir}")
+        log(f"Best prompts backed up to {args.backup_dir}")
 
         kept = 0
         skipped = 0
@@ -2828,13 +2829,13 @@ def main() -> None:
                 continue
 
             if exp.name in completed_names:
-                print(f"\n[{i}/{len(selected_experiments)}] {exp.name} — already completed, skipping")
+                log(f"\n[{i}/{len(selected_experiments)}] {exp.name} — already completed, skipping")
                 skipped += 1
                 continue
 
-            print(f"\n{'='*60}")
-            print(f"[{i}/{len(selected_experiments)}] {exp.name}: {exp.desc}")
-            print(f"{'='*60}")
+            log(f"\n{'='*60}")
+            log(f"[{i}/{len(selected_experiments)}] {exp.name}: {exp.desc}")
+            log(f"{'='*60}")
 
             restore_prompts(args.backup_dir)
 
@@ -2853,8 +2854,8 @@ def main() -> None:
                     "reason": "find text not found",
                     "best_composite": best_composite,
                 }
-                log.append(entry)
-                save_log(args.log_path, log)
+                experiment_log.append(entry)
+                save_log(args.log_path, experiment_log)
                 skipped += 1
                 continue
 
@@ -2875,7 +2876,7 @@ def main() -> None:
                     assessment_overrides=exp.assessment_overrides,
                 )
             except KeyboardInterrupt:
-                print("\n  [INTERRUPTED] Restoring incumbent prompts")
+                log("\n  [INTERRUPTED] Restoring incumbent prompts")
                 restore_prompts(args.backup_dir)
                 raise SystemExit(130) from None
 
@@ -2896,15 +2897,15 @@ def main() -> None:
                     "comparison_basis": "replicated_reset_regime",
                     "failed_side": "incumbent",
                 }
-                log.append(entry)
-                save_log(args.log_path, log)
+                experiment_log.append(entry)
+                save_log(args.log_path, experiment_log)
                 skipped += 1
                 restore_prompts(args.backup_dir)
                 append_results_row(assessment_description, "error", incumbent_summary)
                 continue
 
             if not apply_experiment(exp):
-                print("  [ERROR] Experiment could not be re-applied after incumbent baseline run")
+                log("  [ERROR] Experiment could not be re-applied after incumbent baseline run")
                 restore_prompts(args.backup_dir)
                 skipped += 1
                 continue
@@ -2929,7 +2930,7 @@ def main() -> None:
                     assessment_overrides=exp.assessment_overrides,
                 )
             except KeyboardInterrupt:
-                print("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
+                log("\n  [INTERRUPTED] Restoring best prompts and discarding partial results")
                 restore_prompts(args.backup_dir)
                 if args.git_live_commit:
                     git_stage_commit_push(
@@ -2958,8 +2959,8 @@ def main() -> None:
                     "comparison_basis": "replicated_reset_regime",
                     "failed_side": "candidate",
                 }
-                log.append(entry)
-                save_log(args.log_path, log)
+                experiment_log.append(entry)
+                save_log(args.log_path, experiment_log)
                 skipped += 1
                 restore_prompts(args.backup_dir)
                 append_results_row(assessment_description, "error", result)
@@ -3020,7 +3021,7 @@ def main() -> None:
                 "uncertain": "? Uncertain",
                 "discard": "✗ No improvement",
             }[status]
-            print(
+            log(
                 f"  {symbol}: {float(incumbent_summary['composite']):.1f} → {composite:.1f} "
                 f"(pass={float(result['pass_rate']):.3f} tier={float(result.get('tier_balanced_pass_rate', 0.0)):.3f} "
                 f"sem={float(result['avg_semantic']):.1f} reb={float(result['avg_rebus']):.1f})"
@@ -3062,8 +3063,8 @@ def main() -> None:
                 "word_deltas": word_delta_summary,
                 "control_watch": control_watch,
             }
-            log.append(entry)
-            save_log(args.log_path, log)
+            experiment_log.append(entry)
+            save_log(args.log_path, experiment_log)
 
             if status == "keep":
                 best_composite = composite
@@ -3072,7 +3073,7 @@ def main() -> None:
                 save_best_result_summary(args.backup_dir, result)
                 append_results_row(assessment_description, "keep", result)
                 kept += 1
-                print(f"  New best: {best_composite:.1f}")
+                log(f"  New best: {best_composite:.1f}")
                 if args.git_live_commit:
                     git_stage_commit_push(
                         [*prompt_paths, RESULTS_TSV, comparison_json_path],
@@ -3100,18 +3101,18 @@ def main() -> None:
         restore_prompts(args.backup_dir)
 
         total_elapsed = time.monotonic() - total_start
-        print(f"\n{'='*60}")
-        print("EXPERIMENT RUN COMPLETE")
-        print(f"{'='*60}")
-        print(f"Total time: {total_elapsed/3600:.1f}h")
-        print(f"Final best composite: {best_composite:.1f}")
-        print(f"Kept: {kept}, Uncertain: {uncertain}, Discarded: {discarded}, Skipped: {skipped}")
+        log(f"\n{'='*60}")
+        log("EXPERIMENT RUN COMPLETE")
+        log(f"{'='*60}")
+        log(f"Total time: {total_elapsed/3600:.1f}h")
+        log(f"Final best composite: {best_composite:.1f}")
+        log(f"Kept: {kept}, Uncertain: {uncertain}, Discarded: {discarded}, Skipped: {skipped}")
 
-        kept_entries = [e for e in log if e.get("status") == "keep"]
+        kept_entries = [e for e in experiment_log if e.get("status") == "keep"]
         if kept_entries:
-            print("\nKept experiments:")
+            log("\nKept experiments:")
             for e in kept_entries:
-                print(f"  {e['name']}: {e['desc']} — composite={e['composite']:.1f}")
+                log(f"  {e['name']}: {e['desc']} — composite={e['composite']:.1f}")
     finally:
         handle.restore()
 

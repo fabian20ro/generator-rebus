@@ -4,24 +4,25 @@ from __future__ import annotations
 import sys
 from supabase import create_client
 from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from ..core.runtime_logging import log
 from ..core.supabase_ops import execute_logged_update
 
 
 def set_published(puzzle_id: str, published: bool) -> str:
     """Set published state and return the puzzle title."""
     if not puzzle_id or puzzle_id == "-":
-        print("Error: puzzle ID is required. Usage: python rebus.py activate <puzzle-id>")
+        log("Error: puzzle ID is required. Usage: python rebus.py activate <puzzle-id>")
         sys.exit(1)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+        log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
         sys.exit(1)
 
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
     new_state = published
     action = "Activating" if new_state else "Deactivating"
-    print(f"{action} puzzle {puzzle_id}...")
+    log(f"{action} puzzle {puzzle_id}...")
 
     result = execute_logged_update(
         client,
@@ -32,10 +33,10 @@ def set_published(puzzle_id: str, published: bool) -> str:
 
     if result.data:
         title = result.data[0].get("title", "Untitled")
-        print(f"{'Activated' if new_state else 'Deactivated'}: {title} ({puzzle_id})")
+        log(f"{'Activated' if new_state else 'Deactivated'}: {title} ({puzzle_id})")
         return title
     else:
-        print(f"Error: puzzle {puzzle_id} not found")
+        log(f"Error: puzzle {puzzle_id} not found")
         sys.exit(1)
 
 

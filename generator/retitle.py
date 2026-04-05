@@ -17,7 +17,7 @@ from .core.ai_clues import create_client as create_ai_client
 from .core.clue_canon_store import ClueCanonStore
 from .core.lm_runtime import LmRuntime
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
-from .core.runtime_logging import install_process_logging, path_timestamp
+from .core.runtime_logging import install_process_logging, log, path_timestamp
 from .core.supabase_ops import execute_logged_update
 from .phases.theme import (
     FALLBACK_TITLES,
@@ -238,7 +238,7 @@ def _generate_batch_candidates(
             empty_retry_instruction="Răspunde obligatoriu cu un singur titlu concret de 2-5 cuvinte, exclusiv în limba română.",
         )
         if not raw_title.strip():
-            print(
+            log(
                 f'  [{state.puzzle_id}] Title round {round_idx} [{active_model.display_name}]: "(gol)" -> creativity=0/10 (titlu gol)'
             )
             continue
@@ -246,7 +246,7 @@ def _generate_batch_candidates(
         reviewed = _review_title_candidate(raw_title, input_words=state.words)
         display_title = reviewed.title or raw_title.strip() or "(gol)"
         if not reviewed.valid:
-            print(
+            log(
                 f'  [{state.puzzle_id}] Title round {round_idx} [{active_model.display_name}]: "{display_title}" -> creativity=0/10 ({reviewed.feedback})'
             )
             state.rejected.append((display_title, reviewed.feedback))
@@ -264,7 +264,7 @@ def _generate_batch_candidates(
             state.rejected_by_model.setdefault(active_model.model_id, []).append((reviewed.title, "titlu deja respins"))
             continue
         if title_key and title_key in state.forbidden_title_keys:
-            print(
+            log(
                 f'  [{state.puzzle_id}] Title round {round_idx} [{active_model.display_name}]: "{reviewed.title}" -> creativity=0/10 (titlu deja folosit)'
             )
             state.rejected.append((reviewed.title, "titlu deja folosit"))
@@ -290,7 +290,7 @@ def _rate_batch_candidates(
             rate_client,
             model_config=rating_model,
         )
-        print(
+        log(
             f'  [{state.puzzle_id}] Title round {round_idx} [{_phase_label(generator_model, rating_model)}]: "{title}" -> creativity={score}/10 ({feedback})'
         )
         result = TitleGenerationResult(title, score, feedback)
@@ -382,16 +382,16 @@ def _apply_title_result(
     old_title_key = normalize_title_key(old_title)
 
     if title_result.used_fallback:
-        print(f'  [{puzzle_id}] "{old_title}" -> skipped, no valid title candidate')
+        log(f'  [{puzzle_id}] "{old_title}" -> skipped, no valid title candidate')
         return False
 
     new_title = title_result.title
     new_title_key = normalize_title_key(new_title)
     if new_title_key == old_title_key:
-        print(f'  [{puzzle_id}] "{old_title}" -> unchanged')
+        log(f'  [{puzzle_id}] "{old_title}" -> unchanged')
         return False
     if forbidden_title_keys and new_title_key in forbidden_title_keys:
-        print(f'  [{puzzle_id}] "{old_title}" -> "{new_title}" — skipped, duplicate normalized title')
+        log(f'  [{puzzle_id}] "{old_title}" -> "{new_title}" — skipped, duplicate normalized title')
         return False
 
     is_fallback = old_title in FALLBACK_TITLES
@@ -406,24 +406,24 @@ def _apply_title_result(
             runtime=runtime,
         )
         if invalid_reason:
-            print(f'  [{puzzle_id}] "{old_title}" old title invalid -> score=0 ({invalid_reason})')
+            log(f'  [{puzzle_id}] "{old_title}" old title invalid -> score=0 ({invalid_reason})')
         elif should_backfill_old_score:
-            print(f'  [{puzzle_id}] "{old_title}" old title_score resolved -> {old_score}')
+            log(f'  [{puzzle_id}] "{old_title}" old title_score resolved -> {old_score}')
         new_score = title_result.score
         if new_score <= old_score:
             if should_backfill_old_score:
                 _backfill_title_score(supabase, puzzle_row, old_score, dry_run=dry_run)
-            print(
+            log(
                 f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
                 f'-> "{new_title}" (score={new_score}) — skipped, not better'
             )
             return False
-        print(
+        log(
             f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
             f'-> "{new_title}" (score={new_score})'
         )
     else:
-        print(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}" (score={title_result.score})')
+        log(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}" (score={title_result.score})')
 
     if not dry_run:
         execute_logged_update(
@@ -453,14 +453,14 @@ def retitle_puzzle(
 
     clues = fetch_clues(supabase, puzzle_id)
     if not clues:
-        print(f"  [{puzzle_id}] No clues found, skipping")
+        log(f"  [{puzzle_id}] No clues found, skipping")
         return False
 
     words = [c["word_normalized"] for c in clues if c.get("word_normalized")]
     definitions = [c["definition"] for c in clues if c.get("definition")]
 
     if not words or not definitions:
-        print(f"  [{puzzle_id}] Missing words or definitions, skipping")
+        log(f"  [{puzzle_id}] Missing words or definitions, skipping")
         return False
 
     title_result = generate_creative_title_result(
@@ -540,8 +540,8 @@ def main() -> None:
     parser = build_parser()
     try:
         args = parser.parse_args()
-        print(f"Run log: {log_path}")
-        print(f"Audit log: {audit_path}")
+        log(f"Run log: {log_path}")
+        log(f"Audit log: {audit_path}")
 
         if not args.date and not args.puzzle_id and not args.all_fallbacks and not args.all and not args.duplicates_only:
             parser.error("Specify --date, --puzzle-id, --all-fallbacks, --all, or --duplicates-only")
@@ -552,7 +552,7 @@ def main() -> None:
             parser.error("--batch-size must be >= 1")
 
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+            log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
             sys.exit(1)
 
         multi_model = args.multi_model
@@ -579,17 +579,17 @@ def main() -> None:
         )
 
         if not puzzles:
-            print("No puzzles found matching the criteria.")
+            log("No puzzles found matching the criteria.")
             return
 
-        print(f"Found {len(puzzles)} puzzle(s) to retitle")
+        log(f"Found {len(puzzles)} puzzle(s) to retitle")
         missing_score_count = sum(1 for row in puzzles if _stored_title_score(row) is None)
         if missing_score_count:
-            print(f"Prioritized {missing_score_count} puzzle(s) without title_score")
+            log(f"Prioritized {missing_score_count} puzzle(s) without title_score")
         if args.dry_run:
-            print("(dry run — no updates will be made)\n")
+            log("(dry run — no updates will be made)\n")
         else:
-            print()
+            log("")
 
         runtime = LmRuntime(multi_model=multi_model)
         runtime.activate_primary()
@@ -614,7 +614,7 @@ def main() -> None:
                 try:
                     clues = fetch_clues(supabase, puzzle_id)
                     if not clues:
-                        print(f"  [{puzzle_id}] No clues found, skipping")
+                        log(f"  [{puzzle_id}] No clues found, skipping")
                         unchanged += 1
                         skipped_ids.add(puzzle_id)
                         continue
@@ -622,7 +622,7 @@ def main() -> None:
                     words = [c["word_normalized"] for c in clues if c.get("word_normalized")]
                     definitions = [c["definition"] for c in clues if c.get("definition")]
                     if not words or not definitions:
-                        print(f"  [{puzzle_id}] Missing words or definitions, skipping")
+                        log(f"  [{puzzle_id}] Missing words or definitions, skipping")
                         unchanged += 1
                         skipped_ids.add(puzzle_id)
                         continue
@@ -642,7 +642,7 @@ def main() -> None:
                         )
                     )
                 except Exception as exc:
-                    print(f"  [{puzzle_id}] Error: {exc}")
+                    log(f"  [{puzzle_id}] Error: {exc}")
                     failed += 1
                     skipped_ids.add(puzzle_id)
 
@@ -683,10 +683,10 @@ def main() -> None:
                     else:
                         unchanged += 1
                 except Exception as exc:
-                    print(f"  [{puzzle_id}] Error: {exc}")
+                    log(f"  [{puzzle_id}] Error: {exc}")
                     failed += 1
 
-        print(f"\nSummary: {updated} updated, {unchanged} unchanged, {failed} failed")
+        log(f"\nSummary: {updated} updated, {unchanged} unchanged, {failed} failed")
     finally:
         handle.restore()
 

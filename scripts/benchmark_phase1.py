@@ -71,13 +71,15 @@ def main() -> None:
             "rust_phase1_stats": rust_candidate.stats,
         }
         rows.append(row)
-        print(json.dumps(row, ensure_ascii=False))
+        sys.stdout.write(json.dumps(row, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
 
     out_dir = repo_root / args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"benchmark_{int(time.time())}.json"
     out_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"saved {out_path}")
+    sys.stdout.write(f"saved {out_path}\n")
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":

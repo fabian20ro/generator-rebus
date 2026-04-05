@@ -17,6 +17,7 @@ from .pipeline_state import (
     all_working_clues,
     working_clue_from_entry,
 )
+from .runtime_logging import log
 from .selection_engine import choose_clue_version
 
 # ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ def _update_best_clue_version(clue: WorkingClue, client=None, model_name: str | 
 
         chosen, decision = choose_clue_version(clue.best, clue.current, tiebreaker=_tiebreak)
         if decision.used_tiebreak:
-            print(
+            log(
                 f"  Tie-break definiție {clue.word_normalized}: "
                 f"A='{_compact_log_text(decision.a_summary)}' | "
                 f"B='{_compact_log_text(decision.b_summary)}' | "
@@ -149,7 +150,7 @@ def _update_best_clue_version(clue: WorkingClue, client=None, model_name: str | 
                 f"aleasă='{_compact_log_text(decision.winner_summary)}'"
             )
         elif decision.reason == "deterministic_rank" and chosen.definition == clue.best.definition and clue.current.definition != clue.best.definition:
-            print(f"  Păstrez definiția mai bună pentru {clue.word_normalized}")
+            log(f"  Păstrez definiția mai bună pentru {clue.word_normalized}")
         clue.best = copy.deepcopy(chosen)
 
     semantic_score = clue.best.assessment.scores.semantic_exactness or 0

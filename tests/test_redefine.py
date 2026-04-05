@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from generator.core.model_manager import PRIMARY_MODEL
 from generator.core.pipeline_state import ClueAssessment, ClueScores, PuzzleAssessment
 from generator.core.puzzle_metrics import PuzzleEvaluationResult
 from generator.redefine import (
@@ -25,20 +26,25 @@ def _make_clue_row(
     verified: bool = False,
     row: int = 0,
     col: int = 0,
+    word_type: str = "",
+    canonical_definition_id: str | None = None,
 ) -> dict:
     return {
         "id": clue_id,
         "puzzle_id": "puzzle-1",
         "word_normalized": word,
         "word_original": word.lower(),
+        "word_type": word_type,
         "definition": definition,
         "direction": direction,
         "start_row": row,
         "start_col": col,
         "length": len(word),
         "clue_number": clue_number,
+        "canonical_definition_id": canonical_definition_id,
         "verify_note": verify_note,
         "verified": verified,
+        "definition_source": "canonical" if canonical_definition_id else "legacy",
     }
 
 
@@ -66,6 +72,8 @@ def _assessment(
 class _SupabaseFixture:
     def __init__(self, clue_rows: list[dict]):
         self.supabase = MagicMock()
+        self._canonical_rows: list[dict] = []
+        self._next_canonical_id = 1
 
         self.puzzle_select = MagicMock()
         self.puzzle_select.eq.return_value = self.puzzle_select
@@ -79,6 +87,7 @@ class _SupabaseFixture:
 
         self.clue_select = MagicMock()
         self.clue_select.eq.return_value = self.clue_select
+        self.clue_select.limit.return_value = self.clue_select
         self.clue_select.execute.return_value = SimpleNamespace(data=clue_rows)
         self.clue_update = MagicMock()
         self.clue_update.eq.return_value = self.clue_update
@@ -87,11 +96,64 @@ class _SupabaseFixture:
         self.clue_table.select.return_value = self.clue_select
         self.clue_table.update.return_value = self.clue_update
 
+        self.clue_effective_select = MagicMock()
+        self.clue_effective_select.eq.return_value = self.clue_effective_select
+        self.clue_effective_select.limit.return_value = self.clue_effective_select
+        self.clue_effective_select.execute.return_value = SimpleNamespace(data=clue_rows)
+        self.clue_effective_table = MagicMock()
+        self.clue_effective_table.select.return_value = self.clue_effective_select
+
+        self.canonical_select = MagicMock()
+        self.canonical_select.eq.return_value = self.canonical_select
+        self.canonical_select.limit.return_value = self.canonical_select
+        self.canonical_select.in_.return_value = self.canonical_select
+
+        def _canonical_execute():
+            return SimpleNamespace(data=list(self._canonical_rows))
+
+        self.canonical_select.execute.side_effect = _canonical_execute
+
+        self.canonical_insert = MagicMock()
+
+        def _canonical_insert_execute():
+            payload = dict(self.canonical_insert_payload)
+            payload.setdefault("id", f"canon-{self._next_canonical_id}")
+            self._next_canonical_id += 1
+            self._canonical_rows.append(payload)
+            return SimpleNamespace(data=[payload])
+
+        self.canonical_insert.execute.side_effect = _canonical_insert_execute
+
+        self.canonical_table = MagicMock()
+        self.canonical_table.select.return_value = self.canonical_select
+
+        def _canonical_insert(payload):
+            self.canonical_insert_payload = payload
+            return self.canonical_insert
+
+        self.canonical_table.insert.side_effect = _canonical_insert
+
+        self.alias_select = MagicMock()
+        self.alias_select.eq.return_value = self.alias_select
+        self.alias_select.limit.return_value = self.alias_select
+        self.alias_select.execute.return_value = SimpleNamespace(data=[])
+        self.alias_insert = MagicMock()
+        self.alias_insert.execute.return_value = SimpleNamespace(data=[])
+        self.alias_table = MagicMock()
+        self.alias_table.select.return_value = self.alias_select
+        self.alias_table.insert.return_value = self.alias_insert
+
         def _table(name: str):
             if name == "crossword_puzzles":
                 return self.puzzle_table
             if name == "crossword_clues":
                 return self.clue_table
+            if name == "crossword_clue_effective":
+                return self.clue_effective_table
+            if name == "canonical_clue_definitions":
+                return self.canonical_table
+            if name == "canonical_clue_aliases":
+                return self.alias_table
             raise AssertionError(name)
 
         self.supabase.table.side_effect = _table
@@ -210,6 +272,7 @@ class FetchCluesTests(unittest.TestCase):
 
         self.assertEqual(2, len(result))
         mock_query.eq.assert_called_once_with("puzzle_id", "puzzle-1")
+        mock_supabase.table.assert_called_with("crossword_clue_effective")
 
     def test_fetch_clues_selects_required_fields(self):
         mock_supabase = MagicMock()
@@ -225,9 +288,11 @@ class FetchCluesTests(unittest.TestCase):
             "id",
             "word_normalized",
             "word_original",
+            "word_type",
             "definition",
             "direction",
             "clue_number",
+            "canonical_definition_id",
             "verify_note",
             "verified",
         ]:
@@ -274,7 +339,7 @@ class BuildWorkingPuzzleTests(unittest.TestCase):
 
     def test_sets_definition_on_current_version(self):
         puzzle_row = {"id": "p1", "title": "", "grid_size": 7}
-        clue_rows = [_make_clue_row("MUNTE", "Formă de relief")]
+        clue_rows = [_make_clue_row("MUNTE", "Formă de relief", word_type="N")]
 
         puzzle = build_working_puzzle(puzzle_row, clue_rows)
 
@@ -282,6 +347,7 @@ class BuildWorkingPuzzleTests(unittest.TestCase):
         self.assertEqual("Formă de relief", clue.current.definition)
         self.assertEqual("db_import", clue.current.source)
         self.assertEqual(0, clue.current.round_index)
+        self.assertEqual("N", clue.word_type)
 
     def test_imports_existing_verify_state(self):
         puzzle_row = {"id": "p1", "title": "", "grid_size": 7}
@@ -340,7 +406,7 @@ class RedefinePuzzleTests(unittest.TestCase):
             assessment=assessment,
             passed=assessment.verified_count,
             total=assessment.total_clues,
-            evaluator_model="gpt-oss-20b",
+            evaluator_model=PRIMARY_MODEL.display_name,
         )
 
     @patch("generator.redefine.rewrite_puzzle_definitions")
@@ -444,7 +510,7 @@ class RedefinePuzzleTests(unittest.TestCase):
         self.assertEqual(1, fixture.clue_table.update.call_count)
         self.assertEqual(1, fixture.puzzle_table.update.call_count)
         clue_payload = fixture.clue_table.update.call_args[0][0]
-        self.assertEqual("Înălțime naturală", clue_payload["definition"])
+        self.assertTrue(clue_payload["canonical_definition_id"].startswith("canon-"))
         self.assertTrue(clue_payload["verified"])
         self.assertIn("Scor semantic: 9/10", clue_payload["verify_note"])
         puzzle_payload = fixture.puzzle_table.update.call_args[0][0]
@@ -533,8 +599,22 @@ class RedefinePuzzleTests(unittest.TestCase):
     @patch("generator.redefine.rewrite_puzzle_definitions")
     @patch("generator.redefine.evaluate_puzzle_state")
     def test_backfills_metadata_when_no_clue_changes(self, mock_evaluate, mock_rewrite):
-        clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1")]
+        clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1", canonical_definition_id="canon-existing")]
         fixture = _SupabaseFixture(clue_rows)
+        fixture._canonical_rows.append({
+            "id": "canon-existing",
+            "word_normalized": "MUNTE",
+            "word_original_seed": "munte",
+            "definition": "Formă de relief",
+            "definition_norm": "forma de relief",
+            "word_type": "",
+            "usage_label": "",
+            "verified": True,
+            "semantic_score": 8,
+            "rebus_score": 6,
+            "creativity_score": 6,
+            "usage_count": 1,
+        })
         mock_evaluate.side_effect = lambda puzzle, *_args, **_kwargs: self._baseline_eval(
             puzzle,
             [
@@ -579,8 +659,22 @@ class RedefinePuzzleTests(unittest.TestCase):
     @patch("generator.redefine.rewrite_puzzle_definitions")
     @patch("generator.redefine.evaluate_puzzle_state")
     def test_noop_when_no_clue_changes_and_metadata_present(self, mock_evaluate, mock_rewrite):
-        clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1")]
+        clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1", canonical_definition_id="canon-existing")]
         fixture = _SupabaseFixture(clue_rows)
+        fixture._canonical_rows.append({
+            "id": "canon-existing",
+            "word_normalized": "MUNTE",
+            "word_original_seed": "munte",
+            "definition": "Formă de relief",
+            "definition_norm": "forma de relief",
+            "word_type": "",
+            "usage_label": "",
+            "verified": False,
+            "semantic_score": 5,
+            "rebus_score": 5,
+            "creativity_score": 5,
+            "usage_count": 1,
+        })
         mock_evaluate.side_effect = lambda puzzle, *_args, **_kwargs: self._baseline_eval(
             puzzle,
             [
@@ -679,7 +773,7 @@ class RedefinePuzzleTests(unittest.TestCase):
 
         self.assertEqual(1, count)
         clue_payload = fixture.clue_table.update.call_args[0][0]
-        self.assertEqual("Formă de relief", clue_payload["definition"])
+        self.assertTrue(clue_payload["canonical_definition_id"].startswith("canon-"))
         self.assertTrue(clue_payload["verified"])
         self.assertIn("Scor semantic: 8/10", clue_payload["verify_note"])
 

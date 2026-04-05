@@ -67,7 +67,17 @@ LMSTUDIO_BASE_URL=http://127.0.0.1:1234
 
 ### Database setup
 
-Run `schema.sql` in your Supabase SQL Editor. It creates two tables (`crossword_puzzles`, `crossword_clues`) with RLS policies that allow public read access only to published puzzles. The local DDL also documents puzzle metadata such as `title_score`, `updated_at`, and repair metrics.
+Fresh install: run [`schema.sql`](/Users/fabian/git/generator-rebus/schema.sql) in Supabase SQL Editor. It creates:
+- `crossword_puzzles`
+- `crossword_clues`
+- `canonical_clue_definitions`
+- `canonical_clue_aliases`
+- `crossword_clue_effective` view
+
+Existing install: apply migrations in `migrations/` first. The canonical cutover is phased:
+- `20260402_add_canonical_clue_schema.sql` adds canonical tables plus the compatibility view
+- run clue-canon backfill over the old 13k `crossword_clues.definition` corpus
+- `20260402_finalize_canonical_clue_cutover.sql` is the final cleanup step after every live clue row has `canonical_definition_id`
 
 ## Generator CLI
 
@@ -153,7 +163,7 @@ python -m generator activate a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 **`generator/output/` is gitignored.** Use it freely as your workspace for intermediate files.
 
-**LM Studio model.** The `theme`/`define`/`verify` phases connect to LM Studio's OpenAI-compatible API and use model name `"default"`. Make sure LM Studio is running with a model loaded before running these phases.
+**LM Studio models.** The pipeline targets a two-model workflow via LM Studio's OpenAI-compatible API. The active pair defaults to `gemma-4` + `eurollm-22b`, and the central registry / pair selector lives in [`generator/core/model_manager.py`](/Users/fabian/git/generator-rebus/generator/core/model_manager.py). Keep the configured pair available locally before running `theme` / `define` / `verify` / canonical referee flows.
 
 **You can skip phases.** The markdown format is human-readable and editable. You can:
 - Write definitions manually instead of using `define`
@@ -162,20 +172,24 @@ python -m generator activate a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 ## Canonical clue backfill
 
-Use the repo-root wrapper to refactor/backfill canonical clue definitions through the existing CLI:
+Use the repo-root wrapper to build canonical clue definitions from the legacy `crossword_clues.definition` corpus:
 
 ```bash
-# Dry-run report only
+# Dry-run over the full null-pointer legacy corpus
 ./run_clue_canon_backfill.sh --dry-run
 
-# Full apply across all eligible words
+# Full apply across all clue rows missing canonical_definition_id
 ./run_clue_canon_backfill.sh --apply
 
 # Target one word / limit the batch
 ./run_clue_canon_backfill.sh --dry-run --word APA --limit 10 --min-count 3
 ```
 
-If you omit both `--apply` and `--dry-run`, the wrapper defaults to `--apply`.
+Notes:
+- verified clues may merge / referee / quarantine
+- unverified clues attach conservatively by exact canonical reuse or singleton canonical creation
+- unresolved verified disagreement cases are written to quarantine reports under `build/clue_canon/...`
+- the wrapper defaults to `--apply` if no mode is given
 
 ## Markdown format
 

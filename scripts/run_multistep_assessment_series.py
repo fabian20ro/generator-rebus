@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from generator.core.runtime_logging import install_process_logging, path_timestamp
+from generator.core.runtime_logging import install_process_logging, log, path_timestamp
 
 RESULTS_PATH = PROJECT_ROOT / "generator" / "assessment" / "results.tsv"
 
@@ -45,7 +45,7 @@ def main() -> None:
         args = parser.parse_args()
 
         if args.runs <= 0:
-            print("No runs requested.")
+            log("No runs requested.")
             return
 
         recorded_results: list[dict] = []
@@ -66,18 +66,18 @@ def main() -> None:
             ]
             if args.temperature is not None:
                 cmd.extend(["--temperature", str(args.temperature)])
-            print(f"\n=== Running {description} ===")
+            log(f"\n=== Running {description} ===")
             result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
             if result.returncode != 0:
                 raise SystemExit(result.returncode)
             after_rows = _read_results()
             new_rows = after_rows[len(before_rows):]
             if len(new_rows) != 1:
-                print(f"Expected exactly 1 appended row for {description}, found {len(new_rows)}")
+                log(f"Expected exactly 1 appended row for {description}, found {len(new_rows)}")
                 raise SystemExit(1)
             row = new_rows[0]
             recorded_results.append(json.loads(json_out.read_text(encoding="utf-8")))
-            print(
+            log(
                 "Recorded: "
                 f"composite={row['composite']} "
                 f"pass={row['pass_rate']} "
@@ -87,7 +87,7 @@ def main() -> None:
             )
 
         if not recorded_results:
-            print("No new rows appended.")
+            log("No new rows appended.")
             return
 
         composites = [float(row["composite"]) for row in recorded_results]
@@ -95,14 +95,14 @@ def main() -> None:
         semantics = [float(row["avg_semantic"]) for row in recorded_results]
         rebus_scores = [float(row["avg_rebus"]) for row in recorded_results]
 
-        print("\n=== Series Summary ===")
-        print(f"Runs:           {len(recorded_results)}")
-        print(f"Composite avg:  {sum(composites)/len(composites):.2f}")
-        print(f"Pass rate avg:  {sum(passes)/len(passes):.3f}")
-        print(f"Semantic avg:   {sum(semantics)/len(semantics):.2f}")
-        print(f"Rebus avg:      {sum(rebus_scores)/len(rebus_scores):.2f}")
-        print(f"Composite min:  {min(composites):.1f}")
-        print(f"Composite max:  {max(composites):.1f}")
+        log("\n=== Series Summary ===")
+        log(f"Runs:           {len(recorded_results)}")
+        log(f"Composite avg:  {sum(composites)/len(composites):.2f}")
+        log(f"Pass rate avg:  {sum(passes)/len(passes):.3f}")
+        log(f"Semantic avg:   {sum(semantics)/len(semantics):.2f}")
+        log(f"Rebus avg:      {sum(rebus_scores)/len(rebus_scores):.2f}")
+        log(f"Composite min:  {min(composites):.1f}")
+        log(f"Composite max:  {max(composites):.1f}")
     finally:
         handle.restore()
 

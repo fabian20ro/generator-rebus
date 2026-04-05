@@ -16,7 +16,8 @@ from .core.clue_canon_store import ClueCanonStore
 from .core.clue_logging import clue_label, clue_label_from_row, log_canonical_event, log_definition_event
 from .core.clue_rating import extract_creativity_score, extract_rebus_score, extract_semantic_score
 from .core.lm_runtime import LmRuntime
-from .core.pipeline_state import all_working_clues, puzzle_from_working_state
+from .core.model_manager import get_active_model_labels
+from .core.pipeline_state import all_working_clues, render_verify_note
 from .core.prompt_runtime import preload_runtime_prompts, prompt_runtime_audit
 from .core.puzzle_metrics import (
     build_puzzle_description,
@@ -25,7 +26,7 @@ from .core.puzzle_metrics import (
     score_puzzle_state,
 )
 from .core.rewrite_engine import run_rewrite_loop
-from .core.runtime_logging import install_process_logging, path_timestamp
+from .core.runtime_logging import install_process_logging, log, path_timestamp
 from .core.supabase_ops import execute_logged_update
 from .phases.theme import TitleGenerationResult, generate_creative_title_result
 from .redefine import build_working_puzzle
@@ -39,9 +40,7 @@ def _now_iso() -> str:
 
 
 def _models_used(multi_model: bool) -> list[str]:
-    if multi_model:
-        return ["gpt-oss-20b", "eurollm-22b"]
-    return ["gpt-oss-20b"]
+    return get_active_model_labels(multi_model=multi_model)
 
 
 def fetch_puzzles(
@@ -178,23 +177,28 @@ def _persist_clues(
         ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row["id"]
         for row in clue_rows
     }
-    rendered = puzzle_from_working_state(puzzle)
-    for direction, clues in (("H", rendered.horizontal_clues), ("V", rendered.vertical_clues)):
+    for direction, clues in (("H", puzzle.horizontal_clues), ("V", puzzle.vertical_clues)):
         for clue in clues:
             clue_id = key_to_id.get((direction, clue.start_row, clue.start_col))
             if not clue_id:
                 continue
             row = row_by_key.get((direction, clue.start_row, clue.start_col), {})
-            verify_note = clue.verify_note or ""
+            active = clue.active_version()
+            verify_note = render_verify_note(active.assessment)
             decision = clue_canon.resolve_definition(
                 word_normalized=clue.word_normalized,
                 word_original=clue.word_original,
-                definition=clue.definition,
-                verified=bool(clue.verified),
+                definition=active.definition,
+                word_type=clue.word_type,
+                verified=bool(active.assessment.verified),
                 semantic_score=extract_semantic_score(verify_note),
                 rebus_score=extract_rebus_score(verify_note),
                 creativity_score=extract_creativity_score(verify_note),
             )
+            if not decision.canonical_definition_id:
+                raise RuntimeError(
+                    f"Canonical clue resolution produced no canonical_definition_id for {clue.word_normalized}"
+                )
             clue_ref = clue_label(
                 word=clue.word_normalized,
                 direction=direction,
@@ -206,7 +210,7 @@ def _persist_clues(
                 decision.action,
                 puzzle_id=puzzle_id,
                 clue_ref=clue_ref,
-                candidate_definition=clue.definition,
+                candidate_definition=active.definition,
                 canonical_definition=decision.canonical_definition,
                 detail=decision.decision_note or None,
             )
@@ -217,16 +221,15 @@ def _persist_clues(
                     clue_ref=clue_label_from_row(row),
                     before=str(row.get("definition") or ""),
                     after=decision.canonical_definition,
-                    detail=f"verified={bool(clue.verified)}",
+                    detail=f"verified={bool(active.assessment.verified)}",
                 )
             execute_logged_update(
                 supabase,
                 "crossword_clues",
                 clue_store.build_clue_definition_payload(
-                    definition=decision.canonical_definition,
                     canonical_definition_id=decision.canonical_definition_id,
                     verify_note=verify_note,
-                    verified=bool(clue.verified),
+                    verified=bool(active.assessment.verified),
                 ),
                 eq_filters={"id": clue_id, "puzzle_id": puzzle_id},
             )
@@ -247,7 +250,7 @@ def repair_puzzle(
     puzzle_id = puzzle_row["id"]
     clue_rows = fetch_clues(supabase, puzzle_id)
     if not clue_rows:
-        print(f"  [{puzzle_id}] No clues found, skipping")
+        log(f"  [{puzzle_id}] No clues found, skipping")
         return "skipped"
 
     runtime = runtime or LmRuntime(multi_model=multi_model)
@@ -261,7 +264,7 @@ def repair_puzzle(
     )
     baseline_puzzle.assessment = baseline_eval.assessment
     baseline_description = _build_description(baseline_eval.assessment, multi_model=multi_model)
-    print(
+    log(
         f"  [{puzzle_id}] baseline min={baseline_eval.assessment.min_rebus}/10 "
         f"avg={baseline_eval.assessment.avg_rebus:.1f}/10 "
         f"verified={baseline_eval.assessment.verified_count}/{baseline_eval.assessment.total_clues}"
@@ -272,7 +275,7 @@ def repair_puzzle(
             baseline_eval.assessment,
             description=baseline_description,
         )
-        print(f"  [{puzzle_id}] backfill metadata")
+        log(f"  [{puzzle_id}] backfill metadata")
         _persist_puzzle_metadata(supabase, puzzle_id, baseline_payload, dry_run=dry_run)
 
     candidate_puzzle = build_working_puzzle(puzzle_row, clue_rows)
@@ -287,14 +290,14 @@ def repair_puzzle(
         runtime=runtime,
     )
     candidate_puzzle.assessment = score_puzzle_state(candidate_puzzle)
-    print(
+    log(
         f"  [{puzzle_id}] candidate min={candidate_puzzle.assessment.min_rebus}/10 "
         f"avg={candidate_puzzle.assessment.avg_rebus:.1f}/10 "
         f"verified={candidate_puzzle.assessment.verified_count}/{candidate_puzzle.assessment.total_clues}"
     )
 
     if candidate_puzzle.assessment.min_rebus <= baseline_eval.assessment.min_rebus:
-        print(f"  [{puzzle_id}] rejected — score not better")
+        log(f"  [{puzzle_id}] rejected — score not better")
         return "rejected"
 
     title_result = _generate_title(
@@ -319,7 +322,7 @@ def repair_puzzle(
         "repaired_at": repaired_at,
         **puzzle_metadata_payload(candidate_puzzle.assessment, description=description),
     }
-    print(f"  [{puzzle_id}] accepted — '{puzzle_row.get('title', '')}' -> '{candidate_puzzle.title}'")
+    log(f"  [{puzzle_id}] accepted — '{puzzle_row.get('title', '')}' -> '{candidate_puzzle.title}'")
     _persist_puzzle_metadata(supabase, puzzle_id, puzzle_payload, dry_run=dry_run)
     _persist_clues(
         supabase,
@@ -330,7 +333,7 @@ def repair_puzzle(
         runtime=runtime,
         dry_run=dry_run,
     )
-    print(
+    log(
         f"  [{puzzle_id}] rewrite summary "
         f"{rewrite_result.initial_passed}/{rewrite_result.total} -> "
         f"{rewrite_result.final_passed}/{rewrite_result.total}"
@@ -374,19 +377,19 @@ def main() -> None:
     try:
         args = parser.parse_args()
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+            log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
             sys.exit(1)
 
         preload = preload_runtime_prompts()
         audit = prompt_runtime_audit(PROJECT_ROOT)
-        print(
+        log(
             "Prompt runtime: "
             f"system={len(preload['system'])} user={len(preload['user'])} "
             f"git={audit.get('git_head') or '-'} dirty={len(audit.get('dirty_prompt_files', []))}"
         )
         dirty_prompt_files = audit.get("dirty_prompt_files", [])
         if dirty_prompt_files:
-            print(f"Dirty prompt files: {', '.join(dirty_prompt_files)}")
+            log(f"Dirty prompt files: {', '.join(dirty_prompt_files)}")
 
         supabase = create_supabase_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         ai_client = create_ai_client()
@@ -394,14 +397,14 @@ def main() -> None:
 
         rows = fetch_puzzles(supabase, puzzle_id=args.puzzle_id)
         if not rows:
-            print("No published puzzles found matching the criteria.")
+            log("No published puzzles found matching the criteria.")
             return
         selected = rows if args.puzzle_id else select_puzzles_for_repair(rows, limit=max(1, args.limit))
-        print(f"Found {len(selected)} puzzle(s) to repair")
+        log(f"Found {len(selected)} puzzle(s) to repair")
         if args.dry_run:
-            print("(dry run — no updates will be made)\n")
+            log("(dry run — no updates will be made)\n")
         else:
-            print()
+            log("")
 
         counters = {"accepted": 0, "rejected": 0, "skipped": 0, "failed": 0}
         runtime = LmRuntime(multi_model=args.multi_model)
@@ -422,10 +425,10 @@ def main() -> None:
                 counters[status] = counters.get(status, 0) + 1
             except Exception as exc:
                 puzzle_id = puzzle_row.get("id", "?")
-                print(f"  [{puzzle_id}] Error: {exc}")
+                log(f"  [{puzzle_id}] Error: {exc}")
                 counters["failed"] += 1
 
-        print(
+        log(
             "\nSummary: "
             f"{counters['accepted']} accepted, "
             f"{counters['rejected']} rejected, "

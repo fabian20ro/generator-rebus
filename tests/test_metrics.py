@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.core.metrics import (
     BatchMetric,
     PuzzleMetric,
@@ -18,7 +19,7 @@ class MetricsTests(unittest.TestCase):
         batch = BatchMetric(
             timestamp="2026-03-14T01:00:00",
             seed=12345,
-            models_used=["gpt-oss-20b"],
+            models_used=[PRIMARY_MODEL.display_name],
             puzzles=[PuzzleMetric(size=7, word_count=18, avg_semantic=8.5)],
             word_metrics=[WordMetric(word="CASA", length=4, final_verified=True, semantic_score=9)],
             total_elapsed_ms=60000,
@@ -86,8 +87,8 @@ class MetricsTests(unittest.TestCase):
                     failure_kind="wrong_guess",
                     rarity_only_override=True,
                     form_mismatch=True,
-                    model_generated="gpt-oss-20b",
-                    model_rated="eurollm-22b",
+                    model_generated=PRIMARY_MODEL.display_name,
+                    model_rated=SECONDARY_MODEL.display_name,
                 ),
                 WordMetric(
                     word="TUN",
@@ -106,8 +107,8 @@ class MetricsTests(unittest.TestCase):
                     wrong_guess="BARIL",
                     verify_candidates=["BARIL", "BUTOI"],
                     failure_kind="wrong_guess",
-                    model_generated="gpt-oss-20b",
-                    model_rated="eurollm-22b",
+                    model_generated=PRIMARY_MODEL.display_name,
+                    model_rated=SECONDARY_MODEL.display_name,
                 ),
             ]
             update_word_difficulty(metrics, path)
@@ -127,8 +128,8 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(data["TUN"]["avg_semantic_delta"], 0.5)
             self.assertEqual(data["TUN"]["avg_rebus_delta"], 0.5)
             self.assertEqual(data["TUN"]["rebus_spread"], 1)
-            self.assertEqual(data["TUN"]["generated_model_counts"]["gpt-oss-20b"], 2)
-            self.assertEqual(data["TUN"]["rated_model_counts"]["eurollm-22b"], 2)
+            self.assertEqual(data["TUN"]["generated_model_counts"][PRIMARY_MODEL.display_name], 2)
+            self.assertEqual(data["TUN"]["rated_model_counts"][SECONDARY_MODEL.display_name], 2)
 
     def test_load_empty_difficulty(self):
         with tempfile.TemporaryDirectory() as tmp:

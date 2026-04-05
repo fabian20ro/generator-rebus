@@ -6,7 +6,7 @@ import json
 import random
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from openai import OpenAI
 
@@ -14,7 +14,9 @@ from ..config import LMSTUDIO_BASE_URL, VERIFY_CANDIDATE_COUNT
 from ..prompts.loader import load_system_prompt, load_user_template
 from .clue_canon import aggregate_referee_votes
 from .clue_canon_types import (
+    DefinitionComparisonAttempt,
     DefinitionComparisonVote,
+    DefinitionRefereeDiagnostics,
     DefinitionRefereeInput,
     DefinitionRefereeResult,
 )
@@ -169,6 +171,17 @@ class RewriteAttemptResult:
     last_rejection: str = ""
 
 
+@dataclass(frozen=True)
+class AdaptiveRefereeBatchResult:
+    results: dict[str, DefinitionRefereeResult]
+    total_votes: int
+    phase1_requests: int = 0
+    phase2_requests: int = 0
+    invalid_compare_json_primary: int = 0
+    invalid_compare_json_secondary: int = 0
+    step_metrics: list[dict[str, object]] = field(default_factory=list)
+
+
 def compute_rebus_score(guessability: int, creativity: int) -> int:
     return round(0.75 * guessability + 0.25 * creativity)
 
@@ -254,7 +267,9 @@ def _definition_mentions_answer(answer: str, definition: str) -> bool:
 
 
 def _definition_is_invalid(answer: str, definition: str) -> bool:
-    return _definition_mentions_answer(answer, definition) or clue_uses_same_family(answer, definition)
+    return _definition_mentions_answer(answer, definition) or clue_uses_same_family(
+        answer, definition
+    )
 
 
 def _same_family_feedback() -> str:
@@ -262,7 +277,9 @@ def _same_family_feedback() -> str:
 
 
 def _tokens(text: str) -> set[str]:
-    return {token.lower() for token in re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț]+", normalize(text))}
+    return {
+        token.lower() for token in re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț]+", normalize(text))
+    }
 
 
 def _last_word(text: str) -> str:
@@ -282,7 +299,11 @@ def _strip_trailing_usage_suffixes(definition: str) -> str:
 
 
 def _extract_definition_usage_suffix(definition: str) -> str | None:
-    matches = re.findall(r"\((?:arh|inv|reg|tehn|pop|fam|arg|livr)\.\)", definition or "", flags=re.IGNORECASE)
+    matches = re.findall(
+        r"\((?:arh|inv|reg|tehn|pop|fam|arg|livr)\.\)",
+        definition or "",
+        flags=re.IGNORECASE,
+    )
     if not matches:
         return None
     return matches[-1].lower()
@@ -298,7 +319,9 @@ def _extract_usage_suffix_from_dex(dex_definitions: str) -> str | None:
     return None
 
 
-def _normalize_definition_usage_suffix(definition: str, required_suffix: str | None) -> str:
+def _normalize_definition_usage_suffix(
+    definition: str, required_suffix: str | None
+) -> str:
     base = _strip_trailing_usage_suffixes(definition)
     if not required_suffix or required_suffix not in USAGE_SUFFIXES:
         return base
@@ -331,9 +354,24 @@ def _build_usage_label_line(required_suffix: str | None, *, purpose: str) -> str
 
 _ENGLISH_MEANING_PATTERNS: dict[str, list[str]] = {
     "AN": ["articol nehotărât", "articol nehotarat"],
-    "OF": ["prepoziție de posesie", "prepozitie de posesie", "indică posesia", "indica posesia"],
-    "IN": ["prepoziție de loc", "prepozitie de loc", "indică poziția", "indica pozitia", "prepoziție care indică"],
-    "AT": ["prepoziție care indică locul", "prepozitie care indica locul", "prepoziție de loc"],
+    "OF": [
+        "prepoziție de posesie",
+        "prepozitie de posesie",
+        "indică posesia",
+        "indica posesia",
+    ],
+    "IN": [
+        "prepoziție de loc",
+        "prepozitie de loc",
+        "indică poziția",
+        "indica pozitia",
+        "prepoziție care indică",
+    ],
+    "AT": [
+        "prepoziție care indică locul",
+        "prepozitie care indica locul",
+        "prepoziție de loc",
+    ],
     "HAT": ["pălărie", "palarie"],
     "NAT": ["network address", "traducere a adreselor", "adreselor ip"],
     "IDE": ["dezvoltare software", "editor și compilator", "mediu de dezvoltare"],
@@ -352,7 +390,9 @@ def _definition_describes_english_meaning(word: str, definition: str) -> bool:
 
 
 def _guard_english_meaning_rating(
-    word: str, definition: str, rating: DefinitionRating,
+    word: str,
+    definition: str,
+    rating: DefinitionRating,
 ) -> DefinitionRating:
     if not _definition_describes_english_meaning(word, definition):
         return rating
@@ -377,7 +417,13 @@ def _family_exclusion_note(word: str) -> str:
     )
 
 
-def _build_generate_prompt(display_word: str, word: str, length: int, word_type: str = "", dex_definitions: str = "") -> str:
+def _build_generate_prompt(
+    display_word: str,
+    word: str,
+    length: int,
+    word_type: str = "",
+    dex_definitions: str = "",
+) -> str:
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     prompt = load_user_template("generate").format(
         display_word=display_word,
@@ -385,10 +431,14 @@ def _build_generate_prompt(display_word: str, word: str, length: int, word_type:
         length=length,
         usage_label_line=_build_usage_label_line(required_suffix, purpose="generate"),
     )
-    prompt += "\nDefiniția trebuie să fie o formulare completă, nu un singur cuvânt izolat."
+    prompt += (
+        "\nDefiniția trebuie să fie o formulare completă, nu un singur cuvânt izolat."
+    )
     label = WORD_TYPE_LABELS.get(word_type)
     if label:
-        prompt = prompt.replace(f"Lungime: {length}", f"Lungime: {length}\nCategorie gramaticală: {label}")
+        prompt = prompt.replace(
+            f"Lungime: {length}", f"Lungime: {length}\nCategorie gramaticală: {label}"
+        )
     hint = ENGLISH_HOMOGRAPH_HINTS.get(word.upper())
     if hint:
         prompt += (
@@ -405,7 +455,9 @@ def _build_generate_prompt(display_word: str, word: str, length: int, word_type:
     return prompt
 
 
-def _append_existing_canonical_definitions(prompt: str, existing_definitions: list[str] | None) -> str:
+def _append_existing_canonical_definitions(
+    prompt: str, existing_definitions: list[str] | None
+) -> str:
     if not existing_definitions:
         return prompt
     lines = [f"- {definition}" for definition in existing_definitions if definition]
@@ -416,7 +468,7 @@ def _append_existing_canonical_definitions(prompt: str, existing_definitions: li
         + "\nDefiniții canonice deja folosite pentru același cuvânt:\n"
         + "\n".join(lines)
         + "\nEvită să reformulezi aceeași idee aproape identic. "
-          "Dacă poți, alege un alt unghi semantic clar distinct."
+        "Dacă poți, alege un alt unghi semantic clar distinct."
     )
 
 
@@ -489,7 +541,14 @@ def _build_verify_prompt(
     )
 
 
-def _build_rate_prompt(display_word: str, word: str, definition: str, answer_length: int, word_type: str = "", dex_definitions: str = "") -> str:
+def _build_rate_prompt(
+    display_word: str,
+    word: str,
+    definition: str,
+    answer_length: int,
+    word_type: str = "",
+    dex_definitions: str = "",
+) -> str:
     allowed_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     used_suffix = _extract_definition_usage_suffix(definition)
     suffix_status_line = ""
@@ -525,7 +584,9 @@ def _build_rate_prompt(display_word: str, word: str, definition: str, answer_len
     return prompt
 
 
-def _build_clue_tiebreak_prompt(word: str, answer_length: int, definition_a: str, definition_b: str) -> str:
+def _build_clue_tiebreak_prompt(
+    word: str, answer_length: int, definition_a: str, definition_b: str
+) -> str:
     return load_user_template("clue_tiebreak").format(
         word=word,
         answer_length=answer_length,
@@ -534,7 +595,9 @@ def _build_clue_tiebreak_prompt(word: str, answer_length: int, definition_a: str
     )
 
 
-def _build_clue_compare_prompt(word: str, answer_length: int, definition_a: str, definition_b: str) -> str:
+def _build_clue_compare_prompt(
+    word: str, answer_length: int, definition_a: str, definition_b: str
+) -> str:
     return load_user_template("clue_compare").format(
         word=word,
         answer_length=answer_length,
@@ -550,7 +613,9 @@ def _build_puzzle_tiebreak_prompt(summary_a: str, summary_b: str) -> str:
     )
 
 
-def _guard_same_family_rating(word: str, definition: str, rating: DefinitionRating) -> DefinitionRating:
+def _guard_same_family_rating(
+    word: str, definition: str, rating: DefinitionRating
+) -> DefinitionRating:
     if not clue_uses_same_family(word, definition):
         return rating
     return DefinitionRating(
@@ -630,7 +695,9 @@ def _clean_verify_chunk(text: str | None) -> str:
     return token_match.group(0) if token_match else ""
 
 
-def _extract_verify_candidates(raw: str, answer_length: int, max_guesses: int) -> list[str]:
+def _extract_verify_candidates(
+    raw: str, answer_length: int, max_guesses: int
+) -> list[str]:
     pieces = re.split(r"[\n,;/|]+", raw or "")
     candidates: list[str] = []
     seen: set[str] = set()
@@ -677,12 +744,16 @@ def generate_definition(
     """Generate a single clue definition."""
     display_word = original if original else word.lower()
     length = len(word)
-    prompt = _build_generate_prompt(display_word, word, length, word_type=word_type, dex_definitions=dex_definitions)
-    prompt = _append_existing_canonical_definitions(prompt, existing_canonical_definitions)
+    prompt = _build_generate_prompt(
+        display_word, word, length, word_type=word_type, dex_definitions=dex_definitions
+    )
+    prompt = _append_existing_canonical_definitions(
+        prompt, existing_canonical_definitions
+    )
     system_prompt = load_system_prompt("definition")
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
-    print(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
-    print(f"  [LLM user prompt]\n{prompt}")
+    log(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
+    log(f"  [LLM user prompt]\n{prompt}")
 
     for attempt in range(retries):
         try:
@@ -706,7 +777,7 @@ def generate_definition(
                 definition = definition[:200].rsplit(" ", 1)[0]
             rejection = _validate_definition(word, definition)
             if rejection:
-                print(f"    [rejected {word}: {rejection}]")
+                log(f"    [rejected {word}: {rejection}]")
                 prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             return definition
@@ -758,15 +829,22 @@ def rewrite_definition(
             "- Nu produce ceva similar cu această definiție respinsă.\n"
         )
     prompt = _build_rewrite_prompt(
-        display_word, word, previous_definition, feedback_text, bad_example_text,
-        word_type=word_type, dex_definitions=dex_definitions,
+        display_word,
+        word,
+        previous_definition,
+        feedback_text,
+        bad_example_text,
+        word_type=word_type,
+        dex_definitions=dex_definitions,
         failure_history=failure_history,
     )
-    prompt = _append_existing_canonical_definitions(prompt, existing_canonical_definitions)
+    prompt = _append_existing_canonical_definitions(
+        prompt, existing_canonical_definitions
+    )
     system_prompt = load_system_prompt("rewrite")
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
-    print(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
-    print(f"  [LLM user prompt]\n{prompt}")
+    log(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
+    log(f"  [LLM user prompt]\n{prompt}")
 
     last_rejection = ""
     for attempt in range(retries):
@@ -799,7 +877,7 @@ def rewrite_definition(
             rejection = _validate_definition(word, definition)
             if rejection:
                 last_rejection = rejection
-                print(f"    [rewrite rejected {word}: {rejection}]")
+                log(f"    [rewrite rejected {word}: {rejection}]")
                 prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             result = RewriteAttemptResult(definition=definition)
@@ -848,7 +926,9 @@ def verify_definition_candidates(
             purpose="definition_verify",
         )
         raw = response.choices[0].message.content or ""
-        candidates = _extract_verify_candidates(raw, answer_length, max_guesses=max_guesses)
+        candidates = _extract_verify_candidates(
+            raw, answer_length, max_guesses=max_guesses
+        )
         last_candidates = candidates
         if candidates:
             return VerifyResult(candidates)
@@ -891,7 +971,14 @@ def rate_definition(
     signaling that the definition should be treated as unrated.
     """
     display_word = original if original else word.lower()
-    prompt = _build_rate_prompt(display_word, word, definition, answer_length, word_type=word_type, dex_definitions=dex_definitions)
+    prompt = _build_rate_prompt(
+        display_word,
+        word,
+        definition,
+        answer_length,
+        word_type=word_type,
+        dex_definitions=dex_definitions,
+    )
     system_prompt = load_system_prompt("rate")
 
     for attempt in range(2):
@@ -919,7 +1006,11 @@ def rate_definition(
             bare_match = re.search(r"\{.*\}", raw, re.DOTALL)
             match = fence_match or bare_match
             if match:
-                json_str = match.group(1) if fence_match and match is fence_match else match.group()
+                json_str = (
+                    match.group(1)
+                    if fence_match and match is fence_match
+                    else match.group()
+                )
                 try:
                     data = json.loads(json_str)
                 except json.JSONDecodeError:
@@ -973,14 +1064,43 @@ def compare_definition_variants(
     *,
     model: str | None = None,
 ) -> DefinitionComparisonVote:
+    attempt = _compare_definition_variant_attempt(
+        client,
+        word,
+        answer_length,
+        definition_a,
+        definition_b,
+        model=model,
+    )
+    if attempt.vote is not None:
+        return attempt.vote
+    resolved_model = _resolve_model_name(model)
+    return DefinitionComparisonVote(
+        model_id=resolved_model,
+        same_meaning=False,
+        better="equal",
+        reason="compare_failed",
+    )
+
+
+def _compare_definition_variant_attempt(
+    client: OpenAI,
+    word: str,
+    answer_length: int,
+    definition_a: str,
+    definition_b: str,
+    *,
+    model: str | None = None,
+) -> DefinitionComparisonAttempt:
     prompt = _build_clue_compare_prompt(word, answer_length, definition_a, definition_b)
     retry_prompt = (
         "\nRăspunde strict cu un singur obiect JSON valid de forma "
-        '{"same_meaning": true|false, "better": "A"|"B"|"equal", "reason": "..."} '
+        '{"same_meaning": true|false, "better": "A"|"B"|"equal"} '
         "fără text suplimentar."
     )
     resolved_model = _resolve_model_name(model)
     for attempt in range(2):
+        compare_started = time.monotonic()
         try:
             response = _chat_completion_create(
                 client,
@@ -990,11 +1110,35 @@ def compare_definition_variants(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=300,
+                max_tokens=120,
                 purpose="clue_compare",
             )
+            elapsed = time.monotonic() - compare_started
+            _log_if_completion_truncated(
+                response,
+                model=resolved_model,
+                purpose="clue_compare",
+                max_tokens=120,
+            )
+            if elapsed > 10.0:
+                log(
+                    "  [slow compare "
+                    f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f}]"
+                )
             data = _extract_json_object(response.choices[0].message.content or "")
             if not data:
+                log(
+                    "  [invalid compare json "
+                    f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f}]"
+                )
+                if attempt == 1:
+                    return DefinitionComparisonAttempt(
+                        model_id=resolved_model,
+                        model_role="",
+                        valid_vote=False,
+                        parse_status="invalid_json",
+                        latency_seconds=elapsed,
+                    )
                 prompt += retry_prompt
                 continue
             better = str(data.get("better", "equal")).strip().upper()
@@ -1002,21 +1146,41 @@ def compare_definition_variants(
                 better = "equal"
             else:
                 better = better.lower() if better == "EQUAL" else better
-            return DefinitionComparisonVote(
+            return DefinitionComparisonAttempt(
                 model_id=resolved_model,
-                same_meaning=bool(data.get("same_meaning")),
-                better=better,
-                reason=str(data.get("reason", "")).strip(),
+                model_role="",
+                valid_vote=True,
+                parse_status="ok",
+                latency_seconds=elapsed,
+                vote=DefinitionComparisonVote(
+                    model_id=resolved_model,
+                    same_meaning=bool(data.get("same_meaning")),
+                    better=better,
+                    reason=str(data.get("reason", "")).strip(),
+                ),
             )
-        except Exception:
+        except Exception as exc:
+            elapsed = time.monotonic() - compare_started
+            log(
+                "  [compare exception "
+                f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f} error={exc}]"
+            )
             if attempt == 0:
                 prompt += retry_prompt
                 continue
-    return DefinitionComparisonVote(
+            return DefinitionComparisonAttempt(
+                model_id=resolved_model,
+                model_role="",
+                valid_vote=False,
+                parse_status="exception",
+                latency_seconds=elapsed,
+                error_message=str(exc),
+            )
+    return DefinitionComparisonAttempt(
         model_id=resolved_model,
-        same_meaning=False,
-        better="equal",
-        reason="compare_failed",
+        model_role="",
+        valid_vote=False,
+        parse_status="invalid_json",
     )
 
 
@@ -1034,38 +1198,192 @@ def _remap_swapped_vote(vote: DefinitionComparisonVote) -> DefinitionComparisonV
     )
 
 
+def _should_finalize_adaptive_votes(
+    votes: list[DefinitionComparisonVote],
+) -> tuple[bool, DefinitionRefereeResult]:
+    result = aggregate_referee_votes(votes)
+    vote_count = len(votes)
+    remaining = max(0, 6 - vote_count)
+
+    if vote_count >= 2 and result.same_meaning_votes == 0:
+        return True, result
+
+    if vote_count >= 6:
+        return True, result
+
+    if result.same_meaning_votes + remaining < 4:
+        return True, result
+
+    if (
+        result.winner in {"A", "B"}
+        and result.same_meaning_votes == vote_count
+        and result.winner_votes == vote_count
+    ):
+        return True, result
+
+    if (
+        result.same_meaning_votes >= 4
+        and result.winner in {"A", "B"}
+        and result.winner_votes + remaining < 5
+    ):
+        return True, result
+
+    return False, result
+
+
+def _with_diagnostics(
+    result: DefinitionRefereeResult,
+    diagnostics: DefinitionRefereeDiagnostics,
+) -> DefinitionRefereeResult:
+    return DefinitionRefereeResult(
+        same_meaning_votes=result.same_meaning_votes,
+        better_a_votes=result.better_a_votes,
+        better_b_votes=result.better_b_votes,
+        equal_votes=result.equal_votes,
+        votes=result.votes,
+        diagnostics=diagnostics,
+    )
+
+
+def _build_referee_diagnostics(
+    request_id: str,
+    attempts: list[DefinitionComparisonAttempt],
+) -> DefinitionRefereeDiagnostics:
+    primary_valid_votes = 0
+    secondary_valid_votes = 0
+    for attempt in attempts:
+        if not attempt.valid_vote:
+            continue
+        if attempt.model_role == "primary":
+            primary_valid_votes += 1
+        elif attempt.model_role == "secondary":
+            secondary_valid_votes += 1
+    return DefinitionRefereeDiagnostics(
+        request_id=request_id,
+        attempts=list(attempts),
+        primary_valid_votes=primary_valid_votes,
+        secondary_valid_votes=secondary_valid_votes,
+    )
+
+
 def run_definition_referee_batch(
     client: OpenAI,
     runtime,
     requests: list[DefinitionRefereeInput],
 ) -> dict[str, DefinitionRefereeResult]:
+    return run_definition_referee_adaptive_batch(client, runtime, requests).results
+
+
+def run_definition_referee_adaptive_batch(
+    client: OpenAI,
+    runtime,
+    requests: list[DefinitionRefereeInput],
+) -> AdaptiveRefereeBatchResult:
     if not requests:
-        return {}
+        return AdaptiveRefereeBatchResult(results={}, total_votes=0)
+
+    vote_steps = (
+        (PRIMARY_MODEL, False, "primary"),
+        (SECONDARY_MODEL, True, "secondary"),
+    )
+    active_request_ids = [request.request_id for request in requests]
+    request_by_id = {request.request_id: request for request in requests}
     votes_by_request_id: dict[str, list[DefinitionComparisonVote]] = {
         request.request_id: [] for request in requests
     }
-    for model_config, swaps in REFEREE_VOTE_SCHEDULE:
+    attempts_by_request_id: dict[str, list[DefinitionComparisonAttempt]] = {
+        request.request_id: [] for request in requests
+    }
+    results: dict[str, DefinitionRefereeResult] = {}
+    total_votes = 0
+    phase1_requests = 0
+    phase2_requests = 0
+    invalid_compare_json_primary = 0
+    invalid_compare_json_secondary = 0
+    step_metrics: list[dict[str, object]] = []
+
+    for step_index, (model_config, swap, model_role) in enumerate(vote_steps):
+        if not active_request_ids:
+            break
+        requests_started = len(active_request_ids)
+        if model_role == "primary":
+            phase1_requests += requests_started
+        else:
+            phase2_requests += requests_started
         if runtime is not None:
             runtime.activate(model_config)
-        for swap in swaps:
-            for request in requests:
-                left = request.definition_b if swap else request.definition_a
-                right = request.definition_a if swap else request.definition_b
-                vote = compare_definition_variants(
-                    client,
-                    request.word,
-                    request.answer_length,
-                    left,
-                    right,
-                    model=model_config.model_id,
+        completed_ids: list[str] = []
+        for request_id in list(active_request_ids):
+            request = request_by_id[request_id]
+            left = request.definition_b if swap else request.definition_a
+            right = request.definition_a if swap else request.definition_b
+            attempt = _compare_definition_variant_attempt(
+                client,
+                request.word,
+                request.answer_length,
+                left,
+                right,
+                model=model_config.model_id,
+            )
+            vote = _remap_swapped_vote(attempt.vote) if (swap and attempt.vote is not None) else attempt.vote
+            attempts_by_request_id[request_id].append(
+                DefinitionComparisonAttempt(
+                    model_id=attempt.model_id,
+                    model_role=model_role,
+                    valid_vote=attempt.valid_vote,
+                    parse_status=attempt.parse_status,
+                    latency_seconds=attempt.latency_seconds,
+                    vote=vote,
+                    error_message=attempt.error_message,
                 )
-                votes_by_request_id[request.request_id].append(
-                    _remap_swapped_vote(vote) if swap else vote
-                )
-    return {
-        request_id: aggregate_referee_votes(votes)
-        for request_id, votes in votes_by_request_id.items()
-    }
+            )
+            if vote is not None:
+                votes_by_request_id[request_id].append(vote)
+            elif attempt.parse_status == "invalid_json":
+                if model_role == "primary":
+                    invalid_compare_json_primary += 1
+                else:
+                    invalid_compare_json_secondary += 1
+            total_votes += 1
+            diagnostics = _build_referee_diagnostics(request_id, attempts_by_request_id[request_id])
+            if step_index == 0:
+                continue
+            results[request_id] = _with_diagnostics(
+                aggregate_referee_votes(votes_by_request_id[request_id]),
+                diagnostics,
+            )
+            completed_ids.append(request_id)
+        if completed_ids:
+            completed = set(completed_ids)
+            active_request_ids = [
+                request_id
+                for request_id in active_request_ids
+                if request_id not in completed
+            ]
+        step_metrics.append({
+            "step_index": step_index,
+            "model_id": model_config.model_id,
+            "model_role": model_role,
+            "requests_started": requests_started,
+            "requests_completed_after_step": len(completed_ids),
+            "requests_remaining_after_step": len(active_request_ids),
+        })
+
+    for request_id in active_request_ids:
+        results[request_id] = _with_diagnostics(
+            aggregate_referee_votes(votes_by_request_id[request_id]),
+            _build_referee_diagnostics(request_id, attempts_by_request_id[request_id]),
+        )
+
+    return AdaptiveRefereeBatchResult(
+        results=results,
+        total_votes=total_votes,
+        phase1_requests=phase1_requests,
+        phase2_requests=phase2_requests,
+        invalid_compare_json_primary=invalid_compare_json_primary,
+        invalid_compare_json_secondary=invalid_compare_json_secondary,
+        step_metrics=step_metrics,
+    )
 
 
 def run_definition_referee(
@@ -1099,7 +1417,9 @@ def choose_better_clue_variant(
     definition_b: str,
     model: str | None = None,
 ) -> str:
-    prompt = _build_clue_tiebreak_prompt(word, answer_length, definition_a, definition_b)
+    prompt = _build_clue_tiebreak_prompt(
+        word, answer_length, definition_a, definition_b
+    )
     try:
         resolved_model = _resolve_model_name(model)
         response = _chat_completion_create(

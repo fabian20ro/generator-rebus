@@ -45,9 +45,17 @@
 ## Dependencies & External Services
 <!-- **[YYYY-MM-DD]** title — explanation -->
 
+**[2026-04-02]** Supabase/PostgREST `in_(uuid_column, ids)` calls need UUID sanitization before request build — one malformed or stale non-UUID id in a batched `.in_()` filter can come back as a bare `Bad Request` body, which the Python PostgREST client surfaces as a JSON-parse failure instead of a useful row-level error. Filter candidate ids to valid UUIDs first, and prefer a DB view over client-side follow-up fetches when the ids came from partially migrated data.
+
 **[2026-04-01]** High-volume two-model referee passes should batch comparisons by model, not finish one item at a time — if a backfill/inference loop alternates `primary -> secondary` for every single comparison, LM Studio spends most of the run unloading and reloading models. Keep the 6-vote semantics, but collect a bounded queue of comparison requests, run all primary votes first, then all secondary votes, and isolate that batching path to offline/high-volume jobs so live single-item flows stay simple.
 
 **[2026-03-30]** LM Studio `reasoning_effort` needs completion-budget retuning, not just a flag flip — on local `gpt-oss` runs, enabling `reasoning_effort="medium"` can spend most or all `max_tokens` inside `completion_tokens_details.reasoning_tokens`. Small legacy budgets that were safe before reasoning support (`rewrite` ~220, `rate` ~260) can then terminate with `finish_reason="length"` and empty visible output / missing JSON. When LM Studio server support changes, revalidate token budgets per phase and log truncated completions with reasoning-token counts.
+
+**[2026-04-04]** Resumable jobs should treat serialized active work as authoritative and serialized pending queues as advisory — active entries usually carry enough merge/progress state to finish safely after resume, but pending queues can go stale as soon as source filtering or eligibility logic changes. On resume, keep valid active items, rebuild/sanitize pending words against the fresh workset, and add a final no-bucket guard so stale queue entries cannot crash the run.
+
+**[2026-04-04]** LM Studio reasoning policy must follow the OpenAI-compatible endpoint contract, not `/api/v1/models` capability metadata — a model can advertise one reasoning vocabulary there (`off/on`) while `/v1/chat/completions` only accepts another (`none|minimal|low|medium|high|xhigh`). Keep reasoning normalization centralized, validate values before sending, and treat live endpoint acceptance as the source of truth.
+
+**[2026-04-04]** Resumable backfills need DB-filtered worksets and per-word batch persistence — if a migration rerun still loads the full clue corpus, per-word queue/batch knobs only mask the real bottleneck. Filter the source query to unresolved eligible rows (`verified=true`, canonical pointer null, optional target word), prefetch existing canonicals for each queue-fill wave in one query, and batch clue-link + alias writes per committed word. Keep LM calls sequential if needed for local stability; most of the win comes from cutting DB round-trips and skipping already-finished words.
 
 **[2026-03-23]** LM Studio orchestration must separate transport ids from audit labels and forbid implicit model routing — `display_name` is for logs/metrics, `model_id` is for API calls. If generation/title/tiebreak code falls back to `"default"` or passes labels like `gpt-oss-20b` where LM Studio expects the exact downloaded id, live state drift turns into hard-to-reproduce 400/500 load failures. Keep one runtime that reconciles against `/api/v1/models`, and pass explicit `model_id` on every chat completion call.
 
@@ -105,7 +113,17 @@
 
 **[2026-03-26]** Multi-model title loops must activate models just-in-time, not prebuild an alternating model list by calling activators up front — eager activation unloads the first generator before its own API call, produces misleading `[model]` logs, and turns valid orchestration bugs into fake prompt-quality failures. Keep rejected-history and corrective hints scoped per generator, and do not let empty-output retries pollute semantic rejection context.
 
+**[2026-04-04]** LM Studio reasoning controls must be modeled per model and per purpose, with explicit omission support — a single global `reasoning_effort` assumption breaks as soon as one model expects `on/off`, another expects `low/medium/high`, and a third errors if the field is present at all. Keep reasoning policy in the central model registry, let each purpose fall back to a per-model default, and treat `None` as “omit this parameter entirely.”
+
+**[2026-04-05]** Local LLM compare/referee calls must be treated as bounded classification, not open-ended reasoning — for tiny JSON decisions like `clue_compare`, letting Gemma run with reasoning enabled and `max_tokens` in the thousands turns simple pair judgments into long “thinking” traces that dominate end-to-end backfill time. Keep compare prompts on the strictest possible JSON contract, disable reasoning for that purpose, and cap completion budgets to a low triple- or double-digit token range.
+
 ## Process & Workflow
+**[2026-04-03]** Final storage cutovers need an explicit audit gate, not just a migration script — before dropping a compatibility column, require one automated check that proves coverage (`NULL` pointer count = 0, effective-view legacy fallbacks = 0, production code has no direct legacy-column reads/writes). Without that gate, “one last migration” turns into follow-up cleanup migrations after the supposedly final cutover.
+
+**[2026-04-05]** Compatibility views must be replaced before dropping the legacy columns they still reference — in a staged schema cutover, the “finalize” migration can fail even after audit passes if it drops a column before `CREATE OR REPLACE VIEW` removes that dependency. Prefer dependency-preserving reorder (`replace view` → `drop column`) over `DROP COLUMN ... CASCADE`, and only consider `CASCADE` after enumerating downstream dependents you are prepared to recreate.
+
+**[2026-04-03]** Repo-wide human progress output should go through `runtime_logging.log()`; leave raw `print()` only inside the logging primitive itself or in deliberate stdout-contract scripts — mixed ad-hoc prints make timestamps inconsistent, break run-log teeing, and make long LM Studio jobs harder to debug. Standardize entrypoints on `install_process_logging()` and route library/progress chatter through `log()`.
+
 **[2026-04-01]** `set -u` shell wrappers must not expand empty Bash arrays on macOS bash 3.2 — patterns like `args=("$@")` followed by `"${args[@]}"` can still throw `unbound variable` when no CLI args were passed. Scan `"$@"` directly, branch on `$#`, and only materialize/expand an array after guaranteeing at least one element.
 
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
@@ -117,6 +135,12 @@
 **[2026-03-20]** Live git experiment commits are not enough to reconstruct winning prompt state — when the runner commits prompt edits before assessment and later tries to commit results, ignored log paths or interrupted runs can desynchronize git history, prompt backups, and the results TSV. Treat the results TSV as score history, not as authoritative prompt-state history; restore or diff prompt backups explicitly before starting the next campaign.
 
 **[2026-03-30]** Overnight size balancing should come from live inventory, not a blind fixed loop — if the goal is to keep puzzle counts even across `grid_size`, a static `7..15` loop overproduces already-abundant sizes. Put the balancing logic in the Python loop controller, query current `crossword_puzzles` counts, treat missing sizes as zero, and let the shell entrypoint only enable that mode.
+
+**[2026-04-05]** LM Studio multi-model referee design must match model residency cost — with one active loaded model at a time, a many-phase voting schedule can look statistically careful but become throughput poison once later phases shrink to 1-3 requests. Prefer whole-batch model phases with terminal decisions after one valid vote per model, and treat tiny-schema JSON compare prompts as hard-bounded classifiers, not explanation tasks.
+
+**[2026-04-05]** Cache-backed canonical inserts need unique-conflict recovery — read-then-insert against `canonical_clue_definitions` is not safe under stale cache or concurrent runs. On `23505`, invalidate the word cache, refetch by canonical identity, and reuse/bump the existing row instead of crashing unattended backfills.
+
+**[2026-04-05]** Backfill “eligible rows” must match the cutover invariant being measured — if cutover requires `crossword_clues.canonical_definition_id IS NULL = 0`, a backfill restricted to `verified=true` will misleadingly report `eligible_rows=0` while thousands of unverified null pointers remain. Separate “verified rows allowed to drive merges” from “all rows that still need a canonical pointer”.
 
 ---
 

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import VERIFY_CANDIDATE_COUNT
-from .core.runtime_logging import human_timestamp, install_process_logging, path_timestamp
+from .core.runtime_logging import human_timestamp, install_process_logging, log, path_timestamp
 from .core.size_tuning import OVERNIGHT_LOOP_SIZES, SUPPORTED_GRID_SIZES
 from .core.supabase_ops import create_service_role_client
 
@@ -63,7 +63,7 @@ def select_auto_size(*, client=None) -> int:
     counts = fetch_puzzle_size_counts(client=client)
     selected_size, inventory = choose_balanced_size(counts)
     summary = " ".join(f"{size}:{inventory[size]}" for size in sorted(inventory))
-    print(f"Auto-selected size={selected_size} inventory={summary}")
+    log(f"Auto-selected size={selected_size} inventory={summary}")
     return selected_size
 
 

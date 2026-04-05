@@ -18,7 +18,6 @@ from ..core.ai_clues import (
 from ..core.clue_family import words_share_family
 from ..core.dex_cache import DexProvider
 from ..core.lm_runtime import LmRuntime
-from ..core.model_manager import PRIMARY_MODEL
 from ..core.pipeline_state import (
     ClueAssessment,
     ClueFailureReason,
@@ -31,6 +30,7 @@ from ..core.pipeline_state import (
     working_puzzle_from_puzzle,
 )
 from ..core.diacritics import normalize
+from ..core.runtime_logging import log
 
 
 def _build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
@@ -90,7 +90,7 @@ def _verify_clues(
             result.append(clue)
             continue
 
-        print(f"  Verifying: {clue.word_normalized} - {definition[:50]}...")
+        log(f"  Verifying: {clue.word_normalized} - {definition[:50]}...")
         try:
             verify_kwargs = dict(
                 word_type=clue.word_type,
@@ -120,7 +120,7 @@ def _verify_clues(
             clue.current.assessment.form_mismatch_detail = ""
             clue.current.assessment.verified_by = model_label
             clue.current.assessment.failure_reason = None
-            print(f"    ✓ AI a inclus răspunsul corect: {', '.join(guess_candidates)}")
+            log(f"    ✓ AI a inclus răspunsul corect: {', '.join(guess_candidates)}")
         else:
             first_guess = guess_candidates[0] if guess_candidates else ""
             related_guess = next(
@@ -146,7 +146,7 @@ def _verify_clues(
                     else f"AI a propus: {', '.join(guess_candidates)}"
                 ),
             )
-            print(
+            log(
                 f"    ✗ AI a propus: {', '.join(guess_candidates) or '[nimic]'} "
                 f"(expected: {clue.word_normalized})"
             )
@@ -207,7 +207,7 @@ def _rate_clues(
             clue.current.assessment.failure_reason = ClueFailureReason(
                 "unrated", "Evaluarea nu a putut fi parsată (JSON invalid).",
             )
-            print(f"    ⚠ {clue.word_normalized}: evaluare eșuată (JSON invalid)")
+            log(f"    ⚠ {clue.word_normalized}: evaluare eșuată (JSON invalid)")
             continue
         semantic_score = rating.semantic_score
         guessability_score = rating.guessability_score
@@ -232,7 +232,7 @@ def _rate_clues(
         semantic_ok = semantic_score >= RATE_MIN_SEMANTIC
         rebus_ok = rebus >= RATE_MIN_REBUS
         symbol = "★" if semantic_ok and rebus_ok else "⚠"
-        print(
+        log(
             f"    {symbol} {clue.word_normalized}: "
             f"'{definition}' -> "
             f"semantic {semantic_score}/10, rebus {rebus}/10"
@@ -250,7 +250,7 @@ def verify_working_puzzle(
     max_guesses: int = VERIFY_CANDIDATE_COUNT,
 ) -> tuple[int, int]:
     """Verify all clue definitions in-place and return (passed, total)."""
-    print("Verifying horizontal definitions...")
+    log("Verifying horizontal definitions...")
     puzzle.horizontal_clues = _verify_clues(
         puzzle.horizontal_clues,
         client,
@@ -260,7 +260,7 @@ def verify_working_puzzle(
         max_guesses=max_guesses,
     )
 
-    print("Verifying vertical definitions...")
+    log("Verifying vertical definitions...")
     puzzle.vertical_clues = _verify_clues(
         puzzle.vertical_clues,
         client,
@@ -285,12 +285,12 @@ def rate_working_puzzle(
     model_name: str | None = None,
 ) -> tuple[float, float, int]:
     """Rate all usable definitions in-place."""
-    print("Rating horizontal definitions...")
+    log("Rating horizontal definitions...")
     _rate_clues(
         puzzle.horizontal_clues, client, skip_words=skip_words, dex=dex, model_label=model_label, model_name=model_name,
     )
 
-    print("Rating vertical definitions...")
+    log("Rating vertical definitions...")
     _rate_clues(
         puzzle.vertical_clues, client, skip_words=skip_words, dex=dex, model_label=model_label, model_name=model_name,
     )
@@ -349,7 +349,7 @@ def rate_puzzle(puzzle, client: OpenAI) -> tuple[float, float, int]:
 
 def run(input_file: str, output_file: str, **kwargs) -> None:
     """Verify all definitions by AI guessing, then rate quality."""
-    print(f"Reading puzzle from {input_file}...")
+    log(f"Reading puzzle from {input_file}...")
     with open(input_file, "r", encoding="utf-8") as f:
         puzzle = parse_markdown(f.read())
 
@@ -379,7 +379,7 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(md)
 
-    print(
+    log(
         f"Verification: {passed}/{total} passed. "
         f"Avg semantic: {avg_semantic:.1f}/10. "
         f"Avg rebus: {avg_guessability:.1f}/10. "

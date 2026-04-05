@@ -23,7 +23,7 @@ from .pipeline_state import (
 )
 from .plateau import has_plateaued
 from .selection_engine import choose_clue_version
-from .runtime_logging import audit
+from .runtime_logging import audit, log
 from .score_helpers import (
     LOCKED_REBUS,
     LOCKED_SEMANTIC,
@@ -186,7 +186,7 @@ def _build_pending_candidates(
         _maybe_add(rewrite_candidate, source="rewrite", strategy_label="rewrite")
     except Exception as exc:
         had_error = True
-        print(f"  Rewrite failed for {clue.word_normalized}: {exc}")
+        log(f"  Rewrite failed for {clue.word_normalized}: {exc}")
 
     if use_hybrid:
         try:
@@ -204,7 +204,7 @@ def _build_pending_candidates(
             _maybe_add(fresh_candidate, source="generate", strategy_label="fresh_generate")
         except Exception as exc:
             had_error = True
-            print(f"  Fresh generate failed for {clue.word_normalized}: {exc}")
+            log(f"  Fresh generate failed for {clue.word_normalized}: {exc}")
 
     return pending, had_error, rewrite_rejection_reason
 
@@ -297,7 +297,7 @@ def run_rewrite_loop(
     runtime = runtime or LmRuntime(multi_model=multi_model)
     current_model = runtime.activate_initial_evaluator()
     if multi_model:
-        print(f"  Model activ (evaluare inițială): {current_model.display_name}")
+        log(f"  Model activ (evaluare inițială): {current_model.display_name}")
 
     preset_skip: set[str] = set()
     verify_working_puzzle(
@@ -342,7 +342,7 @@ def run_rewrite_loop(
         min_rebus_history.append(current_min)
 
         if has_plateaued(min_rebus_history, PLATEAU_LOOKBACK):
-            print(f"  Plateau after {round_index} rounds (min_rebus={current_min})")
+            log(f"  Plateau after {round_index} rounds (min_rebus={current_min})")
             break
 
         round_min_rebus = current_min + 1
@@ -356,7 +356,7 @@ def run_rewrite_loop(
             break
 
         if multi_model:
-            print(f"  Model activ (rescriere): {current_model.display_name}")
+            log(f"  Model activ (rescriere): {current_model.display_name}")
 
         failed_count = sum(1 for c in candidates if c.current.assessment.verified is False)
         low_rated_count = sum(
@@ -371,7 +371,7 @@ def run_rewrite_loop(
             )
         )
         unrated_count = len(candidates) - failed_count - low_rated_count
-        print(
+        log(
             f"Rewrite round {round_index}: {len(candidates)} candidates "
             f"({failed_count} failed, {low_rated_count} low-rated, {unrated_count} unrated)"
         )
@@ -383,7 +383,7 @@ def run_rewrite_loop(
             outcome.was_candidate = True
             clue_ref = clue_label_from_working_clue(clue)
             if _is_locked_clue(clue):
-                print(f"  {clue_ref}: blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
+                log(f"  {clue_ref}: blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
                 continue
 
             wrong_guess = clue.current.assessment.wrong_guess
@@ -442,7 +442,7 @@ def run_rewrite_loop(
                         detail=only.strategy_label if use_hybrid else only.source,
                     )
                 else:
-                    print(
+                    log(
                         f"  {clue_ref}: hybrid "
                         f"rewrite='{_compact_log_text(pending_candidates[0].definition)}' | "
                         f"fresh='{_compact_log_text(pending_candidates[1].definition)}'"
@@ -453,14 +453,14 @@ def run_rewrite_loop(
                 consecutive_failures[clue.word_normalized] = consecutive_failures.get(clue.word_normalized, 0) + 1
                 if consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
                     stuck_words.add(clue.word_normalized)
-                    print(
+                    log(
                         f"  {clue_ref}: marcată ca blocată după "
                         f"{consecutive_failures[clue.word_normalized]} încercări eșuate consecutive"
                     )
 
         current_model = runtime.alternate()
         if multi_model:
-            print(f"  Model activ (evaluare): {current_model.display_name}")
+            log(f"  Model activ (evaluare): {current_model.display_name}")
 
         evaluated_words: set[str] = set()
         for clue in candidates:
@@ -510,7 +510,7 @@ def run_rewrite_loop(
             clue.current = copy.deepcopy(chosen_version)
             evaluated_words.add(clue.word_normalized)
             outcomes[clue.word_normalized].selected_strategy = chosen_candidate.strategy_label
-            print(
+            log(
                 f"  {clue.word_normalized}: ales {chosen_candidate.strategy_label} -> "
                 f"'{_compact_log_text(chosen_version.definition)}'"
             )
@@ -539,7 +539,7 @@ def run_rewrite_loop(
                 continue
             _update_best_clue_version(clue, client=client, model_name=current_model.model_id)
             if clue.locked:
-                print(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
+                log(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
 
     _restore_best_versions(puzzle)
     final_passed = sum(1 for clue in all_working_clues(puzzle) if clue.current.assessment.verified)
@@ -571,7 +571,7 @@ def run_rewrite_loop(
         else:
             reason = "not_improved"
         outcome.terminal_reason = reason
-        print(f"  [DEX audit] {clue.word_normalized}: short DEX not included în redefinire ({reason})")
+        log(f"  [DEX audit] {clue.word_normalized}: short DEX not included în redefinire ({reason})")
         audit(
             "dex_short_definition_not_included_in_redefinire",
             component="rewrite_engine",

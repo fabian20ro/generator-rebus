@@ -6,6 +6,7 @@ from unittest.mock import patch
 from generator.core.ai_clues import DefinitionRating, contains_english_markers
 from generator.core.clue_rating import append_rating_to_note
 from generator.core.markdown_io import ClueEntry
+from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.core.pipeline_state import working_clue_from_entry
 from generator.phases.verify import _rate_clues, _verify_clues, rate_puzzle
 
@@ -89,13 +90,13 @@ class VerifyPhaseTests(unittest.TestCase):
             definition="Care nu a început încă",
         ))
 
-        result = _verify_clues([clue], client=object(), model_label="eurollm-22b")
+        result = _verify_clues([clue], client=object(), model_label=SECONDARY_MODEL.display_name)
         assessed = result[0].current.assessment
 
         self.assertFalse(assessed.verified)
         self.assertTrue(assessed.form_mismatch)
         self.assertEqual("related_form", assessed.failure_reason.kind)
-        self.assertEqual("eurollm-22b", assessed.verified_by)
+        self.assertEqual(SECONDARY_MODEL.display_name, assessed.verified_by)
 
     @patch("generator.phases.verify.verify_definition_candidates")
     def test_verify_accepts_correct_word_among_multiple_candidates(self, mock_verify_definition):
@@ -107,7 +108,7 @@ class VerifyPhaseTests(unittest.TestCase):
             definition="Bețe de sprijin pentru vie",
         ))
 
-        result = _verify_clues([clue], client=object(), model_label="gpt-oss-20b")
+        result = _verify_clues([clue], client=object(), model_label=PRIMARY_MODEL.display_name)
         assessed = result[0].current.assessment
 
         self.assertTrue(assessed.verified)
@@ -116,7 +117,7 @@ class VerifyPhaseTests(unittest.TestCase):
 
     @patch(
         "generator.phases.verify.LmRuntime.activate_primary",
-        return_value=SimpleNamespace(display_name="gpt-oss-20b", model_id="openai/gpt-oss-20b"),
+        return_value=SimpleNamespace(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id),
     )
     @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")
@@ -144,7 +145,7 @@ class VerifyPhaseTests(unittest.TestCase):
 
     @patch(
         "generator.phases.verify.LmRuntime.activate_primary",
-        return_value=SimpleNamespace(display_name="gpt-oss-20b", model_id="openai/gpt-oss-20b"),
+        return_value=SimpleNamespace(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id),
     )
     @patch("generator.phases.verify.DexProvider.for_puzzle", return_value=None)
     @patch("generator.phases.verify.rate_definition")

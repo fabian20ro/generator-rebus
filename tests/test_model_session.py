@@ -17,6 +17,7 @@ class LmRuntimeTests(unittest.TestCase):
         self.assertEqual(PRIMARY_MODEL, current)
         self.assertEqual(PRIMARY_MODEL, runtime.current_model)
         self.assertEqual(0, runtime.switch_count)
+        self.assertEqual(0, runtime.activation_count)
         mock_load.assert_not_called()
 
     @patch("generator.core.lm_runtime.time.sleep")
@@ -66,6 +67,7 @@ class LmRuntimeTests(unittest.TestCase):
         current = runtime.activate_primary()
 
         self.assertEqual(PRIMARY_MODEL, current)
+        self.assertEqual(1, runtime.activation_count)
         mock_unload.assert_called_once_with("inst-secondary", model_id=SECONDARY_MODEL.model_id)
         mock_load.assert_called_once_with(PRIMARY_MODEL)
 

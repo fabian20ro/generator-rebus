@@ -16,6 +16,7 @@ from ..core.pipeline_state import (
     set_current_definition,
     working_puzzle_from_puzzle,
 )
+from ..core.runtime_logging import log
 
 
 def _split_and_define(
@@ -45,7 +46,7 @@ def _split_and_define(
                     definition=clue.definition,
                 ))
             else:
-                print(f"  Defining: {word} ({original or '?'})...")
+                log(f"  Defining: {word} ({original or '?'})...")
                 try:
                     definition = generate_definition(
                         client,
@@ -56,7 +57,7 @@ def _split_and_define(
                     )
                 except Exception as e:
                     definition = f"[Definiție lipsă: {e}]"
-                print(f"    → {definition}")
+                log(f"    → {definition}")
                 result.append(ClueEntry(
                     row_number=clue.row_number,
                     word_normalized=word,
@@ -77,14 +78,14 @@ def generate_definitions_for_state(
     model_config: ModelConfig | None = None,
 ) -> None:
     theme = state.title or "Rebus Românesc"
-    print(f"Theme: {theme}")
+    log(f"Theme: {theme}")
     selected_model = model_config or PRIMARY_MODEL
     clue_canon = clue_canon or ClueCanonService()
     if runtime is not None:
         selected_model = runtime.activate(selected_model)
 
     for label, clues in (("horizontal", state.horizontal_clues), ("vertical", state.vertical_clues)):
-        print(f"Generating {label} definitions...")
+        log(f"Generating {label} definitions...")
         direction = "H" if label == "horizontal" else "V"
         for clue in clues:
             if clue.current.definition:
@@ -93,9 +94,9 @@ def generate_definitions_for_state(
             dex_defs = dex.get(clue.word_normalized, clue.word_original) if dex else None
             dex_defs = dex_defs or ""
             if dex_defs:
-                print(f"  Defining: {clue_ref} ({clue.word_original or '?'}) [DEX context available]")
+                log(f"  Defining: {clue_ref} ({clue.word_original or '?'}) [DEX context available]")
             else:
-                print(f"  Defining: {clue_ref} ({clue.word_original or '?'})...")
+                log(f"  Defining: {clue_ref} ({clue.word_original or '?'})...")
             try:
                 existing_canonical_definitions = clue_canon.fetch_prompt_examples(clue.word_normalized)
                 definition = generate_definition(
@@ -156,7 +157,7 @@ def generate_definitions_for_puzzle(
 
 def run(input_file: str, output_file: str, **kwargs) -> None:
     """Generate definitions for all words in the puzzle."""
-    print(f"Reading puzzle from {input_file}...")
+    log(f"Reading puzzle from {input_file}...")
     with open(input_file, "r", encoding="utf-8") as f:
         puzzle = parse_markdown(f.read())
 
@@ -179,4 +180,4 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
         f.write(md)
 
     total = len(puzzle.horizontal_clues) + len(puzzle.vertical_clues)
-    print(f"Generated {total} definitions. Saved to {output_file}")
+    log(f"Generated {total} definitions. Saved to {output_file}")

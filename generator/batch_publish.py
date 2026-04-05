@@ -39,7 +39,10 @@ from .core.metrics import (
     update_word_difficulty,
     write_metrics,
 )
-from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
+from .core.model_manager import (
+    PRIMARY_MODEL,
+    get_active_model_labels,
+)
 from .core.pipeline_state import (
     ClueAssessment,
     ClueCandidateVersion,
@@ -64,6 +67,7 @@ from .core.quality import QualityReport
 from .core.rewrite_engine import run_rewrite_loop
 from .core.runtime_logging import (
     install_process_logging,
+    log,
     path_timestamp,
     utc_timestamp,
 )
@@ -263,7 +267,7 @@ def _best_candidate_rust(
         check=False,
     )
     if result.stderr:
-        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n")
+        log(result.stderr.rstrip("\n"))
     if result.returncode != 0:
         raise RuntimeError(
             f"Rust phase-1 failed for {size}x{size} with exit {result.returncode}: "
@@ -284,7 +288,7 @@ def _best_candidate_rust(
         payload["words"],
     )
     stats = dict(payload.get("stats", {}))
-    print(
+    log(
         f"  Rust phase-1 {size}x{size}: score={report.score:.1f} "
         f"two={report.two_letter_words} three={report.three_letter_words} "
         f"elapsed_ms={int(stats.get('elapsed_ms', 0) or 0)} "
@@ -412,7 +416,7 @@ def _merge_best_clue_variants(
             tiebreaker=_tiebreak,
         )
         if client is not None:
-            print(
+            log(
                 f"  Tie-break definiție {best_working.word_normalized}: "
                 f"A='{_compact_log_text(best_working.active_version().definition)}' | "
                 f"B='{_compact_log_text(current_working.active_version().definition)}' | "
@@ -511,7 +515,7 @@ def _better_prepared_puzzle(
     )
     if decision.used_tiebreak:
         chosen = candidate if winner == "B" else best
-        print(
+        log(
             "Puzzle tie-break: "
             f"A='{_compact_log_text(decision.a_summary)}' | "
             f"B='{_compact_log_text(decision.b_summary)}' | "
@@ -566,7 +570,7 @@ def _prepare_puzzle_for_publication(
 
     for attempt_index in range(1, effective_attempts + 1):
         if attempt_index > 1:
-            print(
+            log(
                 f"Retrying puzzle {index}/{total_puzzles} ({size}x{size}), "
                 f"attempt {attempt_index}/{effective_attempts}..."
             )
@@ -622,7 +626,7 @@ def _prepare_puzzle_for_publication(
         )
         title = title_result.title
         state.title = title
-        print(f"Titlu final: {title}")
+        log(f"Titlu final: {title}")
         prepared = PreparedPuzzle(
             title=title,
             title_score=title_result.score,
@@ -640,12 +644,12 @@ def _prepare_puzzle_for_publication(
         )
 
         if blockers:
-            print(
+            log(
                 "Rejected puzzle after quality gate: "
                 + ", ".join(clue.word_normalized for clue in blockers[:10])
             )
         elif _is_publishable(best_prepared):
-            print(
+            log(
                 f"  Puzzle publicabil la tentativa {attempt_index}/{effective_attempts}"
             )
             break
@@ -751,18 +755,16 @@ def run_batch(
     batch_start = time.monotonic()
     all_word_metrics: list[WordMetric] = []
     puzzle_metrics: list[PuzzleMetric] = []
-    print(f"Batch seed: {rng_seed}")
+    log(f"Batch seed: {rng_seed}")
     runtime = LmRuntime(multi_model=multi_model)
     runtime.activate_primary()
     if multi_model:
-        print(
-            f"Multi-model mode: {PRIMARY_MODEL.display_name} + {SECONDARY_MODEL.display_name}"
-        )
+        log(f"Multi-model mode: {' + '.join(get_active_model_labels(multi_model=True))}")
 
     for index, size in enumerate(sizes, start=1):
         puzzle_dir = run_dir / f"{index:02d}_{size}x{size}"
         puzzle_start = time.monotonic()
-        print(f"\n=== Puzzle {index}/{len(sizes)}: {size}x{size} ===")
+        log(f"\n=== Puzzle {index}/{len(sizes)}: {size}x{size} ===")
 
         prepared = _prepare_puzzle_for_publication(
             index=index,
@@ -780,7 +782,7 @@ def run_batch(
             runtime=runtime,
         )
         if prepared.blocking_words:
-            print("\n--- Detailed rejection report ---")
+            log("\n--- Detailed rejection report ---")
             blocking_set = set(prepared.blocking_words)
             try:
                 for clue in all_working_clues(prepared.puzzle):
@@ -789,15 +791,15 @@ def run_batch(
                         semantic = version.assessment.scores.semantic_exactness
                         rebus = version.assessment.scores.rebus_score
                         reason = _synthesize_failure_reason(clue)
-                        print(
+                        log(
                             f"  {clue.word_normalized}: "
                             f"def='{_compact_log_text(version.definition)}' "
                             f"semantic={semantic}/10 rebus={rebus}/10 "
                             f"motiv: {reason}"
                         )
             except (AttributeError, TypeError):
-                print(f"  Blocked words: {', '.join(prepared.blocking_words[:12])}")
-            print("--- End rejection report ---\n")
+                log(f"  Blocked words: {', '.join(prepared.blocking_words[:12])}")
+            log("--- End rejection report ---\n")
             raise RuntimeError(
                 f"Could not prepare a publishable {size}x{size} puzzle. "
                 f"Missing definitions for: {', '.join(prepared.blocking_words[:12])}"
@@ -826,9 +828,7 @@ def run_batch(
             for c in all_working_clues(prepared.puzzle)
         ]
         min_rebus = min(non_preset_rebus) if non_preset_rebus else 10
-        models_used_desc = [PRIMARY_MODEL.display_name]
-        if multi_model:
-            models_used_desc.append(SECONDARY_MODEL.display_name)
+        models_used_desc = get_active_model_labels(multi_model=multi_model)
         description = build_puzzle_description(prepared.assessment, models_used_desc)
         difficulty = _compute_difficulty(size, prepared.candidate.report)
         puzzle_id = upload_puzzle(
@@ -932,9 +932,7 @@ def run_batch(
         )
 
     batch_elapsed_ms = int((time.monotonic() - batch_start) * 1000)
-    models_used = [PRIMARY_MODEL.display_name]
-    if multi_model:
-        models_used.append(SECONDARY_MODEL.display_name)
+    models_used = get_active_model_labels(multi_model=multi_model)
     batch_metric = BatchMetric(
         timestamp=utc_timestamp(),
         seed=rng_seed,
@@ -1022,8 +1020,8 @@ def main() -> None:
         tee_console=True,
     )
     try:
-        print(f"Run log: {log_path}")
-        print(f"Audit log: {audit_path}")
+        log(f"Run log: {log_path}")
+        log(f"Audit log: {audit_path}")
         manifest = run_batch(
             sizes=args.sizes,
             output_root=output_root,
@@ -1035,9 +1033,9 @@ def main() -> None:
             multi_model=args.multi_model,
             verify_candidates=max(1, args.verify_candidates),
         )
-        print("\nBatch complete:")
+        log("\nBatch complete:")
         for item in manifest:
-            print(
+            log(
                 f"  {item['title']} -> {item['puzzle_id']} "
                 f"(verify {item['verification_passed']}/{item['verification_total']})"
             )

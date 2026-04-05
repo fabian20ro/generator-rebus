@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 from itertools import combinations
+import re
 
 from .clue_canon_store import ClueCanonStore
 from .clue_canon_types import (
@@ -25,6 +26,7 @@ ROMANIAN_STOPWORDS = {
     "in", "intr", "intrun", "intrunul", "la", "o", "pe", "pentru", "prin", "sau",
     "si", "spre", "un", "una", "unei", "unor", "unui", "cea", "cel", "cei", "cele",
 }
+_USAGE_LABEL_RE = re.compile(r"\((?:arh|inv|reg|tehn|pop|fam|arg|livr)\.\)", flags=re.IGNORECASE)
 
 
 def normalize_definition_text(text: str) -> str:
@@ -49,6 +51,8 @@ def build_definition_record(row: dict) -> ClueDefinitionRecord:
         word_original=str(row.get("word_original") or ""),
         definition=definition,
         definition_norm=normalize_definition_text(definition),
+        word_type=str(row.get("word_type") or ""),
+        usage_label=str(row.get("usage_label") or _extract_usage_label(definition)),
         verified=bool(row.get("verified")),
         semantic_score=_to_int(row.get("semantic_score")),
         rebus_score=_to_int(row.get("rebus_score")),
@@ -65,9 +69,9 @@ def choose_canonical_winner(rows: list[ClueDefinitionRecord]) -> ClueDefinitionR
 
 
 def build_exact_groups(rows: list[ClueDefinitionRecord]) -> list[list[ClueDefinitionRecord]]:
-    grouped: dict[tuple[str, str], list[ClueDefinitionRecord]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str, str], list[ClueDefinitionRecord]] = defaultdict(list)
     for row in rows:
-        grouped[(row.word_normalized, row.definition_norm)].append(row)
+        grouped[(row.word_normalized, row.word_type, row.usage_label, row.definition_norm)].append(row)
     return list(grouped.values())
 
 
@@ -126,6 +130,13 @@ def lexical_similarity(left_norm: str, right_norm: str) -> float:
     if not left_norm or not right_norm:
         return 0.0
     return SequenceMatcher(a=left_norm, b=right_norm).ratio()
+
+
+def _extract_usage_label(definition: str) -> str:
+    matches = _USAGE_LABEL_RE.findall(definition or "")
+    if not matches:
+        return ""
+    return matches[-1].lower()
 
 
 def aggregate_referee_votes(votes) -> DefinitionRefereeResult:
@@ -193,6 +204,7 @@ class ClueCanonService:
         word_normalized: str,
         word_original: str,
         definition: str,
+        word_type: str = "",
         clue_id: str | None = None,
         puzzle_id: str | None = None,
         verified: bool = False,
@@ -206,6 +218,8 @@ class ClueCanonService:
             word_original=str(word_original or "").strip(),
             definition=(definition or "").strip(),
             definition_norm=normalize_definition_text(definition),
+            word_type=str(word_type or "").strip().upper(),
+            usage_label=_extract_usage_label(definition),
             verified=verified,
             semantic_score=semantic_score,
             rebus_score=rebus_score,
@@ -219,10 +233,15 @@ class ClueCanonService:
                 action="legacy_disabled",
             )
 
-        exact = self.store.find_exact_canonical(record.word_normalized, record.definition_norm)
+        exact = self.store.find_exact_canonical(
+            record.word_normalized,
+            record.definition_norm,
+            word_type=record.word_type,
+            usage_label=record.usage_label,
+        )
         if exact is not None:
             exact = self.store.bump_usage(exact.id, record.word_normalized) or exact
-            self._attach_if_possible(clue_id, puzzle_id, exact.id, exact.definition)
+            self._attach_if_possible(clue_id, puzzle_id, exact.id)
             return CanonicalDecision(
                 canonical_definition=exact.definition,
                 canonical_definition_norm=exact.definition_norm,
@@ -261,7 +280,7 @@ class ClueCanonService:
                     decision_source="llm",
                     decision_note="existing canonical kept",
                 )
-                self._attach_if_possible(clue_id, puzzle_id, canonical.id, canonical.definition)
+                self._attach_if_possible(clue_id, puzzle_id, canonical.id)
                 return CanonicalDecision(
                     canonical_definition=canonical.definition,
                     canonical_definition_norm=canonical.definition_norm,
@@ -272,28 +291,17 @@ class ClueCanonService:
                     decision_note="existing canonical kept",
                 )
             if result.merge_allowed and result.winner == "A":
-                updated = self.store.update_canonical_definition(canonical.id, record) or canonical
-                self.store.insert_alias(
-                    canonical_definition_id=updated.id,
-                    word_normalized=record.word_normalized,
-                    definition=canonical.definition,
-                    definition_norm=canonical.definition_norm,
-                    source_clue_id=None,
-                    match_type="near",
-                    same_meaning_votes=result.same_meaning_votes,
-                    winner_votes=result.winner_votes,
-                    decision_source="llm",
-                    decision_note="new candidate promoted over canonical",
-                )
-                self._attach_if_possible(clue_id, puzzle_id, updated.id, updated.definition)
+                created = self.store.create_canonical_definition(record)
+                promoted = created or canonical
+                self._attach_if_possible(clue_id, puzzle_id, promoted.id)
                 return CanonicalDecision(
-                    canonical_definition=updated.definition,
-                    canonical_definition_norm=updated.definition_norm,
-                    canonical_definition_id=updated.id,
+                    canonical_definition=promoted.definition,
+                    canonical_definition_norm=promoted.definition_norm,
+                    canonical_definition_id=promoted.id,
                     action="promote_new",
                     same_meaning_votes=result.same_meaning_votes,
                     winner_votes=result.winner_votes,
-                    decision_note="new candidate promoted over canonical",
+                    decision_note="new immutable canonical created; existing canonical retained",
                 )
             if result.disagreement:
                 continue
@@ -301,7 +309,7 @@ class ClueCanonService:
         created = self.store.create_canonical_definition(record)
         canonical_id = created.id if created is not None else None
         canonical_text = created.definition if created is not None else record.definition
-        self._attach_if_possible(clue_id, puzzle_id, canonical_id, canonical_text)
+        self._attach_if_possible(clue_id, puzzle_id, canonical_id)
         return CanonicalDecision(
             canonical_definition=canonical_text,
             canonical_definition_norm=record.definition_norm,
@@ -314,6 +322,10 @@ class ClueCanonService:
         matches: list[tuple[float, CanonicalDefinition]] = []
         record_tokens = set(content_tokens(record.definition))
         for row in rows:
+            if row.word_type != record.word_type:
+                continue
+            if row.usage_label != record.usage_label:
+                continue
             shared = len(record_tokens & set(content_tokens(row.definition)))
             similarity = lexical_similarity(record.definition_norm, row.definition_norm)
             if shared < 2 and similarity < 0.82:
@@ -354,12 +366,28 @@ class ClueCanonService:
             requests,
         )
 
+    def _run_referee_adaptive_batch(
+        self,
+        requests: list[DefinitionRefereeInput],
+    ):
+        if not requests:
+            return None
+        if self.client is None:
+            from .ai_clues import create_client
+            self.client = create_client()
+        from .ai_clues import run_definition_referee_adaptive_batch
+
+        return run_definition_referee_adaptive_batch(
+            self.client,
+            self.runtime,
+            requests,
+        )
+
     def _attach_if_possible(
         self,
         clue_id: str | None,
         puzzle_id: str | None,
         canonical_definition_id: str | None,
-        definition: str,
     ) -> None:
         if not clue_id or not puzzle_id or not canonical_definition_id:
             return
@@ -367,7 +395,6 @@ class ClueCanonService:
             clue_id,
             puzzle_id,
             canonical_definition_id=canonical_definition_id,
-            definition=definition,
         )
 
 
@@ -376,6 +403,7 @@ def _canonical_match_key(row: CanonicalDefinition) -> tuple[object, ...]:
         0 if row.verified else 1,
         -(row.semantic_score or -1),
         -(row.rebus_score or -1),
+        -(row.usage_count or 0),
         len(row.definition),
         row.id,
     )

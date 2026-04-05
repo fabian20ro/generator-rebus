@@ -33,7 +33,7 @@ from ..core.model_manager import (
     SECONDARY_MODEL,
 )
 from ..core.lm_runtime import LmRuntime
-from ..core.runtime_logging import install_process_logging, path_timestamp
+from ..core.runtime_logging import install_process_logging, log, path_timestamp
 from ..core.selection_engine import choose_clue_version
 
 
@@ -249,10 +249,10 @@ def _refresh_dataset_dex_definitions(dataset: list[dict]) -> list[dict]:
                 refreshed += 1
             updated_dataset.append(updated)
         if refreshed:
-            print(f"Refreshed DEX text for {refreshed}/{len(dataset)} assessment words from DexProvider cache")
+            log(f"Refreshed DEX text for {refreshed}/{len(dataset)} assessment words from DexProvider cache")
         return updated_dataset
     except Exception as exc:
-        print(f"DEX refresh unavailable; using dataset snapshot ({exc})")
+        log(f"DEX refresh unavailable; using dataset snapshot ({exc})")
         return dataset
 
 
@@ -278,7 +278,7 @@ def _generate_for_word(
             temperature=temperature, model=model_name,
         )
     except Exception as e:
-        print(f"  Generate failed: {e}")
+        log(f"  Generate failed: {e}")
         return "[Definiție negenerată]"
 
 
@@ -294,7 +294,7 @@ def _verify_for_word(client, definition: str, length: int, word_type: str, max_g
             model=model_name,
         ).candidates
     except Exception as e:
-        print(f"  Verify failed: {e}")
+        log(f"  Verify failed: {e}")
         return []
 
 
@@ -311,9 +311,9 @@ def _rate_for_word(
         if rating is not None:
             rebus = compute_rebus_score(rating.guessability_score, rating.creativity_score)
             return rating.semantic_score, rebus, True
-        print(f"  Rating failed (JSON parse error)")
+        log("  Rating failed (JSON parse error)")
     except Exception as e:
-        print(f"  Rate failed: {e}")
+        log(f"  Rate failed: {e}")
     return 0, 0, False
 
 
@@ -346,47 +346,47 @@ def run_assessment(
     result.candidates = candidates
     n = len(candidates)
 
-    print(f"Running multi-model assessment on {n} words...")
+    log(f"Running multi-model assessment on {n} words...")
     generate_temperature = generate_temperature if generate_temperature is not None else temperature
     rewrite_temperature = rewrite_temperature if rewrite_temperature is not None else temperature
     total_start = time.monotonic()
 
     # ── Phase 1: PRIMARY generates ────────────────────────────────
-    print(f"\n{'='*60}")
-    print(f"PHASE 1: {PRIMARY_MODEL.display_name} generates definitions")
-    print(f"{'='*60}")
+    log(f"\n{'='*60}")
+    log(f"PHASE 1: {PRIMARY_MODEL.display_name} generates definitions")
+    log(f"{'='*60}")
     phase_start = time.monotonic()
     runtime.activate_primary()
 
     for i, c in enumerate(candidates, 1):
-        print(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
+        log(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
         c.pass1_definition = _generate_for_word(
             client, c.word, c.display_word, c.word_type,
             c.dex_definitions, generate_temperature, PRIMARY_MODEL.model_id,
         )
         if c.pass1_definition.startswith("["):
-            print(f"  Skipping — no definition generated")
+            log("  Skipping — no definition generated")
 
     phase_times["phase1_generate"] = time.monotonic() - phase_start
 
     # ── Phase 2: SECONDARY evaluates pass1 + generates pass2 ─────
-    print(f"\n{'='*60}")
-    print(f"PHASE 2: {SECONDARY_MODEL.display_name} evaluates + generates")
-    print(f"{'='*60}")
+    log(f"\n{'='*60}")
+    log(f"PHASE 2: {SECONDARY_MODEL.display_name} evaluates + generates")
+    log(f"{'='*60}")
     phase_start = time.monotonic()
     runtime.activate_secondary()
 
     # 2a: cross-model verify + rate of pass1 definitions
-    print(f"\n--- Phase 2a: evaluate pass1 definitions ---")
+    log("\n--- Phase 2a: evaluate pass1 definitions ---")
     for i, c in enumerate(candidates, 1):
         if c.pass1_definition.startswith("["):
             continue
-        print(f"\n[{i}/{n}] {c.word} — verify+rate pass1")
+        log(f"\n[{i}/{n}] {c.word} — verify+rate pass1")
         guesses = _verify_for_word(client, c.pass1_definition, c.length, c.word_type, verify_candidates, SECONDARY_MODEL.model_id)
         c.pass1_guesses = guesses
         c.pass1_verified = c.word in {normalize(guess) for guess in guesses}
         symbol = "✓" if c.pass1_verified else "✗"
-        print(f"  {symbol} Guesses: {', '.join(guesses) or '[nimic]'} (expected: {c.word})")
+        log(f"  {symbol} Guesses: {', '.join(guesses) or '[nimic]'} (expected: {c.word})")
 
         semantic, rebus, rated = _rate_for_word(
             client, c.word, c.display_word, c.pass1_definition,
@@ -396,39 +396,39 @@ def run_assessment(
         c.pass1_rebus = rebus
         c.pass1_rated = rated
         if rated:
-            print(f"  Rating: semantic={semantic} rebus={rebus}")
+            log(f"  Rating: semantic={semantic} rebus={rebus}")
 
     # 2b: SECONDARY generates fresh definitions for all words
-    print(f"\n--- Phase 2b: generate pass2 definitions ---")
+    log("\n--- Phase 2b: generate pass2 definitions ---")
     for i, c in enumerate(candidates, 1):
-        print(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
+        log(f"\n[{i}/{n}] {c.word} (tier={c.tier}, len={c.length})")
         c.pass2_definition = _generate_for_word(
             client, c.word, c.display_word, c.word_type,
             c.dex_definitions, rewrite_temperature, SECONDARY_MODEL.model_id,
         )
         if c.pass2_definition.startswith("["):
-            print(f"  Skipping — no definition generated")
+            log("  Skipping — no definition generated")
 
     phase_times["phase2_eval_and_generate"] = time.monotonic() - phase_start
 
     # ── Phase 3: PRIMARY evaluates pass2 + picks best ─────────────
-    print(f"\n{'='*60}")
-    print(f"PHASE 3: {PRIMARY_MODEL.display_name} evaluates + selects best")
-    print(f"{'='*60}")
+    log(f"\n{'='*60}")
+    log(f"PHASE 3: {PRIMARY_MODEL.display_name} evaluates + selects best")
+    log(f"{'='*60}")
     phase_start = time.monotonic()
     runtime.activate_primary()
 
     # 3a: cross-model verify + rate of pass2 definitions
-    print(f"\n--- Phase 3a: evaluate pass2 definitions ---")
+    log("\n--- Phase 3a: evaluate pass2 definitions ---")
     for i, c in enumerate(candidates, 1):
         if c.pass2_definition.startswith("["):
             continue
-        print(f"\n[{i}/{n}] {c.word} — verify+rate pass2")
+        log(f"\n[{i}/{n}] {c.word} — verify+rate pass2")
         guesses = _verify_for_word(client, c.pass2_definition, c.length, c.word_type, verify_candidates, PRIMARY_MODEL.model_id)
         c.pass2_guesses = guesses
         c.pass2_verified = c.word in {normalize(guess) for guess in guesses}
         symbol = "✓" if c.pass2_verified else "✗"
-        print(f"  {symbol} Guesses: {', '.join(guesses) or '[nimic]'} (expected: {c.word})")
+        log(f"  {symbol} Guesses: {', '.join(guesses) or '[nimic]'} (expected: {c.word})")
 
         semantic, rebus, rated = _rate_for_word(
             client, c.word, c.display_word, c.pass2_definition,
@@ -438,14 +438,14 @@ def run_assessment(
         c.pass2_rebus = rebus
         c.pass2_rated = rated
         if rated:
-            print(f"  Rating: semantic={semantic} rebus={rebus}")
+            log(f"  Rating: semantic={semantic} rebus={rebus}")
 
     # 3b: pick best definition per word
-    print(f"\n--- Phase 3b: selecting best definitions ---")
+    log("\n--- Phase 3b: selecting best definitions ---")
     for c in candidates:
         _pick_best(c)
         best_def = _best_definition(c)[:50]
-        print(f"  {c.word}: best={c.best_source} — '{best_def}...'")
+        log(f"  {c.word}: best={c.best_source} — '{best_def}...'")
 
     phase_times["phase3_eval_and_select"] = time.monotonic() - phase_start
 
@@ -464,31 +464,31 @@ def run_assessment(
             tr.rated_count += 1
 
     elapsed = time.monotonic() - total_start
-    print(f"\nAssessment completed in {elapsed:.0f}s")
-    print(f"  Phase timings:")
+    log(f"\nAssessment completed in {elapsed:.0f}s")
+    log("  Phase timings:")
     for phase, t in phase_times.items():
-        print(f"    {phase}: {t:.0f}s")
+        log(f"    {phase}: {t:.0f}s")
     return result
 
 
 def _print_report(result: AssessmentResult) -> None:
-    print("\n" + "=" * 60)
-    print("ASSESSMENT RESULTS (multi-model)")
-    print("=" * 60)
-    print(f"Composite score: {result.composite:.1f}")
-    print(f"Pass rate:       {result.pass_rate:.1%}")
-    print(f"Tier-balanced:   {result.tier_balanced_pass_rate:.1%}")
-    print(f"Avg semantic:    {result.avg_semantic:.1f}/10")
-    print(f"Avg rebus:       {result.avg_rebus:.1f}/10")
+    log("\n" + "=" * 60)
+    log("ASSESSMENT RESULTS (multi-model)")
+    log("=" * 60)
+    log(f"Composite score: {result.composite:.1f}")
+    log(f"Pass rate:       {result.pass_rate:.1%}")
+    log(f"Tier-balanced:   {result.tier_balanced_pass_rate:.1%}")
+    log(f"Avg semantic:    {result.avg_semantic:.1f}/10")
+    log(f"Avg rebus:       {result.avg_rebus:.1f}/10")
 
     # Source distribution
     pass1_count = sum(1 for c in result.candidates if c.best_source == "pass1")
     pass2_count = len(result.candidates) - pass1_count
-    print(f"\nBest-source distribution: pass1={pass1_count}, pass2={pass2_count}")
+    log(f"\nBest-source distribution: pass1={pass1_count}, pass2={pass2_count}")
 
-    print("\nPer-tier breakdown:")
-    print(f"  {'Tier':<10} {'Pass Rate':>10} {'Avg Sem':>10} {'Avg Rebus':>10} {'Count':>6}")
-    print(f"  {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 6}")
+    log("\nPer-tier breakdown:")
+    log(f"  {'Tier':<10} {'Pass Rate':>10} {'Avg Sem':>10} {'Avg Rebus':>10} {'Count':>6}")
+    log(f"  {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 6}")
     preferred_order = ["low", "medium", "high", "easy", "hard", "short", "rare"]
     tier_names = sorted(
         result.tier_results.keys(),
@@ -500,7 +500,7 @@ def _print_report(result: AssessmentResult) -> None:
     for tier_name in tier_names:
         tr = result.tier_results.get(tier_name)
         if tr:
-            print(
+            log(
                 f"  {tier_name:<10} {tr.pass_rate:>9.0%} "
                 f"{tr.avg_semantic:>10.1f} {tr.avg_rebus:>10.1f} {tr.total:>6}"
             )
@@ -512,17 +512,17 @@ def _print_report(result: AssessmentResult) -> None:
         and not _best_definition(c).startswith("[")
     ]
     if failures:
-        print(f"\nFailed words ({len(failures)}):")
+        log(f"\nFailed words ({len(failures)}):")
         for c in failures:
             defn = _best_definition(c)[:60]
             guesses = ", ".join(_best_guesses(c)) or "[nimic]"
-            print(f"  {c.word} ({c.tier}, {c.best_source}): '{defn}...' → guessed '{guesses}'")
+            log(f"  {c.word} ({c.tier}, {c.best_source}): '{defn}...' → guessed '{guesses}'")
 
 
 def _write_result_json(result: AssessmentResult, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Assessment JSON written to {path}")
+    log(f"Assessment JSON written to {path}")
 
 
 def _append_results_tsv(result: AssessmentResult, description: str) -> None:
@@ -539,7 +539,7 @@ def _append_results_tsv(result: AssessmentResult, description: str) -> None:
             f"{result.avg_semantic:.1f}\t{result.avg_rebus:.1f}\t"
             f"keep\t{description}\n"
         )
-    print(f"\nResults appended to {RESULTS_PATH}")
+    log(f"\nResults appended to {RESULTS_PATH}")
 
 
 def main() -> None:

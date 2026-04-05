@@ -14,7 +14,10 @@ Wrapper over:
 Examples:
   ./run_clue_canon_backfill.sh --dry-run
   ./run_clue_canon_backfill.sh --apply
+  ./run_clue_canon_backfill.sh --apply --resume
   ./run_clue_canon_backfill.sh --dry-run --word APA --limit 10 --min-count 3
+  ./run_clue_canon_backfill.sh --apply --progress-every 10
+  ./run_clue_canon_backfill.sh --apply --word-queue-size 50 --referee-batch-size 50
 EOF
   exit 0
 fi

@@ -14,7 +14,13 @@ from ..core.diacritics import normalize
 from ..core.llm_text import clean_llm_text_response
 from ..core.lm_runtime import LmRuntime
 from ..core.markdown_io import parse_markdown, write_with_definitions
-from ..core.model_manager import ModelConfig, PRIMARY_MODEL, SECONDARY_MODEL
+from ..core.model_manager import (
+    ModelConfig,
+    get_active_models,
+    get_active_primary_model,
+    get_active_secondary_model,
+)
+from ..core.runtime_logging import log
 from ..core.text_rules import contains_normalized_forbidden_word
 from ..prompts.loader import load_system_prompt, load_user_template
 
@@ -359,13 +365,17 @@ def _rating_model_for_generator(
 ) -> ModelConfig:
     if not multi_model:
         return generator_model
-    if generator_model.model_id == PRIMARY_MODEL.model_id:
-        return runtime.activate_secondary()
-    return runtime.activate_primary()
+    primary_model = get_active_primary_model()
+    if generator_model.model_id == primary_model.model_id:
+        return _activate_generator_model(runtime, get_active_secondary_model())
+    return _activate_generator_model(runtime, primary_model)
 
 
 def _activate_generator_model(runtime: LmRuntime, model: ModelConfig) -> ModelConfig:
-    if model.model_id == PRIMARY_MODEL.model_id:
+    if hasattr(runtime, "activate"):
+        return runtime.activate(model)
+    primary_model = get_active_primary_model()
+    if model.model_id == primary_model.model_id:
         return runtime.activate_primary()
     return runtime.activate_secondary()
 
@@ -458,11 +468,10 @@ def generate_creative_title_result(
     best_result: TitleGenerationResult | None = None
     rejected: list[tuple[str, str]] = []
     rejected_by_model: dict[str, list[tuple[str, str]]] = {
-        PRIMARY_MODEL.model_id: [],
-        SECONDARY_MODEL.model_id: [],
+        model.model_id: [] for model in get_active_models(multi_model=True)
     }
     forbidden_keys = {key for key in (forbidden_title_keys or []) if key}
-    generator_order = [PRIMARY_MODEL] if not multi_model else [PRIMARY_MODEL, SECONDARY_MODEL]
+    generator_order = list(get_active_models(multi_model=multi_model))
 
     for round_idx in range(1, MAX_TITLE_ROUNDS + 1):
         for generator_model in generator_order:
@@ -478,7 +487,7 @@ def generate_creative_title_result(
                 empty_retry_instruction="Răspunde obligatoriu cu un singur titlu concret de 2-5 cuvinte, exclusiv în limba română.",
             )
             if not raw_title.strip():
-                print(
+                log(
                     f"  Title round {round_idx} [{generator_model.display_name}]: \"(gol)\" -> creativity=0/10 (titlu gol)"
                 )
                 continue
@@ -486,7 +495,7 @@ def generate_creative_title_result(
             reviewed = _review_title_candidate(raw_title, input_words=words)
             display_title = reviewed.title or _clean_title(raw_title) or "(gol)"
             if not reviewed.valid:
-                print(
+                log(
                     f'  Title round {round_idx} [{generator_model.display_name}]: "{display_title}" -> creativity=0/10 ({reviewed.feedback})'
                 )
                 rejected.append((display_title, reviewed.feedback))
@@ -504,7 +513,7 @@ def generate_creative_title_result(
                 model_rejected.append((reviewed.title, "titlu deja respins"))
                 continue
             if title_key and title_key in forbidden_keys:
-                print(
+                log(
                     f'  Title round {round_idx} [{generator_model.display_name}]: "{reviewed.title}" -> creativity=0/10 (titlu deja folosit)'
                 )
                 rejected.append((reviewed.title, "titlu deja folosit"))
@@ -522,7 +531,7 @@ def generate_creative_title_result(
                 rate_client,
                 model_config=rating_model,
             )
-            print(
+            log(
                 f'  Title round {round_idx} [{_phase_label(generator_model, rating_model)}]: "{reviewed.title}" -> creativity={score}/10 ({feedback})'
             )
 
@@ -614,21 +623,21 @@ def generate_title_for_final_puzzle_result(
 
 def run(input_file: str, output_file: str, **kwargs) -> None:
     """Generate a theme/title for the puzzle using LM Studio."""
-    print(f"Reading puzzle from {input_file}...")
+    log(f"Reading puzzle from {input_file}...")
     with open(input_file, "r", encoding="utf-8") as f:
         puzzle = parse_markdown(f.read())
 
     words = _collect_words(puzzle)
     if not words:
-        print("Error: no words found in puzzle")
+        log("Error: no words found in puzzle")
         sys.exit(1)
 
-    print(f"Found {len(words)} words: {', '.join(words[:10])}...")
+    log(f"Found {len(words)} words: {', '.join(words[:10])}...")
 
     definitions = _collect_definitions(puzzle)
     client = create_client()
 
-    print("Generating title with LM Studio...")
+    log("Generating title with LM Studio...")
     runtime = LmRuntime(multi_model=False)
     theme = generate_creative_title(
         words,
@@ -638,11 +647,11 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
         runtime=runtime,
     )
 
-    print(f"Theme: {theme}")
+    log(f"Theme: {theme}")
     puzzle.title = theme
 
     md = write_with_definitions(puzzle)
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(md)
 
-    print(f"Saved themed puzzle to {output_file}")
+    log(f"Saved themed puzzle to {output_file}")

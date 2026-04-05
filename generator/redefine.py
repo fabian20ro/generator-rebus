@@ -24,6 +24,7 @@ from .core.clue_canon import ClueCanonService
 from .core.clue_canon_store import ClueCanonStore
 from .core.clue_logging import clue_label_from_row, log_canonical_event, log_definition_event
 from .core.lm_runtime import LmRuntime
+from .core.model_manager import get_active_model_labels
 from .core.pipeline_state import (
     WorkingClue,
     WorkingPuzzle,
@@ -32,7 +33,7 @@ from .core.pipeline_state import (
     working_clue_from_entry,
 )
 from .core.rewrite_engine import run_rewrite_loop
-from .core.runtime_logging import install_process_logging, path_timestamp
+from .core.runtime_logging import install_process_logging, log, path_timestamp
 from .core.supabase_ops import execute_logged_update
 
 REDEFINE_ROUNDS = 7
@@ -80,9 +81,7 @@ def _now_iso() -> str:
 
 
 def _models_used(multi_model: bool) -> list[str]:
-    if multi_model:
-        return ["gpt-oss-20b", "eurollm-22b"]
-    return ["gpt-oss-20b"]
+    return get_active_model_labels(multi_model=multi_model)
 
 
 def _needs_metadata_backfill(puzzle_row: dict) -> bool:
@@ -158,7 +157,6 @@ def _apply_clue_version(target: WorkingClue, source: WorkingClue) -> None:
 
 def _clue_update_payload(store: ClueCanonStore, row: dict, desired: dict[str, object]) -> dict[str, object]:
     return store.build_clue_definition_payload(
-        definition=str(desired["definition"]),
         canonical_definition_id=desired.get("canonical_definition_id"),
         verify_note=str(desired["verify_note"]),
         verified=bool(desired["verified"]),
@@ -207,6 +205,7 @@ def build_working_puzzle(puzzle_row: dict, clue_rows: list[dict]) -> WorkingPuzz
         clue.current.source = "db_import"
         if clue.history:
             clue.history[0].source = "db_import"
+        clue.word_type = str(row.get("word_type") or "")
 
         if _direction_code(row.get("direction")) == "V":
             vertical_clues.append(clue)
@@ -262,11 +261,11 @@ def redefine_puzzle(
     puzzle_id = puzzle_row["id"]
     clue_rows = sorted(fetch_clues(supabase, puzzle_id), key=_clue_row_sort_key)
     if not clue_rows:
-        print(f"  [{puzzle_id}] No clues found, skipping")
+        log(f"  [{puzzle_id}] No clues found, skipping")
         return 0
 
     baseline_puzzle = build_working_puzzle(puzzle_row, clue_rows)
-    print(f"  [{puzzle_id}] {len(clue_rows)} clues, title: {baseline_puzzle.title}")
+    log(f"  [{puzzle_id}] {len(clue_rows)} clues, title: {baseline_puzzle.title}")
     runtime = runtime or LmRuntime(multi_model=multi_model)
     baseline_eval = evaluate_puzzle_state(
         baseline_puzzle,
@@ -276,7 +275,7 @@ def redefine_puzzle(
         runtime=runtime,
     )
     baseline_puzzle.assessment = baseline_eval.assessment
-    print(
+    log(
         f"  [{puzzle_id}] baseline min={baseline_eval.assessment.min_rebus}/10 "
         f"avg={baseline_eval.assessment.avg_rebus:.1f}/10 "
         f"verified={baseline_eval.assessment.verified_count}/{baseline_eval.assessment.total_clues}"
@@ -292,7 +291,7 @@ def redefine_puzzle(
         runtime=runtime,
     )
     candidate_puzzle.assessment = score_puzzle_state(candidate_puzzle)
-    print(
+    log(
         f"  [{puzzle_id}] candidate min={candidate_puzzle.assessment.min_rebus}/10 "
         f"avg={candidate_puzzle.assessment.avg_rebus:.1f}/10 "
         f"verified={candidate_puzzle.assessment.verified_count}/{candidate_puzzle.assessment.total_clues}"
@@ -322,11 +321,16 @@ def redefine_puzzle(
             word_normalized=source_clue.word_normalized,
             word_original=source_clue.word_original,
             definition=str(desired["definition"]),
+            word_type=source_clue.word_type,
             verified=bool(desired.get("verified")),
             semantic_score=final_version.assessment.scores.semantic_exactness,
             rebus_score=final_version.assessment.scores.rebus_score,
             creativity_score=final_version.assessment.scores.creativity,
         )
+        if not decision.canonical_definition_id:
+            raise RuntimeError(
+                f"Canonical clue resolution produced no canonical_definition_id for {source_clue.word_normalized}"
+            )
         desired = dict(desired)
         desired["definition"] = decision.canonical_definition
         desired["canonical_definition_id"] = decision.canonical_definition_id
@@ -367,6 +371,7 @@ def redefine_puzzle(
                 eq_filters={"id": row["id"], "puzzle_id": puzzle_id},
             )
         row.update(update_payload)
+        row["definition"] = desired["definition"]
         _apply_clue_version(target_clue, source_clue)
         persistence_puzzle.assessment = score_puzzle_state(persistence_puzzle)
         metadata_payload = _build_metadata_payload(
@@ -383,7 +388,7 @@ def redefine_puzzle(
 
     if updated_count == 0:
         if _needs_metadata_backfill(puzzle_row):
-            print(f"  [{puzzle_id}] backfill metadata")
+            log(f"  [{puzzle_id}] backfill metadata")
             _persist_puzzle_metadata(
                 supabase,
                 puzzle_id,
@@ -394,7 +399,7 @@ def redefine_puzzle(
                 dry_run=dry_run,
             )
         else:
-            print(f"  [{puzzle_id}] No clue or metadata changes")
+            log(f"  [{puzzle_id}] No clue or metadata changes")
 
     return updated_count
 
@@ -450,8 +455,8 @@ def main() -> None:
     parser = build_parser()
     try:
         args = parser.parse_args()
-        print(f"Run log: {log_path}")
-        print(f"Audit log: {audit_path}")
+        log(f"Run log: {log_path}")
+        log(f"Audit log: {audit_path}")
 
         if not args.date and not args.puzzle_id and not args.all:
             parser.error("Specify --date, --puzzle-id, or --all")
@@ -460,7 +465,7 @@ def main() -> None:
             parser.error("--date must be in YYYY-MM-DD format")
 
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+            log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
             sys.exit(1)
 
         supabase = create_supabase_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -473,14 +478,14 @@ def main() -> None:
         )
 
         if not puzzles:
-            print("No puzzles found matching the criteria.")
+            log("No puzzles found matching the criteria.")
             return
 
-        print(f"Found {len(puzzles)} puzzle(s) to redefine")
+        log(f"Found {len(puzzles)} puzzle(s) to redefine")
         if args.dry_run:
-            print("(dry run — no updates will be made)\n")
+            log("(dry run — no updates will be made)\n")
         else:
-            print()
+            log("")
 
         runtime = LmRuntime(multi_model=args.multi_model)
         runtime.activate_primary()
@@ -505,10 +510,10 @@ def main() -> None:
                 total_puzzles += 1
             except Exception as exc:
                 puzzle_id = puzzle_row.get("id", "?")
-                print(f"  [{puzzle_id}] Error: {exc}")
+                log(f"  [{puzzle_id}] Error: {exc}")
                 failed += 1
 
-        print(
+        log(
             f"\nSummary: {total_puzzles} puzzles processed, "
             f"{total_updated} definitions improved, {failed} failed"
         )

@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from generator.assessment.benchmark_policy import CONTROL_WORD_WATCH, WORKING_BASELINE_DESCRIPTION
-from generator.core.runtime_logging import audit, install_process_logging, path_timestamp
+from generator.core.runtime_logging import audit, install_process_logging, log, path_timestamp
 from scripts import run_experiments as runner
 
 
@@ -859,14 +859,14 @@ def run_supervisor(
             campaign_log=campaign_log,
         )
         if exp is None:
-            print("No viable experiment available.")
+            log("No viable experiment available.")
             return 0
-        print(
+        log(
             f"State valid: {'yes' if valid else 'no'}"
             + (f" ({reason})" if reason else "")
         )
-        print(f"Incumbent: {state['incumbent_composite']:.1f} / {state['incumbent_pass_rate']:.3f}")
-        print(f"Next experiment: {exp.name} ({exp.family}) — {exp.desc}")
+        log(f"Incumbent: {state['incumbent_composite']:.1f} / {state['incumbent_pass_rate']:.3f}")
+        log(f"Next experiment: {exp.name} ({exp.family}) — {exp.desc}")
         return 0
 
     trials_run = 0
@@ -1073,20 +1073,20 @@ def main() -> None:
                     incumbent=incumbent,
                     campaign_log=args.campaign_log,
                 )
-                print(
+                log(
                     f"Rebuilt state: incumbent={state['incumbent_composite']:.1f}/{state['incumbent_pass_rate']:.3f} "
                     f"valid={'yes' if valid else 'no'}"
                     + (f" ({reason})" if reason else "")
                 )
                 if args.status or args.dry_run:
                     if args.status:
-                        print(json.dumps(state, ensure_ascii=False, indent=2))
+                        log(json.dumps(state, ensure_ascii=False, indent=2))
                     if args.dry_run:
                         next_exp = select_next_experiment(state, families)
                         if next_exp is None:
-                            print("No viable experiment available.")
+                            log("No viable experiment available.")
                         else:
-                            print(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
+                            log(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
                 return
             if args.status or args.dry_run:
                 state, families, incumbent, valid, reason, next_exp = inspect_state(
@@ -1102,17 +1102,17 @@ def main() -> None:
                     payload["state_validation_reason"] = reason
                     payload["next_experiment"] = next_exp.name if next_exp else None
                     payload["next_family"] = next_exp.family if next_exp else None
-                    print(json.dumps(payload, ensure_ascii=False, indent=2))
+                    log(json.dumps(payload, ensure_ascii=False, indent=2))
                 if args.dry_run:
                     if next_exp is None:
-                        print("No viable experiment available.")
+                        log("No viable experiment available.")
                     else:
-                        print(
+                        log(
                             f"State valid: {'yes' if valid else 'no'}"
                             + (f" ({reason})" if reason else "")
                         )
-                        print(f"Incumbent: {state['incumbent_composite']:.1f} / {state['incumbent_pass_rate']:.3f}")
-                        print(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
+                        log(f"Incumbent: {state['incumbent_composite']:.1f} / {state['incumbent_pass_rate']:.3f}")
+                        log(f"Next experiment: {next_exp.name} ({next_exp.family}) — {next_exp.desc}")
                 return
             exit_code = run_supervisor(
                 state_dir=args.state_dir,
@@ -1126,7 +1126,7 @@ def main() -> None:
             )
             raise SystemExit(exit_code)
         except RuntimeError as exc:
-            print(str(exc))
+            log(str(exc))
             raise SystemExit(1) from exc
     finally:
         handle.restore()

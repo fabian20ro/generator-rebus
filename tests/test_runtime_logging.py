@@ -9,6 +9,7 @@ from generator.core.runtime_logging import (
     TimestampedWriter,
     audit,
     install_process_logging,
+    log,
 )
 
 
@@ -45,7 +46,7 @@ class AuditTests(unittest.TestCase):
                 tee_console=False,
             )
             try:
-                print("hello log")
+                log("hello log")
             finally:
                 handle.restore()
 

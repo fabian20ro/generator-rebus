@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from ..core.dex_cache import create_provider
+from ..core.runtime_logging import log
 
 
 OUTPUT_DIR = Path(__file__).parent
@@ -390,16 +391,16 @@ def main() -> None:
         if entry.length <= 3:
             short_counts[entry.tier] = short_counts.get(entry.tier, 0) + 1
 
-    print(f"Dataset: {len(entries)} words")
+    log(f"Dataset: {len(entries)} words")
     for tier in ("low", "medium", "high"):
-        print(
+        log(
             f"  {tier}: {tier_counts.get(tier, 0)} "
             f"(short={short_counts.get(tier, 0)})"
         )
 
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump([asdict(entry) for entry in entries], f, ensure_ascii=False, indent=2)
-    print(f"Written to {OUTPUT_PATH}")
+    log(f"Written to {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

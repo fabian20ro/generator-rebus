@@ -124,68 +124,10 @@ async function fetchJsonFromSupabase<T>(url: string, env: Env): Promise<T> {
 }
 
 async function fetchPuzzleClues(puzzleId: string, env: Env): Promise<any[]> {
-  const clueSelects = [
-    "id,direction,start_row,start_col,length,clue_number,canonical_definition_id",
-    "id,direction,start_row,start_col,length,clue_number,definition",
-  ];
-  let clues: Array<Record<string, unknown>> = [];
-  let lastError: Error | null = null;
-  for (const select of clueSelects) {
-    try {
-      const cluesUrl = `${env.SUPABASE_URL}/rest/v1/crossword_clues?puzzle_id=eq.${puzzleId}&select=${select}&order=direction,clue_number`;
-      clues = await fetchJsonFromSupabase<Array<Record<string, unknown>>>(cluesUrl, env);
-      lastError = null;
-      break;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Unknown clue fetch error");
-    }
-  }
-  if (lastError) {
-    throw lastError;
-  }
-  if (!clues.length) {
-    return [];
-  }
-
-  const canonicalIds = Array.from(
-    new Set(
-      clues
-        .map((clue) => String(clue.canonical_definition_id || ""))
-        .filter(Boolean)
-    )
-  );
-  const canonicalById = new Map<string, string>();
-  if (canonicalIds.length) {
-    const canonicalUrl =
-      `${env.SUPABASE_URL}/rest/v1/canonical_clue_definitions?select=id,definition&id=in.(${canonicalIds.join(",")})`;
-    try {
-      const canonicalRows = await fetchJsonFromSupabase<Array<Record<string, unknown>>>(canonicalUrl, env);
-      for (const row of canonicalRows) {
-        canonicalById.set(String(row.id || ""), String(row.definition || ""));
-      }
-    } catch {
-      // Fall back to legacy clue definitions if canonical table is unavailable to this token.
-    }
-  }
-
-  const missingLegacyIds = clues
-    .filter((clue) => !canonicalById.has(String(clue.canonical_definition_id || "")) && !clue.definition)
-    .map((clue) => String(clue.id || ""))
-    .filter(Boolean);
-  const legacyById = new Map<string, string>();
-  if (missingLegacyIds.length) {
-    const legacyUrl =
-      `${env.SUPABASE_URL}/rest/v1/crossword_clues?puzzle_id=eq.${puzzleId}&select=id,definition&id=in.(${missingLegacyIds.join(",")})`;
-    try {
-      const legacyRows = await fetchJsonFromSupabase<Array<Record<string, unknown>>>(legacyUrl, env);
-      for (const row of legacyRows) {
-        legacyById.set(String(row.id || ""), String(row.definition || ""));
-      }
-    } catch {
-      // If the legacy column is gone, the puzzle should already be fully canonicalized.
-    }
-  }
-
+  const cluesUrl =
+    `${env.SUPABASE_URL}/rest/v1/crossword_clue_effective?puzzle_id=eq.${puzzleId}` +
+    `&select=id,direction,start_row,start_col,length,clue_number,definition&order=direction,clue_number`;
+  const clues = await fetchJsonFromSupabase<Array<Record<string, unknown>>>(cluesUrl, env);
   return clues.map((clue) => ({
     id: clue.id,
     direction: clue.direction,
@@ -193,10 +135,7 @@ async function fetchPuzzleClues(puzzleId: string, env: Env): Promise<any[]> {
     start_col: clue.start_col,
     length: clue.length,
     clue_number: clue.clue_number,
-    definition:
-      canonicalById.get(String(clue.canonical_definition_id || "")) ||
-      legacyById.get(String(clue.id || "")) ||
-      String(clue.definition || ""),
+    definition: String(clue.definition || ""),
   }));
 }
 

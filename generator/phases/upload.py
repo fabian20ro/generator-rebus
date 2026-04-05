@@ -10,6 +10,7 @@ from ..core.clue_canon import ClueCanonService
 from ..core.clue_canon_store import ClueCanonStore
 from ..core.clue_logging import clue_label_from_row, log_canonical_event
 from ..core.markdown_io import parse_markdown
+from ..core.runtime_logging import log
 from ..core.slot_extractor import Slot, extract_slots
 
 
@@ -57,11 +58,11 @@ def upload_puzzle(
 ) -> str:
     """Upload a parsed puzzle object and return the puzzle ID."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+        log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
         sys.exit(1)
 
     if not puzzle.grid:
-        print("Error: no grid found in puzzle")
+        log("Error: no grid found in puzzle")
         sys.exit(1)
 
     # Check all definitions are verified
@@ -69,10 +70,10 @@ def upload_puzzle(
     if not force:
         unverified = [c for c in all_clues if c.verified is False]
         if unverified:
-            print(f"Error: {len(unverified)} definitions failed verification.")
-            print("Fix them and re-verify, or use --force to upload anyway.")
+            log(f"Error: {len(unverified)} definitions failed verification.")
+            log("Fix them and re-verify, or use --force to upload anyway.")
             for c in unverified:
-                print(f"  ✗ {c.word_normalized}: {c.verify_note}")
+                log(f"  ✗ {c.word_normalized}: {c.verify_note}")
             sys.exit(1)
 
     # Build grid JSON
@@ -108,9 +109,10 @@ def upload_puzzle(
                 "length": len(word),
                 "word_normalized": clue.word_normalized,
                 "word_original": clue.word_original or clue.word_normalized.lower(),
+                "word_type": clue.word_type or "",
                 "clue_number": clue_number,
-                "definition": _clean_definition(clue.definition or ""),
             })
+            clue_records[-1]["_candidate_definition"] = _clean_definition(clue.definition or "")
             clue_number += 1
 
     v_clue_number = 1
@@ -125,14 +127,15 @@ def upload_puzzle(
                 "length": len(word),
                 "word_normalized": clue.word_normalized,
                 "word_original": clue.word_original or clue.word_normalized.lower(),
+                "word_type": clue.word_type or "",
                 "clue_number": v_clue_number,
-                "definition": _clean_definition(clue.definition or ""),
             })
+            clue_records[-1]["_candidate_definition"] = _clean_definition(clue.definition or "")
             v_clue_number += 1
 
-    print(f"Uploading puzzle: {puzzle.title or 'Untitled'}")
-    print(f"  Grid: {puzzle.size}x{puzzle.size}")
-    print(f"  Clues: {len(clue_records)}")
+    log(f"Uploading puzzle: {puzzle.title or 'Untitled'}")
+    log(f"  Grid: {puzzle.size}x{puzzle.size}")
+    log(f"  Clues: {len(clue_records)}")
 
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     clue_store = ClueCanonStore(client=client)
@@ -157,23 +160,25 @@ def upload_puzzle(
 
     result = client.table("crossword_puzzles").insert(puzzle_data).execute()
     puzzle_id = result.data[0]["id"]
-    print(f"  Puzzle ID: {puzzle_id}")
+    log(f"  Puzzle ID: {puzzle_id}")
 
     # Insert clues
     if clue_records:
         for record in clue_records:
-            original_definition = record["definition"]
+            original_definition = str(record.pop("_candidate_definition", "") or "")
             decision = clue_canon.resolve_definition(
                 word_normalized=record["word_normalized"],
                 word_original=record["word_original"],
-                definition=record["definition"],
+                definition=original_definition,
+                word_type=str(record.get("word_type") or ""),
             )
+            if not decision.canonical_definition_id:
+                raise RuntimeError(
+                    f"Canonical clue resolution produced no canonical_definition_id for {record['word_normalized']}"
+                )
             resolved_payload = clue_store.build_clue_definition_payload(
-                definition=decision.canonical_definition,
                 canonical_definition_id=decision.canonical_definition_id,
             )
-            if "definition" in record and "definition" not in resolved_payload:
-                del record["definition"]
             record.update(resolved_payload)
             record["puzzle_id"] = puzzle_id
             log_canonical_event(
@@ -186,13 +191,13 @@ def upload_puzzle(
             )
         client.table("crossword_clues").insert(clue_records).execute()
         for record in clue_records:
-            print(
+            log(
                 f"  [DB] {clue_label_from_row(record)}: "
-                f"{(record.get('definition') or '')[:80]}"
+                f"{(record.get('canonical_definition_id') or '')[:80]}"
             )
 
-    print(f"Uploaded! Puzzle ID: {puzzle_id}")
-    print(f"Run 'python -m generator activate {puzzle_id}' to publish it.")
+    log(f"Uploaded! Puzzle ID: {puzzle_id}")
+    log(f"Run 'python -m generator activate {puzzle_id}' to publish it.")
     return puzzle_id
 
 
@@ -200,7 +205,7 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     """Upload a puzzle to Supabase."""
     force = kwargs.get("force", False)
 
-    print(f"Reading puzzle from {input_file}...")
+    log(f"Reading puzzle from {input_file}...")
     with open(input_file, "r", encoding="utf-8") as f:
         puzzle = parse_markdown(f.read())
 

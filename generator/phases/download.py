@@ -6,18 +6,19 @@ import sys
 from supabase import create_client
 from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from ..core.diacritics import normalize
+from ..core.runtime_logging import log
 
 
 def run(input_file: str, output_file: str, **kwargs) -> None:
     """Download all words from Supabase, normalize, deduplicate, save as JSON."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
+        log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
         sys.exit(1)
 
-    print(f"Connecting to Supabase: {SUPABASE_URL[:30]}...")
+    log(f"Connecting to Supabase: {SUPABASE_URL[:30]}...")
     client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-    print("Downloading words...")
+    log("Downloading words...")
     # Fetch all words in batches (Supabase default limit is 1000)
     all_words = []
     offset = 0
@@ -32,9 +33,9 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
             break
         all_words.extend(batch)
         offset += batch_size
-        print(f"  Downloaded {len(all_words)} words...")
+        log(f"  Downloaded {len(all_words)} words...")
 
-    print(f"Total raw words: {len(all_words)}")
+    log(f"Total raw words: {len(all_words)}")
 
     # Normalize and deduplicate
     seen: set[str] = set()
@@ -59,7 +60,7 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
                 "word_type": row.get("type", ""),
             })
 
-    print(f"Unique words after normalization: {len(unique_words)}")
+    log(f"Unique words after normalization: {len(unique_words)}")
 
     # Sort by length for easier inspection
     unique_words.sort(key=lambda w: (w["length"], w["normalized"]))
@@ -68,11 +69,11 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     length_dist: dict[int, int] = {}
     for w in unique_words:
         length_dist[w["length"]] = length_dist.get(w["length"], 0) + 1
-    print("Length distribution:")
+    log("Length distribution:")
     for length in sorted(length_dist):
-        print(f"  {length} letters: {length_dist[length]} words")
+        log(f"  {length} letters: {length_dist[length]} words")
 
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(unique_words, f, ensure_ascii=False, indent=None)
 
-    print(f"Saved to {output_file}")
+    log(f"Saved to {output_file}")

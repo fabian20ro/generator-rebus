@@ -20,6 +20,7 @@ from generator.core.ai_clues import (
     generate_definition,
     rate_definition,
     rewrite_definition,
+    run_definition_referee_adaptive_batch,
     run_definition_referee_batch,
     run_definition_referee,
     verify_definition_candidates,
@@ -50,8 +51,35 @@ class _RecordingClient:
         )
 
 
+def _attempt(
+    *,
+    model_id: str,
+    model_role: str = "",
+    same_meaning: bool | None = None,
+    better: str = "equal",
+    valid_vote: bool = True,
+    parse_status: str = "ok",
+):
+    from generator.core.clue_canon_types import DefinitionComparisonAttempt
+
+    vote = None
+    if valid_vote and same_meaning is not None:
+        vote = DefinitionComparisonVote(
+            model_id=model_id,
+            same_meaning=same_meaning,
+            better=better,
+        )
+    return DefinitionComparisonAttempt(
+        model_id=model_id,
+        model_role=model_role,
+        valid_vote=valid_vote,
+        parse_status=parse_status,
+        vote=vote,
+    )
+
+
 class AiCluesTests(unittest.TestCase):
-    def test_generate_definition_sends_medium_reasoning_effort_for_gpt_oss(self):
+    def test_generate_definition_sends_medium_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["Locuință pentru oameni."])
 
         generate_definition(
@@ -65,7 +93,7 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual("medium", client.calls[0]["reasoning_effort"])
         self.assertEqual(2000, client.calls[0]["max_tokens"])
 
-    def test_rate_definition_sends_medium_reasoning_effort_for_gpt_oss(self):
+    def test_rate_definition_sends_medium_reasoning_effort_for_primary_model(self):
         client = _RecordingClient([
             json.dumps({
                 "semantic_score": 9,
@@ -88,7 +116,19 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual("medium", client.calls[0]["reasoning_effort"])
         self.assertEqual(2000, client.calls[0]["max_tokens"])
 
-    def test_rate_definition_does_not_send_reasoning_effort_for_non_gpt_oss(self):
+    def test_verify_definition_candidates_sends_none_reasoning_effort_for_primary_model(self):
+        client = _RecordingClient(["CASA"])
+
+        verify_definition_candidates(
+            client,
+            definition="Locuință pentru oameni.",
+            answer_length=4,
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+
+    def test_rate_definition_omits_reasoning_effort_for_secondary_model(self):
         client = _RecordingClient([
             json.dumps({
                 "semantic_score": 9,
@@ -104,7 +144,7 @@ class AiCluesTests(unittest.TestCase):
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
-            model="eurollm-22b-instruct-2512-mlx-nvfp4",
+            model=SECONDARY_MODEL.model_id,
         )
 
         self.assertIsNotNone(rating)
@@ -236,7 +276,6 @@ class AiCluesTests(unittest.TestCase):
             json.dumps({
                 "same_meaning": True,
                 "better": "B",
-                "reason": "B este mai scurtă.",
             })
         ])
 
@@ -251,7 +290,27 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertTrue(vote.same_meaning)
         self.assertEqual("B", vote.better)
-        self.assertIn("scurtă", vote.reason)
+        self.assertEqual("", vote.reason)
+
+    def test_compare_definition_variants_uses_none_reasoning_and_small_token_budget(self):
+        client = _RecordingClient([
+            json.dumps({
+                "same_meaning": True,
+                "better": "A",
+            })
+        ])
+
+        compare_definition_variants(
+            client,
+            word="LA",
+            answer_length=2,
+            definition_a="Prepoziție care indică locul.",
+            definition_b="Prepoziție care indică destinația sau locul.",
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        self.assertEqual(120, client.calls[0]["max_tokens"])
 
     def test_run_definition_referee_remaps_swapped_votes_back_to_original_orientation(self):
         class _Runtime:
@@ -264,16 +323,12 @@ class AiCluesTests(unittest.TestCase):
 
         runtime = _Runtime()
         client = object()
-        votes = [
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
+        attempts = [
+            _attempt(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            _attempt(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
         ]
 
-        with mock.patch("generator.core.ai_clues.compare_definition_variants", side_effect=votes):
+        with mock.patch("generator.core.ai_clues._compare_definition_variant_attempt", side_effect=attempts):
             result = run_definition_referee(
                 client,
                 runtime,
@@ -283,9 +338,9 @@ class AiCluesTests(unittest.TestCase):
                 definition_b="B",
             )
 
-        self.assertEqual(6, result.same_meaning_votes)
-        self.assertEqual(2, result.better_a_votes)
-        self.assertEqual(4, result.better_b_votes)
+        self.assertEqual(2, result.same_meaning_votes)
+        self.assertEqual(1, result.better_a_votes)
+        self.assertEqual(1, result.better_b_votes)
 
     def test_run_definition_referee_batch_groups_activations_by_model(self):
         class _Runtime:
@@ -298,20 +353,6 @@ class AiCluesTests(unittest.TestCase):
 
         runtime = _Runtime()
         client = object()
-        votes = [
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="B"),
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="B"),
-            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="B"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
-            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
-        ]
         requests = [
             DefinitionRefereeInput(
                 request_id="r1",
@@ -329,16 +370,65 @@ class AiCluesTests(unittest.TestCase):
             ),
         ]
 
-        with mock.patch("generator.core.ai_clues.compare_definition_variants", side_effect=votes):
+        attempts = [
+            _attempt(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="A"),
+            _attempt(model_id=PRIMARY_MODEL.model_id, same_meaning=True, better="B"),
+            _attempt(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
+            _attempt(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
+        ]
+
+        with mock.patch("generator.core.ai_clues._compare_definition_variant_attempt", side_effect=attempts):
             results = run_definition_referee_batch(client, runtime, requests)
 
         self.assertEqual([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], runtime.activated)
-        self.assertEqual(6, results["r1"].same_meaning_votes)
-        self.assertEqual(2, results["r1"].better_a_votes)
-        self.assertEqual(4, results["r1"].better_b_votes)
-        self.assertEqual(6, results["r2"].same_meaning_votes)
-        self.assertEqual(4, results["r2"].better_a_votes)
-        self.assertEqual(2, results["r2"].better_b_votes)
+        self.assertEqual(2, results["r1"].same_meaning_votes)
+        self.assertEqual(1, results["r1"].better_a_votes)
+        self.assertEqual(1, results["r1"].better_b_votes)
+        self.assertEqual(2, results["r2"].same_meaning_votes)
+        self.assertEqual(1, results["r2"].better_a_votes)
+        self.assertEqual(1, results["r2"].better_b_votes)
+
+    def test_run_definition_referee_adaptive_batch_stops_after_two_clear_non_matches(self):
+        class _Runtime:
+            def __init__(self):
+                self.activated = []
+
+            def activate(self, model):
+                self.activated.append(model.model_id)
+                return model
+
+        runtime = _Runtime()
+        client = object()
+        votes = [
+            DefinitionComparisonVote(model_id=PRIMARY_MODEL.model_id, same_meaning=False, better="equal"),
+            DefinitionComparisonVote(model_id=SECONDARY_MODEL.model_id, same_meaning=False, better="equal"),
+        ]
+        requests = [
+            DefinitionRefereeInput(
+                request_id="r1",
+                word="LA",
+                answer_length=2,
+                definition_a="A1",
+                definition_b="B1",
+            )
+        ]
+
+        attempts = [
+            _attempt(model_id=PRIMARY_MODEL.model_id, same_meaning=False, better="equal"),
+            _attempt(model_id=SECONDARY_MODEL.model_id, same_meaning=False, better="equal"),
+        ]
+
+        with mock.patch("generator.core.ai_clues._compare_definition_variant_attempt", side_effect=attempts):
+            result = run_definition_referee_adaptive_batch(client, runtime, requests)
+
+        self.assertEqual([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], runtime.activated)
+        self.assertEqual(2, result.total_votes)
+        self.assertEqual(1, result.phase1_requests)
+        self.assertEqual(1, result.phase2_requests)
+        self.assertEqual(0, result.results["r1"].same_meaning_votes)
+        self.assertEqual(2, len(result.step_metrics))
+        self.assertEqual(1, result.step_metrics[0]["requests_started"])
+        self.assertEqual(0, result.step_metrics[1]["requests_remaining_after_step"])
 
 
     def test_clean_response_strips_model_tokens(self):
@@ -550,10 +640,10 @@ class AiCluesTests(unittest.TestCase):
             word="CASA",
             original="casă",
             theme="",
-            model="openai/gpt-oss-20b",
+            model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
+        self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
         self.assertEqual(2000, client.calls[0]["max_tokens"])
 
     def test_verify_definition_candidates_passes_explicit_model(self):
@@ -563,10 +653,10 @@ class AiCluesTests(unittest.TestCase):
             client,
             "Recipient mare pentru vin",
             answer_length=3,
-            model="openai/gpt-oss-20b",
+            model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
+        self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
 
     def test_rate_definition_passes_explicit_model(self):
         client = _RecordingClient([
@@ -584,10 +674,10 @@ class AiCluesTests(unittest.TestCase):
             original="casă",
             definition="Locuință",
             answer_length=4,
-            model="openai/gpt-oss-20b",
+            model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("openai/gpt-oss-20b", client.calls[0]["model"])
+        self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
 
     def test_verify_definition_candidates_filters_wrong_lengths(self):
         client = _RecordingClient(["1. BARIL\n2. TUN\n3. ARC"])

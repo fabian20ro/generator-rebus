@@ -80,7 +80,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
   │  raw_words   = load words.json (download if missing)
   │  client      = create_client()          # OpenAI-compat against LM Studio
   │  batch_rng   = Random(seed)             # ← RANDOMNESS: deterministic from seed
-  │  ensure_model_loaded(PRIMARY_MODEL)     # gpt-oss-20b
+  │  ensure_model_loaded(PRIMARY_MODEL)     # default primary: gemma-4
   │
   └─ for each (index, size) in sizes:
 ```
@@ -190,7 +190,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
               │         │
               │         │  ── Switch model & re-evaluate ──
               │         │  if multi_model: switch to other model
-              │         │    gpt-oss-20b ↔ eurollm-22b      # alternates each round
+              │         │    primary ↔ secondary            # alternates each round
               │         │  verify changed clues only          temp=0.0
               │         │  rate changed clues only            temp=0.0
               │         │
@@ -336,12 +336,14 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
 
 ### Why two models alternate instead of using a single better one
 
-Cross-validation. A definition that scores well on gpt-oss-20b *and* eurollm-22b is
-more likely to be genuinely good than one that only satisfies a single model's biases.
-The writing model generates at temp=0.2-0.3, then the *other* model verifies at temp=0.0
-and rates at temp=0.0. This catches model-specific hallucinations and inflated
-self-ratings. The alternation happens per rewrite round (not per clue) to amortize the
-expensive model load/unload via LM Studio REST API (~5-15 seconds per switch).
+Cross-validation. A definition that scores well on both active models is more likely to
+be genuinely good than one that only satisfies a single model's biases. The default pair
+is `gemma-4` + `eurollm-22b`, but the active pair is centrally selected in
+`generator/core/model_manager.py`. The writing model generates at temp=0.2-0.3, then the
+*other* model verifies at temp=0.0 and rates at temp=0.0. This catches model-specific
+hallucinations and inflated self-ratings. The alternation happens per rewrite round
+(not per clue) to amortize the expensive model load/unload via LM Studio REST API
+(~5-15 seconds per switch).
 
 ### Why title generation uses temp=0.9 but rating uses temp=0.1
 

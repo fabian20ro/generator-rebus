@@ -24,6 +24,7 @@ class LmRuntime:
     secondary: ModelConfig = SECONDARY_MODEL
     current_model: ModelConfig | None = None
     switch_count: int = 0
+    activation_count: int = 0
 
     @property
     def current_model_id(self) -> str:
@@ -107,6 +108,7 @@ class LmRuntime:
                 self.current_model = target
                 if prior_model_id and prior_model_id != target.model_id:
                     self.switch_count += 1
+                self.activation_count += 1
                 return target
             except Exception as exc:
                 last_error = exc

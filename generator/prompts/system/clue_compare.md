@@ -9,5 +9,5 @@ Criterii, în ordine:
 - să ducă mai probabil la răspunsul exact, nu la un sinonim
 - la calitate egală, preferă varianta mai scurtă
 
-Răspunzi strict cu un singur obiect JSON valid:
-{"same_meaning": true|false, "better": "A"|"B"|"equal", "reason": "..."}
+Răspunzi strict cu un singur obiect JSON valid, fără explicații:
+{"same_meaning": true|false, "better": "A"|"B"|"equal"}
