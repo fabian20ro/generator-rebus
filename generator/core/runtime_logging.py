@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -41,48 +42,46 @@ class _LoggingState:
 
 
 _STATE: _LoggingState | None = None
+_LLM_DEBUG_ENABLED = False
 
 
 class TimestampedWriter:
-    """Line-buffered tee writer that prefixes human timestamps once."""
+    """Immediate tee writer that prefixes human timestamps once per line."""
 
     def __init__(self, *streams: TextIO):
         self._streams = streams
-        self._buffer = ""
+        self._at_line_start = True
 
     def write(self, data: str) -> int:
         if not data:
             return 0
-        self._buffer += data
-        while True:
-            newline_index = self._buffer.find("\n")
+        cursor = 0
+        while cursor < len(data):
+            newline_index = data.find("\n", cursor)
             if newline_index == -1:
+                self._emit(data[cursor:])
                 break
-            line = self._buffer[: newline_index + 1]
-            self._buffer = self._buffer[newline_index + 1 :]
-            self._emit(line)
+            self._emit(data[cursor : newline_index + 1])
+            cursor = newline_index + 1
         return len(data)
 
     def flush(self) -> None:
-        if self._buffer:
-            self._emit(self._buffer)
-            self._buffer = ""
         for stream in self._streams:
             stream.flush()
 
     def isatty(self) -> bool:
         return any(getattr(stream, "isatty", lambda: False)() for stream in self._streams)
 
-    def _emit(self, line: str) -> None:
-        if line == "\n":
-            rendered = line
-        elif _TIMESTAMP_PREFIX_RE.match(line):
-            rendered = line
-        else:
-            rendered = f"[{human_timestamp()}] {line}"
+    def _emit(self, text: str) -> None:
+        if not text:
+            return
+        rendered = text
+        if self._at_line_start and text != "\n" and not _TIMESTAMP_PREFIX_RE.match(text):
+            rendered = f"[{human_timestamp()}] {text}"
         for stream in self._streams:
             stream.write(rendered)
             stream.flush()
+        self._at_line_start = text.endswith("\n")
 
 
 @dataclass
@@ -167,6 +166,23 @@ def install_process_logging(
 
 def log(message: str) -> None:
     print(message)
+
+
+def add_llm_debug_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose streamed LM Studio reasoning/output logs.",
+    )
+
+
+def set_llm_debug_enabled(enabled: bool) -> None:
+    global _LLM_DEBUG_ENABLED
+    _LLM_DEBUG_ENABLED = bool(enabled)
+
+
+def llm_debug_enabled() -> bool:
+    return _LLM_DEBUG_ENABLED
 
 
 def audit(event: str, *, component: str | None = None, payload: dict | None = None) -> None:

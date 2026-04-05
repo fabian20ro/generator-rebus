@@ -45,7 +45,13 @@ from .core.clue_rating import (
     extract_semantic_score,
 )
 from .core.lm_runtime import LmRuntime
-from .core.runtime_logging import install_process_logging, log, path_timestamp
+from .core.runtime_logging import (
+    add_llm_debug_argument,
+    install_process_logging,
+    log,
+    path_timestamp,
+    set_llm_debug_enabled,
+)
 
 DEFAULT_REFEREE_BATCH_SIZE = 50
 DEFAULT_PROGRESS_EVERY = 25
@@ -1505,6 +1511,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAX_STAGNANT_COMPARISONS,
         help="Defer a word after this many consecutive non-merge referee comparisons.",
     )
+    add_llm_debug_argument(backfill)
 
     audit = subparsers.add_parser("audit", help="Validate canonical-only cutover readiness.")
     audit.add_argument("--output", help="Write audit JSON to this path.")
@@ -1523,6 +1530,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sleep this long before retrying when no eligible pairs exist.",
     )
     simplify.add_argument("--word", help="Only simplify one normalized word.")
+    add_llm_debug_argument(simplify)
     return parser
 
 
@@ -1539,6 +1547,7 @@ def run_backfill(
     progress_every: int,
     word_queue_size: int,
     max_stagnant_comparisons: int = DEFAULT_MAX_STAGNANT_COMPARISONS,
+    debug: bool = False,
 ) -> int:
     if dry_run == apply:
         raise SystemExit("Specify exactly one of --dry-run or --apply")
@@ -1638,6 +1647,7 @@ def run_backfill(
         audit_path=audit_path,
         tee_console=True,
     )
+    set_llm_debug_enabled(debug)
     processed_word_set = set(completed_words)
     active_items = [
         _queued_word_from_state(dict(item), state_version=int(prior_state.get("version") or STATE_VERSION))
@@ -2044,6 +2054,7 @@ def run_backfill(
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    set_llm_debug_enabled(bool(getattr(args, "debug", False)))
     if args.command == "backfill":
         return run_backfill(
             dry_run=args.dry_run,
@@ -2057,6 +2068,7 @@ def main(argv: list[str] | None = None) -> int:
             progress_every=args.progress_every,
             word_queue_size=args.word_queue_size,
             max_stagnant_comparisons=args.max_stagnant_comparisons,
+            debug=args.debug,
         )
     if args.command == "audit":
         handle = install_process_logging(
@@ -2080,6 +2092,7 @@ def main(argv: list[str] | None = None) -> int:
             tee_console=True,
         )
         try:
+            set_llm_debug_enabled(args.debug)
             store = ClueCanonStore()
             if not store.is_enabled():
                 raise SystemExit("Canonical clue schema unavailable")

@@ -12,7 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import VERIFY_CANDIDATE_COUNT
-from .core.runtime_logging import human_timestamp, install_process_logging, log, path_timestamp
+from .core.runtime_logging import (
+    add_llm_debug_argument,
+    human_timestamp,
+    install_process_logging,
+    log,
+    path_timestamp,
+    set_llm_debug_enabled,
+)
 from .core.size_tuning import OVERNIGHT_LOOP_SIZES, SUPPORTED_GRID_SIZES
 from .core.supabase_ops import create_service_role_client
 
@@ -84,6 +91,7 @@ def build_batch_command(
     seed: int,
     multi_model: bool = False,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    debug: bool = False,
 ) -> list[str]:
     cmd = [
         sys.executable,
@@ -106,6 +114,8 @@ def build_batch_command(
     ]
     if multi_model:
         cmd.append("--multi-model")
+    if debug:
+        cmd.append("--debug")
     return cmd
 
 
@@ -121,6 +131,7 @@ def run_size(
     env: dict[str, str] | None = None,
     multi_model: bool = False,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    debug: bool = False,
 ) -> LoopRunResult:
     seed = random.SystemRandom().randint(1, 10_000_000)
     command = build_batch_command(
@@ -132,6 +143,7 @@ def run_size(
         seed=seed,
         multi_model=multi_model,
         verify_candidates=verify_candidates,
+        debug=debug,
     )
     with open(log_path, "a", encoding="utf-8") as log_file:
         log_file.write(
@@ -175,6 +187,7 @@ def run_cycle(
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
     auto_size: bool = False,
     supabase_client=None,
+    debug: bool = False,
 ) -> list[LoopRunResult]:
     results: list[LoopRunResult] = []
     sizes_to_run = [select_auto_size(client=supabase_client)] if auto_size else list(sizes)
@@ -191,6 +204,7 @@ def run_cycle(
                 env=env,
                 multi_model=multi_model,
                 verify_candidates=verify_candidates,
+                debug=debug,
             )
         )
     return results
@@ -228,6 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Choose the next puzzle size from current crossword_puzzles inventory",
     )
+    add_llm_debug_argument(parser)
     return parser
 
 
@@ -240,6 +255,7 @@ def main() -> None:
     parser = build_parser()
     try:
         args = parser.parse_args()
+        set_llm_debug_enabled(args.debug)
         cwd = Path.cwd()
         output_root = Path(args.output_root)
         log_path = Path(args.log_path)
@@ -266,6 +282,7 @@ def main() -> None:
                 multi_model=args.multi_model,
                 verify_candidates=max(1, args.verify_candidates),
                 auto_size=args.auto_size,
+                debug=args.debug,
             )
             time.sleep(args.sleep_seconds)
     finally:

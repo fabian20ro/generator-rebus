@@ -17,7 +17,13 @@ from .core.ai_clues import create_client as create_ai_client
 from .core.clue_canon_store import ClueCanonStore
 from .core.lm_runtime import LmRuntime
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
-from .core.runtime_logging import install_process_logging, log, path_timestamp
+from .core.runtime_logging import (
+    add_llm_debug_argument,
+    install_process_logging,
+    log,
+    path_timestamp,
+    set_llm_debug_enabled,
+)
 from .core.supabase_ops import execute_logged_update
 from .phases.theme import (
     FALLBACK_TITLES,
@@ -523,6 +529,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Use two-model cross-validation (default: True)",
     )
+    add_llm_debug_argument(parser)
     return parser
 
 
@@ -540,6 +547,7 @@ def main() -> None:
     parser = build_parser()
     try:
         args = parser.parse_args()
+        set_llm_debug_enabled(args.debug)
         log(f"Run log: {log_path}")
         log(f"Audit log: {audit_path}")
 

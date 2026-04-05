@@ -11,8 +11,12 @@ Usage: ./run_clue_canon_simplify.sh [--apply|--dry-run] [extra args]
 Wrapper over:
   python -m generator.clue_canon simplify-fanout
 
+Options:
+  --debug    Verbose streamed LM Studio reasoning/output logs in run.log
+
 Examples:
   ./run_clue_canon_simplify.sh --apply --batch-size 40
+  ./run_clue_canon_simplify.sh --apply --debug --batch-size 40
   ./run_clue_canon_simplify.sh --dry-run --batch-size 20 --word LA
 EOF
   exit 0

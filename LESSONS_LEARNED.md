@@ -124,6 +124,8 @@
 
 **[2026-04-03]** Repo-wide human progress output should go through `runtime_logging.log()`; leave raw `print()` only inside the logging primitive itself or in deliberate stdout-contract scripts — mixed ad-hoc prints make timestamps inconsistent, break run-log teeing, and make long LM Studio jobs harder to debug. Standardize entrypoints on `install_process_logging()` and route library/progress chatter through `log()`.
 
+**[2026-04-05]** Timestamped run-log teeing must emit partial fragments immediately when debug streaming matters — a newline-buffered wrapper is fine for coarse progress logs but silently hides token-by-token `reasoning_content` / `content` until the line closes. If LM traces should be visible live in `run.log`, keep the timestamp prefix stateful per line and flush fragments as they arrive instead of buffering the whole line.
+
 **[2026-04-01]** `set -u` shell wrappers must not expand empty Bash arrays on macOS bash 3.2 — patterns like `args=("$@")` followed by `"${args[@]}"` can still throw `unbound variable` when no CLI args were passed. Scan `"$@"` directly, branch on `$#`, and only materialize/expand an array after guaranteeing at least one element.
 
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.

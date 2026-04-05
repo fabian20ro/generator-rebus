@@ -26,7 +26,13 @@ from .core.puzzle_metrics import (
     score_puzzle_state,
 )
 from .core.rewrite_engine import run_rewrite_loop
-from .core.runtime_logging import install_process_logging, log, path_timestamp
+from .core.runtime_logging import (
+    add_llm_debug_argument,
+    install_process_logging,
+    log,
+    path_timestamp,
+    set_llm_debug_enabled,
+)
 from .core.supabase_ops import execute_logged_update
 from .phases.theme import TitleGenerationResult, generate_creative_title_result
 from .redefine import build_working_puzzle
@@ -364,6 +370,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=VERIFY_CANDIDATE_COUNT,
         help=f"How many verifier candidates to request per clue (default: {VERIFY_CANDIDATE_COUNT})",
     )
+    add_llm_debug_argument(parser)
     return parser
 
 
@@ -376,6 +383,7 @@ def main() -> None:
     parser = build_parser()
     try:
         args = parser.parse_args()
+        set_llm_debug_enabled(args.debug)
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
             log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
             sys.exit(1)

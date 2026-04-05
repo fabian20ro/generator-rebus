@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 from openai import OpenAI
 
@@ -25,7 +27,7 @@ from .diacritics import normalize
 from .llm_text import clean_llm_text_response
 from .model_manager import PRIMARY_MODEL, SECONDARY_MODEL, chat_reasoning_options
 from .quality import ENGLISH_HOMOGRAPH_HINTS
-from .runtime_logging import log
+from .runtime_logging import llm_debug_enabled, log
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
 REFEREE_VOTE_SCHEDULE = (
@@ -218,6 +220,166 @@ def _clean_response(text: str | None) -> str:
     return clean_llm_text_response(text)
 
 
+class _DebugStreamChannel:
+    def __init__(self, label: str):
+        self.label = label
+        self.started = False
+        self.ends_with_newline = False
+
+    def write(self, text: str | None) -> None:
+        if not text:
+            return
+        if not self.started:
+            sys.stdout.write(f"  [{self.label}] ")
+            self.started = True
+        sys.stdout.write(text)
+        sys.stdout.flush()
+        self.ends_with_newline = text.endswith("\n")
+
+    def finish(self) -> None:
+        if not self.started:
+            return
+        if not self.ends_with_newline:
+            sys.stdout.write("\n")
+        sys.stdout.flush()
+        self.started = False
+        self.ends_with_newline = True
+
+
+def _finish_debug_channels(*channels: _DebugStreamChannel) -> None:
+    for channel in channels:
+        channel.finish()
+
+
+def _debug_message_text(message, attr: str) -> str:
+    value = getattr(message, attr, None)
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _log_debug_request(
+    *,
+    model: str,
+    purpose: str,
+    temperature: float,
+    max_tokens: int,
+    reasoning_options: dict[str, str],
+    stream: bool,
+) -> None:
+    parts = [
+        "LLM request",
+        f"purpose={purpose}",
+        f"model={model}",
+        f"temperature={temperature}",
+        f"max_tokens={max_tokens}",
+        f"stream={str(stream).lower()}",
+    ]
+    reasoning_effort = reasoning_options.get("reasoning_effort")
+    if reasoning_effort:
+        parts.append(f"reasoning_effort={reasoning_effort}")
+    log("  [" + " ".join(parts) + "]")
+
+
+def _log_debug_response(response) -> None:
+    choice = response.choices[0] if getattr(response, "choices", None) else None
+    message = getattr(choice, "message", None)
+    if message is None:
+        return
+    reasoning_content = _debug_message_text(message, "reasoning_content")
+    content = _debug_message_text(message, "content")
+    if reasoning_content:
+        print(f"  [LLM thinking] {reasoning_content}", flush=True)
+    if content:
+        print(f"  [LLM output] {content}", flush=True)
+
+
+def _build_stream_completion_response(
+    *,
+    model: str,
+    content_parts: list[str],
+    reasoning_parts: list[str],
+    finish_reason: str | None,
+):
+    message = SimpleNamespace(
+        content="".join(content_parts),
+        reasoning_content="".join(reasoning_parts),
+        refusal=None,
+        role="assistant",
+        annotations=None,
+        audio=None,
+        function_call=None,
+        tool_calls=[],
+    )
+    choice = SimpleNamespace(
+        finish_reason=finish_reason,
+        index=0,
+        logprobs=None,
+        message=message,
+    )
+    return SimpleNamespace(
+        choices=[choice],
+        usage=None,
+        model=model,
+    )
+
+
+def _chat_completion_create_streaming(
+    client: OpenAI,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+    reasoning_options: dict[str, str],
+):
+    reasoning_channel = _DebugStreamChannel("LLM thinking")
+    output_channel = _DebugStreamChannel("LLM output")
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    finish_reason: str | None = None
+    stream = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+        **reasoning_options,
+    )
+    try:
+        for chunk in stream:
+            choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
+            if choice is None:
+                continue
+            delta = getattr(choice, "delta", None)
+            if delta is None:
+                finish_reason = getattr(choice, "finish_reason", finish_reason)
+                continue
+            reasoning_piece = _debug_message_text(delta, "reasoning_content")
+            if reasoning_piece:
+                if output_channel.started:
+                    output_channel.finish()
+                reasoning_parts.append(reasoning_piece)
+                reasoning_channel.write(reasoning_piece)
+            content_piece = _debug_message_text(delta, "content")
+            if content_piece:
+                if reasoning_channel.started:
+                    reasoning_channel.finish()
+                content_parts.append(content_piece)
+                output_channel.write(content_piece)
+            finish_reason = getattr(choice, "finish_reason", finish_reason)
+    finally:
+        _finish_debug_channels(reasoning_channel, output_channel)
+    return _build_stream_completion_response(
+        model=model,
+        content_parts=content_parts,
+        reasoning_parts=reasoning_parts,
+        finish_reason=finish_reason,
+    )
+
+
 def _chat_completion_create(
     client: OpenAI,
     *,
@@ -227,13 +389,46 @@ def _chat_completion_create(
     max_tokens: int,
     purpose: str = "default",
 ):
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        **chat_reasoning_options(model, purpose=purpose),
-    )
+    reasoning_options = chat_reasoning_options(model, purpose=purpose)
+    debug = llm_debug_enabled()
+    if debug:
+        _log_debug_request(
+            model=model,
+            purpose=purpose,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_options=reasoning_options,
+            stream=True,
+        )
+        try:
+            response = _chat_completion_create_streaming(
+                client,
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                reasoning_options=reasoning_options,
+            )
+        except Exception as exc:
+            log(
+                f"  [LLM debug stream fallback purpose={purpose} model={model} error={exc}]"
+            )
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **reasoning_options,
+            )
+            _log_debug_response(response)
+    else:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **reasoning_options,
+        )
     _log_if_reasoning_budget_high(
         response,
         model=model,

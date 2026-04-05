@@ -11,9 +11,13 @@ Usage: ./run_clue_canon_backfill.sh [--apply|--dry-run] [extra args]
 Wrapper over:
   python -m generator.clue_canon backfill
 
+Options:
+  --debug    Verbose streamed LM Studio reasoning/output logs in run.log
+
 Examples:
   ./run_clue_canon_backfill.sh --dry-run
   ./run_clue_canon_backfill.sh --apply
+  ./run_clue_canon_backfill.sh --apply --debug
   ./run_clue_canon_backfill.sh --apply --resume
   ./run_clue_canon_backfill.sh --dry-run --word APA --limit 10 --min-count 3
   ./run_clue_canon_backfill.sh --apply --progress-every 10

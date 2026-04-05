@@ -34,6 +34,20 @@ class TimestampedWriterTests(unittest.TestCase):
 
         self.assertEqual("[2026-03-21T10:11:12+02:00] already stamped\n", target.getvalue())
 
+    def test_flushes_fragment_writes_without_reprefixing_same_line(self):
+        target = StringIO()
+        writer = TimestampedWriter(target)
+
+        writer.write("hello")
+        first = target.getvalue()
+        writer.write(" world")
+        second = target.getvalue()
+        writer.write("\n")
+
+        self.assertIn("hello", first)
+        self.assertEqual(1, second.count("["))
+        self.assertIn("hello world\n", target.getvalue())
+
 
 class AuditTests(unittest.TestCase):
     def test_install_process_logging_writes_log_file(self):

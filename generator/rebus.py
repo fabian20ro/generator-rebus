@@ -27,7 +27,12 @@ import argparse
 import sys
 
 from .config import VERIFY_CANDIDATE_COUNT
-from .core.runtime_logging import install_process_logging, path_timestamp
+from .core.runtime_logging import (
+    add_llm_debug_argument,
+    install_process_logging,
+    path_timestamp,
+    set_llm_debug_enabled,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=VERIFY_CANDIDATE_COUNT,
         help=f"How many verifier candidates to request (default: {VERIFY_CANDIDATE_COUNT})",
     )
+    add_llm_debug_argument(parser)
 
     return parser
 
@@ -64,6 +70,7 @@ def main():
     parser = build_parser()
     try:
         args = parser.parse_args()
+        set_llm_debug_enabled(args.debug)
 
         kwargs = {
             "force": args.force,

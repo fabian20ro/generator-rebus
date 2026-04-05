@@ -66,9 +66,11 @@ from .core.puzzle_metrics import (
 from .core.quality import QualityReport
 from .core.rewrite_engine import run_rewrite_loop
 from .core.runtime_logging import (
+    add_llm_debug_argument,
     install_process_logging,
     log,
     path_timestamp,
+    set_llm_debug_enabled,
     utc_timestamp,
 )
 from .core.score_helpers import (
@@ -1000,6 +1002,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=VERIFY_CANDIDATE_COUNT,
         help=f"How many verifier candidates to request per clue (default: {VERIFY_CANDIDATE_COUNT})",
     )
+    add_llm_debug_argument(parser)
     return parser
 
 
@@ -1020,6 +1023,7 @@ def main() -> None:
         tee_console=True,
     )
     try:
+        set_llm_debug_enabled(args.debug)
         log(f"Run log: {log_path}")
         log(f"Audit log: {audit_path}")
         manifest = run_batch(
