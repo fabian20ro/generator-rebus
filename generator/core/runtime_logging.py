@@ -14,13 +14,14 @@ from typing import TextIO
 
 
 _TIMESTAMP_PREFIX_RE = re.compile(
-    r"^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)\]\s?"
+    r"^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)?\]\s?"
 )
+_LEVEL_PREFIX_RE = re.compile(r"^(\s*)\[(DEBUG|INFO|WARN|ERROR)\]\s")
 
 
 def human_timestamp() -> str:
     """Timestamp for human-facing logs in local time."""
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return datetime.now().astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
 
 
 def utc_timestamp() -> str:
@@ -76,8 +77,10 @@ class TimestampedWriter:
         if not text:
             return
         rendered = text
-        if self._at_line_start and text != "\n" and not _TIMESTAMP_PREFIX_RE.match(text):
-            rendered = f"[{human_timestamp()}] {text}"
+        if self._at_line_start:
+            rendered = _ensure_level_prefix(text)
+            if text != "\n" and not _TIMESTAMP_PREFIX_RE.match(text):
+                rendered = f"[{human_timestamp()}] {rendered}"
         for stream in self._streams:
             stream.write(rendered)
             stream.flush()
@@ -164,8 +167,26 @@ def install_process_logging(
     return handle
 
 
-def log(message: str) -> None:
-    print(message)
+def _ensure_level_prefix(message: str, *, default_level: str = "INFO") -> str:
+    text = str(message)
+    if not text or text == "\n":
+        return text
+    if _TIMESTAMP_PREFIX_RE.match(text):
+        return text
+    match = _LEVEL_PREFIX_RE.match(text)
+    if match:
+        return text
+    stripped = text.lstrip()
+    leading = text[: len(text) - len(stripped)]
+    return f"{leading}[{default_level}] {stripped}"
+
+
+def format_human_log_line(message: str, *, level: str = "INFO") -> str:
+    return f"[{human_timestamp()}] {_ensure_level_prefix(message, default_level=level)}"
+
+
+def log(message: str, *, level: str = "INFO") -> None:
+    print(_ensure_level_prefix(message, default_level=level))
 
 
 def add_llm_debug_argument(parser: argparse.ArgumentParser) -> None:

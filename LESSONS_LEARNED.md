@@ -22,6 +22,8 @@
 
 **[2026-03-14]** Short words (OU, AT, OF) need special handling — for 2-letter words, any definition almost inevitably contains the answer. English homograph hints inject correct Romanian meaning. Preset definitions (AT, OF) bypass LLM entirely. `_definition_describes_english_meaning()` guard rejects English-meaning definitions.
 
+**[2026-04-06]** English-marker guards must tokenize normalized Romanian text, not raw ASCII spans — scanning `[A-Za-z]+` on live clue text turns diacritic words into false English tokens (`forța` → `for` + `a`) and silently rejects valid Romanian definitions. Normalize diacritics first, then tokenize lowercase Latin words; keep cleanup separate for reasoning residue and inline English translations.
+
 **[2026-03-14]** Family check needs prefix stripping — `clue_uses_same_family` only stripped suffixes. Prefixed words (NEINCEPUT→ÎNCEPUT) weren't caught. Added `ROMANIAN_PREFIXES` list, `forbidden_definition_stems()`, and `_family_exclusion_note()` in prompt builders.
 
 **[2026-03-22]** Auto-scrolling the active clue must be gated by a dedicated clue scroll container — on stacked/mobile crossword layouts, `scrollIntoView()` on the active clue can yank the whole page away from the grid every time selection changes. Only auto-scroll when the clue pane itself is scrollable, and pair grid focus changes with `preventScroll` so cell focus does not trigger another jump.

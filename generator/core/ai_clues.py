@@ -59,6 +59,7 @@ ENGLISH_MARKERS = {
     "answer",
     "attached",
     "big",
+    "by",
     "common",
     "correct",
     "definition",
@@ -66,6 +67,7 @@ ENGLISH_MARKERS = {
     "fantasy",
     "feedback",
     "file",
+    "fluid",
     "for",
     "get",
     "guess",
@@ -75,8 +77,12 @@ ENGLISH_MARKERS = {
     "numerical",
     "precise",
     "precisely",
+    "pressure",
+    "powered",
     "response",
     "semantic",
+    "system",
+    "technical",
     "the",
     "very",
     "with",
@@ -230,7 +236,7 @@ class _DebugStreamChannel:
         if not text:
             return
         if not self.started:
-            sys.stdout.write(f"  [{self.label}] ")
+            sys.stdout.write(f"  [DEBUG] [{self.label}] ")
             self.started = True
         sys.stdout.write(text)
         sys.stdout.flush()
@@ -291,9 +297,9 @@ def _log_debug_response(response) -> None:
     reasoning_content = _debug_message_text(message, "reasoning_content")
     content = _debug_message_text(message, "content")
     if reasoning_content:
-        print(f"  [LLM thinking] {reasoning_content}", flush=True)
+        log(f"  [LLM thinking] {reasoning_content}", level="DEBUG")
     if content:
-        print(f"  [LLM output] {content}", flush=True)
+        log(f"  [LLM output] {content}", level="DEBUG")
 
 
 def _build_stream_completion_response(
@@ -415,7 +421,8 @@ def _chat_completion_create(
             )
         except Exception as exc:
             log(
-                f"  [LLM debug stream fallback purpose={purpose} model={model} error={exc}]"
+                f"  [LLM debug stream fallback purpose={purpose} model={model} error={exc}]",
+                level="WARN",
             )
             response = client.chat.completions.create(
                 model=model,
@@ -483,7 +490,7 @@ def _log_if_reasoning_budget_high(
         parts.append(f"completion_tokens={completion_tokens}")
     if completion_ratio is not None:
         parts.append(f"completion_ratio={completion_ratio:.2f}")
-    log("  [" + " ".join(parts) + "]")
+    log("  [" + " ".join(parts) + "]", level="WARN")
 
 
 def _log_if_completion_truncated(
@@ -511,14 +518,25 @@ def _log_if_completion_truncated(
         parts.append(f"completion_tokens={completion_tokens}")
     if reasoning_tokens is not None:
         parts.append(f"reasoning_tokens={reasoning_tokens}")
-    log("  [" + " ".join(parts) + "]")
+    log("  [" + " ".join(parts) + "]", level="WARN")
+
+
+def _latin_word_tokens(text: str | None) -> list[str]:
+    if not text:
+        return []
+    normalized = normalize(text).lower()
+    return re.findall(r"[a-z]+", normalized)
+
+
+def find_english_marker(text: str | None) -> str | None:
+    for token in _latin_word_tokens(text):
+        if token in ENGLISH_MARKERS:
+            return token
+    return None
 
 
 def contains_english_markers(text: str | None) -> bool:
-    if not text:
-        return False
-    tokens = {token.lower() for token in re.findall(r"[A-Za-z]+", text)}
-    return any(token in ENGLISH_MARKERS for token in tokens)
+    return find_english_marker(text) is not None
 
 
 def _definition_mentions_answer(answer: str, definition: str) -> bool:
@@ -929,8 +947,9 @@ def _validate_definition(word: str, definition: str) -> str | None:
         return "dangling ending"
     if _definition_is_invalid(word, clean_definition):
         return "contains answer or family word"
-    if contains_english_markers(clean_definition):
-        return "English markers detected"
+    english_marker = find_english_marker(clean_definition)
+    if english_marker:
+        return f"English markers detected (token={english_marker})"
     if _definition_describes_english_meaning(word, clean_definition):
         return "English meaning"
     return None
@@ -1040,7 +1059,10 @@ def generate_definition(
                 definition = definition[:200].rsplit(" ", 1)[0]
             rejection = _validate_definition(word, definition)
             if rejection:
-                log(f"    [rejected {word}: {rejection}]")
+                log(
+                    f"    [rejected {word}: {rejection}; definition={definition[:120]}]",
+                    level="WARN",
+                )
                 prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             return definition
@@ -1134,7 +1156,10 @@ def rewrite_definition(
             rejection = _validate_definition(word, definition)
             if rejection:
                 last_rejection = rejection
-                log(f"    [rewrite rejected {word}: {rejection}]")
+                log(
+                    f"    [rewrite rejected {word}: {rejection}; definition={definition[:120]}]",
+                    level="WARN",
+                )
                 prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             result = RewriteAttemptResult(definition=definition)

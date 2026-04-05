@@ -14,7 +14,7 @@ from pathlib import Path
 from .config import VERIFY_CANDIDATE_COUNT
 from .core.runtime_logging import (
     add_llm_debug_argument,
-    human_timestamp,
+    format_human_log_line,
     install_process_logging,
     log,
     path_timestamp,
@@ -146,9 +146,7 @@ def run_size(
         debug=debug,
     )
     with open(log_path, "a", encoding="utf-8") as log_file:
-        log_file.write(
-            f"[{human_timestamp()}] start size={size} seed={seed}\n"
-        )
+        log_file.write(format_human_log_line(f"start size={size} seed={seed}") + "\n")
         log_file.flush()
         result = subprocess.run(
             command,
@@ -161,8 +159,11 @@ def run_size(
         )
         latest_run_dir = _latest_batch_dir(output_root)
         log_file.write(
-            f"[{human_timestamp()}] done size={size} seed={seed} "
-            f"exit={result.returncode} latest_run_dir={latest_run_dir}\n"
+            format_human_log_line(
+                f"done size={size} seed={seed} "
+                f"exit={result.returncode} latest_run_dir={latest_run_dir}"
+            )
+            + "\n"
         )
         log_file.flush()
     return LoopRunResult(
@@ -264,9 +265,11 @@ def main() -> None:
 
         with open(log_path, "a", encoding="utf-8") as log_file:
             log_file.write(
-                f"[{human_timestamp()}] loop started "
-                f"mode={'auto-size' if args.auto_size else 'fixed'} "
-                f"sizes={' '.join(map(str, args.sizes))}\n"
+                format_human_log_line(
+                    f"loop started mode={'auto-size' if args.auto_size else 'fixed'} "
+                    f"sizes={' '.join(map(str, args.sizes))}"
+                )
+                + "\n"
             )
 
         while True:

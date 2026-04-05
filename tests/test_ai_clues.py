@@ -18,6 +18,7 @@ from generator.core.ai_clues import (
     _build_rate_prompt,
     _build_rewrite_prompt,
     compute_rebus_score,
+    contains_english_markers,
     generate_definition,
     rate_definition,
     rewrite_definition,
@@ -476,6 +477,28 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(
             "Material de bază în grădinărit, rezultat din descompunerea vegetală.",
             _clean_response("Definiția nouă:** Material de bază în grădinărit, rezultat din descompunerea vegetală."),
+        )
+
+    def test_clean_response_strips_english_definition_prefix_and_translation(self):
+        self.assertEqual(
+            "Vânt care bate slab",
+            _clean_response("Definition: `Vânt care bate slab` (Wind that blows weakly)."),
+        )
+
+    def test_clean_response_picks_definition_after_final_choice_label(self):
+        self.assertEqual(
+            "Acționat prin forța unor lichide sub presiune.",
+            _clean_response('Final choice:\n"Acționat prin forța unor lichide sub presiune."'),
+        )
+
+    def test_contains_english_markers_handles_romanian_diacritics(self):
+        self.assertFalse(
+            contains_english_markers("Acționat prin forța unor lichide sub presiune.")
+        )
+
+    def test_contains_english_markers_detects_actual_english(self):
+        self.assertTrue(
+            contains_english_markers("Powered by fluid pressure in a technical system.")
         )
 
     def test_definition_describes_english_meaning_detects_engleza(self):

@@ -8,6 +8,8 @@ from pathlib import Path
 from generator.core.runtime_logging import (
     TimestampedWriter,
     audit,
+    format_human_log_line,
+    human_timestamp,
     install_process_logging,
     log,
 )
@@ -24,6 +26,8 @@ class TimestampedWriterTests(unittest.TestCase):
         output = target.getvalue()
         self.assertIn("hello", output)
         self.assertTrue(output.startswith("["))
+        self.assertIn("[INFO] hello", output)
+        self.assertNotIn("+", output.split("]")[0])
 
     def test_does_not_double_prefix_existing_timestamp(self):
         target = StringIO()
@@ -45,8 +49,27 @@ class TimestampedWriterTests(unittest.TestCase):
         writer.write("\n")
 
         self.assertIn("hello", first)
-        self.assertEqual(1, second.count("["))
+        self.assertEqual(first.count("["), second.count("["))
         self.assertIn("hello world\n", target.getvalue())
+
+    def test_preserves_existing_severity_without_adding_info(self):
+        target = StringIO()
+        writer = TimestampedWriter(target)
+
+        writer.write("[WARN] problem\n")
+        writer.flush()
+
+        output = target.getvalue()
+        self.assertIn("[WARN] problem", output)
+        self.assertNotIn("[INFO] [WARN]", output)
+
+    def test_human_timestamp_omits_timezone_offset(self):
+        stamp = human_timestamp()
+        self.assertRegex(stamp, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+
+    def test_format_human_log_line_adds_timestamp_and_info(self):
+        rendered = format_human_log_line("loop started")
+        self.assertRegex(rendered, r"^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\] \[INFO\] loop started$")
 
 
 class AuditTests(unittest.TestCase):
