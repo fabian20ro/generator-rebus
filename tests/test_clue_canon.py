@@ -160,7 +160,10 @@ class ClueCanonTests(unittest.TestCase):
         class _Service:
             def __init__(self):
                 self.batches = []
-                self.store = SimpleNamespace(fetch_canonical_variants=lambda *_args, **_kwargs: [])
+                self.store = SimpleNamespace(
+                    fetch_canonical_variants=lambda *_args, **_kwargs: [],
+                    prefetch_canonical_variants=lambda *_args, **_kwargs: {},
+                )
 
             def _run_referee_batch(self, requests):
                 self.batches.append([request.request_id for request in requests])

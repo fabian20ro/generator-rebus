@@ -27,9 +27,10 @@ class _FakeClient:
         def _create(**kwargs):
             self.calls.append(kwargs)
             self.last_user_content = kwargs["messages"][-1]["content"]
-            return SimpleNamespace(
+            response = SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
             )
+            return [response] if kwargs.get("stream") else response
 
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 
@@ -46,9 +47,10 @@ class _SequentialClient:
             self.last_user_content = kwargs["messages"][-1]["content"]
             content = self._responses[min(self._index, len(self._responses) - 1)]
             self._index += 1
-            return SimpleNamespace(
+            response = SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
             )
+            return [response] if kwargs.get("stream") else response
 
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 
@@ -90,9 +92,10 @@ class _ModelAwareClient:
             model = kwargs["model"]
             responses = self._responses_by_model[model]
             content = responses.pop(0) if len(responses) > 1 else responses[0]
-            return SimpleNamespace(
+            response = SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
             )
+            return [response] if kwargs.get("stream") else response
 
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 
@@ -107,9 +110,10 @@ class _TraceClient:
         def _create(**kwargs):
             self.calls.append(kwargs)
             self.trace_at_calls.append(list(self.runtime.trace))
-            return SimpleNamespace(
+            response = SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))]
             )
+            return [response] if kwargs.get("stream") else response
 
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 

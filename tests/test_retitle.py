@@ -21,9 +21,10 @@ def _fake_ai_client(title: str):
     """Create a fake AI client that returns a fixed title."""
 
     def _create(**kwargs):
-        return SimpleNamespace(
+        response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=title))]
         )
+        return [response] if kwargs.get("stream") else response
 
     return SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
@@ -39,9 +40,10 @@ def _fake_rate_client(score: int):
     content = json.dumps({"creativity_score": score, "feedback": "ok"})
 
     def _create(**kwargs):
-        return SimpleNamespace(
+        response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
         )
+        return [response] if kwargs.get("stream") else response
 
     return SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
@@ -56,9 +58,10 @@ def _fake_rate_client_sequential(scores: list[int]):
         score = scores[call_index["i"] % len(scores)]
         call_index["i"] += 1
         content = json.dumps({"creativity_score": score, "feedback": "ok"})
-        return SimpleNamespace(
+        response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
         )
+        return [response] if kwargs.get("stream") else response
 
     return SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
@@ -88,9 +91,10 @@ class _ModelAwareClient:
             model = kwargs["model"]
             responses = self._responses_by_model[model]
             content = responses.pop(0) if len(responses) > 1 else responses[0]
-            return SimpleNamespace(
+            response = SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
             )
+            return [response] if kwargs.get("stream") else response
 
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 
