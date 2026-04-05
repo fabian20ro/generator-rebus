@@ -563,6 +563,11 @@ def _merge_word_batch(
     *,
     referee_batch_size: int,
 ) -> list[tuple[str, list[_WorkingCluster]]]:
+    # Prefetch existing canonical variants for all words in the batch to avoid N+1 queries.
+    batch_words = [word for word, _clusters in bucket_batch]
+    if batch_words:
+        service.store.prefetch_canonical_variants(batch_words)
+
     # Round-robin word states let backfill collect many pending comparisons
     # before switching models, while preserving per-word merge order.
     queued_words = [
