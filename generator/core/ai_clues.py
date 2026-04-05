@@ -28,10 +28,6 @@ from .quality import ENGLISH_HOMOGRAPH_HINTS
 from .runtime_logging import log
 
 WORD_TYPE_LABELS: dict[str, str] = {"V": "verb", "N": "substantiv", "A": "adjectiv"}
-REFEREE_VOTE_SCHEDULE = (
-    (PRIMARY_MODEL, (False, True, False)),
-    (SECONDARY_MODEL, (True, False, True)),
-)
 USAGE_SUFFIX_PRECEDENCE: list[tuple[str, tuple[str, ...]]] = [
     ("(arh.)", (r"\bARHAIC\b", r"\bARHAISM\b", r"\bARH\.\b", r"\bIN LIMBAJ ARHAIC\b")),
     ("(inv.)", (r"\bINVECHIT\b", r"\bIESIT DIN UZ\b", r"\bINV\.\b")),
@@ -175,13 +171,11 @@ class RewriteAttemptResult:
 class MergeRewriteAttemptResult:
     definition: str
     valid: bool
-    rejection_reason: str = ""
 
 
 @dataclass(frozen=True)
 class MergeRewriteValidationResult:
     accepted: bool
-    rejection_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -995,24 +989,6 @@ def verify_definition_candidates(
     return VerifyResult(last_candidates)
 
 
-def verify_definition(
-    client: OpenAI,
-    definition: str,
-    answer_length: int,
-    word_type: str = "",
-    model: str | None = None,
-) -> str:
-    """Backward-compatible single-guess wrapper over the multi-candidate verifier."""
-    return verify_definition_candidates(
-        client,
-        definition,
-        answer_length,
-        word_type=word_type,
-        max_guesses=1,
-        model=model or PRIMARY_MODEL.model_id,
-    ).primary_guess
-
-
 def rate_definition(
     client: OpenAI,
     word: str,
@@ -1171,7 +1147,6 @@ def rewrite_merged_canonical_definition(
     return MergeRewriteAttemptResult(
         definition=definition,
         valid=rejection is None,
-        rejection_reason=rejection or "",
     )
 
 
@@ -1228,7 +1203,6 @@ def validate_merged_canonical_definition(
     if local_rejection:
         return MergeRewriteValidationResult(
             accepted=False,
-            rejection_reason=local_rejection,
         )
     first = _compare_definition_variant_attempt(
         client,
@@ -1241,7 +1215,6 @@ def validate_merged_canonical_definition(
     if first.vote is None or not first.vote.same_meaning:
         return MergeRewriteValidationResult(
             accepted=False,
-            rejection_reason=first.parse_status if first.vote is None else "not_same_as_a",
         )
     second = _compare_definition_variant_attempt(
         client,
@@ -1254,14 +1227,8 @@ def validate_merged_canonical_definition(
     if second.vote is None or not second.vote.same_meaning:
         return MergeRewriteValidationResult(
             accepted=False,
-            rejection_reason=second.parse_status if second.vote is None else "not_same_as_b",
         )
     return MergeRewriteValidationResult(accepted=True)
-    json_str = match.group(1) if fence_match and match is fence_match else match.group()
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
-        return None
 
 
 def compare_definition_variants(
@@ -1418,39 +1385,6 @@ def _remap_swapped_vote(vote: DefinitionComparisonVote) -> DefinitionComparisonV
         better=better,
         reason=vote.reason,
     )
-
-
-def _should_finalize_adaptive_votes(
-    votes: list[DefinitionComparisonVote],
-) -> tuple[bool, DefinitionRefereeResult]:
-    result = aggregate_referee_votes(votes)
-    vote_count = len(votes)
-    remaining = max(0, 6 - vote_count)
-
-    if vote_count >= 2 and result.same_meaning_votes == 0:
-        return True, result
-
-    if vote_count >= 6:
-        return True, result
-
-    if result.same_meaning_votes + remaining < 4:
-        return True, result
-
-    if (
-        result.winner in {"A", "B"}
-        and result.same_meaning_votes == vote_count
-        and result.winner_votes == vote_count
-    ):
-        return True, result
-
-    if (
-        result.same_meaning_votes >= 4
-        and result.winner in {"A", "B"}
-        and result.winner_votes + remaining < 5
-    ):
-        return True, result
-
-    return False, result
 
 
 def _with_diagnostics(

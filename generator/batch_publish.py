@@ -78,7 +78,6 @@ from .core.score_helpers import (
     PLATEAU_LOOKBACK,
     _coerce_working_clue,
     _compact_log_text,
-    _extract_guessability_score,
     _extract_rebus_score,
     _extract_semantic_score,
     _is_locked_clue,
@@ -339,13 +338,6 @@ def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
         if not clue.active_version().definition
         or clue.active_version().definition.startswith("[")
     ]
-
-
-def _clue_eval(clue: WorkingClue) -> tuple[int, int, int]:
-    semantic_score = _extract_semantic_score(clue) or 0
-    rebus_score = _extract_rebus_score(clue) or 0
-    verified_score = 1 if clue.active_version().assessment.verified is True else 0
-    return (semantic_score + rebus_score, rebus_score, verified_score)
 
 
 def _template_fingerprint(template: list[list[bool]]) -> str:

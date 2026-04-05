@@ -631,11 +631,6 @@ def _merge_word_batch(
     return [(state.word, state.selected) for state in states]
 
 
-def _chunked(items: list[tuple[str, list[ClueDefinitionRecord]]], size: int) -> list[list[tuple[str, list[ClueDefinitionRecord]]]]:
-    chunk_size = max(size, 1)
-    return [items[index:index + chunk_size] for index in range(0, len(items), chunk_size)]
-
-
 def _apply_clusters(
     store: ClueCanonStore,
     word: str,
