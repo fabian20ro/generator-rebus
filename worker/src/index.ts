@@ -14,14 +14,28 @@ interface Env {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  ALLOWED_ORIGINS?: string; // Comma-separated list of origins
 }
 
-const CORS_HEADERS = {
-  // Keep CORS on every response path so the frontend sees JSON errors too.
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+const DEFAULT_ALLOWED_ORIGIN = "https://fabian20ro.github.io";
+
+function getCorsHeaders(request: Request, env: Env) {
+  const origin = request.headers.get("Origin");
+
+  // Default to production domain if not configured
+  const allowedList = env.ALLOWED_ORIGINS
+    ? env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+    : [DEFAULT_ALLOWED_ORIGIN];
+
+  const isAllowed = origin && allowedList.includes(origin);
+
+  return {
+    "Access-Control-Allow-Origin": isAllowed ? origin : "",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin",
+  };
+}
 
 function requireEnv(env: Env): string | null {
   if (!env.SUPABASE_URL) return "Missing SUPABASE_URL";
@@ -39,27 +53,27 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   // CORS preflight
   if (request.method === "OPTIONS") {
-    return new Response(null, { headers: CORS_HEADERS });
+    return new Response(null, { headers: getCorsHeaders(request, env) });
   }
 
   if (request.method !== "GET") {
-    return jsonResponse({ error: "Method not allowed" }, 405);
+    return jsonResponse({ error: "Method not allowed" }, request, env, 405);
   }
 
   const envError = requireEnv(env);
   if (envError) {
-    return jsonResponse({ error: envError }, 500);
+    return jsonResponse({ error: envError }, request, env, 500);
   }
 
   // Health check
   if (path === "/health") {
-    return jsonResponse({ status: "ok" });
+    return jsonResponse({ status: "ok" }, request, env);
   }
 
   // List published puzzles
   if (path === "/puzzles") {
     const supabaseUrl = `${env.SUPABASE_URL}/rest/v1/crossword_puzzles?published=eq.true&select=id,title,theme,description,grid_size,difficulty,pass_rate,created_at,repaired_at&order=repaired_at.desc.nullslast,created_at.desc`;
-    return proxyToSupabase(supabaseUrl, env);
+    return proxyToSupabase(supabaseUrl, env, request);
   }
 
   // Get single puzzle (without solution — for playing)
@@ -73,7 +87,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     const puzzles = await puzzleResp.json() as any[];
 
     if (!puzzles || puzzles.length === 0) {
-      return jsonResponse({ error: "Puzzle not found" }, 404);
+      return jsonResponse({ error: "Puzzle not found" }, request, env, 404);
     }
 
     const clues = await fetchPuzzleClues(puzzleId, env);
@@ -81,7 +95,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     return jsonResponse({
       puzzle: puzzles[0],
       clues,
-    });
+    }, request, env);
   }
 
   // Get puzzle solution (for checking answers)
@@ -93,13 +107,13 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     const data = await resp.json() as any[];
 
     if (!data || data.length === 0) {
-      return jsonResponse({ error: "Puzzle not found" }, 404);
+      return jsonResponse({ error: "Puzzle not found" }, request, env, 404);
     }
 
-    return jsonResponse({ solution: data[0].grid_solution });
+    return jsonResponse({ solution: data[0].grid_solution }, request, env);
   }
 
-  return jsonResponse({ error: "Not found" }, 404);
+  return jsonResponse({ error: "Not found" }, request, env, 404);
 }
 
 async function fetchFromSupabase(url: string, env: Env): Promise<Response> {
@@ -139,24 +153,24 @@ async function fetchPuzzleClues(puzzleId: string, env: Env): Promise<any[]> {
   }));
 }
 
-async function proxyToSupabase(url: string, env: Env): Promise<Response> {
+async function proxyToSupabase(url: string, env: Env, request: Request): Promise<Response> {
   const resp = await fetchFromSupabase(url, env);
   const body = await resp.text();
   return new Response(body, {
     status: resp.status,
     headers: {
-      ...CORS_HEADERS,
+      ...getCorsHeaders(request, env),
       "Content-Type": "application/json",
       "Cache-Control": "public, max-age=180",
     },
   });
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
+function jsonResponse(data: unknown, request: Request, env: Env, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
-      ...CORS_HEADERS,
+      ...getCorsHeaders(request, env),
       "Content-Type": "application/json",
       "Cache-Control": "public, max-age=180",
     },
@@ -169,7 +183,7 @@ export default {
       return await handleRequest(request, env);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown worker error";
-      return jsonResponse({ error: message }, 500);
+      return jsonResponse({ error: message }, request, env, 500);
     }
   },
 };
