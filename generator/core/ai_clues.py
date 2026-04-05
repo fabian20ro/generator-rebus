@@ -12,7 +12,7 @@ from openai import OpenAI
 
 from ..config import LMSTUDIO_BASE_URL, VERIFY_CANDIDATE_COUNT
 from ..prompts.loader import load_system_prompt, load_user_template
-from .clue_canon import aggregate_referee_votes
+from .clue_canon import aggregate_referee_votes, content_tokens, lexical_similarity
 from .clue_canon_types import (
     DefinitionComparisonAttempt,
     DefinitionComparisonVote,
@@ -172,6 +172,19 @@ class RewriteAttemptResult:
 
 
 @dataclass(frozen=True)
+class MergeRewriteAttemptResult:
+    definition: str
+    valid: bool
+    rejection_reason: str = ""
+
+
+@dataclass(frozen=True)
+class MergeRewriteValidationResult:
+    accepted: bool
+    rejection_reason: str = ""
+
+
+@dataclass(frozen=True)
 class AdaptiveRefereeBatchResult:
     results: dict[str, DefinitionRefereeResult]
     total_votes: int
@@ -214,13 +227,64 @@ def _chat_completion_create(
     max_tokens: int,
     purpose: str = "default",
 ):
-    return client.chat.completions.create(
+    response = client.chat.completions.create(
         model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
         **chat_reasoning_options(model, purpose=purpose),
     )
+    _log_if_reasoning_budget_high(
+        response,
+        model=model,
+        purpose=purpose,
+        max_tokens=max_tokens,
+    )
+    _log_if_completion_truncated(
+        response,
+        model=model,
+        purpose=purpose,
+        max_tokens=max_tokens,
+    )
+    return response
+
+
+def _log_if_reasoning_budget_high(
+    response,
+    *,
+    model: str,
+    purpose: str,
+    max_tokens: int,
+) -> None:
+    usage = getattr(response, "usage", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    details = getattr(usage, "completion_tokens_details", None)
+    reasoning_tokens = getattr(details, "reasoning_tokens", None)
+    if not reasoning_tokens or max_tokens <= 0:
+        return
+    budget_ratio = reasoning_tokens / max_tokens
+    completion_ratio = (
+        reasoning_tokens / completion_tokens
+        if completion_tokens
+        else None
+    )
+    if budget_ratio < 0.75 and (
+        completion_ratio is None or completion_ratio < 0.85
+    ):
+        return
+    parts = [
+        "warn reasoning_budget",
+        f"purpose={purpose}",
+        f"model={model}",
+        f"max_tokens={max_tokens}",
+        f"reasoning_tokens={reasoning_tokens}",
+        f"budget_ratio={budget_ratio:.2f}",
+    ]
+    if completion_tokens is not None:
+        parts.append(f"completion_tokens={completion_tokens}")
+    if completion_ratio is not None:
+        parts.append(f"completion_ratio={completion_ratio:.2f}")
+    log("  [" + " ".join(parts) + "]")
 
 
 def _log_if_completion_truncated(
@@ -861,12 +925,6 @@ def rewrite_definition(
                 max_tokens=2000,
                 purpose="definition_rewrite",
             )
-            _log_if_completion_truncated(
-                response,
-                model=resolved_model,
-                purpose="definition_rewrite",
-                max_tokens=2000,
-            )
             definition = _clean_response(response.choices[0].message.content)
             if definition == "[NECLAR]":
                 result = RewriteAttemptResult(definition=definition)
@@ -995,12 +1053,6 @@ def rate_definition(
                 max_tokens=2000,
                 purpose="definition_rate",
             )
-            _log_if_completion_truncated(
-                response,
-                model=resolved_model,
-                purpose="definition_rate",
-                max_tokens=2000,
-            )
             raw = response.choices[0].message.content or ""
             fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
             bare_match = re.search(r"\{.*\}", raw, re.DOTALL)
@@ -1055,6 +1107,163 @@ def _extract_json_object(raw: str) -> dict | None:
         return None
 
 
+_PROMPT_RESIDUE_MARKERS = (
+    "definiția:",
+    "definitia:",
+    "propusă:",
+    "propusa:",
+    "```",
+    "{\"",
+)
+
+
+def has_prompt_residue(text: str | None) -> bool:
+    lower = str(text or "").strip().lower()
+    if not lower:
+        return False
+    return any(marker in lower for marker in _PROMPT_RESIDUE_MARKERS)
+
+
+def rewrite_merged_canonical_definition(
+    client: OpenAI,
+    *,
+    word: str,
+    definition_a: str,
+    definition_b: str,
+    model: str | None = None,
+) -> MergeRewriteAttemptResult:
+    resolved_model = _resolve_model_name(model)
+    system_prompt = (
+        "Ești editor de definiții scurte pentru rebus românesc. "
+        "Răspunzi cu o singură definiție românească, simplă, completă, fără markdown, fără etichete, fără explicații."
+    )
+    prompt = (
+        f"Cuvânt: {word}\n"
+        f"Definiția A: {definition_a}\n"
+        f"Definiția B: {definition_b}\n"
+        "Scrie o singură definiție finală care păstrează sensul comun al ambelor definiții.\n"
+        "Reguli:\n"
+        "- exclusiv română\n"
+        "- fără ghilimele\n"
+        "- fără liste, fără explicații, fără prefixe\n"
+        "- fără aceeași familie lexicală ca răspunsul\n"
+        "- mai concisă decât un paragraf\n"
+        "- o singură propoziție sau sintagmă completă"
+    )
+    response = _chat_completion_create(
+        client,
+        model=resolved_model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=120,
+        purpose="canonical_merge_rewrite",
+    )
+    definition = _clean_response(response.choices[0].message.content)
+    rejection = validate_rewritten_canonical_definition_locally(
+        word=word,
+        definition_a=definition_a,
+        definition_b=definition_b,
+        candidate_definition=definition,
+    )
+    return MergeRewriteAttemptResult(
+        definition=definition,
+        valid=rejection is None,
+        rejection_reason=rejection or "",
+    )
+
+
+def validate_rewritten_canonical_definition_locally(
+    *,
+    word: str,
+    definition_a: str,
+    definition_b: str,
+    candidate_definition: str,
+) -> str | None:
+    candidate = _clean_response(candidate_definition)
+    if not candidate:
+        return "empty"
+    if has_prompt_residue(candidate):
+        return "prompt_residue"
+    rejection = _validate_definition(word, candidate)
+    if rejection:
+        return rejection
+    if len(candidate) > 160:
+        return "too_long"
+    candidate_tokens = content_tokens(candidate)
+    if len(candidate_tokens) < 2:
+        return "too_short"
+    overlap_a = len(set(candidate_tokens) & set(content_tokens(definition_a)))
+    overlap_b = len(set(candidate_tokens) & set(content_tokens(definition_b)))
+    similarity_a = lexical_similarity(normalize(candidate), normalize(definition_a))
+    similarity_b = lexical_similarity(normalize(candidate), normalize(definition_b))
+    if overlap_a <= 0 and similarity_a < 0.45:
+        return "weak_overlap_a"
+    if overlap_b <= 0 and similarity_b < 0.45:
+        return "weak_overlap_b"
+    separators = candidate.count(";") + candidate.count(":")
+    if separators > max(definition_a.count(";") + definition_a.count(":"), definition_b.count(";") + definition_b.count(":")):
+        return "broader_than_sources"
+    return None
+
+
+def validate_merged_canonical_definition(
+    client: OpenAI,
+    *,
+    word: str,
+    answer_length: int,
+    definition_a: str,
+    definition_b: str,
+    candidate_definition: str,
+    model: str | None = None,
+) -> MergeRewriteValidationResult:
+    local_rejection = validate_rewritten_canonical_definition_locally(
+        word=word,
+        definition_a=definition_a,
+        definition_b=definition_b,
+        candidate_definition=candidate_definition,
+    )
+    if local_rejection:
+        return MergeRewriteValidationResult(
+            accepted=False,
+            rejection_reason=local_rejection,
+        )
+    first = _compare_definition_variant_attempt(
+        client,
+        word,
+        answer_length,
+        candidate_definition,
+        definition_a,
+        model=model,
+    )
+    if first.vote is None or not first.vote.same_meaning:
+        return MergeRewriteValidationResult(
+            accepted=False,
+            rejection_reason=first.parse_status if first.vote is None else "not_same_as_a",
+        )
+    second = _compare_definition_variant_attempt(
+        client,
+        word,
+        answer_length,
+        candidate_definition,
+        definition_b,
+        model=model,
+    )
+    if second.vote is None or not second.vote.same_meaning:
+        return MergeRewriteValidationResult(
+            accepted=False,
+            rejection_reason=second.parse_status if second.vote is None else "not_same_as_b",
+        )
+    return MergeRewriteValidationResult(accepted=True)
+    json_str = match.group(1) if fence_match and match is fence_match else match.group()
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
+
+
 def compare_definition_variants(
     client: OpenAI,
     word: str,
@@ -1080,6 +1289,25 @@ def compare_definition_variants(
         same_meaning=False,
         better="equal",
         reason="compare_failed",
+    )
+
+
+def compare_definition_variants_attempt(
+    client: OpenAI,
+    word: str,
+    answer_length: int,
+    definition_a: str,
+    definition_b: str,
+    *,
+    model: str | None = None,
+) -> DefinitionComparisonAttempt:
+    return _compare_definition_variant_attempt(
+        client,
+        word,
+        answer_length,
+        definition_a,
+        definition_b,
+        model=model,
     )
 
 
@@ -1114,12 +1342,6 @@ def _compare_definition_variant_attempt(
                 purpose="clue_compare",
             )
             elapsed = time.monotonic() - compare_started
-            _log_if_completion_truncated(
-                response,
-                model=resolved_model,
-                purpose="clue_compare",
-                max_tokens=120,
-            )
             if elapsed > 10.0:
                 log(
                     "  [slow compare "

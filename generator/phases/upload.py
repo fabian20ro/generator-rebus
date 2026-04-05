@@ -78,6 +78,7 @@ def upload_puzzle(
 
     # Build grid JSON
     grid_template_json, grid_solution_json = _grid_to_json(puzzle.grid)
+    log(f"Preparing upload payload: {puzzle.title or 'Untitled'}")
 
     # Find word positions in the grid for clue records
     slots_with_words = _slots_with_words(puzzle.grid)
@@ -109,7 +110,7 @@ def upload_puzzle(
                 "length": len(word),
                 "word_normalized": clue.word_normalized,
                 "word_original": clue.word_original or clue.word_normalized.lower(),
-                "word_type": clue.word_type or "",
+                "word_type": getattr(clue, "word_type", "") or "",
                 "clue_number": clue_number,
             })
             clue_records[-1]["_candidate_definition"] = _clean_definition(clue.definition or "")
@@ -127,7 +128,7 @@ def upload_puzzle(
                 "length": len(word),
                 "word_normalized": clue.word_normalized,
                 "word_original": clue.word_original or clue.word_normalized.lower(),
-                "word_type": clue.word_type or "",
+                "word_type": getattr(clue, "word_type", "") or "",
                 "clue_number": v_clue_number,
             })
             clue_records[-1]["_candidate_definition"] = _clean_definition(clue.definition or "")

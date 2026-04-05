@@ -8,6 +8,7 @@ from generator.core.ai_clues import (
     DefinitionRating,
     compare_definition_variants,
     RewriteAttemptResult,
+    _chat_completion_create,
     _clean_response,
     _extract_usage_suffix_from_dex,
     _normalize_definition_usage_suffix,
@@ -90,7 +91,7 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("medium", client.calls[0]["reasoning_effort"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
         self.assertEqual(2000, client.calls[0]["max_tokens"])
 
     def test_rate_definition_sends_medium_reasoning_effort_for_primary_model(self):
@@ -113,10 +114,10 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(rating)
-        self.assertEqual("medium", client.calls[0]["reasoning_effort"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
         self.assertEqual(2000, client.calls[0]["max_tokens"])
 
-    def test_verify_definition_candidates_sends_none_reasoning_effort_for_primary_model(self):
+    def test_verify_definition_candidates_sends_low_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["CASA"])
 
         verify_definition_candidates(
@@ -126,7 +127,7 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
 
     def test_rate_definition_omits_reasoning_effort_for_secondary_model(self):
         client = _RecordingClient([
@@ -292,7 +293,7 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual("B", vote.better)
         self.assertEqual("", vote.reason)
 
-    def test_compare_definition_variants_uses_none_reasoning_and_small_token_budget(self):
+    def test_compare_definition_variants_uses_low_reasoning_and_small_token_budget(self):
         client = _RecordingClient([
             json.dumps({
                 "same_meaning": True,
@@ -309,8 +310,35 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
         self.assertEqual(120, client.calls[0]["max_tokens"])
+
+    def test_chat_completion_logs_reasoning_budget_warning(self):
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content="ok"))],
+            usage=SimpleNamespace(
+                completion_tokens=100,
+                completion_tokens_details=SimpleNamespace(reasoning_tokens=90),
+            ),
+        )
+        client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: response)
+            )
+        )
+
+        with mock.patch("generator.core.ai_clues.log") as mock_log:
+            _chat_completion_create(
+                client,
+                model=PRIMARY_MODEL.model_id,
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=100,
+                purpose="definition_generate",
+            )
+
+        logged_messages = [call.args[0] for call in mock_log.call_args_list]
+        self.assertTrue(any("warn reasoning_budget" in message for message in logged_messages))
 
     def test_run_definition_referee_remaps_swapped_votes_back_to_original_orientation(self):
         class _Runtime:

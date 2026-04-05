@@ -15,7 +15,7 @@ from .supabase_ops import create_service_role_client, execute_logged_insert, exe
 _CANONICAL_SELECT = (
     "id, word_normalized, word_original_seed, definition, definition_norm, "
     "word_type, usage_label, verified, semantic_score, rebus_score, "
-    "creativity_score, usage_count"
+    "creativity_score, usage_count, superseded_by"
 )
 _SCHEMA_CHECKS: tuple[tuple[str, str], ...] = (
     ("canonical_clue_definitions", "id"),
@@ -83,6 +83,74 @@ class ClueCanonStore:
         for row in rows:
             self._canonical_lookup[_canonical_identity_key(row.word_normalized, row.word_type, row.usage_label, row.definition_norm)] = row
         return rows[:limit] if limit is not None else list(rows)
+
+    def fetch_active_canonical_variants(
+        self,
+        *,
+        word_normalized: str | None = None,
+        limit: int | None = None,
+    ) -> list[CanonicalDefinition]:
+        if not self.is_enabled():
+            return []
+        rows: list[CanonicalDefinition] = []
+        offset = 0
+        while True:
+            query = (
+                self.client.table("canonical_clue_definitions")
+                .select(_CANONICAL_SELECT)
+                .is_("superseded_by", "null")
+                .order("word_normalized")
+                .order("word_type")
+                .order("usage_label")
+                .order("id")
+            )
+            if word_normalized:
+                query = query.eq("word_normalized", str(word_normalized or "").strip().upper())
+            page_size = _CLUE_PAGE_SIZE
+            if limit is not None:
+                remaining = limit - len(rows)
+                if remaining <= 0:
+                    break
+                page_size = min(page_size, remaining)
+            batch = query.range(offset, offset + page_size - 1).execute().data or []
+            converted = [self._canonical_from_row(row) for row in batch]
+            rows.extend(converted)
+            if len(batch) < page_size or (limit is not None and len(rows) >= limit):
+                break
+            offset += page_size
+        for row in rows:
+            self._prime_canonical_cache(row)
+        return rows[:limit] if limit is not None else rows
+
+    def fetch_active_canonical_variants_for_words(
+        self,
+        words_normalized: list[str],
+    ) -> list[CanonicalDefinition]:
+        if not self.is_enabled():
+            return []
+        words = sorted({
+            str(word or "").strip().upper()
+            for word in words_normalized
+            if str(word or "").strip()
+        })
+        if not words:
+            return []
+        rows: list[CanonicalDefinition] = []
+        for start in range(0, len(words), _CLUE_PAGE_SIZE):
+            chunk = words[start : start + _CLUE_PAGE_SIZE]
+            result = (
+                self.client.table("canonical_clue_definitions")
+                .select(_CANONICAL_SELECT)
+                .is_("superseded_by", "null")
+                .in_("word_normalized", chunk)
+                .execute()
+            )
+            for row in result.data or []:
+                converted = self._canonical_from_row(row)
+                rows.append(converted)
+                self._prime_canonical_cache(converted)
+        rows.sort(key=_canonical_sort_key)
+        return rows
 
     def prefetch_canonical_variants(self, words_normalized: list[str]) -> dict[str, list[CanonicalDefinition]]:
         if not self.is_enabled():
@@ -620,6 +688,106 @@ class ClueCanonStore:
                 definitions[str(row.get("id") or "")] = str(row.get("definition") or "")
         return definitions
 
+    def repoint_clues_by_canonical_ids(
+        self,
+        source_canonical_ids: list[str],
+        *,
+        canonical_definition_id: str,
+    ) -> int:
+        if self.client is None:
+            return 0
+        unique_ids = sorted({
+            str(canonical_id or "").strip()
+            for canonical_id in source_canonical_ids
+            if str(canonical_id or "").strip()
+        })
+        if not unique_ids:
+            return 0
+        payload = self.build_clue_definition_payload(
+            canonical_definition_id=canonical_definition_id,
+        )
+        batches = 0
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            result = (
+                self.client.table("crossword_clues")
+                .update(payload)
+                .in_("canonical_definition_id", chunk)
+                .execute()
+            )
+            log(
+                "[supabase update] table=crossword_clues "
+                f"filters=(canonical_definition_id in {len(chunk)} values) "
+                f"payload_keys=[{', '.join(sorted(payload))}] rows={len(result.data or [])}"
+            )
+            batches += 1
+        return batches
+
+    def mark_canonicals_superseded(
+        self,
+        canonical_ids: list[str],
+        *,
+        superseded_by: str,
+    ) -> int:
+        if self.client is None:
+            return 0
+        unique_ids = sorted({
+            str(canonical_id or "").strip()
+            for canonical_id in canonical_ids
+            if str(canonical_id or "").strip() and str(canonical_id or "").strip() != superseded_by
+        })
+        if not unique_ids:
+            return 0
+        word_map = self.fetch_canonical_definitions_by_word_ids(unique_ids)
+        batches = 0
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            payload = {
+                "superseded_by": superseded_by,
+                "updated_at": _now_iso(),
+            }
+            result = (
+                self.client.table("canonical_clue_definitions")
+                .update(payload)
+                .in_("id", chunk)
+                .execute()
+            )
+            log(
+                "[supabase update] table=canonical_clue_definitions "
+                f"filters=(id in {len(chunk)} values) payload_keys=[{', '.join(sorted(payload))}] "
+                f"rows={len(result.data or [])}"
+            )
+            batches += 1
+        self._canonical_lookup = {
+            key: value
+            for key, value in self._canonical_lookup.items()
+            if value.id not in set(unique_ids)
+        }
+        for row in word_map.values():
+            self._invalidate_canonical_cache(row)
+        return batches
+
+    def fetch_canonical_definitions_by_word_ids(self, canonical_ids: list[str]) -> dict[str, str]:
+        if not canonical_ids or self.client is None:
+            return {}
+        unique_ids = sorted({
+            canonical_id.strip()
+            for canonical_id in canonical_ids
+            if canonical_id and _UUID_RE.match(canonical_id.strip())
+        })
+        words: dict[str, str] = {}
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            result = (
+                self.client.table("canonical_clue_definitions")
+                .select("id, word_normalized")
+                .in_("id", chunk)
+                .execute()
+            )
+            for row in result.data or []:
+                words[str(row.get("id") or "")] = str(row.get("word_normalized") or "")
+        return words
+
     def _prime_canonical_cache(self, row: CanonicalDefinition) -> None:
         self._canonical_lookup[
             _canonical_identity_key(row.word_normalized, row.word_type, row.usage_label, row.definition_norm)
@@ -655,6 +823,7 @@ class ClueCanonStore:
             rebus_score=_to_int(row.get("rebus_score")),
             creativity_score=_to_int(row.get("creativity_score")),
             usage_count=int(row.get("usage_count") or 0),
+            superseded_by=str(row.get("superseded_by") or "") or None,
         )
 
     def _warn_once(self, message: str) -> None:

@@ -141,6 +141,7 @@ def _entry_from_version(clue: WorkingClue, version: ClueCandidateVersion) -> Clu
         row_number=clue.row_number,
         word_normalized=clue.word_normalized,
         word_original=clue.word_original,
+        word_type=clue.word_type,
         definition=version.definition,
         verified=version.assessment.verified,
         verify_note=render_verify_note(version.assessment),
@@ -189,6 +190,7 @@ def working_clue_from_entry(entry: ClueEntry) -> WorkingClue:
         best=None,
         history=[current] if entry.definition else [],
         locked=False,
+        word_type=getattr(entry, "word_type", ""),
     )
 
 
@@ -204,6 +206,7 @@ def _split_compound_entry(entry: ClueEntry) -> list[ClueEntry]:
             row_number=entry.row_number,
             word_normalized=word,
             word_original=original,
+            word_type=getattr(entry, "word_type", ""),
             definition=entry.definition,
             verified=entry.verified,
             verify_note=entry.verify_note,

@@ -24,6 +24,7 @@ def _make_entry(**overrides) -> ClueEntry:
         row_number=1,
         word_normalized="TEST",
         word_original="test",
+        word_type="",
         definition="a test word",
         verified=True,
         verify_note="",
@@ -62,6 +63,11 @@ class TestWorkingClueFromEntry(unittest.TestCase):
         clue = working_clue_from_entry(entry)
         self.assertEqual(clue.start_row, 3)
         self.assertEqual(clue.start_col, 5)
+
+    def test_preserves_word_type(self):
+        entry = _make_entry(word_type="V")
+        clue = working_clue_from_entry(entry)
+        self.assertEqual("V", clue.word_type)
 
 
 class TestActiveVersion(unittest.TestCase):
@@ -170,6 +176,19 @@ class TestPuzzleFromWorkingState(unittest.TestCase):
         self.assertEqual(len(result.horizontal_clues), 1)
         self.assertEqual(result.horizontal_clues[0].word_normalized, "TEST")
 
+    def test_roundtrip_preserves_word_type(self):
+        entry = _make_entry(definition="o definiție", word_type="N")
+        puzzle = PuzzleData(
+            title="Round",
+            size=2,
+            grid=[["A", "B"], ["C", "D"]],
+            horizontal_clues=[entry],
+            vertical_clues=[],
+        )
+        wp = working_puzzle_from_puzzle(puzzle)
+        result = puzzle_from_working_state(wp)
+        self.assertEqual("N", result.horizontal_clues[0].word_type)
+
 
 class TestSplitCompoundEntry(unittest.TestCase):
     def test_single_word_returns_unchanged(self):
@@ -179,13 +198,15 @@ class TestSplitCompoundEntry(unittest.TestCase):
         self.assertEqual(result[0].word_normalized, "CASA")
 
     def test_compound_splits(self):
-        entry = _make_entry(word_normalized="CASA - MARE", word_original="casă - mare")
+        entry = _make_entry(word_normalized="CASA - MARE", word_original="casă - mare", word_type="A")
         result = _split_compound_entry(entry)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].word_normalized, "CASA")
         self.assertEqual(result[1].word_normalized, "MARE")
         self.assertEqual(result[0].word_original, "casă")
         self.assertEqual(result[1].word_original, "mare")
+        self.assertEqual("A", result[0].word_type)
+        self.assertEqual("A", result[1].word_type)
 
     def test_compound_with_split_flag(self):
         entry = _make_entry(word_normalized="A - B - C")

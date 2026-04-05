@@ -144,6 +144,8 @@
 
 **[2026-04-05]** Puzzle clue-integrity audits should use structural truth plus bulk reads — if the goal is “UI-safe puzzle load,” checking only blank definitions misses missing-slot rows, duplicates, and orphan clues. Fetch puzzle metadata once, fetch clue rows in bulk by puzzle-id chunks, derive expected slots from `grid_template`, and compare client-side instead of doing one query per puzzle.
 
+**[2026-04-05]** Late publish adapters must preserve clue metadata across serialization boundaries — if upload/publish starts reading a new clue field such as `word_type`, every bridge object in the path (`WorkingClue` -> exported puzzle data -> upload payload) must either carry that field or default it explicitly. Otherwise the batch can spend hours reaching “publishable” and then die on a final adapter `AttributeError`.
+
 ---
 
 ## Archive

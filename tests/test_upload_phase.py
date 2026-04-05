@@ -61,6 +61,57 @@ class UploadPhaseTests(unittest.TestCase):
         self.assertEqual("2026-03-31T10:11:12+00:00", payload["created_at"])
         self.assertEqual("2026-03-31T10:11:12+00:00", payload["updated_at"])
 
+    @patch("generator.phases.upload.log_canonical_event")
+    @patch("generator.phases.upload.ClueCanonService")
+    @patch("generator.phases.upload.ClueCanonStore")
+    @patch("generator.phases.upload._slots_with_words")
+    @patch("generator.phases.upload.create_client")
+    @patch("generator.phases.upload.SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    @patch("generator.phases.upload.SUPABASE_URL", "https://example.supabase.co")
+    def test_upload_defaults_missing_word_type_to_empty_string(
+        self,
+        mock_create_client,
+        mock_slots_with_words,
+        mock_store_cls,
+        mock_service_cls,
+        _mock_log_canonical_event,
+    ):
+        client = _Client()
+        mock_create_client.return_value = client
+        mock_slots_with_words.return_value = [
+            (SimpleNamespace(direction="H", start_row=0, start_col=0), "A")
+        ]
+        mock_store = mock_store_cls.return_value
+        mock_store.build_clue_definition_payload.return_value = {
+            "canonical_definition_id": "canon-1",
+        }
+        mock_service_cls.return_value.resolve_definition.return_value = SimpleNamespace(
+            canonical_definition_id="canon-1",
+            action="reuse",
+            canonical_definition="Prima literă",
+            decision_note=None,
+        )
+        puzzle = SimpleNamespace(
+            title="Test",
+            size=1,
+            grid=[["A"]],
+            horizontal_clues=[
+                SimpleNamespace(
+                    word_normalized="A",
+                    word_original="a",
+                    definition="Prima literă",
+                    verified=True,
+                )
+            ],
+            vertical_clues=[],
+        )
+
+        puzzle_id = upload_puzzle(puzzle)
+
+        self.assertEqual("puzzle-1", puzzle_id)
+        clue_rows = client.payload_store["crossword_clues"]
+        self.assertEqual("", clue_rows[0]["word_type"])
+
 
 if __name__ == "__main__":
     unittest.main()

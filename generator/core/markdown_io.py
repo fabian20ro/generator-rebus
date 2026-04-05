@@ -20,6 +20,7 @@ class ClueEntry:
     word_normalized: str  # ASCII uppercase
     word_original: str    # with diacritics (empty if not yet defined)
     definition: str       # empty if not yet defined
+    word_type: str = ""
     verified: bool | None = None  # None = not verified, True = ✓, False = ✗
     verify_note: str = ""  # note from verification (e.g., "AI guessed: CAPRE")
     start_row: int = 0

@@ -41,7 +41,7 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual("gemma4_26b_a4b", PRIMARY_MODEL.registry_key)
         self.assertIn("gemma", PRIMARY_MODEL.model_id)
         self.assertEqual(PRIMARY_MODEL.context_length, 8192)
-        self.assertEqual("none", PRIMARY_MODEL.reasoning_by_purpose["default"])
+        self.assertEqual("low", PRIMARY_MODEL.reasoning_by_purpose["default"])
 
     def test_secondary_model_config(self):
         self.assertEqual("eurollm_22b", SECONDARY_MODEL.registry_key)
@@ -71,18 +71,18 @@ class ModelManagerTests(unittest.TestCase):
                 get_active_model_labels(multi_model=True),
             )
 
-    def test_chat_reasoning_options_return_none_for_primary_default(self):
-        self.assertEqual({"reasoning_effort": "none"}, chat_reasoning_options(PRIMARY_MODEL.model_id))
+    def test_chat_reasoning_options_return_low_for_primary_default(self):
+        self.assertEqual({"reasoning_effort": "low"}, chat_reasoning_options(PRIMARY_MODEL.model_id))
 
-    def test_chat_reasoning_options_return_medium_for_primary_generate(self):
+    def test_chat_reasoning_options_return_low_for_primary_generate(self):
         self.assertEqual(
-            {"reasoning_effort": "medium"},
+            {"reasoning_effort": "low"},
             chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_generate"),
         )
 
-    def test_chat_reasoning_options_return_medium_for_primary_compare(self):
+    def test_chat_reasoning_options_return_low_for_primary_compare(self):
         self.assertEqual(
-            {"reasoning_effort": "none"},
+            {"reasoning_effort": "low"},
             chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="clue_compare"),
         )
 

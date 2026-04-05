@@ -129,7 +129,7 @@ class GenerateSingleTitleTests(unittest.TestCase):
         self.assertEqual("  Metale și Ecouri  ", result)
         self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
         self.assertEqual(2000, client.calls[0]["max_tokens"])
-        self.assertEqual("off", client.calls[0]["reasoning_effort"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
 
     def test_returns_empty_on_failure(self):
         result = _generate_single_title(

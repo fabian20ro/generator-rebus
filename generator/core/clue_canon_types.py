@@ -36,6 +36,7 @@ class CanonicalDefinition:
     rebus_score: int | None = None
     creativity_score: int | None = None
     usage_count: int = 0
+    superseded_by: str | None = None
 
 
 @dataclass(frozen=True)

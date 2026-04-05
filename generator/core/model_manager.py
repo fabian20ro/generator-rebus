@@ -34,11 +34,11 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
         model_id="google/gemma-4-26b-a4b",
         display_name="gemma-4",
         reasoning_by_purpose={
-            "default": "none",
-            "definition_generate": "medium",
-            "definition_rewrite": "medium",
-            "definition_rate": "medium",
-            "clue_compare": "none",
+            "default": "low",
+            "definition_generate": "low",
+            "definition_rewrite": "low",
+            "definition_rate": "low",
+            "clue_compare": "low",
         },
     ),
     "gpt_oss_20b": ModelConfig(
