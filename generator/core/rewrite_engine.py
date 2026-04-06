@@ -293,7 +293,12 @@ def run_rewrite_loop(
     if dex is None:
         dex = DexProvider.for_puzzle(puzzle)
 
-    clue_canon = clue_canon or ClueCanonService()
+    if clue_canon is None:
+        try:
+            clue_canon = ClueCanonService()
+        except RuntimeError as exc:
+            log(f"  Canonical prompt examples unavailable: {exc}")
+            clue_canon = None
     runtime = runtime or LmRuntime(multi_model=multi_model)
     current_model = runtime.activate_initial_evaluator()
     if multi_model:
