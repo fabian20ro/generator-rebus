@@ -37,6 +37,18 @@ function getCorsHeaders(request: Request, env: Env) {
   };
 }
 
+
+function isOriginAllowed(request: Request, env: Env): boolean {
+  const origin = request.headers.get("Origin");
+  if (!origin) return true; // Allow direct requests without Origin
+
+  const allowedList = env.ALLOWED_ORIGINS
+    ? env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+    : [DEFAULT_ALLOWED_ORIGIN];
+
+  return allowedList.includes(origin);
+}
+
 function requireEnv(env: Env): string | null {
   if (!env.SUPABASE_URL) return "Missing SUPABASE_URL";
   if (!env.SUPABASE_ANON_KEY) return "Missing SUPABASE_ANON_KEY";
@@ -51,9 +63,16 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  // CORS preflight
+// CORS preflight
   if (request.method === "OPTIONS") {
+    if (!isOriginAllowed(request, env)) {
+      return new Response(null, { status: 403 });
+    }
     return new Response(null, { headers: getCorsHeaders(request, env) });
+  }
+
+  if (!isOriginAllowed(request, env)) {
+    return jsonResponse({ error: "Forbidden" }, request, env, 403);
   }
 
   if (request.method !== "GET") {
