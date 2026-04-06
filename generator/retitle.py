@@ -13,7 +13,7 @@ from pathlib import Path
 from supabase import create_client as create_supabase_client
 
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
-from .core.ai_clues import create_client as create_ai_client
+from .core.llm_client import create_client as create_ai_client
 from .core.clue_canon_store import ClueCanonStore
 from .core.lm_runtime import LmRuntime
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig

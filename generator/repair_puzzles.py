@@ -10,7 +10,7 @@ from pathlib import Path
 from supabase import create_client as create_supabase_client
 
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
-from .core.ai_clues import create_client as create_ai_client
+from .core.llm_client import create_client as create_ai_client
 from .core.clue_canon import ClueCanonService
 from .core.clue_canon_store import ClueCanonStore
 from .core.clue_logging import clue_label, clue_label_from_row, log_canonical_event, log_definition_event

@@ -7,8 +7,8 @@ import copy
 from .ai_clues import (
     RATE_MIN_REBUS,
     RATE_MIN_SEMANTIC,
-    choose_better_clue_variant,
 )
+from .definition_referee import choose_better_clue_variant
 from .markdown_io import ClueEntry
 from .model_manager import PRIMARY_MODEL
 from .pipeline_state import (

@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 
 from .ai_clues import (
     RewriteAttemptResult,
-    choose_better_clue_variant,
     generate_definition,
     rewrite_definition,
 )
+from .definition_referee import choose_better_clue_variant
 from .clue_canon import ClueCanonService
 from .clue_logging import clue_label_from_working_clue, log_definition_event
 from .lm_runtime import LmRuntime

@@ -3,13 +3,20 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from generator.core.ai_clues import (
-    DefinitionComparisonVote,
-    DefinitionRating,
-    compare_definition_variants,
-    RewriteAttemptResult,
+from generator.core.llm_client import (
     _chat_completion_create,
     _clean_response,
+)
+from generator.core.ai_clues import (
+    DefinitionRating,
+    RewriteAttemptResult,
+    compute_rebus_score,
+    generate_definition,
+    rate_definition,
+    rewrite_definition,
+    verify_definition_candidates,
+)
+from generator.core.prompt_builders import (
     _extract_usage_suffix_from_dex,
     _normalize_definition_usage_suffix,
     _build_verify_prompt,
@@ -17,15 +24,16 @@ from generator.core.ai_clues import (
     _build_generate_prompt,
     _build_rate_prompt,
     _build_rewrite_prompt,
-    compute_rebus_score,
+)
+from generator.core.validation_guards import (
     contains_english_markers,
-    generate_definition,
-    rate_definition,
-    rewrite_definition,
-    run_definition_referee_adaptive_batch,
-    run_definition_referee_batch,
+)
+from generator.core.definition_referee import (
+    DefinitionComparisonVote,
+    compare_definition_variants,
     run_definition_referee,
-    verify_definition_candidates,
+    run_definition_referee_batch,
+    run_definition_referee_adaptive_batch,
 )
 from generator.core.clue_canon_types import DefinitionRefereeInput
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, chat_max_tokens
@@ -374,7 +382,7 @@ class AiCluesTests(unittest.TestCase):
             )
         )
 
-        with mock.patch("generator.core.ai_clues.log") as mock_log:
+        with mock.patch("generator.core.llm_client.log") as mock_log:
             _chat_completion_create(
                 client,
                 model=PRIMARY_MODEL.model_id,
@@ -517,7 +525,7 @@ class AiCluesTests(unittest.TestCase):
             _chat_response(content="raspuns final"),
         ])
 
-        with mock.patch("generator.core.ai_clues.log") as mock_log:
+        with mock.patch("generator.core.llm_client.log") as mock_log:
             _chat_completion_create(
                 client,
                 model=PRIMARY_MODEL.model_id,
@@ -547,7 +555,7 @@ class AiCluesTests(unittest.TestCase):
             _attempt(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="A"),
         ]
 
-        with mock.patch("generator.core.ai_clues._compare_definition_variant_attempt", side_effect=attempts):
+        with mock.patch("generator.core.definition_referee._compare_definition_variant_attempt", side_effect=attempts):
             result = run_definition_referee(
                 client,
                 runtime,
@@ -596,7 +604,7 @@ class AiCluesTests(unittest.TestCase):
             _attempt(model_id=SECONDARY_MODEL.model_id, same_meaning=True, better="B"),
         ]
 
-        with mock.patch("generator.core.ai_clues._compare_definition_variant_attempt", side_effect=attempts):
+        with mock.patch("generator.core.definition_referee._compare_definition_variant_attempt", side_effect=attempts):
             results = run_definition_referee_batch(client, runtime, requests)
 
         self.assertEqual([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], runtime.activated)
@@ -637,7 +645,7 @@ class AiCluesTests(unittest.TestCase):
             _attempt(model_id=SECONDARY_MODEL.model_id, same_meaning=False, better="equal"),
         ]
 
-        with mock.patch("generator.core.ai_clues._compare_definition_variant_attempt", side_effect=attempts):
+        with mock.patch("generator.core.definition_referee._compare_definition_variant_attempt", side_effect=attempts):
             result = run_definition_referee_adaptive_batch(client, runtime, requests)
 
         self.assertEqual([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], runtime.activated)

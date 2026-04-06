@@ -6,11 +6,11 @@ from openai import OpenAI
 
 from ..config import VERIFY_CANDIDATE_COUNT
 from ..core.markdown_io import parse_markdown, write_with_definitions
+from ..core.llm_client import create_client
 from ..core.ai_clues import (
     RATE_MIN_REBUS,
     RATE_MIN_SEMANTIC,
     compute_rebus_score,
-    create_client,
     rate_definition,
     verify_definition_candidates,
     contains_english_markers,

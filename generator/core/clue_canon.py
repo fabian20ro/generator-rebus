@@ -336,9 +336,9 @@ class ClueCanonService:
 
     def _run_referee(self, record: ClueDefinitionRecord, canonical: CanonicalDefinition) -> DefinitionRefereeResult:
         if self.client is None:
-            from .ai_clues import create_client
+            from .llm_client import create_client
             self.client = create_client()
-        from .ai_clues import run_definition_referee
+        from .definition_referee import run_definition_referee
 
         return run_definition_referee(
             self.client,
@@ -356,9 +356,9 @@ class ClueCanonService:
         if not requests:
             return {}
         if self.client is None:
-            from .ai_clues import create_client
+            from .llm_client import create_client
             self.client = create_client()
-        from .ai_clues import run_definition_referee_batch
+        from .definition_referee import run_definition_referee_batch
 
         return run_definition_referee_batch(
             self.client,
@@ -373,9 +373,9 @@ class ClueCanonService:
         if not requests:
             return None
         if self.client is None:
-            from .ai_clues import create_client
+            from .llm_client import create_client
             self.client = create_client()
-        from .ai_clues import run_definition_referee_adaptive_batch
+        from .definition_referee import run_definition_referee_adaptive_batch
 
         return run_definition_referee_adaptive_batch(
             self.client,

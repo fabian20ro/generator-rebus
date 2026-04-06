@@ -12,11 +12,11 @@ import signal
 import time
 
 from .ai_clues import (
-    compare_definition_variants_attempt,
     has_prompt_residue,
     rewrite_merged_canonical_definition,
     validate_merged_canonical_definition,
 )
+from .definition_referee import compare_definition_variants_attempt
 from .clue_canon import content_tokens, lexical_similarity, normalize_definition_text
 from .clue_canon_store import ClueCanonStore
 from .clue_canon_types import CanonicalDefinition, ClueDefinitionRecord

@@ -3,7 +3,8 @@
 from __future__ import annotations
 from openai import OpenAI
 from ..core.markdown_io import parse_markdown, write_with_definitions, ClueEntry
-from ..core.ai_clues import create_client, generate_definition
+from ..core.llm_client import create_client
+from ..core.ai_clues import generate_definition
 from ..core.clue_canon import ClueCanonService
 from ..core.clue_logging import clue_label_from_working_clue, log_definition_event
 from ..core.dex_cache import DexProvider

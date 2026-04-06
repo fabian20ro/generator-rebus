@@ -6,7 +6,7 @@ from unittest.mock import patch
 from generator.assessment.run_assessment import main as assessment_main
 from generator.batch_publish import build_parser as build_batch_publish_parser
 from generator.clue_canon import build_parser as build_clue_canon_parser
-from generator.core.ai_clues import _chat_completion_create
+from generator.core.llm_client import _chat_completion_create
 from generator.core.runtime_logging import set_llm_debug_enabled
 from generator.loop_controller import build_batch_command, build_parser as build_loop_parser
 from generator.rebus import build_parser as build_rebus_parser

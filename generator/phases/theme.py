@@ -9,7 +9,7 @@ import sys
 from dataclasses import dataclass
 from collections.abc import Iterable
 
-from ..core.ai_clues import _chat_completion_create, create_client
+from ..core.llm_client import _chat_completion_create, create_client
 from ..core.diacritics import normalize
 from ..core.llm_text import clean_llm_text_response
 from ..core.lm_runtime import LmRuntime

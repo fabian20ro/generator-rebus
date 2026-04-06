@@ -368,8 +368,8 @@ class BatchPublishTests(unittest.TestCase):
         self.assertIn("Puzzle tie-break:", captured.getvalue())
         self.assertIn("câștigă B", captured.getvalue())
 
-    @patch("generator.batch_publish._rust_binary_path")
-    @patch("generator.batch_publish.subprocess.run")
+    @patch("generator.rust_bridge._rust_binary_path")
+    @patch("generator.rust_bridge.subprocess.run")
     def test_best_candidate_uses_rust_binary_when_words_path_present(
         self,
         mock_run,
