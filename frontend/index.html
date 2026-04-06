@@ -17,8 +17,8 @@
     <header>
       <div class="header-row">
         <h1>Rebus</h1>
-        <div class="header-points" id="header-points" title="Punctele tale"></div>
-        <button id="btn-back" class="btn-back hidden" title="Înapoi la lista de rebusuri">&lt;&lt;</button>
+        <div class="header-points" id="header-points" title="Punctele tale" aria-live="polite"></div>
+        <button id="btn-back" class="btn-back hidden" title="Înapoi la lista de rebusuri" aria-label="Înapoi la lista de rebusuri">&lt;&lt;</button>
       </div>
       <p id="puzzle-title" class="subtitle"></p>
       <p id="puzzle-meta" class="puzzle-meta hidden"></p>
@@ -29,7 +29,7 @@
       <!-- Puzzle selector -->
       <div id="puzzle-selector" class="panel selector-panel">
         <div id="selector-controls" class="selector-controls"></div>
-        <div id="puzzle-list" class="puzzle-list">
+        <div id="puzzle-list" class="puzzle-list" aria-live="polite">
           <p class="loading">Se încarcă...</p>
         </div>
       </div>
@@ -155,7 +155,7 @@
       </div>
 
       <!-- Toast notifications -->
-      <div id="toast-container" class="toast-container"></div>
+      <div id="toast-container" class="toast-container" aria-live="polite"></div>
     </main>
   </div>
 
