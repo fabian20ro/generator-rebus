@@ -10,13 +10,13 @@ from generator.core.clue_canon_simplify import (
     SimplifyCandidatePair,
     SimplifyStats,
     _apply_merge,
-    _default_state_path,
     _load_state,
     _write_state,
     build_candidate_pairs,
     choose_existing_survivor,
     run_simplify_fanout,
     sample_candidate_batch,
+    should_rewrite_survivor,
 )
 from generator.core.clue_canon_types import CanonicalDefinition
 
@@ -30,6 +30,9 @@ def _canonical(
     usage_label: str = "",
     verified: bool = True,
     usage_count: int = 1,
+    semantic_score: int = 8,
+    rebus_score: int = 7,
+    creativity_score: int = 6,
 ) -> CanonicalDefinition:
     return CanonicalDefinition(
         id=canonical_id,
@@ -40,9 +43,9 @@ def _canonical(
         word_type=word_type,
         usage_label=usage_label,
         verified=verified,
-        semantic_score=8,
-        rebus_score=7,
-        creativity_score=6,
+        semantic_score=semantic_score,
+        rebus_score=rebus_score,
+        creativity_score=creativity_score,
         usage_count=usage_count,
         superseded_by=None,
     )
@@ -103,6 +106,30 @@ class ClueCanonSimplifyTests(unittest.TestCase):
 
         self.assertEqual("2", winner.id)
 
+    def test_should_rewrite_survivor_only_when_both_candidates_are_weak(self):
+        strong = _canonical(canonical_id="1", word="LA", definition="Def 1", verified=True)
+        weak_a = _canonical(
+            canonical_id="2",
+            word="LA",
+            definition="Def 2",
+            verified=False,
+            semantic_score=5,
+            rebus_score=4,
+            creativity_score=3,
+        )
+        weak_b = _canonical(
+            canonical_id="3",
+            word="LA",
+            definition="Def 3",
+            verified=False,
+            semantic_score=4,
+            rebus_score=4,
+            creativity_score=3,
+        )
+
+        self.assertFalse(should_rewrite_survivor(strong, weak_a))
+        self.assertTrue(should_rewrite_survivor(weak_a, weak_b))
+
     def test_apply_merge_dry_run_does_not_touch_store(self):
         store = SimpleNamespace()
         survivor_id = _apply_merge(
@@ -123,10 +150,6 @@ class ClueCanonSimplifyTests(unittest.TestCase):
                 calls.append("create")
                 return SimpleNamespace(id="survivor-1")
 
-            def insert_aliases(self, **_kwargs):
-                calls.append("aliases")
-                return 1
-
             def repoint_clues_by_canonical_ids(self, *_args, **_kwargs):
                 calls.append("repoint")
                 raise RuntimeError("boom")
@@ -143,7 +166,7 @@ class ClueCanonSimplifyTests(unittest.TestCase):
                 dry_run=False,
             )
 
-        self.assertEqual(["create", "aliases", "repoint"], calls)
+        self.assertEqual(["create", "repoint"], calls)
 
     def test_simplify_state_roundtrip_restores_current_batch(self):
         rng = __import__("random").Random(7)
@@ -184,16 +207,14 @@ class ClueCanonSimplifyTests(unittest.TestCase):
         self.assertEqual(["1::2"], [item.key for item in current_batch])
         self.assertEqual(2, pool_version)
 
-    def test_run_simplify_fanout_skips_invalid_compare_and_exits_after_idle(self):
+    def test_run_simplify_fanout_keeps_best_existing_survivor_without_rewrite_when_pair_is_strong(self):
         pair_rows = [
-            _canonical(canonical_id="1", word="LA", definition="Prepoziție care indică locul."),
-            _canonical(canonical_id="2", word="LA", definition="Prepoziție care arată locul."),
+            _canonical(canonical_id="1", word="LA", definition="Prepoziție care indică locul.", verified=True),
+            _canonical(canonical_id="2", word="LA", definition="Prepoziție care arată locul.", verified=True),
         ]
+        applied = []
 
         class _Store:
-            def is_enabled(self):
-                return True
-
             def fetch_active_canonical_variants(self, word_normalized=None):
                 return list(pair_rows)
 
@@ -206,14 +227,14 @@ class ClueCanonSimplifyTests(unittest.TestCase):
             activate=lambda *_args, **_kwargs: None,
         )
 
-        invalid_attempt = SimpleNamespace(vote=None, parse_status="invalid_json")
-        ok_attempt = SimpleNamespace(
-            vote=SimpleNamespace(same_meaning=True),
-            parse_status="ok",
-        )
-
         with tempfile.TemporaryDirectory() as tmpdir, \
-             patch("generator.core.clue_canon_simplify.compare_definition_variants_attempt", side_effect=[invalid_attempt, ok_attempt]), \
+             patch("generator.core.clue_canon_simplify.compare_definition_variants_attempt", side_effect=[
+                 SimpleNamespace(vote=SimpleNamespace(same_meaning=True), parse_status="ok"),
+                 SimpleNamespace(vote=SimpleNamespace(same_meaning=True), parse_status="ok"),
+             ]), \
+             patch("generator.core.clue_canon_simplify.rewrite_merged_canonical_definition") as rewrite_mock, \
+             patch("generator.core.clue_canon_simplify.validate_merged_canonical_definition") as validate_mock, \
+             patch("generator.core.clue_canon_simplify._apply_merge", side_effect=lambda **kwargs: applied.append(kwargs) or "survivor-1"), \
              patch("generator.core.clue_canon_simplify.time.sleep", return_value=None):
             result = run_simplify_fanout(
                 store=_Store(),
@@ -230,14 +251,68 @@ class ClueCanonSimplifyTests(unittest.TestCase):
             summary_text = (Path(tmpdir) / "report" / "summary.json").read_text(encoding="utf-8")
 
         self.assertEqual(0, result)
-        self.assertIn('"compare_invalid": 1', summary_text)
+        rewrite_mock.assert_not_called()
+        validate_mock.assert_not_called()
+        self.assertEqual(
+            choose_existing_survivor(pair_rows[0], pair_rows[1]).definition,
+            applied[0]["survivor_definition"],
+        )
+        self.assertIn('"pairs_merged": 1', summary_text)
 
-    def test_parser_accepts_simplify_fanout_command(self):
-        args = build_parser().parse_args(["simplify-fanout", "--dry-run", "--batch-size", "5"])
+    def test_run_simplify_fanout_uses_rewrite_for_weak_pairs(self):
+        pair_rows = [
+            _canonical(canonical_id="1", word="LA", definition="Def 1", verified=False, semantic_score=4, rebus_score=4, creativity_score=3),
+            _canonical(canonical_id="2", word="LA", definition="Def 2", verified=False, semantic_score=4, rebus_score=4, creativity_score=3),
+        ]
+
+        class _Store:
+            def fetch_active_canonical_variants(self, word_normalized=None):
+                return list(pair_rows)
+
+            def fetch_active_canonical_variants_for_words(self, words_normalized):
+                return list(pair_rows)
+
+        runtime = SimpleNamespace(
+            activation_count=0,
+            switch_count=0,
+            activate=lambda *_args, **_kwargs: None,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir, \
+             patch("generator.core.clue_canon_simplify.compare_definition_variants_attempt", side_effect=[
+                 SimpleNamespace(vote=SimpleNamespace(same_meaning=True), parse_status="ok"),
+                 SimpleNamespace(vote=SimpleNamespace(same_meaning=True), parse_status="ok"),
+             ]), \
+             patch("generator.core.clue_canon_simplify.rewrite_merged_canonical_definition", return_value=SimpleNamespace(definition="Def bun")) as rewrite_mock, \
+             patch("generator.core.clue_canon_simplify.validate_merged_canonical_definition", return_value=SimpleNamespace(accepted=True)) as validate_mock, \
+             patch("generator.core.clue_canon_simplify._apply_merge", return_value="survivor-1"), \
+             patch("generator.core.clue_canon_simplify.time.sleep", return_value=None):
+            result = run_simplify_fanout(
+                store=_Store(),
+                client=object(),
+                runtime=runtime,
+                dry_run=True,
+                apply=False,
+                batch_size=10,
+                state_path=str(Path(tmpdir) / "state.json"),
+                report_dir=str(Path(tmpdir) / "report"),
+                idle_sleep_seconds=0,
+                stop_after_idle_cycles=1,
+            )
+
+        self.assertEqual(0, result)
+        rewrite_mock.assert_called_once()
+        validate_mock.assert_called_once()
+
+    def test_parser_accepts_simplify_fanout_and_rejects_backfill(self):
+        parser = build_parser()
+        args = parser.parse_args(["simplify-fanout", "--dry-run", "--batch-size", "5"])
 
         self.assertEqual("simplify-fanout", args.command)
         self.assertTrue(args.dry_run)
         self.assertEqual(5, args.batch_size)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["backfill", "--apply"])
 
     def test_wrapper_defaults_to_apply_mode(self):
         wrapper = Path("run_clue_canon_simplify.sh").read_text(encoding="utf-8")

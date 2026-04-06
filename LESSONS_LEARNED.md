@@ -152,6 +152,8 @@
 
 **[2026-04-05]** Late publish adapters must preserve clue metadata across serialization boundaries — if upload/publish starts reading a new clue field such as `word_type`, every bridge object in the path (`WorkingClue` -> exported puzzle data -> upload payload) must either carry that field or default it explicitly. Otherwise the batch can spend hours reaching “publishable” and then die on a final adapter `AttributeError`.
 
+**[2026-04-07]** Permanent storage cutovers should delete transition-era runtime code, not merely bypass it — once every live row obeys the new invariant, compatibility flags (`is_enabled`, legacy-source branches, resumable backfill state, alias-history side writes) stop being safety mechanisms and start masking contract drift. Collapse the runtime onto the steady-state schema, keep one health audit, and leave migration history only in SQL/docs history.
+
 ---
 
 ## Archive

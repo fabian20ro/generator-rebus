@@ -226,8 +226,9 @@ class DebugParserTests(unittest.TestCase):
     def test_clue_canon_subcommands_accept_debug(self):
         parser = build_clue_canon_parser()
 
-        self.assertTrue(parser.parse_args(["backfill", "--apply", "--debug"]).debug)
         self.assertTrue(parser.parse_args(["simplify-fanout", "--apply", "--debug"]).debug)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["backfill", "--apply", "--debug"])
 
     def test_assessment_accepts_debug(self):
         with patch("generator.assessment.run_assessment.run_assessment") as mock_run:

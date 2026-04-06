@@ -200,6 +200,22 @@ def choose_existing_survivor(
     )[0]
 
 
+def should_rewrite_survivor(
+    left: CanonicalDefinition,
+    right: CanonicalDefinition,
+) -> bool:
+    return not (_strong_existing_survivor(left) or _strong_existing_survivor(right))
+
+
+def _strong_existing_survivor(row: CanonicalDefinition) -> bool:
+    if row.verified:
+        return True
+    semantic = int(row.semantic_score or 0)
+    rebus = int(row.rebus_score or 0)
+    creativity = int(row.creativity_score or 0)
+    return semantic >= 8 and rebus >= 7 and creativity >= 5
+
+
 def _survivor_record_from_definition(
     source: CanonicalDefinition,
     *,
@@ -433,32 +449,6 @@ def _apply_merge(
     )
     if survivor is None:
         raise RuntimeError("failed to create survivor canonical")
-    store.insert_aliases(
-        canonical_definition_id=survivor.id,
-        word_normalized=best_source.word_normalized,
-        aliases=[
-            {
-                "definition": left.definition,
-                "definition_norm": left.definition_norm,
-                "source_clue_id": None,
-                "match_type": "simplify_merge",
-                "same_meaning_votes": 2,
-                "winner_votes": None,
-                "decision_source": "simplify_fanout",
-                "decision_note": f"source={left.id}",
-            },
-            {
-                "definition": right.definition,
-                "definition_norm": right.definition_norm,
-                "source_clue_id": None,
-                "match_type": "simplify_merge",
-                "same_meaning_votes": 2,
-                "winner_votes": None,
-                "decision_source": "simplify_fanout",
-                "decision_note": f"source={right.id}",
-            },
-        ],
-    )
     store.repoint_clues_by_canonical_ids(
         [left.id, right.id],
         canonical_definition_id=survivor.id,
@@ -662,34 +652,41 @@ def run_simplify_fanout(
                     continue
                 left, right = found
                 stats.pairs_same_sense += 1
-                rewrite = rewrite_merged_canonical_definition(
-                    client,
-                    word=pair.word,
-                    definition_a=left.definition,
-                    definition_b=right.definition,
-                    model=SECONDARY_MODEL.model_id,
-                )
-                approved_pairs.append((pair, left, right, rewrite.definition))
+                survivor_source = choose_existing_survivor(left, right)
+                if should_rewrite_survivor(left, right):
+                    rewrite = rewrite_merged_canonical_definition(
+                        client,
+                        word=pair.word,
+                        definition_a=left.definition,
+                        definition_b=right.definition,
+                        model=SECONDARY_MODEL.model_id,
+                    )
+                    approved_pairs.append((pair, left, right, rewrite.definition, True))
+                else:
+                    approved_pairs.append((pair, left, right, survivor_source.definition, False))
             if approved_pairs:
                 if runtime is not None:
                     runtime.activate(PRIMARY_MODEL)
             touched_words: set[str] = set()
-            for pair, left, right, rewritten_definition in approved_pairs:
-                validation = validate_merged_canonical_definition(
-                    client,
-                    word=pair.word,
-                    answer_length=len(pair.word),
-                    definition_a=left.definition,
-                    definition_b=right.definition,
-                    candidate_definition=rewritten_definition,
-                    model=PRIMARY_MODEL.model_id,
-                )
+            for pair, left, right, rewritten_definition, rewrite_attempted in approved_pairs:
                 survivor_source = choose_existing_survivor(left, right)
                 survivor_definition = rewritten_definition
-                if not validation.accepted:
-                    stats.rewrite_invalid += 1
-                    stats.rewrite_fallback_existing += 1
-                    survivor_definition = survivor_source.definition
+                rewrite_validated = False
+                if rewrite_attempted:
+                    validation = validate_merged_canonical_definition(
+                        client,
+                        word=pair.word,
+                        answer_length=len(pair.word),
+                        definition_a=left.definition,
+                        definition_b=right.definition,
+                        candidate_definition=rewritten_definition,
+                        model=PRIMARY_MODEL.model_id,
+                    )
+                    rewrite_validated = validation.accepted
+                    if not validation.accepted:
+                        stats.rewrite_invalid += 1
+                        stats.rewrite_fallback_existing += 1
+                        survivor_definition = survivor_source.definition
                 try:
                     survivor_id = _apply_merge(
                         store=store,
@@ -717,7 +714,8 @@ def run_simplify_fanout(
                     "right_id": right.id,
                     "survivor_id": survivor_id,
                     "survivor_definition": survivor_definition,
-                    "rewrite_validated": validation.accepted,
+                    "rewrite_attempted": rewrite_attempted,
+                    "rewrite_validated": rewrite_validated,
                 })
                 touched_words.add(pair.word)
             current_batch = []

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timezone
 import re
 
@@ -17,13 +16,6 @@ _CANONICAL_SELECT = (
     "word_type, usage_label, verified, semantic_score, rebus_score, "
     "creativity_score, usage_count, superseded_by"
 )
-_SCHEMA_CHECKS: tuple[tuple[str, str], ...] = (
-    ("canonical_clue_definitions", "id"),
-    ("canonical_clue_aliases", "id"),
-    ("crossword_clue_effective", "id, canonical_definition_id, definition"),
-    ("crossword_clues", "id, canonical_definition_id"),
-    ("crossword_puzzles", "id, grid_template, published"),
-)
 _CLUE_PAGE_SIZE = 1000
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-"
@@ -36,37 +28,11 @@ _UUID_RE = re.compile(
 
 class ClueCanonStore:
     def __init__(self, client=None):
-        self.client = client
-        self._schema_available: bool | None = None
-        self._warned = False
+        self.client = client or create_service_role_client()
         self._word_cache: dict[str, list[CanonicalDefinition]] = {}
-        self._alias_cache: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
         self._canonical_lookup: dict[tuple[str, str, str, str], CanonicalDefinition] = {}
-        if self.client is None:
-            try:
-                self.client = create_service_role_client()
-            except Exception as exc:
-                self._schema_available = False
-                self._warn_once(f"canonical clue library disabled: {exc}")
-
-    def is_enabled(self) -> bool:
-        if self.client is None:
-            return False
-        if self._schema_available is not None:
-            return self._schema_available
-        try:
-            for table, fields in _SCHEMA_CHECKS:
-                self.client.table(table).select(fields).limit(1).execute()
-        except Exception as exc:
-            self._schema_available = False
-            self._warn_once(f"canonical clue library schema unavailable: {exc}")
-            return False
-        self._schema_available = True
-        return True
 
     def fetch_canonical_variants(self, word_normalized: str, *, limit: int | None = None) -> list[CanonicalDefinition]:
-        if not self.is_enabled():
-            return []
         word = str(word_normalized or "").strip().upper()
         if word in self._word_cache:
             rows = self._word_cache[word]
@@ -90,8 +56,6 @@ class ClueCanonStore:
         word_normalized: str | None = None,
         limit: int | None = None,
     ) -> list[CanonicalDefinition]:
-        if not self.is_enabled():
-            return []
         rows: list[CanonicalDefinition] = []
         offset = 0
         while True:
@@ -126,8 +90,6 @@ class ClueCanonStore:
         self,
         words_normalized: list[str],
     ) -> list[CanonicalDefinition]:
-        if not self.is_enabled():
-            return []
         words = sorted({
             str(word or "").strip().upper()
             for word in words_normalized
@@ -153,8 +115,6 @@ class ClueCanonStore:
         return rows
 
     def prefetch_canonical_variants(self, words_normalized: list[str]) -> dict[str, list[CanonicalDefinition]]:
-        if not self.is_enabled():
-            return {}
         words = sorted({
             str(word or "").strip().upper()
             for word in words_normalized
@@ -198,8 +158,6 @@ class ClueCanonStore:
         word_type: str = "",
         usage_label: str = "",
     ) -> CanonicalDefinition | None:
-        if not self.is_enabled():
-            return None
         word = str(word_normalized or "").strip().upper()
         self.fetch_canonical_variants(word)
         return self._canonical_lookup.get(
@@ -207,8 +165,6 @@ class ClueCanonStore:
         )
 
     def create_canonical_definition(self, record: ClueDefinitionRecord) -> CanonicalDefinition | None:
-        if not self.is_enabled():
-            return None
         existing = self.find_exact_canonical(
             record.word_normalized,
             record.definition_norm,
@@ -265,8 +221,6 @@ class ClueCanonStore:
         return row
 
     def bump_usage(self, canonical_id: str, word_normalized: str) -> CanonicalDefinition | None:
-        if not self.is_enabled():
-            return None
         rows = self.fetch_canonical_variants(word_normalized)
         current = next((row for row in rows if row.id == canonical_id), None)
         if current is None:
@@ -355,121 +309,6 @@ class ClueCanonStore:
             batches += 1
         return batches
 
-    def insert_alias(
-        self,
-        *,
-        canonical_definition_id: str,
-        word_normalized: str,
-        definition: str,
-        definition_norm: str,
-        source_clue_id: str | None,
-        match_type: str,
-        same_meaning_votes: int | None,
-        winner_votes: int | None,
-        decision_source: str,
-        decision_note: str = "",
-    ) -> None:
-        if not self.is_enabled():
-            return
-        source_key = source_clue_id or ""
-        dedupe_key = (canonical_definition_id, definition_norm, source_key)
-        if dedupe_key in self._alias_cache[word_normalized]:
-            return
-        existing = (
-            self.client.table("canonical_clue_aliases")
-            .select("id")
-            .eq("canonical_definition_id", canonical_definition_id)
-            .eq("definition_norm", definition_norm)
-            .eq("word_normalized", word_normalized)
-            .execute()
-        )
-        if existing.data:
-            self._alias_cache[word_normalized].add(dedupe_key)
-            return
-        execute_logged_insert(
-            self.client,
-            "canonical_clue_aliases",
-            {
-                "canonical_definition_id": canonical_definition_id,
-                "source_clue_id": source_clue_id,
-                "word_normalized": word_normalized,
-                "definition": definition,
-                "definition_norm": definition_norm,
-                "match_type": match_type,
-                "same_meaning_votes": same_meaning_votes,
-                "winner_votes": winner_votes,
-                "decision_source": decision_source,
-                "decision_note": decision_note,
-            },
-        )
-        self._alias_cache[word_normalized].add(dedupe_key)
-
-    def insert_aliases(
-        self,
-        *,
-        canonical_definition_id: str,
-        word_normalized: str,
-        aliases: list[dict[str, object]],
-    ) -> int:
-        if not self.is_enabled():
-            return 0
-        word = str(word_normalized or "").strip().upper()
-        definition_norms = sorted({
-            str(alias.get("definition_norm") or "").strip()
-            for alias in aliases
-            if str(alias.get("definition_norm") or "").strip()
-        })
-        existing_norms: set[str] = set()
-        if definition_norms:
-            for start in range(0, len(definition_norms), _CLUE_PAGE_SIZE):
-                chunk = definition_norms[start : start + _CLUE_PAGE_SIZE]
-                existing = (
-                    self.client.table("canonical_clue_aliases")
-                    .select("definition_norm")
-                    .eq("canonical_definition_id", canonical_definition_id)
-                    .eq("word_normalized", word)
-                    .in_("definition_norm", chunk)
-                    .execute()
-                )
-                for row in existing.data or []:
-                    existing_norms.add(str(row.get("definition_norm") or "").strip())
-        pending_rows: list[dict[str, object]] = []
-        for alias in aliases:
-            definition_norm = str(alias.get("definition_norm") or "").strip()
-            source_key = str(alias.get("source_clue_id") or "")
-            dedupe_key = (canonical_definition_id, definition_norm, source_key)
-            if not definition_norm:
-                continue
-            if dedupe_key in self._alias_cache[word]:
-                continue
-            if definition_norm in existing_norms:
-                self._alias_cache[word].add(dedupe_key)
-                continue
-            pending_rows.append(
-                {
-                    "canonical_definition_id": canonical_definition_id,
-                    "source_clue_id": alias.get("source_clue_id"),
-                    "word_normalized": word,
-                    "definition": str(alias.get("definition") or ""),
-                    "definition_norm": definition_norm,
-                    "match_type": str(alias.get("match_type") or ""),
-                    "same_meaning_votes": alias.get("same_meaning_votes"),
-                    "winner_votes": alias.get("winner_votes"),
-                    "decision_source": str(alias.get("decision_source") or ""),
-                    "decision_note": str(alias.get("decision_note") or ""),
-                }
-            )
-            existing_norms.add(definition_norm)
-            self._alias_cache[word].add(dedupe_key)
-        if not pending_rows:
-            return 0
-        execute_logged_insert(
-            self.client,
-            "canonical_clue_aliases",
-            pending_rows,
-        )
-        return 1
-
     def build_clue_definition_payload(
         self,
         *,
@@ -512,7 +351,6 @@ class ClueCanonStore:
             "verified",
             "canonical_definition_id",
             "definition",
-            "definition_source",
         ]
         for field in extra_fields:
             if field not in select_fields:
@@ -535,6 +373,38 @@ class ClueCanonStore:
                 batch = query.range(offset, offset + _CLUE_PAGE_SIZE - 1).execute().data or []
             rows.extend(batch)
             if puzzle_id or len(batch) < _CLUE_PAGE_SIZE:
+                break
+            offset += _CLUE_PAGE_SIZE
+        return rows
+
+    def fetch_raw_clue_rows(
+        self,
+        *,
+        extra_fields: tuple[str, ...] = (),
+    ) -> list[dict]:
+        select_fields = [
+            "id",
+            "puzzle_id",
+            "word_normalized",
+            "canonical_definition_id",
+        ]
+        for field in extra_fields:
+            if field not in select_fields:
+                select_fields.append(field)
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            batch = (
+                self.client.table("crossword_clues")
+                .select(", ".join(select_fields))
+                .order("id")
+                .range(offset, offset + _CLUE_PAGE_SIZE - 1)
+                .execute()
+                .data
+                or []
+            )
+            rows.extend(batch)
+            if len(batch) < _CLUE_PAGE_SIZE:
                 break
             offset += _CLUE_PAGE_SIZE
         return rows
@@ -634,18 +504,6 @@ class ClueCanonStore:
                 offset += _CLUE_PAGE_SIZE
         return rows
 
-    def fetch_backfill_source_rows(
-        self,
-        *,
-        word_normalized: str | None = None,
-        extra_fields: tuple[str, ...] = (),
-    ) -> list[dict]:
-        return self.fetch_clue_rows(
-            canonical_missing_only=True,
-            word_normalized=word_normalized,
-            extra_fields=extra_fields,
-        )
-
     def count_clue_rows(
         self,
         *,
@@ -666,7 +524,7 @@ class ClueCanonStore:
         return int(getattr(result, "count", 0) or 0)
 
     def fetch_canonical_definitions_by_ids(self, canonical_ids: list[str]) -> dict[str, str]:
-        if not canonical_ids or not self.is_enabled():
+        if not canonical_ids:
             return {}
         unique_ids = sorted({
             canonical_id.strip()
@@ -687,6 +545,27 @@ class ClueCanonStore:
             for row in result.data or []:
                 definitions[str(row.get("id") or "")] = str(row.get("definition") or "")
         return definitions
+
+    def fetch_canonical_rows_by_ids(self, canonical_ids: list[str]) -> list[CanonicalDefinition]:
+        unique_ids = sorted({
+            str(canonical_id or "").strip()
+            for canonical_id in canonical_ids
+            if str(canonical_id or "").strip() and _UUID_RE.match(str(canonical_id or "").strip())
+        })
+        if not unique_ids:
+            return []
+        rows: list[CanonicalDefinition] = []
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            result = (
+                self.client.table("canonical_clue_definitions")
+                .select(_CANONICAL_SELECT)
+                .in_("id", chunk)
+                .execute()
+            )
+            for row in result.data or []:
+                rows.append(self._canonical_from_row(row))
+        return rows
 
     def repoint_clues_by_canonical_ids(
         self,
@@ -825,13 +704,6 @@ class ClueCanonStore:
             usage_count=int(row.get("usage_count") or 0),
             superseded_by=str(row.get("superseded_by") or "") or None,
         )
-
-    def _warn_once(self, message: str) -> None:
-        if self._warned:
-            return
-        log(f"[clue canon] {message}")
-        self._warned = True
-
 
 def _canonical_sort_key(row: CanonicalDefinition) -> tuple[object, ...]:
     return (

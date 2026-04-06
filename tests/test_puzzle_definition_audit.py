@@ -62,9 +62,6 @@ class _FakeStore:
         self.fetch_puzzle_rows_calls: list[dict] = []
         self.fetch_clue_rows_for_puzzle_ids_calls: list[list[str]] = []
 
-    def is_enabled(self) -> bool:
-        return True
-
     def fetch_puzzle_rows(self, **kwargs):
         self.fetch_puzzle_rows_calls.append(kwargs)
         rows = list(self.puzzles)

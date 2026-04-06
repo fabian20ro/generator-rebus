@@ -221,8 +221,6 @@ def run_audit(
     store: ClueCanonStore | None = None,
 ) -> int:
     store = store or ClueCanonStore()
-    if not store.is_enabled():
-        raise RuntimeError("Canonical clue schema unavailable")
 
     summary_path = Path(output) if output else DEFAULT_REPORT_DIR / f"audit_{path_timestamp()}.json"
     details_path = Path(details) if details else summary_path.with_name(f"{summary_path.stem}_details.jsonl")

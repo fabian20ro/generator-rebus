@@ -70,14 +70,10 @@ LMSTUDIO_BASE_URL=http://127.0.0.1:1234
 Fresh install: run [`schema.sql`](/Users/fabian/git/generator-rebus/schema.sql) in Supabase SQL Editor. It creates:
 - `crossword_puzzles`
 - `crossword_clues`
-- `canonical_clue_definitions`
-- `canonical_clue_aliases`
+- canonical clue library tables
 - `crossword_clue_effective` view
 
-Existing install: apply migrations in `migrations/` first. The canonical cutover is phased:
-- `20260402_add_canonical_clue_schema.sql` adds canonical tables plus the compatibility view
-- run clue-canon backfill over the old 13k `crossword_clues.definition` corpus
-- `20260402_finalize_canonical_clue_cutover.sql` is the final cleanup step after every live clue row has `canonical_definition_id`
+Existing install: apply migrations in `migrations/` first.
 
 ## Generator CLI
 
@@ -170,26 +166,23 @@ python -m generator activate a1b2c3d4-e5f6-7890-abcd-ef1234567890
 - Skip `verify` and use `--force` on upload
 - Edit any intermediate `.md` file in a text editor between phases
 
-## Canonical clue backfill
+## Canonical clue maintenance
 
-Use the repo-root wrapper to build canonical clue definitions from the legacy `crossword_clues.definition` corpus:
+Canonical clue cleanup now has two steady-state surfaces:
 
 ```bash
-# Dry-run over the full null-pointer legacy corpus
-./run_clue_canon_backfill.sh --dry-run
+# Audit canonical library health
+python -m generator.clue_canon audit
 
-# Full apply across all clue rows missing canonical_definition_id
-./run_clue_canon_backfill.sh --apply
-
-# Target one word / limit the batch
-./run_clue_canon_backfill.sh --dry-run --word APA --limit 10 --min-count 3
+# Continuously reduce duplicate canonicals
+./run_clue_canon_simplify.sh --dry-run
+./run_clue_canon_simplify.sh --apply
 ```
 
 Notes:
-- verified clues may merge / referee / quarantine
-- unverified clues attach conservatively by exact canonical reuse or singleton canonical creation
-- unresolved verified disagreement cases are written to quarantine reports under `build/clue_canon/...`
-- the wrapper defaults to `--apply` if no mode is given
+- `audit` checks pointer integrity, superseded links, duplicate active canonicals, oversized fanout, and effective-view coverage
+- `simplify-fanout` prefers the best existing canonical survivor; it only rewrites a new survivor when same-sense inputs are all weak
+- the simplify wrapper defaults to `--apply` if no mode is given
 
 ## Markdown format
 

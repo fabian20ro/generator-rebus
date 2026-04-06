@@ -225,14 +225,6 @@ class ClueCanonService:
             rebus_score=rebus_score,
             creativity_score=creativity_score,
         )
-        if not self.store.is_enabled():
-            return CanonicalDecision(
-                canonical_definition=record.definition,
-                canonical_definition_norm=record.definition_norm,
-                canonical_definition_id=None,
-                action="legacy_disabled",
-            )
-
         exact = self.store.find_exact_canonical(
             record.word_normalized,
             record.definition_norm,
@@ -268,18 +260,6 @@ class ClueCanonService:
             )
             if result.merge_allowed and result.winner == "B":
                 self.store.bump_usage(canonical.id, record.word_normalized)
-                self.store.insert_alias(
-                    canonical_definition_id=canonical.id,
-                    word_normalized=record.word_normalized,
-                    definition=record.definition,
-                    definition_norm=record.definition_norm,
-                    source_clue_id=clue_id,
-                    match_type="near",
-                    same_meaning_votes=result.same_meaning_votes,
-                    winner_votes=result.winner_votes,
-                    decision_source="llm",
-                    decision_note="existing canonical kept",
-                )
                 self._attach_if_possible(clue_id, puzzle_id, canonical.id)
                 return CanonicalDecision(
                     canonical_definition=canonical.definition,
