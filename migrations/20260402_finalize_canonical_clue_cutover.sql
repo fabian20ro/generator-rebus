@@ -1,4 +1,5 @@
--- Run only after `python -m generator.clue_canon backfill --apply`
+-- Run only after the canonical cutover migration has populated
+-- `crossword_clues.canonical_definition_id` for every live row
 -- and `python -m generator.clue_canon audit` reports ok=true.
 -- and after every live clue row has a non-null canonical_definition_id.
 --

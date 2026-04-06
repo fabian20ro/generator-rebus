@@ -116,16 +116,6 @@ class _SupabaseFixture:
 
         self.canonical_table.insert.side_effect = _canonical_insert
 
-        self.alias_select = MagicMock()
-        self.alias_select.eq.return_value = self.alias_select
-        self.alias_select.limit.return_value = self.alias_select
-        self.alias_select.execute.return_value = SimpleNamespace(data=[])
-        self.alias_insert = MagicMock()
-        self.alias_insert.execute.return_value = SimpleNamespace(data=[])
-        self.alias_table = MagicMock()
-        self.alias_table.select.return_value = self.alias_select
-        self.alias_table.insert.return_value = self.alias_insert
-
         def _table(name: str):
             if name == "crossword_puzzles":
                 return self.puzzle_table
@@ -135,8 +125,6 @@ class _SupabaseFixture:
                 return self.clue_effective_table
             if name == "canonical_clue_definitions":
                 return self.canonical_table
-            if name == "canonical_clue_aliases":
-                return self.alias_table
             raise AssertionError(name)
 
         self.supabase.table.side_effect = _table

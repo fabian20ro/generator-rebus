@@ -5,7 +5,6 @@ CREATE TABLE crossword_puzzles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title VARCHAR(100),
   title_score SMALLINT,
-  theme VARCHAR(200),
   description TEXT,
   grid_size SMALLINT NOT NULL DEFAULT 10,
   grid_template TEXT NOT NULL,
@@ -60,28 +59,11 @@ CREATE TABLE crossword_clues (
   UNIQUE (puzzle_id, direction, start_row, start_col)
 );
 
-CREATE TABLE canonical_clue_aliases (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  canonical_definition_id UUID NOT NULL REFERENCES canonical_clue_definitions(id) ON DELETE CASCADE,
-  source_clue_id UUID NULL REFERENCES crossword_clues(id) ON DELETE SET NULL,
-  word_normalized VARCHAR(50) NOT NULL,
-  definition TEXT NOT NULL,
-  definition_norm TEXT NOT NULL,
-  match_type VARCHAR(16) NOT NULL,
-  same_meaning_votes SMALLINT,
-  winner_votes SMALLINT,
-  decision_source VARCHAR(32) NOT NULL,
-  decision_note TEXT NOT NULL DEFAULT '',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (canonical_definition_id, word_normalized, definition_norm, source_clue_id)
-);
-
 CREATE INDEX idx_clues_puzzle ON crossword_clues(puzzle_id);
 CREATE INDEX idx_clues_canonical_definition ON crossword_clues(canonical_definition_id);
 CREATE INDEX idx_puzzles_published ON crossword_puzzles(published) WHERE published = TRUE;
 CREATE INDEX idx_canonical_clues_word ON canonical_clue_definitions(word_normalized);
 CREATE INDEX idx_canonical_clues_word_meta ON canonical_clue_definitions(word_normalized, word_type, usage_label);
-CREATE INDEX idx_canonical_aliases_word ON canonical_clue_aliases(word_normalized);
 
 CREATE VIEW crossword_clue_effective
 WITH (security_invoker = true) AS
@@ -108,7 +90,6 @@ JOIN canonical_clue_definitions ccd ON ccd.id = cc.canonical_definition_id;
 ALTER TABLE crossword_puzzles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crossword_clues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE canonical_clue_definitions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE canonical_clue_aliases ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Public read published" ON crossword_puzzles
   FOR SELECT USING (published = TRUE);

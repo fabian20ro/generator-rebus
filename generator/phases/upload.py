@@ -146,7 +146,6 @@ def upload_puzzle(
     # Insert puzzle
     puzzle_data = {
         "title": puzzle.title or "Rebus",
-        "theme": "",
         "description": description or None,
         "grid_size": puzzle.size,
         "grid_template": grid_template_json,

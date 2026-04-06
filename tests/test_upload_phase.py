@@ -60,6 +60,7 @@ class UploadPhaseTests(unittest.TestCase):
         payload = client.payload_store["crossword_puzzles"]
         self.assertEqual("2026-03-31T10:11:12+00:00", payload["created_at"])
         self.assertEqual("2026-03-31T10:11:12+00:00", payload["updated_at"])
+        self.assertNotIn("theme", payload)
 
     @patch("generator.phases.upload.log_canonical_event")
     @patch("generator.phases.upload.ClueCanonService")
