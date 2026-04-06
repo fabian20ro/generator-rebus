@@ -1,0 +1,58 @@
+--- frontend/src/components/grid-renderer.ts
++++ frontend/src/components/grid-renderer.ts
+@@ -69,6 +69,9 @@
+   string,
+   { cell: HTMLElement; input: HTMLInputElement }
+ >();
++
++/** Cache to prevent unnecessary DOM updates. Maps "r,c" to a serialized state string. */
++const cellRenderCache = new Map<string, string>();
+
+ /** Stored callbacks set during createGrid. */
+ let storedOnCellClick: ((row: number, col: number) => void) | null = null;
+@@ -165,6 +168,7 @@
+   // Clear previous DOM
+   container.innerHTML = "";
+   cellRefs.clear();
++  cellRenderCache.clear();
+   createdSize = state.size;
+
+   container.style.gridTemplateColumns = `repeat(${state.size}, 1fr)`;
+@@ -254,16 +258,26 @@
+
+       const isPencil =
+         !!cellValue && cellValue !== "!" && state.pencilCells[r][c];
+
++      // Compute state string
++      const displayVal = cellValue && cellValue !== "!" && cellValue !== "#" ? cellValue : "";
++      const inputMode = state.touchRemoteEnabled ? "none" : "text";
++      const readOnly = state.isSolvedView || state.touchRemoteEnabled;
++
++      const stateString = `${isActive}|${isHighlight}|${isWrong}|${isRevealed}|${isPencil}|${displayVal}|${inputMode}|${readOnly}`;
++
++      // Skip DOM updates if the presentation state hasn't changed
++      if (cellRenderCache.get(`${r},${c}`) === stateString) continue;
++      cellRenderCache.set(`${r},${c}`, stateString);
++
+       cell.classList.toggle("cell--active", isActive);
+       cell.classList.toggle("cell--highlight", isHighlight);
+       cell.classList.toggle("cell--wrong", isWrong);
+       cell.classList.toggle("cell--revealed", isRevealed);
+       cell.classList.toggle("cell--pencil", isPencil);
+
+       if (isActive) {
+         input.setAttribute("aria-current", "true");
+       } else {
+         input.removeAttribute("aria-current");
+       }
+
+-      input.inputMode = state.touchRemoteEnabled ? "none" : "text";
+-      input.readOnly = state.isSolvedView || state.touchRemoteEnabled;
++      input.inputMode = inputMode;
++      input.readOnly = readOnly;
+
+       // Update input value only when it differs (avoids cursor jump)
+-      const displayVal = cellValue && cellValue !== "!" && cellValue !== "#" ? cellValue : "";
+       if (input.value !== displayVal) {
+         input.value = displayVal;
+       }

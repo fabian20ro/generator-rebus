@@ -71,6 +71,9 @@ const cellRefs = new Map<
   { cell: HTMLElement; input: HTMLInputElement }
 >();
 
+/** Cache to prevent unnecessary DOM updates. Maps "r,c" to a serialized state string. */
+const cellRenderCache = new Map<string, string>();
+
 /** Stored callbacks set during createGrid. */
 let storedOnCellClick: ((row: number, col: number) => void) | null = null;
 let storedOnCellInput: ((row: number, col: number, value: string) => void) | null = null;
@@ -165,6 +168,7 @@ export function createGrid(
   container.innerHTML = "";
   cellRefs.clear();
   createdSize = state.size;
+  cellRenderCache.clear();
 
   container.style.gridTemplateColumns = `repeat(${state.size}, 1fr)`;
 
@@ -254,6 +258,17 @@ export function updateGrid(
       const isPencil =
         !!cellValue && cellValue !== "!" && state.pencilCells[r][c];
 
+      const displayVal = cellValue && cellValue !== "!" && cellValue !== "#" ? cellValue : "";
+      const inputMode = state.touchRemoteEnabled ? "none" : "text";
+      const readOnly = state.isSolvedView || state.touchRemoteEnabled;
+
+      // Serialize the presentation state
+      const stateString = `${isActive}|${isHighlight}|${isWrong}|${isRevealed}|${isPencil}|${displayVal}|${inputMode}|${readOnly}`;
+
+      // Skip DOM updates if nothing visual changed
+      if (cellRenderCache.get(`${r},${c}`) === stateString) continue;
+      cellRenderCache.set(`${r},${c}`, stateString);
+
       cell.classList.toggle("cell--active", isActive);
       cell.classList.toggle("cell--highlight", isHighlight);
       cell.classList.toggle("cell--wrong", isWrong);
@@ -266,11 +281,10 @@ export function updateGrid(
         input.removeAttribute("aria-current");
       }
 
-      input.inputMode = state.touchRemoteEnabled ? "none" : "text";
-      input.readOnly = state.isSolvedView || state.touchRemoteEnabled;
+      input.inputMode = inputMode;
+      input.readOnly = readOnly;
 
       // Update input value only when it differs (avoids cursor jump)
-      const displayVal = cellValue && cellValue !== "!" && cellValue !== "#" ? cellValue : "";
       if (input.value !== displayVal) {
         input.value = displayVal;
       }
