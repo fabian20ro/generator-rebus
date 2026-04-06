@@ -39,6 +39,7 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
             "default": "low",
             "definition_generate": "low",
             "definition_rewrite": "low",
+            "definition_verify": None,
             "definition_rate": "low",
             "clue_compare": "low",
         },
@@ -103,6 +104,7 @@ _REASONING_ALIAS_MAP = {
     "on": "medium",
 }
 _VALID_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+_USE_MODEL_REASONING = object()
 
 
 def get_model_config(model_id: str) -> ModelConfig | None:
@@ -117,18 +119,38 @@ def chat_reasoning_options(
     model: str | ModelConfig | None,
     *,
     purpose: str = "default",
+    reasoning_effort_override: str | None | object = _USE_MODEL_REASONING,
 ) -> dict[str, str]:
+    effort = resolve_reasoning_effort(
+        model,
+        purpose=purpose,
+        reasoning_effort_override=reasoning_effort_override,
+    )
+    if effort is None:
+        return {}
+    return {"reasoning_effort": effort}
+
+
+def resolve_reasoning_effort(
+    model: str | ModelConfig | None,
+    *,
+    purpose: str = "default",
+    reasoning_effort_override: str | None | object = _USE_MODEL_REASONING,
+) -> str | None:
+    if reasoning_effort_override is not _USE_MODEL_REASONING:
+        if reasoning_effort_override is None:
+            return None
+        return _normalize_reasoning_effort(str(reasoning_effort_override))
     config = model if isinstance(model, ModelConfig) else get_model_config(str(model or ""))
     if not config:
-        return {}
+        return None
     effort = config.reasoning_by_purpose.get(
         purpose,
         config.reasoning_by_purpose.get("default"),
     )
     if effort is None:
-        return {}
-    normalized_effort = _normalize_reasoning_effort(effort)
-    return {"reasoning_effort": normalized_effort}
+        return None
+    return _normalize_reasoning_effort(effort)
 
 
 def chat_max_tokens(model: str | ModelConfig | None) -> int:

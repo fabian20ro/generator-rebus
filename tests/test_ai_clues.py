@@ -53,6 +53,50 @@ class _RecordingClient:
         )
 
 
+class _QueuedResponseClient:
+    def __init__(self, responses):
+        self.calls = []
+        queue = list(responses)
+
+        def _create(**kwargs):
+            self.calls.append(kwargs)
+            return queue.pop(0)
+
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(
+                create=_create
+            )
+        )
+
+
+def _chat_response(
+    *,
+    content: str = "",
+    reasoning_content: str = "",
+    finish_reason: str = "stop",
+    completion_tokens: int | None = None,
+    reasoning_tokens: int | None = None,
+):
+    usage = None
+    if completion_tokens is not None or reasoning_tokens is not None:
+        usage = SimpleNamespace(
+            completion_tokens=completion_tokens,
+            completion_tokens_details=SimpleNamespace(reasoning_tokens=reasoning_tokens),
+        )
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason=finish_reason,
+                message=SimpleNamespace(
+                    content=content,
+                    reasoning_content=reasoning_content,
+                ),
+            )
+        ],
+        usage=usage,
+    )
+
+
 def _attempt(
     *,
     model_id: str,
@@ -118,7 +162,7 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual("low", client.calls[0]["reasoning_effort"])
         self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
-    def test_verify_definition_candidates_sends_low_reasoning_effort_for_primary_model(self):
+    def test_verify_definition_candidates_omits_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["CASA"])
 
         verify_definition_candidates(
@@ -128,7 +172,8 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_rate_definition_omits_reasoning_effort_for_secondary_model(self):
         client = _RecordingClient([
@@ -341,6 +386,150 @@ class AiCluesTests(unittest.TestCase):
 
         logged_messages = [call.args[0] for call in mock_log.call_args_list]
         self.assertTrue(any("warn reasoning_budget" in message for message in logged_messages))
+
+    def test_chat_completion_retries_without_thinking_when_reasoning_hits_budget(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=4000,
+            ),
+            _chat_response(content="raspuns final"),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="definition_generate",
+        )
+
+        self.assertEqual(2, len(client.calls))
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual(4000, client.calls[0]["max_tokens"])
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual(200, client.calls[1]["max_tokens"])
+        self.assertEqual("raspuns final", response.choices[0].message.content)
+
+    def test_chat_completion_retries_without_thinking_within_ten_tokens_of_budget(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3995,
+            ),
+            _chat_response(content="raspuns final"),
+        ])
+
+        _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="definition_generate",
+        )
+
+        self.assertEqual(2, len(client.calls))
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual(200, client.calls[1]["max_tokens"])
+
+    def test_chat_completion_does_not_retry_when_reasoning_stays_below_margin(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3989,
+            ),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="definition_generate",
+        )
+
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual("plan", response.choices[0].message.reasoning_content)
+
+    def test_chat_completion_does_not_retry_when_visible_content_exists(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                content="schita",
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=4000,
+            ),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="definition_generate",
+        )
+
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual("schita", response.choices[0].message.content)
+
+    def test_chat_completion_does_not_retry_when_reasoning_is_already_disabled(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=200,
+                reasoning_tokens=200,
+            ),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=SECONDARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=200,
+            purpose="definition_generate",
+        )
+
+        self.assertEqual(1, len(client.calls))
+        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("plan", response.choices[0].message.reasoning_content)
+
+    def test_chat_completion_logs_retry_without_thinking(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=4000,
+            ),
+            _chat_response(content="raspuns final"),
+        ])
+
+        with mock.patch("generator.core.ai_clues.log") as mock_log:
+            _chat_completion_create(
+                client,
+                model=PRIMARY_MODEL.model_id,
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=4000,
+                purpose="definition_generate",
+            )
+
+        logged_messages = [call.args[0] for call in mock_log.call_args_list]
+        self.assertTrue(any("retry without_thinking" in message for message in logged_messages))
+        self.assertTrue(any("retry_max_tokens=200" in message for message in logged_messages))
 
     def test_run_definition_referee_remaps_swapped_votes_back_to_original_orientation(self):
         class _Runtime:

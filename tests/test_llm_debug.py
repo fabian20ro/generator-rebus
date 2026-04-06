@@ -39,6 +39,19 @@ class _FakeFallbackClient:
         return self._response
 
 
+class _FakeRetryStreamingClient:
+    def __init__(self, chunk_batches):
+        self._chunk_batches = [list(batch) for batch in chunk_batches]
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if not kwargs.get("stream"):
+            raise AssertionError("expected streaming request")
+        return iter(self._chunk_batches.pop(0))
+
+
 class LlmDebugTests(unittest.TestCase):
     def tearDown(self):
         set_llm_debug_enabled(False)
@@ -131,6 +144,66 @@ class LlmDebugTests(unittest.TestCase):
         self.assertEqual(response, actual)
         self.assertTrue(client.calls[0]["stream"])
         self.assertNotIn("stream", client.calls[1])
+
+    def test_debug_streaming_retry_without_thinking_uses_short_budget(self):
+        client = _FakeRetryStreamingClient([
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning_content="gand lung", content=None),
+                            finish_reason=None,
+                        )
+                    ]
+                ),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning_content=None, content=None),
+                            finish_reason="length",
+                        )
+                    ]
+                ),
+            ],
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning_content=None, content="raspuns scurt"),
+                            finish_reason=None,
+                        )
+                    ]
+                ),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning_content=None, content=None),
+                            finish_reason="stop",
+                        )
+                    ]
+                ),
+            ],
+        ])
+        set_llm_debug_enabled(True)
+
+        with patch("sys.stdout", new=StringIO()) as captured:
+            response = _chat_completion_create(
+                client,
+                model="google/gemma-4-26b-a4b",
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=4000,
+                purpose="definition_generate",
+            )
+
+        output = captured.getvalue()
+        self.assertIn("retry without_thinking", output)
+        self.assertEqual(2, len(client.calls))
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual(4000, client.calls[0]["max_tokens"])
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual(200, client.calls[1]["max_tokens"])
+        self.assertEqual("raspuns scurt", response.choices[0].message.content)
 
 
 class DebugParserTests(unittest.TestCase):

@@ -861,3 +861,19 @@
 **Outcome:** success
 **Insight:** severity normalization should happen before indentation is rendered; otherwise streamed debug channels and manual log-file writes drift into different visual layouts.
 **Promoted:** no
+
+### [2026-04-06] — Add central no-thinking retry after completion budget is consumed by reasoning
+**Context:** user wanted a generic fallback for all thinking-capable models: if a call burns essentially the whole completion budget on thinking and returns no visible answer, retry once with thinking disabled instead of duplicating logic per feature branch.
+**Happened:** Refactored `generator/core/ai_clues.py` so `_chat_completion_create(...)` became a small orchestrator over `_create_chat_completion_once(...)`, `_should_retry_without_thinking(...)`, and `_retry_without_thinking_max_tokens()`. The shared helper now retries once when a thinking-enabled request ends with `finish_reason="length"`, has empty visible content, and either reports `reasoning_tokens >= max_tokens - 10` or, in debug-streaming mode without usage stats, shows reasoning text with no output text. The retry forces `reasoning_effort="none"` and `max_tokens=200`. Added a small reasoning-override path in `generator/core/model_manager.py` so the retry can disable thinking without forking per-model logic. Covered the behavior in `tests/test_ai_clues.py`, `tests/test_llm_debug.py`, and `tests/test_model_manager.py`.
+**Verification:** `.venv/bin/python -m pytest tests/test_ai_clues.py tests/test_llm_debug.py tests/test_model_manager.py -q` (`115 passed`).
+**Outcome:** success
+**Insight:** local reasoning-model rescue logic should key off completion-budget exhaustion, not model name, and should live in the one shared completion helper so every current and future flow inherits the same bounded fallback.
+**Promoted:** yes — see LESSONS_LEARNED entry on central overthinking fallbacks.
+
+### [2026-04-06] — Disable Gemma reasoning only for verify
+**Context:** user reviewed April 6 batch logs, found Gemma `definition_verify` dominating the `max_tokens=4000` truncations, and asked for the narrowest possible change: disable reasoning only on verify while leaving generate/rewrite/rate/compare behavior unchanged.
+**Happened:** Added `reasoning_by_purpose["definition_verify"] = None` for Gemma in `generator/core/model_manager.py`, so `chat_reasoning_options(..., purpose="definition_verify")` now omits `reasoning_effort` for Gemma while preserving the existing low-reasoning defaults for other Gemma purposes. Updated `tests/test_model_manager.py` to assert empty reasoning options for Gemma verify and unchanged low reasoning for generate/compare, and updated `tests/test_ai_clues.py` so the primary-model verify call now asserts omission of `reasoning_effort` while keeping the model-derived `max_tokens` budget.
+**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py -q` (`32 passed`); `.venv/bin/python -m pytest tests/test_ai_clues.py -q` (`76 passed`).
+**Outcome:** success
+**Insight:** no new reusable insight beyond the existing per-purpose reasoning-controls lesson; this was a narrow application of that pattern to the noisiest verify path.
+**Promoted:** no

@@ -57,6 +57,8 @@ _TRAILING_USAGE_SUFFIX_RE = re.compile(
 
 RATE_MIN_SEMANTIC = 7
 RATE_MIN_REBUS = 5
+RETRY_WITHOUT_THINKING_MAX_TOKENS = 200
+RETRY_WITHOUT_THINKING_MARGIN = 10
 ENGLISH_MARKERS = {
     "accurate",
     "accurately",
@@ -395,16 +397,97 @@ def _chat_completion_create_streaming(
     )
 
 
-def _chat_completion_create(
+def _response_choice(response):
+    return response.choices[0] if getattr(response, "choices", None) else None
+
+
+def _response_message(response):
+    choice = _response_choice(response)
+    return getattr(choice, "message", None)
+
+
+def _response_finish_reason(response) -> str | None:
+    choice = _response_choice(response)
+    return getattr(choice, "finish_reason", None)
+
+
+def _response_content_text(response) -> str:
+    message = _response_message(response)
+    return _debug_message_text(message, "content")
+
+
+def _response_reasoning_text(response) -> str:
+    message = _response_message(response)
+    return _debug_message_text(message, "reasoning_content")
+
+
+def _response_reasoning_tokens(response) -> int | None:
+    usage = getattr(response, "usage", None)
+    details = getattr(usage, "completion_tokens_details", None)
+    reasoning_tokens = getattr(details, "reasoning_tokens", None)
+    if reasoning_tokens is None:
+        return None
+    try:
+        return int(reasoning_tokens)
+    except (TypeError, ValueError):
+        return None
+
+
+def _retry_without_thinking_max_tokens() -> int:
+    return RETRY_WITHOUT_THINKING_MAX_TOKENS
+
+
+def _should_retry_without_thinking(
+    response,
+    *,
+    reasoning_options: dict[str, str],
+    max_tokens: int,
+) -> bool:
+    if reasoning_options.get("reasoning_effort") in {"", "none", None}:
+        return False
+    if _response_finish_reason(response) != "length":
+        return False
+    if _response_content_text(response).strip():
+        return False
+    reasoning_tokens = _response_reasoning_tokens(response)
+    if reasoning_tokens is not None:
+        return reasoning_tokens >= max(max_tokens - RETRY_WITHOUT_THINKING_MARGIN, 0)
+    return bool(_response_reasoning_text(response).strip())
+
+
+def _log_retry_without_thinking(
+    *,
+    model: str,
+    purpose: str,
+    max_tokens: int,
+    response,
+) -> None:
+    reasoning_tokens = _response_reasoning_tokens(response)
+    threshold = max(max_tokens - RETRY_WITHOUT_THINKING_MARGIN, 0)
+    parts = [
+        "retry without_thinking",
+        f"purpose={purpose}",
+        f"model={model}",
+        f"finish_reason={_response_finish_reason(response)}",
+        f"trigger_threshold={threshold}",
+        f"retry_reasoning=none",
+        f"retry_max_tokens={_retry_without_thinking_max_tokens()}",
+    ]
+    if reasoning_tokens is not None:
+        parts.append(f"reasoning_tokens={reasoning_tokens}")
+    log("  [" + " ".join(parts) + "]", level="WARN")
+
+
+def _create_chat_completion_once(
     client: OpenAI,
     *,
     model: str,
     messages: list[dict[str, str]],
     temperature: float,
     max_tokens: int,
-    purpose: str = "default",
+    purpose: str,
+    reasoning_options: dict[str, str],
 ):
-    reasoning_options = chat_reasoning_options(model, purpose=purpose)
     debug = llm_debug_enabled()
     if debug:
         _log_debug_request(
@@ -458,6 +541,52 @@ def _chat_completion_create(
         max_tokens=max_tokens,
     )
     return response
+
+
+def _chat_completion_create(
+    client: OpenAI,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+    purpose: str = "default",
+):
+    reasoning_options = chat_reasoning_options(model, purpose=purpose)
+    response = _create_chat_completion_once(
+        client,
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        purpose=purpose,
+        reasoning_options=reasoning_options,
+    )
+    if not _should_retry_without_thinking(
+        response,
+        reasoning_options=reasoning_options,
+        max_tokens=max_tokens,
+    ):
+        return response
+    _log_retry_without_thinking(
+        model=model,
+        purpose=purpose,
+        max_tokens=max_tokens,
+        response=response,
+    )
+    return _create_chat_completion_once(
+        client,
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=_retry_without_thinking_max_tokens(),
+        purpose=purpose,
+        reasoning_options=chat_reasoning_options(
+            model,
+            purpose=purpose,
+            reasoning_effort_override="none",
+        ),
+    )
 
 
 def _log_if_reasoning_budget_high(

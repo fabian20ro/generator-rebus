@@ -19,6 +19,7 @@ from generator.core.model_manager import (
     get_model_by_key,
     list_loaded_model_instances,
     _post_json,
+    resolve_reasoning_effort,
     switch_model,
     unload_model,
 )
@@ -91,6 +92,12 @@ class ModelManagerTests(unittest.TestCase):
             chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="clue_compare"),
         )
 
+    def test_chat_reasoning_options_empty_for_primary_verify(self):
+        self.assertEqual(
+            {},
+            chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_verify"),
+        )
+
     def test_chat_reasoning_options_empty_for_secondary(self):
         self.assertEqual({}, chat_reasoning_options(SECONDARY_MODEL.model_id))
 
@@ -125,6 +132,25 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual(
             {"reasoning_effort": "medium"},
             chat_reasoning_options(config, purpose="definition_generate"),
+        )
+
+    def test_resolve_reasoning_effort_supports_explicit_none_override(self):
+        self.assertIsNone(
+            resolve_reasoning_effort(
+                PRIMARY_MODEL,
+                purpose="definition_generate",
+                reasoning_effort_override=None,
+            )
+        )
+
+    def test_chat_reasoning_options_support_explicit_none_override(self):
+        self.assertEqual(
+            {},
+            chat_reasoning_options(
+                PRIMARY_MODEL,
+                purpose="definition_generate",
+                reasoning_effort_override=None,
+            ),
         )
 
     def test_chat_reasoning_options_raise_for_unsupported_value(self):
