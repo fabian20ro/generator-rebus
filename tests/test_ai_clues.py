@@ -422,6 +422,33 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(200, client.calls[1]["max_tokens"])
         self.assertEqual("raspuns final", response.choices[0].message.content)
 
+    def test_chat_completion_retries_verify_when_hidden_reasoning_hits_budget(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3997,
+            ),
+            _chat_response(content="GUAS"),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="definition_verify",
+        )
+
+        self.assertEqual(2, len(client.calls))
+        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual(4000, client.calls[0]["max_tokens"])
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual(200, client.calls[1]["max_tokens"])
+        self.assertEqual("GUAS", response.choices[0].message.content)
+
     def test_chat_completion_retries_without_thinking_within_ten_tokens_of_budget(self):
         client = _QueuedResponseClient([
             _chat_response(
@@ -468,6 +495,29 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(1, len(client.calls))
         self.assertEqual("plan", response.choices[0].message.reasoning_content)
 
+    def test_chat_completion_does_not_retry_verify_when_reasoning_stays_below_margin(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3989,
+            ),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="definition_verify",
+        )
+
+        self.assertEqual(1, len(client.calls))
+        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("plan", response.choices[0].message.reasoning_content)
+
     def test_chat_completion_does_not_retry_when_visible_content_exists(self):
         client = _QueuedResponseClient([
             _chat_response(
@@ -490,6 +540,30 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertEqual(1, len(client.calls))
         self.assertEqual("schita", response.choices[0].message.content)
+
+    def test_chat_completion_does_not_retry_verify_when_visible_content_exists(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                content="GUAS",
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3997,
+            ),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="definition_verify",
+        )
+
+        self.assertEqual(1, len(client.calls))
+        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("GUAS", response.choices[0].message.content)
 
     def test_chat_completion_does_not_retry_when_reasoning_is_already_disabled(self):
         client = _QueuedResponseClient([

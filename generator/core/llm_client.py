@@ -242,22 +242,29 @@ def _retry_without_thinking_max_tokens() -> int:
     return RETRY_WITHOUT_THINKING_MAX_TOKENS
 
 
+def _response_shows_hidden_reasoning_overrun(
+    response,
+    *,
+    max_tokens: int,
+) -> bool:
+    reasoning_tokens = _response_reasoning_tokens(response)
+    if reasoning_tokens is not None:
+        return reasoning_tokens >= max(max_tokens - RETRY_WITHOUT_THINKING_MARGIN, 0)
+    return bool(_response_reasoning_text(response).strip())
+
+
 def _should_retry_without_thinking(
     response,
     *,
-    reasoning_options: dict[str, str],
     max_tokens: int,
 ) -> bool:
-    if reasoning_options.get("reasoning_effort") in {"", "none", None}:
+    if max_tokens <= _retry_without_thinking_max_tokens():
         return False
     if _response_finish_reason(response) != "length":
         return False
     if _response_content_text(response).strip():
         return False
-    reasoning_tokens = _response_reasoning_tokens(response)
-    if reasoning_tokens is not None:
-        return reasoning_tokens >= max(max_tokens - RETRY_WITHOUT_THINKING_MARGIN, 0)
-    return bool(_response_reasoning_text(response).strip())
+    return _response_shows_hidden_reasoning_overrun(response, max_tokens=max_tokens)
 
 
 def _log_retry_without_thinking(
@@ -369,7 +376,6 @@ def _chat_completion_create(
     )
     if not _should_retry_without_thinking(
         response,
-        reasoning_options=reasoning_options,
         max_tokens=max_tokens,
     ):
         return response

@@ -877,3 +877,11 @@
 **Outcome:** success
 **Insight:** no new reusable insight beyond the existing per-purpose reasoning-controls lesson; this was a narrow application of that pattern to the noisiest verify path.
 **Promoted:** no
+
+### [2026-04-07] — Make hidden-reasoning retry key off response, not request params
+**Context:** user running `./run_definition_improve.sh` caught Gemma `definition_verify` spending `3997/4000` completion tokens on hidden reasoning, truncating twice, and never triggering the intended non-thinking retry because verify now omits `reasoning_effort` after recent refactors.
+**Happened:** Traced the live redefine run through `generator.redefine -> evaluate_puzzle_state()/run_rewrite_loop() -> verify_definition_candidates() -> _chat_completion_create()`. Confirmed redefine orchestration still worked; the regression lived in `generator/core/llm_client.py`: `_should_retry_without_thinking(...)` bailed out whenever the original request lacked `reasoning_effort`, even if the response clearly showed a hidden reasoning overrun. Refactored the gate to use response truth only: truncated response, empty visible content, and either `reasoning_tokens >= max_tokens - margin` or hidden reasoning text in debug-stream mode. Kept the bounded single retry (`reasoning_effort="none"`, `max_tokens=200`) and added a small guard so calls already at the fallback budget do not recurse pointlessly. Expanded `tests/test_ai_clues.py` with verify-purpose regressions asserting: first verify call still omits `reasoning_effort`, fallback retry fires on hidden overthinking, and no retry occurs when visible content exists or reasoning stays below threshold. Left `generator/core/model_manager.py` verify config unchanged.
+**Verification:** `.venv/bin/python -m pytest -q tests/test_ai_clues.py tests/test_model_manager.py tests/test_redefine.py tests/test_verify.py` (`149 passed`).
+**Outcome:** success
+**Insight:** omitted `reasoning_effort` is not evidence that the model will not think; with LM Studio/OpenAI-compatible servers, the reliable source of truth is the response payload, not the request shape.
+**Promoted:** yes — folded into the shared overthinking-fallback lesson in `LESSONS_LEARNED.md`.
