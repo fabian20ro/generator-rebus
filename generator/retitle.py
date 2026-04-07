@@ -32,6 +32,7 @@ from .phases.theme import (
     TITLE_MIN_CREATIVITY,
     TitleGenerationResult,
     _build_rejected_context,
+    _combine_title_feedback,
     _generate_candidate_with_active_model,
     _review_title_candidate,
     generate_creative_title_result,
@@ -39,6 +40,7 @@ from .phases.theme import (
     rate_title_creativity,
     rate_title_creativity_pair,
 )
+from .core.ai_clues import consensus_score
 
 
 RETITLE_BATCH_SIZE = 10
@@ -295,17 +297,49 @@ def _rate_batch_candidates(
     rating_model: ModelConfig,
     round_idx: int,
 ) -> None:
+    if not candidates:
+        return
+
+    if generator_model.model_id == PRIMARY_MODEL.model_id:
+        ordered_models = [runtime.activate_primary(), runtime.activate_secondary()]
+    else:
+        ordered_models = [runtime.activate_secondary(), runtime.activate_primary()]
+
+    votes_by_title: dict[str, dict[str, tuple[int, str]]] = {
+        state.puzzle_id: {} for state, _title in candidates
+    }
+    incomplete: set[str] = set()
+
+    for model in ordered_models:
+        for state, title in candidates:
+            score, feedback = rate_title_creativity(
+                title,
+                state.words,
+                rate_client,
+                model_config=model,
+            )
+            if score <= 0 and feedback in {"api error", "parse error"}:
+                incomplete.add(state.puzzle_id)
+                continue
+            votes_by_title[state.puzzle_id][model.model_id] = (score, feedback)
+
     for state, title in candidates:
-        rating = rate_title_creativity_pair(title, state.words, rate_client, runtime=runtime)
-        score = rating.score
-        feedback = rating.feedback
-        log(
-            f'  [{state.puzzle_id}] Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity={score}/10 ({feedback})'
-        )
-        if not rating.complete:
+        votes = votes_by_title.get(state.puzzle_id, {})
+        if state.puzzle_id in incomplete or len(votes) != 2:
+            log(
+                f'  [{state.puzzle_id}] Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity=0/10 (evaluare incompletă)'
+            )
             state.rejected.append((title, "evaluare incompletă"))
             state.rejected_by_model.setdefault(generator_model.model_id, []).append((title, "evaluare incompletă"))
             continue
+
+        first_score, first_feedback = votes[ordered_models[0].model_id]
+        second_score, second_feedback = votes[ordered_models[1].model_id]
+        score = consensus_score(first_score, second_score)
+        feedback = _combine_title_feedback(first_feedback, second_feedback)
+        log(
+            f'  [{state.puzzle_id}] Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity={score}/10 ({feedback})'
+        )
         result = TitleGenerationResult(title, score, feedback, score_complete=True)
         _update_best_result(state, result)
         if state.done:

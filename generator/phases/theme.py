@@ -9,7 +9,12 @@ import sys
 from dataclasses import dataclass
 from collections.abc import Iterable
 
-from ..core.llm_client import _chat_completion_create, create_client
+from ..core.llm_client import (
+    RESPONSE_SOURCE_NO_THINKING_RETRY,
+    RESPONSE_SOURCE_REASONING,
+    _chat_completion_create,
+    create_client,
+)
 from ..core.ai_clues import consensus_score
 from ..core.diacritics import normalize
 from ..core.llm_text import clean_llm_text_response
@@ -55,6 +60,8 @@ MAX_TITLE_ROUNDS = 7
 NO_TITLE_LABEL = "Fara titlu"
 MAX_REJECTED_HINTS = 5
 MAX_REPEATED_REASON_HINTS = 2
+TITLE_GENERATE_MAX_TOKENS = 400
+TITLE_RATE_MAX_TOKENS = 300
 
 FALLBACK_TITLES = [
     "Fir de Cuvinte",
@@ -158,6 +165,12 @@ class TitleRatingResult:
     feedback: str
     complete: bool
     votes: dict[str, tuple[int, str]]
+
+
+@dataclass(frozen=True)
+class TitleGenerateAttempt:
+    title: str
+    response_source: str = RESPONSE_SOURCE_REASONING
 
 
 def _contains_mixed_script(title: str) -> bool:
@@ -279,7 +292,7 @@ def rate_title_creativity(
     )
     for attempt in range(2):
         try:
-            max_tokens = chat_max_tokens(model_config)
+            max_tokens = min(chat_max_tokens(model_config), TITLE_RATE_MAX_TOKENS)
             response = _chat_completion_create(
                 client,
                 model=model_config.model_id,
@@ -386,6 +399,25 @@ def _generate_single_title(
     temperature: float = 0.3,
     words: list[str] | None = None,
 ) -> str:
+    return _generate_single_title_attempt(
+        definitions,
+        client,
+        model_config=model_config,
+        rejected_context=rejected_context,
+        temperature=temperature,
+        words=words,
+    ).title
+
+
+def _generate_single_title_attempt(
+    definitions: list[str],
+    client,
+    *,
+    model_config: ModelConfig,
+    rejected_context: str = "",
+    temperature: float = 0.3,
+    words: list[str] | None = None,
+) -> TitleGenerateAttempt:
     """Make one LLM call to generate a title. Returns raw string."""
     if definitions:
         content_section = (
@@ -399,7 +431,7 @@ def _generate_single_title(
             + ", ".join(words[:15])
         )
     else:
-        return ""
+        return TitleGenerateAttempt("")
 
     prompt = load_user_template("title_generate").format(
         content_section=content_section,
@@ -407,7 +439,7 @@ def _generate_single_title(
     )
 
     try:
-        max_tokens = chat_max_tokens(model_config)
+        max_tokens = min(chat_max_tokens(model_config), TITLE_GENERATE_MAX_TOKENS)
         response = _chat_completion_create(
             client,
             model=model_config.model_id,
@@ -419,9 +451,12 @@ def _generate_single_title(
             max_tokens=max_tokens,
             purpose="title_generate",
         )
-        return response.choices[0].message.content or ""
+        return TitleGenerateAttempt(
+            response.choices[0].message.content or "",
+            response_source=str(getattr(response, "_response_source", RESPONSE_SOURCE_REASONING)),
+        )
     except Exception:
-        return ""
+        return TitleGenerateAttempt("")
 
 def _rating_model_for_generator(
     runtime: LmRuntime,
@@ -457,15 +492,17 @@ def _generate_candidate_for_model(
     empty_retry_instruction: str,
 ) -> str:
     active_model = _activate_generator_model(runtime, generator_model)
-    raw_title = _generate_single_title(
+    first_attempt = _generate_single_title_attempt(
         definitions,
         client,
         model_config=active_model,
         rejected_context=rejected_context,
         words=words,
     )
-    if raw_title.strip():
-        return raw_title
+    if first_attempt.title.strip():
+        return first_attempt.title
+    if first_attempt.response_source == RESPONSE_SOURCE_NO_THINKING_RETRY:
+        return first_attempt.title
     retry_context = empty_retry_instruction
     return _generate_single_title(
         definitions,
@@ -485,15 +522,17 @@ def _generate_candidate_with_active_model(
     rejected_context: str,
     empty_retry_instruction: str,
 ) -> str:
-    raw_title = _generate_single_title(
+    first_attempt = _generate_single_title_attempt(
         definitions,
         client,
         model_config=active_model,
         rejected_context=rejected_context,
         words=words,
     )
-    if raw_title.strip():
-        return raw_title
+    if first_attempt.title.strip():
+        return first_attempt.title
+    if first_attempt.response_source == RESPONSE_SOURCE_NO_THINKING_RETRY:
+        return first_attempt.title
     return _generate_single_title(
         definitions,
         client,
