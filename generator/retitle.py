@@ -49,6 +49,17 @@ RETITLE_BATCH_SIZE = 10
 
 
 @dataclass
+class PreparedTitleUpdate:
+    apply: bool
+    new_title: str
+    new_score: int | None
+    old_title: str
+    old_score: int | None
+    reason: str = ""
+    backfill_old_score: int | None = None
+
+
+@dataclass
 class _RetitleBatchState:
     puzzle_row: dict
     words: list[str]
@@ -471,26 +482,52 @@ def _apply_title_result(
     forbidden_title_keys: set[str] | None,
     words: list[str],
 ) -> bool:
+    prepared = prepare_title_update(
+        puzzle_row,
+        title_result,
+        rate_client,
+        multi_model=multi_model,
+        runtime=runtime,
+        forbidden_title_keys=forbidden_title_keys,
+        words=words,
+    )
+    return apply_title_update(
+        supabase,
+        puzzle_row,
+        prepared,
+        dry_run=dry_run,
+    )
+
+
+def prepare_title_update(
+    puzzle_row: dict,
+    title_result: TitleGenerationResult,
+    rate_client,
+    *,
+    multi_model: bool,
+    runtime: LmRuntime | None,
+    forbidden_title_keys: set[str] | None,
+    words: list[str],
+) -> PreparedTitleUpdate:
     puzzle_id = puzzle_row["id"]
     old_title = puzzle_row.get("title", "")
     old_title_key = normalize_title_key(old_title)
 
     if title_result.used_fallback:
         log(f'  [{puzzle_id}] "{old_title}" -> skipped, no valid title candidate')
-        return False
+        return PreparedTitleUpdate(False, "", None, old_title, _stored_title_score(puzzle_row), "fallback")
 
     new_title = title_result.title
     new_title_key = normalize_title_key(new_title)
     if new_title_key == old_title_key:
         log(f'  [{puzzle_id}] "{old_title}" -> unchanged')
-        return False
+        return PreparedTitleUpdate(False, new_title, title_result.score if title_result.score_complete else None, old_title, _stored_title_score(puzzle_row), "unchanged")
     if forbidden_title_keys and new_title_key in forbidden_title_keys:
         log(f'  [{puzzle_id}] "{old_title}" -> "{new_title}" — skipped, duplicate normalized title')
-        return False
+        return PreparedTitleUpdate(False, new_title, title_result.score if title_result.score_complete else None, old_title, _stored_title_score(puzzle_row), "duplicate")
 
     is_fallback = old_title in FALLBACK_TITLES
     runtime = runtime or LmRuntime(multi_model=multi_model)
-
     if not is_fallback:
         old_score, should_backfill_old_score, invalid_reason = _resolve_old_title_score(
             puzzle_row,
@@ -505,33 +542,69 @@ def _apply_title_result(
             log(f'  [{puzzle_id}] "{old_title}" old title_score resolved -> {old_score}')
         new_score = title_result.score
         if new_score <= old_score:
-            if should_backfill_old_score:
-                _backfill_title_score(supabase, puzzle_row, old_score, dry_run=dry_run)
             log(
                 f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
                 f'-> "{new_title}" (score={new_score}) — skipped, not better'
             )
-            return False
+            if should_backfill_old_score:
+                puzzle_row["title_score"] = old_score
+            return PreparedTitleUpdate(
+                False,
+                new_title,
+                new_score,
+                old_title,
+                old_score,
+                "not_better",
+                old_score if should_backfill_old_score else None,
+            )
         log(
             f'  [{puzzle_id}] "{old_title}" (score={old_score}) '
             f'-> "{new_title}" (score={new_score})'
         )
-    else:
-        log(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}" (score={title_result.score})')
+        if should_backfill_old_score:
+            puzzle_row["title_score"] = old_score
+        return PreparedTitleUpdate(True, new_title, new_score if title_result.score_complete else None, old_title, old_score)
 
+    log(f'  [{puzzle_id}] "{old_title}" (fallback) -> "{new_title}" (score={title_result.score})')
+    return PreparedTitleUpdate(
+        True,
+        new_title,
+        title_result.score if title_result.score_complete else None,
+        old_title,
+        _stored_title_score(puzzle_row),
+    )
+
+
+def apply_title_update(
+    supabase,
+    puzzle_row: dict,
+    prepared: PreparedTitleUpdate,
+    *,
+    dry_run: bool,
+) -> bool:
+    puzzle_id = puzzle_row["id"]
+    if not prepared.apply:
+        if prepared.backfill_old_score is not None:
+            _backfill_title_score(
+                supabase,
+                puzzle_row,
+                prepared.backfill_old_score,
+                dry_run=dry_run,
+            )
+        return False
     if not dry_run:
         execute_logged_update(
             supabase,
             "crossword_puzzles",
             {
-                "title": new_title,
-                "title_score": title_result.score if title_result.score_complete else None,
+                "title": prepared.new_title,
+                "title_score": prepared.new_score,
                 "updated_at": _now_iso(),
             },
             eq_filters={"id": puzzle_id},
         )
-    puzzle_row["title"] = new_title
-    puzzle_row["title_score"] = title_result.score if title_result.score_complete else None
+    puzzle_row["title"] = prepared.new_title
+    puzzle_row["title_score"] = prepared.new_score
     return True
 
 

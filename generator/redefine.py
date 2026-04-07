@@ -6,6 +6,7 @@ import argparse
 import copy
 import re
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,6 +44,23 @@ from .core.runtime_logging import (
 from .core.supabase_ops import execute_logged_update
 
 REDEFINE_ROUNDS = 7
+
+
+@dataclass
+class PlannedClueUpdate:
+    row_id: str
+    clue_ref: str
+    candidate_definition: str
+    canonical_definition: str
+    update_payload: dict[str, object]
+    canonical_action: str
+    canonical_detail: str | None
+
+
+@dataclass
+class RedefinePersistencePlan:
+    clue_updates: list[PlannedClueUpdate]
+    metadata_payload: dict[str, object] | None
 def fetch_puzzles(
     supabase,
     *,
@@ -252,7 +270,7 @@ def rewrite_puzzle_definitions(
     )
 
 
-def persist_redefined_puzzle(
+def plan_redefined_puzzle_persistence(
     supabase,
     puzzle_row: dict,
     clue_rows: list[dict],
@@ -263,7 +281,7 @@ def persist_redefined_puzzle(
     dry_run: bool = False,
     multi_model: bool = True,
     runtime: LmRuntime | None = None,
-) -> int:
+) -> RedefinePersistencePlan:
     puzzle_id = puzzle_row["id"]
     desired_payloads = _desired_clue_payloads(candidate_puzzle)
     candidate_clues = _working_clue_map(candidate_puzzle)
@@ -276,7 +294,7 @@ def persist_redefined_puzzle(
     )
     clue_store = clue_canon.store
 
-    updated_count = 0
+    clue_updates: list[PlannedClueUpdate] = []
     for row in clue_rows:
         key = _clue_key(row.get("direction"), row.get("start_row"), row.get("start_col"))
         desired = desired_payloads.get(key)
@@ -303,14 +321,6 @@ def persist_redefined_puzzle(
         desired["definition"] = decision.canonical_definition
         desired["canonical_definition_id"] = decision.canonical_definition_id
         clue_ref = clue_label_from_row(row)
-        log_canonical_event(
-            decision.action,
-            puzzle_id=puzzle_id,
-            clue_ref=clue_ref,
-            candidate_definition=str(desired_payloads.get(key, {}).get("definition") or ""),
-            canonical_definition=decision.canonical_definition,
-            detail=decision.decision_note or None,
-        )
         update_payload = _clue_update_payload(clue_store, row, desired)
         current = {
             "definition": row.get("definition", "") or "",
@@ -322,54 +332,126 @@ def persist_redefined_puzzle(
         if comparable_current == update_payload:
             continue
 
-        clue_ref = clue_label_from_row(row)
-        log_definition_event(
-            "redefine",
-            puzzle_id=puzzle_id,
-            clue_ref=clue_ref,
-            before=current["definition"],
-            after=desired["definition"],
-            detail=f"verified={bool(desired.get('verified'))}",
-        )
-        if not dry_run:
-            execute_logged_update(
-                supabase,
-                "crossword_clues",
-                update_payload,
-                eq_filters={"id": row["id"], "puzzle_id": puzzle_id},
-            )
-        row.update(update_payload)
-        row["definition"] = desired["definition"]
         _apply_clue_version(target_clue, source_clue)
+        clue_updates.append(
+            PlannedClueUpdate(
+                row_id=str(row["id"]),
+                clue_ref=clue_ref,
+                candidate_definition=str(desired_payloads.get(key, {}).get("definition") or ""),
+                canonical_definition=decision.canonical_definition,
+                update_payload=update_payload,
+                canonical_action=decision.action,
+                canonical_detail=decision.decision_note or None,
+            )
+        )
+    metadata_payload = None
+    if clue_updates:
         persistence_puzzle.assessment = score_puzzle_state(persistence_puzzle)
         metadata_payload = _build_metadata_payload(
             persistence_puzzle.assessment,
             multi_model=multi_model,
         )
-        _persist_puzzle_metadata(
-            supabase,
-            puzzle_id,
-            metadata_payload,
-            dry_run=dry_run,
+    elif _needs_metadata_backfill(puzzle_row):
+        metadata_payload = _build_metadata_payload(
+            baseline_puzzle.assessment,
+            multi_model=multi_model,
         )
-        updated_count += 1
+    return RedefinePersistencePlan(
+        clue_updates=clue_updates,
+        metadata_payload=metadata_payload,
+    )
 
-    if updated_count == 0:
-        if _needs_metadata_backfill(puzzle_row):
+
+def apply_redefined_puzzle_persistence(
+    supabase,
+    puzzle_row: dict,
+    clue_rows: list[dict],
+    plan: RedefinePersistencePlan,
+    *,
+    dry_run: bool = False,
+) -> int:
+    puzzle_id = puzzle_row["id"]
+    rows_by_id = {str(row["id"]): row for row in clue_rows}
+    for update in plan.clue_updates:
+        row = rows_by_id.get(update.row_id)
+        if row is None:
+            continue
+        log_canonical_event(
+            update.canonical_action,
+            puzzle_id=puzzle_id,
+            clue_ref=update.clue_ref,
+            candidate_definition=update.candidate_definition,
+            canonical_definition=update.canonical_definition,
+            detail=update.canonical_detail,
+        )
+        log_definition_event(
+            "redefine",
+            puzzle_id=puzzle_id,
+            clue_ref=update.clue_ref,
+            before=row.get("definition", "") or "",
+            after=update.canonical_definition,
+            detail=f"verified={bool(update.update_payload.get('verified'))}",
+        )
+        if not dry_run:
+            execute_logged_update(
+                supabase,
+                "crossword_clues",
+                update.update_payload,
+                eq_filters={"id": row["id"], "puzzle_id": puzzle_id},
+            )
+        row.update(update.update_payload)
+        row["definition"] = update.canonical_definition
+        if plan.metadata_payload is not None:
+            _persist_puzzle_metadata(
+                supabase,
+                puzzle_id,
+                plan.metadata_payload,
+                dry_run=dry_run,
+            )
+    if plan.metadata_payload is not None:
+        if not plan.clue_updates:
             log(f"  [{puzzle_id}] backfill metadata")
             _persist_puzzle_metadata(
                 supabase,
                 puzzle_id,
-                _build_metadata_payload(
-                    baseline_puzzle.assessment,
-                    multi_model=multi_model,
-                ),
+                plan.metadata_payload,
                 dry_run=dry_run,
             )
-        else:
-            log(f"  [{puzzle_id}] No clue or metadata changes")
+    elif not plan.clue_updates:
+        log(f"  [{puzzle_id}] No clue or metadata changes")
+    return len(plan.clue_updates)
 
-    return updated_count
+
+def persist_redefined_puzzle(
+    supabase,
+    puzzle_row: dict,
+    clue_rows: list[dict],
+    baseline_puzzle: WorkingPuzzle,
+    candidate_puzzle: WorkingPuzzle,
+    client,
+    *,
+    dry_run: bool = False,
+    multi_model: bool = True,
+    runtime: LmRuntime | None = None,
+) -> int:
+    plan = plan_redefined_puzzle_persistence(
+        supabase,
+        puzzle_row,
+        clue_rows,
+        baseline_puzzle,
+        candidate_puzzle,
+        client,
+        dry_run=dry_run,
+        multi_model=multi_model,
+        runtime=runtime,
+    )
+    return apply_redefined_puzzle_persistence(
+        supabase,
+        puzzle_row,
+        clue_rows,
+        plan,
+        dry_run=dry_run,
+    )
 
 
 def redefine_puzzle(

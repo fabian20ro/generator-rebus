@@ -5,15 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
-from generator.run_all import (
-    ClaimState,
-    JobState,
-    RunAllContext,
-    RunAllSupervisor,
-    StepState,
-    SupervisorWorkItem,
-    build_parser,
-)
+from generator.run_all import build_parser
+from generator.supervisor import ClaimState, RunAllContext, RunAllSupervisor, StepState, SupervisorWorkItem
+from generator.supervisor.jobs.base import JobState
 
 
 class _FakeRuntime:
@@ -200,7 +194,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual("retitle:next", supervisor.slots["retitle"].active_job.item_id)
         self.assertEqual(1, supervisor.completed)
 
-    @patch("generator.run_all.log")
+    @patch("generator.supervisor.scheduler.log")
     def test_admit_logs_targets_and_active_slots(self, log_mock):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(
@@ -218,7 +212,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertIn("queues_model=", message)
         self.assertIn("active_slots=", message)
 
-    @patch("generator.run_all.log")
+    @patch("generator.supervisor.scheduler.log")
     def test_switch_callback_logs_queue_snapshot(self, log_mock):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(
@@ -238,7 +232,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertIn("queues_model=", message)
         self.assertIn("active_slots=", message)
 
-    @patch("generator.run_all.fetch_redefine_puzzles")
+    @patch("generator.supervisor.pollers.fetch_redefine_puzzles")
     def test_redefine_poll_skips_puzzle_if_word_owned_by_simplify(self, fetch_mock):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(
@@ -257,7 +251,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertIsNone(admitted)
         self.assertEqual([], supervisor.pending_items)
 
-    @patch("generator.run_all.build_candidate_pairs")
+    @patch("generator.supervisor.pollers.build_candidate_pairs")
     def test_simplify_poll_skips_word_owned_by_active_puzzle(self, build_pairs_mock):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(
@@ -275,7 +269,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertIsNone(admitted)
         self.assertEqual([], supervisor.pending_items)
 
-    @patch("generator.run_all.fetch_retitle_puzzles")
+    @patch("generator.supervisor.pollers.fetch_retitle_puzzles")
     def test_retitle_poll_skips_same_puzzle_claimed_elsewhere(self, fetch_mock):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(
@@ -374,13 +368,13 @@ class RunAllSupervisorTests(unittest.TestCase):
         vote = SimpleNamespace(vote=SimpleNamespace(same_meaning=True), parse_status="ok")
         try:
             with (
-                patch("generator.run_all.load_simplify_bucket", return_value=({("APA", "", ""): [row_left, row_right]}, [pair])),
-                patch("generator.run_all.compare_simplify_pairs", return_value={"l::r": vote}),
-                patch("generator.run_all.find_simplify_pair_rows", return_value=(row_left, row_right)),
-                patch("generator.run_all.should_rewrite_survivor", return_value=False),
-                patch("generator.run_all.choose_existing_survivor", return_value=SimpleNamespace(definition="stanga")),
-                patch("generator.run_all.apply_simplify_merge", return_value="survivor"),
-                patch("generator.run_all.refresh_simplify_bucket_rows"),
+                patch("generator.supervisor.jobs.simplify.load_simplify_bucket", return_value=({("APA", "", ""): [row_left, row_right]}, [pair])),
+                patch("generator.supervisor.jobs.simplify.compare_simplify_pairs", return_value={"l::r": vote}),
+                patch("generator.supervisor.jobs.simplify.find_simplify_pair_rows", return_value=(row_left, row_right)),
+                patch("generator.supervisor.jobs.simplify.should_rewrite_survivor", return_value=False),
+                patch("generator.supervisor.jobs.simplify.choose_existing_survivor", return_value=SimpleNamespace(definition="stanga")),
+                patch("generator.supervisor.jobs.simplify.apply_simplify_merge", return_value="survivor"),
+                patch("generator.supervisor.jobs.simplify.refresh_simplify_bucket_rows"),
             ):
                 while supervisor.slots["simplify"].active_job is not None:
                     supervisor._run_ready_steps()
@@ -476,14 +470,14 @@ class RunAllSupervisorTests(unittest.TestCase):
         )
         candidate_puzzle = SimpleNamespace(assessment=SimpleNamespace(min_rebus=0, avg_rebus=0.0, verified_count=0, total_clues=0))
         with (
-            patch("generator.run_all.fetch_redefine_clues", return_value=[{"id": "c1"}]),
-            patch("generator.run_all.build_working_puzzle", side_effect=[baseline_puzzle, candidate_puzzle]),
-            patch("generator.run_all._run_pair_verify", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
-            patch("generator.run_all._run_pair_rate", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
-            patch("generator.run_all.DexProvider.for_puzzle", return_value=SimpleNamespace()),
-            patch("generator.run_all._finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
-            patch("generator.run_all._finalize_pair_rating"),
-            patch("generator.run_all.score_puzzle_state", return_value=SimpleNamespace(min_rebus=1, avg_rebus=2.0, verified_count=1, total_clues=1)),
+            patch("generator.supervisor.jobs.redefine.fetch_redefine_clues", return_value=[{"id": "c1"}]),
+            patch("generator.supervisor.jobs.redefine.build_working_puzzle", side_effect=[baseline_puzzle, candidate_puzzle]),
+            patch("generator.supervisor.jobs.redefine._run_pair_verify", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
+            patch("generator.supervisor.jobs.redefine._run_pair_rate", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
+            patch("generator.supervisor.jobs.redefine.DexProvider.for_puzzle", return_value=SimpleNamespace()),
+            patch("generator.supervisor.jobs.redefine._finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
+            patch("generator.supervisor.jobs.redefine._finalize_pair_rating"),
+            patch("generator.supervisor.jobs.redefine.score_puzzle_state", return_value=SimpleNamespace(min_rebus=1, avg_rebus=2.0, verified_count=1, total_clues=1)),
         ):
             job._fetch(_context(runtime))
             self.assertEqual("baseline_verify", job.stage)
@@ -493,7 +487,7 @@ class RunAllSupervisorTests(unittest.TestCase):
             job._baseline_rate(_context(runtime))
             self.assertEqual("baseline_finalize", job.stage)
             job._baseline_finalize(_context(runtime))
-            self.assertEqual("rewrite", job.stage)
+            self.assertEqual("rewrite_initial_verify", job.stage)
 
     def test_retitle_job_yields_across_round_phases(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
@@ -507,12 +501,12 @@ class RunAllSupervisorTests(unittest.TestCase):
         job = supervisor._build_job(item)
         ctx = _context(runtime)
         with (
-            patch("generator.run_all.fetch_retitle_clues", return_value=[{"word_normalized": "APA", "definition": "Apa"}]),
-            patch("generator.run_all.fetch_retitle_puzzles", return_value=[]),
-            patch("generator.run_all._generate_batch_candidates", return_value=[(SimpleNamespace(), "Titlu Nou")]),
-            patch("generator.run_all._rate_batch_candidates"),
-            patch("generator.run_all._finalize_title_result", return_value=SimpleNamespace(title="Titlu Nou", used_fallback=False, score=8, score_complete=True)),
-            patch("generator.run_all._apply_title_result", return_value=True),
+            patch("generator.supervisor.jobs.retitle.fetch_retitle_clues", return_value=[{"word_normalized": "APA", "definition": "Apa"}]),
+            patch("generator.supervisor.jobs.retitle.fetch_retitle_puzzles", return_value=[]),
+            patch("generator.supervisor.jobs.retitle._generate_batch_candidates", return_value=[(SimpleNamespace(), "Titlu Nou")]),
+            patch("generator.supervisor.jobs.retitle._rate_batch_candidates"),
+            patch("generator.supervisor.jobs.retitle._finalize_title_result", return_value=SimpleNamespace(title="Titlu Nou", used_fallback=False, score=8, score_complete=True)),
+            patch("generator.supervisor.jobs.retitle.apply_title_update", return_value=True),
         ):
             job._fetch(ctx)
             self.assertEqual("generate_primary", job.stage)

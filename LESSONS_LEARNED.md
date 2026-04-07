@@ -168,6 +168,8 @@
 
 **[2026-04-07]** Single-model LLM supervisors still need a separate worker lane for long local prep — if Rust/grid fill or other CPU-bound local phases run inline on the same orchestration thread as model scheduling, “multi-topic” slots collapse back into serial progress even after job-state refactors. Keep one serialized LLM lane for all model calls, but move long non-LLM prep attempts onto a conservative background worker and block that lane from doing any final persistence or shared-state writes.
 
+**[2026-04-07]** After lane separation, mixed “persist/apply” helpers become the next hidden scheduler bug — a helper that sometimes writes to Supabase and sometimes quietly does title scoring, canonical arbitration, or referee calls defeats the whole `llm` vs `non_llm` contract. Split those helpers into `prepare_*` (LLM-allowed, returns a pure plan) and `apply_*` (pure writes only), then make the supervisor schedule them as separate stages.
+
 ---
 
 ## Archive
