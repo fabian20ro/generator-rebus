@@ -134,7 +134,12 @@ def _generate_title(
 ) -> TitleGenerationResult:
     words, definitions = _collect_title_inputs(puzzle)
     if not words or not definitions:
-        return TitleGenerationResult(puzzle.title or "Rebus", 0, "titlu existent pastrat")
+        return TitleGenerationResult(
+            puzzle.title or "Rebus",
+            0,
+            "titlu existent pastrat",
+            score_complete=False,
+        )
     return generate_creative_title_result(
         words,
         definitions,
@@ -315,10 +320,10 @@ def repair_puzzle(
     )
     if title_result.used_fallback and puzzle_row.get("title"):
         candidate_puzzle.title = puzzle_row.get("title") or "Rebus"
-        title_score = _stored_title_score(puzzle_row) or 0
+        title_score = _stored_title_score(puzzle_row)
     else:
         candidate_puzzle.title = title_result.title or candidate_puzzle.title or puzzle_row.get("title") or "Rebus"
-        title_score = title_result.score
+        title_score = title_result.score if title_result.score_complete else None
     repaired_at = _now_iso()
     description = _build_description(candidate_puzzle.assessment, multi_model=multi_model)
     puzzle_payload = {

@@ -33,11 +33,11 @@ from .phases.theme import (
     TitleGenerationResult,
     _build_rejected_context,
     _generate_candidate_with_active_model,
-    _phase_label,
     _review_title_candidate,
     generate_creative_title_result,
     normalize_title_key,
     rate_title_creativity,
+    rate_title_creativity_pair,
 )
 
 
@@ -163,7 +163,7 @@ def _finalize_title_result(state: _RetitleBatchState) -> TitleGenerationResult:
         return state.final_result
     if state.best_result is not None and state.best_result.score > 0:
         return state.best_result
-    return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True)
+    return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True, score_complete=False)
 
 
 def _backfill_title_score(
@@ -202,7 +202,12 @@ def _resolve_old_title_score(
     if not reviewed.valid:
         return 0, True, reviewed.feedback
 
-    score_model = runtime.activate_secondary() if multi_model else runtime.activate_primary()
+    if multi_model:
+        rating = rate_title_creativity_pair(old_title, words, rate_client, runtime=runtime)
+        if not rating.complete:
+            return 0, False, "evaluare incompletă"
+        return rating.score, True, None
+    score_model = runtime.activate_primary()
     old_score, _ = rate_title_creativity(old_title, words, rate_client, model_config=score_model)
     return old_score, True, None
 
@@ -286,20 +291,22 @@ def _rate_batch_candidates(
     rate_client,
     *,
     generator_model: ModelConfig,
+    runtime: LmRuntime,
     rating_model: ModelConfig,
     round_idx: int,
 ) -> None:
     for state, title in candidates:
-        score, feedback = rate_title_creativity(
-            title,
-            state.words,
-            rate_client,
-            model_config=rating_model,
-        )
+        rating = rate_title_creativity_pair(title, state.words, rate_client, runtime=runtime)
+        score = rating.score
+        feedback = rating.feedback
         log(
-            f'  [{state.puzzle_id}] Title round {round_idx} [{_phase_label(generator_model, rating_model)}]: "{title}" -> creativity={score}/10 ({feedback})'
+            f'  [{state.puzzle_id}] Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity={score}/10 ({feedback})'
         )
-        result = TitleGenerationResult(title, score, feedback)
+        if not rating.complete:
+            state.rejected.append((title, "evaluare incompletă"))
+            state.rejected_by_model.setdefault(generator_model.model_id, []).append((title, "evaluare incompletă"))
+            continue
+        result = TitleGenerationResult(title, score, feedback, score_complete=True)
         _update_best_result(state, result)
         if state.done:
             continue
@@ -337,6 +344,7 @@ def generate_title_results_batch(
                 primary_candidates,
                 rate_client,
                 generator_model=primary_model,
+                runtime=runtime,
                 rating_model=secondary_model,
                 round_idx=round_idx,
             )
@@ -356,6 +364,7 @@ def generate_title_results_batch(
                 secondary_candidates,
                 rate_client,
                 generator_model=secondary_model,
+                runtime=runtime,
                 rating_model=primary_model,
                 round_idx=round_idx,
             )
@@ -364,6 +373,7 @@ def generate_title_results_batch(
                 primary_candidates,
                 rate_client,
                 generator_model=primary_model,
+                runtime=runtime,
                 rating_model=primary_model,
                 round_idx=round_idx,
             )
@@ -435,11 +445,15 @@ def _apply_title_result(
         execute_logged_update(
             supabase,
             "crossword_puzzles",
-            {"title": new_title, "title_score": title_result.score, "updated_at": _now_iso()},
+            {
+                "title": new_title,
+                "title_score": title_result.score if title_result.score_complete else None,
+                "updated_at": _now_iso(),
+            },
             eq_filters={"id": puzzle_id},
         )
     puzzle_row["title"] = new_title
-    puzzle_row["title_score"] = title_result.score
+    puzzle_row["title_score"] = title_result.score if title_result.score_complete else None
     return True
 
 

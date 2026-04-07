@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from collections.abc import Iterable
 
 from ..core.llm_client import _chat_completion_create, create_client
+from ..core.ai_clues import consensus_score
 from ..core.diacritics import normalize
 from ..core.llm_text import clean_llm_text_response
 from ..core.lm_runtime import LmRuntime
@@ -148,6 +149,15 @@ class TitleGenerationResult:
     score: int
     feedback: str
     used_fallback: bool = False
+    score_complete: bool = True
+
+
+@dataclass(frozen=True)
+class TitleRatingResult:
+    score: int
+    feedback: str
+    complete: bool
+    votes: dict[str, tuple[int, str]]
 
 
 def _contains_mixed_script(title: str) -> bool:
@@ -310,6 +320,59 @@ def rate_title_creativity(
     return 0, "parse error"
 
 
+def _pair_rating_runtime(runtime: LmRuntime | None) -> LmRuntime:
+    if runtime is not None and getattr(runtime, "multi_model", True):
+        return runtime
+    return LmRuntime(multi_model=True)
+
+
+def _combine_title_feedback(first: str, second: str) -> str:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for raw in (first, second):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        key = normalize(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(text)
+    return " / ".join(parts)
+
+
+def rate_title_creativity_pair(
+    title: str,
+    words: list[str],
+    client,
+    *,
+    runtime: LmRuntime | None = None,
+) -> TitleRatingResult:
+    pair_runtime = _pair_rating_runtime(runtime)
+    active_models = [pair_runtime.activate_primary(), pair_runtime.activate_secondary()]
+    votes: dict[str, tuple[int, str]] = {}
+    for model in active_models:
+        score, feedback = rate_title_creativity(
+            title,
+            words,
+            client,
+            model_config=model,
+        )
+        if score <= 0 and feedback in {"api error", "parse error"}:
+            return TitleRatingResult(0, feedback, False, votes)
+        votes[model.model_id] = (score, feedback)
+    if len(votes) != 2:
+        return TitleRatingResult(0, "evaluare incompletă", False, votes)
+    first_score, first_feedback = votes[active_models[0].model_id]
+    second_score, second_feedback = votes[active_models[1].model_id]
+    return TitleRatingResult(
+        score=consensus_score(first_score, second_score),
+        feedback=_combine_title_feedback(first_feedback, second_feedback),
+        complete=True,
+        votes=votes,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Level 1 — single LLM call
 # ---------------------------------------------------------------------------
@@ -461,7 +524,7 @@ def generate_creative_title_result(
 ) -> TitleGenerationResult:
     """Generate a creative title with quality evaluation loop."""
     if not words:
-        return TitleGenerationResult(NO_TITLE_LABEL, 0, "fara cuvinte", used_fallback=True)
+        return TitleGenerationResult(NO_TITLE_LABEL, 0, "fara cuvinte", used_fallback=True, score_complete=False)
 
     if rate_client is None:
         rate_client = client
@@ -523,22 +586,24 @@ def generate_creative_title_result(
                 model_rejected.append((reviewed.title, "titlu deja folosit"))
                 continue
 
-            rating_model = _rating_model_for_generator(
-                runtime,
-                generator_model,
-                multi_model=multi_model,
-            )
-            score, feedback = rate_title_creativity(
+            rating = rate_title_creativity_pair(
                 reviewed.title,
                 words,
                 rate_client,
-                model_config=rating_model,
+                runtime=runtime,
             )
+            score = rating.score
+            feedback = rating.feedback
             log(
-                f'  Title round {round_idx} [{_phase_label(generator_model, rating_model)}]: "{reviewed.title}" -> creativity={score}/10 ({feedback})'
+                f'  Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{reviewed.title}" -> creativity={score}/10 ({feedback})'
             )
 
-            result = TitleGenerationResult(reviewed.title, score, feedback)
+            if not rating.complete:
+                rejected.append((reviewed.title, "evaluare incompletă"))
+                model_rejected.append((reviewed.title, "evaluare incompletă"))
+                continue
+
+            result = TitleGenerationResult(reviewed.title, score, feedback, score_complete=True)
 
             if (
                 best_result is None
@@ -558,7 +623,7 @@ def generate_creative_title_result(
 
     if best_result is not None and best_result.score > 0:
         return best_result
-    return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True)
+    return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True, score_complete=False)
 
 
 def generate_creative_title(

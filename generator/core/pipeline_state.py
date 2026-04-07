@@ -38,8 +38,14 @@ class ClueFailureReason:
 class ClueAssessment:
     verified: bool | None = None
     verify_candidates: list[str] = field(default_factory=list)
+    verify_votes: dict[str, list[str]] = field(default_factory=dict)
+    verify_vote_sources: dict[str, str] = field(default_factory=dict)
+    verify_complete: bool = True
     wrong_guess: str = ""
     feedback: str = ""
+    rating_votes: dict[str, object] = field(default_factory=dict)
+    rating_vote_sources: dict[str, str] = field(default_factory=dict)
+    rating_complete: bool = True
     scores: ClueScores = field(default_factory=ClueScores)
     failure_reason: ClueFailureReason | None = None
     rewrite_rejection_reason: str = ""
@@ -91,6 +97,7 @@ class PuzzleAssessment:
     verified_count: int = 0
     total_clues: int = 0
     pass_rate: float = 0.0
+    scores_complete: bool = True
 
 
 @dataclass

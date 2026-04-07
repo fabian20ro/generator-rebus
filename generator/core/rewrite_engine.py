@@ -215,7 +215,7 @@ def _evaluate_single_candidate(
     candidate: PendingCandidate,
     *,
     client,
-    evaluator_model,
+    scoring_runtime: LmRuntime,
     preset_skip: set[str],
     dex: DexProvider,
     round_index: int,
@@ -233,8 +233,7 @@ def _evaluate_single_candidate(
         puzzle,
         client,
         skip_words=skip_words,
-        model_label=evaluator_model.display_name,
-        model_name=evaluator_model.model_id,
+        runtime=scoring_runtime,
         max_guesses=verify_candidates,
     )
     rate_working_puzzle(
@@ -242,8 +241,7 @@ def _evaluate_single_candidate(
         client,
         skip_words=skip_words,
         dex=dex,
-        model_label=evaluator_model.display_name,
-        model_name=evaluator_model.model_id,
+        runtime=scoring_runtime,
     )
     return copy.deepcopy(clue.current)
 
@@ -300,6 +298,7 @@ def run_rewrite_loop(
             log(f"  Canonical prompt examples unavailable: {exc}")
             clue_canon = None
     runtime = runtime or LmRuntime(multi_model=multi_model)
+    scoring_runtime = LmRuntime(multi_model=True)
     current_model = runtime.activate_initial_evaluator()
     if multi_model:
         log(f"  Model activ (evaluare inițială): {current_model.display_name}")
@@ -309,8 +308,7 @@ def run_rewrite_loop(
         puzzle,
         client,
         skip_words=preset_skip,
-        model_label=current_model.display_name,
-        model_name=current_model.model_id,
+        runtime=scoring_runtime,
         max_guesses=verify_candidates,
     )
     rate_working_puzzle(
@@ -318,8 +316,7 @@ def run_rewrite_loop(
         client,
         skip_words=preset_skip,
         dex=dex,
-        model_label=current_model.display_name,
-        model_name=current_model.model_id,
+        runtime=scoring_runtime,
     )
     for clue in all_working_clues(puzzle):
         _update_best_clue_version(clue, client=client, model_name=current_model.model_id)
@@ -497,7 +494,7 @@ def run_rewrite_loop(
                         clue,
                         candidate,
                         client=client,
-                        evaluator_model=current_model,
+                        scoring_runtime=scoring_runtime,
                         preset_skip=preset_skip,
                         dex=dex,
                         round_index=round_index,
@@ -527,8 +524,7 @@ def run_rewrite_loop(
                 puzzle,
                 client,
                 skip_words=skip_words,
-                model_label=current_model.display_name,
-                model_name=current_model.model_id,
+                runtime=scoring_runtime,
                 max_guesses=verify_candidates,
             )
             rate_working_puzzle(
@@ -536,8 +532,7 @@ def run_rewrite_loop(
                 client,
                 skip_words=skip_words,
                 dex=dex,
-                model_label=current_model.display_name,
-                model_name=current_model.model_id,
+                runtime=scoring_runtime,
             )
         for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:

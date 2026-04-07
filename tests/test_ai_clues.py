@@ -10,6 +10,7 @@ from generator.core.llm_client import (
 from generator.core.ai_clues import (
     DefinitionRating,
     RewriteAttemptResult,
+    consensus_score,
     compute_rebus_score,
     generate_definition,
     rate_definition,
@@ -205,6 +206,11 @@ class AiCluesTests(unittest.TestCase):
         self.assertIsNotNone(rating)
         self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(chat_max_tokens(SECONDARY_MODEL), client.calls[0]["max_tokens"])
+
+    def test_consensus_score_penalizes_disagreement(self):
+        self.assertEqual(10, consensus_score(10, 10))
+        self.assertEqual(7, consensus_score(10, 6))
+        self.assertEqual(6, consensus_score(9, 5))
 
     def test_rewrite_prompt_omits_bad_example_by_default(self):
         client = _RecordingClient(["Definiție mai bună"])
@@ -612,6 +618,24 @@ class AiCluesTests(unittest.TestCase):
         logged_messages = [call.args[0] for call in mock_log.call_args_list]
         self.assertTrue(any("retry without_thinking" in message for message in logged_messages))
         self.assertTrue(any("retry_max_tokens=200" in message for message in logged_messages))
+
+    def test_rate_definition_marks_no_thinking_retry_source(self):
+        response = _chat_response(
+            content='{"semantic_score": 8, "guessability_score": 6, "creativity_score": 5, "feedback": "ok"}'
+        )
+        setattr(response, "_response_source", "no_thinking_retry")
+        with mock.patch("generator.core.ai_clues._chat_completion_create", return_value=response):
+            rating = rate_definition(
+                object(),
+                word="ARACI",
+                original="araci",
+                definition="Bețe de sprijin pentru viță",
+                answer_length=5,
+                model=PRIMARY_MODEL.model_id,
+            )
+
+        self.assertIsNotNone(rating)
+        self.assertEqual("no_thinking_retry", rating.response_source)
 
     def test_run_definition_referee_remaps_swapped_votes_back_to_original_orientation(self):
         class _Runtime:

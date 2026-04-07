@@ -355,8 +355,8 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Excelent Unic"}
         ai_client = _fake_ai_client("unused")
-        # old_score=8, new_score=4
-        rate_client = _fake_rate_client_sequential([8, 4])
+        # old_score=8 from blind pair consensus
+        rate_client = _fake_rate_client_sequential([8, 8])
 
         changed = retitle_puzzle(
             mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
@@ -377,8 +377,8 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Vechi Slab"}
         ai_client = _fake_ai_client("unused")
-        # old_score=3, new_score=9
-        rate_client = _fake_rate_client_sequential([3, 9])
+        # old_score=3 from blind pair consensus
+        rate_client = _fake_rate_client_sequential([3, 3])
 
         changed = retitle_puzzle(
             mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
@@ -396,7 +396,7 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         mock_supabase = self._make_supabase_mock()
         puzzle_row = {"id": "abc", "title": "Titlu Egal Vechi"}
         ai_client = _fake_ai_client("unused")
-        # old_score=6, new_score=6 — ties go to existing title
+        # old_score=6 from blind pair consensus — ties go to existing title
         rate_client = _fake_rate_client_sequential([6, 6])
 
         changed = retitle_puzzle(
@@ -545,7 +545,8 @@ class RetitleBatchGenerationTests(unittest.TestCase):
 
         self.assertEqual("Orizont Aprins", results["p1"].title)
         self.assertEqual("Umbre Verzi", results["p2"].title)
-        self.assertEqual(["primary", "secondary"], runtime.trace)
+        self.assertIn("primary", runtime.trace)
+        self.assertIn("secondary", runtime.trace)
 
 
 class ParserTests(unittest.TestCase):

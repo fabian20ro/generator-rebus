@@ -154,6 +154,8 @@
 
 **[2026-04-07]** Permanent storage cutovers should delete transition-era runtime code, not merely bypass it — once every live row obeys the new invariant, compatibility flags (`is_enabled`, legacy-source branches, resumable backfill state, alias-history side writes) stop being safety mechanisms and start masking contract drift. Collapse the runtime onto the steady-state schema, keep one health audit, and leave migration history only in SQL/docs history.
 
+**[2026-04-07]** Two-model scoring upgrades should keep single-model prompt helpers intact and add consensus one layer up — low-level helpers like `rate_definition()` and `verify_definition_candidates()` are easier to test and reuse when they stay “one request in, one parsed vote out.” Put pair completeness, consensus math, and per-model batching in the phase/runtime layer (`verify`, `theme`, `retitle`) so prompt contracts do not fork and unit tests for raw model I/O stay stable.
+
 ---
 
 ## Archive

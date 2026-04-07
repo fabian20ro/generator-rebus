@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .ai_clues import RATE_MIN_REBUS
 from .dex_cache import DexProvider
 from .lm_runtime import LmRuntime
+from .model_manager import get_active_models
 from .pipeline_state import PuzzleAssessment, WorkingPuzzle, all_working_clues
 from .quality import QualityReport
 from .score_helpers import _needs_rewrite
@@ -39,10 +40,28 @@ def score_puzzle_state(
         for clue in clues
         if (clue.active_version().assessment.scores.ambiguity_risk or 0) >= (11 - RATE_MIN_REBUS)
     )
+    scores_complete = all(
+        clue.active_version().assessment.verify_complete
+        and clue.active_version().assessment.rating_complete
+        and clue.active_version().assessment.scores.semantic_exactness is not None
+        and clue.active_version().assessment.scores.answer_targeting is not None
+        and clue.active_version().assessment.scores.creativity is not None
+        and clue.active_version().assessment.scores.rebus_score is not None
+        for clue in clues
+    )
     short_word_burden = sum(1 for clue in clues if len(clue.word_normalized) <= 3)
     rare_word_burden = candidate_report.high_rarity_words if candidate_report else 0
     blocker_words = [clue.word_normalized for clue in clues if _needs_rewrite(clue)]
     non_preset_rebus = [clue.active_version().assessment.scores.rebus_score or 0 for clue in clues]
+
+    if not scores_complete:
+        return PuzzleAssessment(
+            short_word_burden=short_word_burden,
+            rare_word_burden=rare_word_burden,
+            blocker_words=blocker_words,
+            total_clues=len(clues),
+            scores_complete=False,
+        )
 
     return PuzzleAssessment(
         definition_score=sum(e + r for e, r in zip(exact_scores, rebus_scores)) / len(clues),
@@ -58,6 +77,7 @@ def score_puzzle_state(
         verified_count=sum(1 for clue in clues if clue.active_version().assessment.verified is True),
         total_clues=len(clues),
         pass_rate=sum(1 for clue in clues if clue.active_version().assessment.verified is True) / len(clues),
+        scores_complete=True,
     )
 
 
@@ -74,33 +94,37 @@ def evaluate_puzzle_state(
     if dex is None:
         dex = DexProvider.for_puzzle(puzzle)
 
-    runtime = runtime or LmRuntime(multi_model=multi_model)
-    current_model = runtime.activate_initial_evaluator()
+    runtime = runtime or LmRuntime(multi_model=True)
     passed, total = verify_working_puzzle(
         puzzle,
         client,
-        model_label=current_model.display_name,
-        model_name=current_model.model_id,
+        runtime=runtime,
         max_guesses=verify_candidates,
     )
     rate_working_puzzle(
         puzzle,
         client,
         dex=dex,
-        model_label=current_model.display_name,
-        model_name=current_model.model_id,
+        runtime=runtime,
     )
     assessment = score_puzzle_state(puzzle, candidate_report)
     return PuzzleEvaluationResult(
         assessment=assessment,
         passed=passed,
         total=total,
-        evaluator_model=current_model.display_name,
+        evaluator_model=" + ".join(model.display_name for model in get_active_models(multi_model=True)),
     )
 
 
 def build_puzzle_description(assessment: PuzzleAssessment, models_used: list[str]) -> str:
     models_desc = ", ".join(models_used) if models_used else "-"
+    if not assessment.scores_complete:
+        return (
+            "Scor rebus: -/10 | "
+            "Medie rebus: -/10 | "
+            f"Verificate: -/{assessment.total_clues} | "
+            f"Modele: {models_desc}"
+        )
     return (
         f"Scor rebus: {assessment.min_rebus}/10 | "
         f"Medie rebus: {assessment.avg_rebus:.1f}/10 | "
@@ -114,6 +138,16 @@ def puzzle_metadata_payload(
     *,
     description: str,
 ) -> dict[str, object]:
+    if not assessment.scores_complete:
+        return {
+            "description": description,
+            "rebus_score_min": None,
+            "rebus_score_avg": None,
+            "definition_score": None,
+            "verified_count": None,
+            "total_clues": assessment.total_clues,
+            "pass_rate": None,
+        }
     return {
         "description": description,
         "rebus_score_min": assessment.min_rebus,

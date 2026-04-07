@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 import sys
@@ -53,6 +54,7 @@ from .definition_referee import _compare_definition_variant_attempt
 RATE_MIN_SEMANTIC = 7
 RATE_MIN_REBUS = 5
 from .llm_client import (
+    RESPONSE_SOURCE_REASONING,
     create_client,
     _resolve_model_name,
     _clean_response,
@@ -69,11 +71,13 @@ class DefinitionRating:
     feedback: str
     creativity_score: int = 5
     rarity_only_override: bool = False
+    response_source: str = RESPONSE_SOURCE_REASONING
 
 
 @dataclass(frozen=True)
 class VerifyResult:
     candidates: list[str]
+    response_source: str = RESPONSE_SOURCE_REASONING
 
     @property
     def primary_guess(self) -> str:
@@ -99,8 +103,58 @@ class MergeRewriteValidationResult:
 
 
 
+@dataclass(frozen=True)
+class DefinitionRatingPair:
+    combined: DefinitionRating | None
+    votes: dict[str, DefinitionRating]
+    complete: bool
+
+
+def round_half_up(value: float) -> int:
+    return int(math.floor(value + 0.5))
+
+
+def consensus_score(first: int, second: int) -> int:
+    base = (first + second) / 2
+    penalty = abs(first - second) / 4
+    return _clamp_score(round_half_up(base - penalty))
+
+
+def combine_definition_feedback(first: str, second: str) -> str:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for raw in (first, second):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        key = normalize(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(text)
+    return " / ".join(parts)
+
+
+def combine_definition_ratings(
+    first: DefinitionRating,
+    second: DefinitionRating,
+) -> DefinitionRating:
+    return DefinitionRating(
+        semantic_score=consensus_score(first.semantic_score, second.semantic_score),
+        guessability_score=consensus_score(first.guessability_score, second.guessability_score),
+        feedback=combine_definition_feedback(first.feedback, second.feedback),
+        creativity_score=consensus_score(first.creativity_score, second.creativity_score),
+        rarity_only_override=first.rarity_only_override and second.rarity_only_override,
+        response_source=first.response_source if first.response_source == second.response_source else "pair",
+    )
+
+
+def _response_source(response) -> str:
+    return str(getattr(response, "_response_source", RESPONSE_SOURCE_REASONING))
+
+
 def compute_rebus_score(guessability: int, creativity: int) -> int:
-    return round(0.75 * guessability + 0.25 * creativity)
+    return round_half_up(0.75 * guessability + 0.25 * creativity)
 
 
 
@@ -311,7 +365,7 @@ def verify_definition_candidates(
         )
         last_candidates = candidates
         if candidates:
-            return VerifyResult(candidates)
+            return VerifyResult(candidates, response_source=_response_source(response))
         prompt += "\nAtenție: răspunsul anterior nu a fost în română. Răspunde exclusiv în română."
 
     return VerifyResult(last_candidates)
@@ -385,6 +439,7 @@ def rate_definition(
                     guessability_score=_clamp_score(data.get("guessability_score")),
                     feedback=feedback,
                     creativity_score=_clamp_score(data.get("creativity_score")),
+                    response_source=_response_source(response),
                 )
                 rating = _guard_same_family_rating(word, definition, rating)
                 rating = _guard_english_meaning_rating(word, definition, rating)
@@ -533,6 +588,3 @@ def validate_merged_canonical_definition(
             accepted=False,
         )
     return MergeRewriteValidationResult(accepted=True)
-
-
-

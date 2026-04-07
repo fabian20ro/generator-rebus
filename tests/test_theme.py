@@ -16,6 +16,7 @@ from generator.phases.theme import (
     generate_title_for_final_puzzle,
     normalize_title_key,
     rate_title_creativity,
+    rate_title_creativity_pair,
 )
 
 
@@ -239,6 +240,34 @@ class RateTitleCreativityTests(unittest.TestCase):
         self.assertEqual(8, score)
         self.assertEqual("clar", feedback)
 
+    def test_pair_rating_penalizes_disagreement(self):
+        runtime = _FakeRuntime()
+        client = _ModelAwareClient(
+            {
+                PRIMARY_MODEL.model_id: [json.dumps({"creativity_score": 10, "feedback": "excelent"})],
+                SECONDARY_MODEL.model_id: [json.dumps({"creativity_score": 6, "feedback": "bun"})],
+            }
+        )
+
+        result = rate_title_creativity_pair("Test", ["A", "B"], client, runtime=runtime)
+
+        self.assertTrue(result.complete)
+        self.assertEqual(7, result.score)
+        self.assertEqual(["primary", "secondary"], runtime.trace)
+
+    def test_pair_rating_requires_both_models(self):
+        runtime = _FakeRuntime()
+        client = _ModelAwareClient(
+            {
+                PRIMARY_MODEL.model_id: [json.dumps({"creativity_score": 8, "feedback": "bun"})],
+                SECONDARY_MODEL.model_id: ["not json"],
+            }
+        )
+
+        result = rate_title_creativity_pair("Test", ["A", "B"], client, runtime=runtime)
+
+        self.assertFalse(result.complete)
+
 
 class CreativeTitleTests(unittest.TestCase):
     def test_accepts_high_score(self):
@@ -252,7 +281,8 @@ class CreativeTitleTests(unittest.TestCase):
             multi_model=True,
         )
         self.assertEqual("Orizont Aprins", title)
-        self.assertEqual(["primary", "secondary"], runtime.trace)
+        self.assertEqual("primary", runtime.trace[0])
+        self.assertIn("secondary", runtime.trace)
 
     def test_score_seven_requires_retry(self):
         runtime = _FakeRuntime()
@@ -262,6 +292,8 @@ class CreativeTitleTests(unittest.TestCase):
             client=_SequentialClient(["Orizont Cald", "Umbre Fine"]),
             rate_client=_SequentialClient([
                 json.dumps({"creativity_score": 7, "feedback": "aproape"}),
+                json.dumps({"creativity_score": 7, "feedback": "aproape"}),
+                json.dumps({"creativity_score": 8, "feedback": "acceptat"}),
                 json.dumps({"creativity_score": 8, "feedback": "acceptat"}),
             ]),
             runtime=runtime,
@@ -292,13 +324,14 @@ class CreativeTitleTests(unittest.TestCase):
             client=_SequentialClient(["Orizont Calm"] * 7),
             rate_client=_SequentialClient([
                 json.dumps({"creativity_score": 0, "feedback": "slab"}),
-            ] * 7),
+                json.dumps({"creativity_score": 0, "feedback": "slab"}),
+            ] * 14),
             runtime=runtime,
             multi_model=True,
         )
-        self.assertEqual(NO_TITLE_LABEL, result.title)
-        self.assertEqual(0, result.score)
-        self.assertTrue(result.used_fallback)
+        self.assertEqual("Orizont Calm", result.title)
+        self.assertEqual(1, result.score)
+        self.assertFalse(result.used_fallback)
 
     def test_retries_generation_with_secondary_when_primary_returns_empty(self):
         runtime = _FakeRuntime()
@@ -320,7 +353,7 @@ class CreativeTitleTests(unittest.TestCase):
         )
 
         self.assertEqual("Umbre Verzi", result.title)
-        self.assertEqual(["primary", "secondary", "primary"], runtime.trace)
+        self.assertEqual(["primary", "secondary", "primary", "secondary"], runtime.trace)
 
     def test_empty_output_does_not_pollute_rejected_context(self):
         runtime = _FakeRuntime()
@@ -350,6 +383,9 @@ class CreativeTitleTests(unittest.TestCase):
             rate_client=_SequentialClient([
                 json.dumps({"creativity_score": 3, "feedback": "generic"}),
                 json.dumps({"creativity_score": 3, "feedback": "tot generic"}),
+                json.dumps({"creativity_score": 3, "feedback": "generic"}),
+                json.dumps({"creativity_score": 3, "feedback": "tot generic"}),
+                json.dumps({"creativity_score": 8, "feedback": "excelent"}),
                 json.dumps({"creativity_score": 8, "feedback": "excelent"}),
             ]),
             runtime=runtime,
@@ -404,7 +440,10 @@ class CreativeTitleTests(unittest.TestCase):
             multi_model=True,
         )
         self.assertEqual(PRIMARY_MODEL.model_id, gen_client.calls[0]["model"])
-        self.assertEqual(SECONDARY_MODEL.model_id, rate_client.calls[0]["model"])
+        self.assertEqual(
+            [PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
+            [call["model"] for call in rate_client.calls[:2]],
+        )
 
     def test_no_secondary_activation_before_first_generation_call(self):
         runtime = _FakeRuntime()

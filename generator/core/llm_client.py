@@ -18,6 +18,8 @@ from .runtime_logging import llm_debug_enabled, log
 
 RETRY_WITHOUT_THINKING_MAX_TOKENS = 200
 RETRY_WITHOUT_THINKING_MARGIN = 10
+RESPONSE_SOURCE_REASONING = "reasoning"
+RESPONSE_SOURCE_NO_THINKING_RETRY = "no_thinking_retry"
 
 def create_client() -> OpenAI:
     return OpenAI(
@@ -355,6 +357,14 @@ def _create_chat_completion_once(
     return response
 
 
+def _mark_response_source(response, source: str):
+    try:
+        setattr(response, "_response_source", source)
+    except Exception:
+        pass
+    return response
+
+
 def _chat_completion_create(
     client: OpenAI,
     *,
@@ -374,6 +384,7 @@ def _chat_completion_create(
         purpose=purpose,
         reasoning_options=reasoning_options,
     )
+    _mark_response_source(response, RESPONSE_SOURCE_REASONING)
     if not _should_retry_without_thinking(
         response,
         max_tokens=max_tokens,
@@ -385,7 +396,7 @@ def _chat_completion_create(
         max_tokens=max_tokens,
         response=response,
     )
-    return _create_chat_completion_once(
+    retry_response = _create_chat_completion_once(
         client,
         model=model,
         messages=messages,
@@ -398,6 +409,7 @@ def _chat_completion_create(
             reasoning_effort_override="none",
         ),
     )
+    return _mark_response_source(retry_response, RESPONSE_SOURCE_NO_THINKING_RETRY)
 
 
 def _log_if_reasoning_budget_high(
