@@ -8,6 +8,7 @@ from ..core.ai_clues import generate_definition
 from ..core.clue_canon import ClueCanonService
 from ..core.clue_logging import clue_label_from_working_clue, log_definition_event
 from ..core.dex_cache import DexProvider
+from ..core.llm_dispatch import WorkItem, WorkVote, run_single_model_workload
 from ..core.lm_runtime import LmRuntime
 from ..core.model_manager import ModelConfig, PRIMARY_MODEL
 from ..core.pipeline_state import (
@@ -82,13 +83,13 @@ def generate_definitions_for_state(
     log(f"Theme: {theme}")
     selected_model = model_config or PRIMARY_MODEL
     clue_canon = clue_canon or ClueCanonService()
-    if runtime is not None:
-        selected_model = runtime.activate(selected_model)
+    runtime = runtime or LmRuntime(multi_model=False)
 
     for label, clues in (("horizontal", state.horizontal_clues), ("vertical", state.vertical_clues)):
         log(f"Generating {label} definitions...")
         direction = "H" if label == "horizontal" else "V"
-        for clue in clues:
+        items: list[WorkItem[WorkingClue, str]] = []
+        for index, clue in enumerate(clues, start=1):
             if clue.current.definition:
                 continue
             clue_ref = clue_label_from_working_clue(clue, direction=direction)
@@ -98,17 +99,48 @@ def generate_definitions_for_state(
                 log(f"  Defining: {clue_ref} ({clue.word_original or '?'}) [DEX context available]")
             else:
                 log(f"  Defining: {clue_ref} ({clue.word_original or '?'})...")
+            items.append(
+                WorkItem(
+                    item_id=f"{direction}:{index}:{clue.word_normalized}",
+                    task_kind="definition_generate",
+                    payload=clue,
+                    pending_models={selected_model.model_id},
+                )
+            )
+
+        def _runner(item: WorkItem[WorkingClue, str], model: ModelConfig) -> WorkVote[str]:
+            clue = item.payload
+            dex_defs = dex.get(clue.word_normalized, clue.word_original) if dex else None
+            dex_defs = dex_defs or ""
             try:
                 existing_canonical_definitions = clue_canon.fetch_prompt_examples(clue.word_normalized)
                 definition = generate_definition(
-                    client, clue.word_normalized, clue.word_original, theme,
+                    client,
+                    clue.word_normalized,
+                    clue.word_original,
+                    theme,
                     word_type=clue.word_type,
                     dex_definitions=dex_defs,
                     existing_canonical_definitions=existing_canonical_definitions,
-                    model=selected_model.model_id,
+                    model=model.model_id,
                 )
-            except Exception as e:
-                definition = f"[Definiție lipsă: {e}]"
+            except Exception as exc:
+                definition = f"[Definiție lipsă: {exc}]"
+            return WorkVote(model_id=model.model_id, value=definition, source="ok")
+
+        if items:
+            run_single_model_workload(
+                runtime=runtime,
+                model=selected_model,
+                items=items,
+                purpose="definition_generate",
+                runner=_runner,
+                task_label="definition_generate",
+            )
+        for item in items:
+            clue = item.payload
+            definition = str(item.votes[selected_model.model_id].value or "")
+            clue_ref = clue_label_from_working_clue(clue, direction=direction)
             log_definition_event(
                 "generated",
                 clue_ref=clue_ref,

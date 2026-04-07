@@ -15,6 +15,7 @@ from supabase import create_client as create_supabase_client
 from .config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from .core.llm_client import create_client as create_ai_client
 from .core.clue_canon_store import ClueCanonStore
+from .core.llm_dispatch import WorkItem, WorkVote, run_single_model_workload
 from .core.lm_runtime import LmRuntime
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
 from .core.runtime_logging import (
@@ -38,6 +39,7 @@ from .phases.theme import (
     generate_creative_title_result,
     normalize_title_key,
     rate_title_creativity,
+    rate_title_creativity_batch,
     rate_title_creativity_pair,
 )
 from .core.ai_clues import consensus_score
@@ -209,8 +211,39 @@ def _resolve_old_title_score(
         if not rating.complete:
             return 0, False, "evaluare incompletă"
         return rating.score, True, None
-    score_model = runtime.activate_primary()
-    old_score, _ = rate_title_creativity(old_title, words, rate_client, model_config=score_model)
+    score_model = PRIMARY_MODEL
+    items = [
+        WorkItem[dict[str, object], tuple[int, str]](
+            item_id="old_title",
+            task_kind="title_rate_single",
+            payload={"title": old_title, "words": list(words)},
+            pending_models={score_model.model_id},
+        )
+    ]
+
+    def _runner(item: WorkItem[dict[str, object], tuple[int, str]], model: ModelConfig) -> WorkVote[tuple[int, str]]:
+        score, feedback = rate_title_creativity(
+            str(item.payload["title"]),
+            list(item.payload["words"]),
+            rate_client,
+            model_config=model,
+        )
+        if score <= 0 and feedback in {"api error", "parse error"}:
+            return WorkVote(model_id=model.model_id, value=None, source=feedback, terminal=True, terminal_reason=feedback)
+        return WorkVote(model_id=model.model_id, value=(score, feedback), source="ok")
+
+    run_single_model_workload(
+        runtime=runtime,
+        model=score_model,
+        items=items,
+        purpose="title_rate",
+        runner=_runner,
+        task_label="title_rate_single",
+    )
+    vote = items[0].votes.get(score_model.model_id)
+    if vote is None or vote.value is None:
+        return 0, False, "evaluare incompletă"
+    old_score, _ = vote.value
     return old_score, True, None
 
 
@@ -232,24 +265,53 @@ def _generate_batch_candidates(
     states: list[_RetitleBatchState],
     client,
     *,
+    runtime: LmRuntime,
     active_model: ModelConfig,
     round_idx: int,
 ) -> list[tuple[_RetitleBatchState, str]]:
-    valid_candidates: list[tuple[_RetitleBatchState, str]] = []
-    for state in states:
+    items: list[WorkItem[_RetitleBatchState, str]] = []
+    for index, state in enumerate(states, start=1):
         if state.done:
             continue
+        items.append(
+            WorkItem(
+                item_id=f"{active_model.model_id}:{index}:{state.puzzle_id}",
+                task_kind="title_generate",
+                payload=state,
+                pending_models={active_model.model_id},
+            )
+        )
+    if not items:
+        return []
+
+    def _runner(item: WorkItem[_RetitleBatchState, str], model: ModelConfig) -> WorkVote[str]:
+        state = item.payload
         rejected_context = _build_rejected_context(
-            state.rejected_by_model.setdefault(active_model.model_id, [])
+            state.rejected_by_model.setdefault(model.model_id, [])
         )
         raw_title = _generate_candidate_with_active_model(
             state.definitions,
             state.words,
             client,
-            active_model=active_model,
+            active_model=model,
             rejected_context=rejected_context,
             empty_retry_instruction="Răspunde obligatoriu cu un singur titlu concret de 2-5 cuvinte, exclusiv în limba română.",
         )
+        return WorkVote(model_id=model.model_id, value=raw_title, source="ok")
+
+    run_single_model_workload(
+        runtime=runtime,
+        model=active_model,
+        items=items,
+        purpose="title_generate",
+        runner=_runner,
+        task_label="retitle_title_generate",
+    )
+
+    valid_candidates: list[tuple[_RetitleBatchState, str]] = []
+    for item in items:
+        state = item.payload
+        raw_title = str(item.votes[active_model.model_id].value or "")
         if not raw_title.strip():
             log(
                 f'  [{state.puzzle_id}] Title round {round_idx} [{active_model.display_name}]: "(gol)" -> creativity=0/10 (titlu gol)'
@@ -300,32 +362,15 @@ def _rate_batch_candidates(
     if not candidates:
         return
 
-    if generator_model.model_id == PRIMARY_MODEL.model_id:
-        ordered_models = [runtime.activate_primary(), runtime.activate_secondary()]
-    else:
-        ordered_models = [runtime.activate_secondary(), runtime.activate_primary()]
-
-    votes_by_title: dict[str, dict[str, tuple[int, str]]] = {
-        state.puzzle_id: {} for state, _title in candidates
-    }
-    incomplete: set[str] = set()
-
-    for model in ordered_models:
-        for state, title in candidates:
-            score, feedback = rate_title_creativity(
-                title,
-                state.words,
-                rate_client,
-                model_config=model,
-            )
-            if score <= 0 and feedback in {"api error", "parse error"}:
-                incomplete.add(state.puzzle_id)
-                continue
-            votes_by_title[state.puzzle_id][model.model_id] = (score, feedback)
+    rating_results = rate_title_creativity_batch(
+        [(state.puzzle_id, title, state.words) for state, title in candidates],
+        rate_client,
+        runtime=runtime,
+    )
 
     for state, title in candidates:
-        votes = votes_by_title.get(state.puzzle_id, {})
-        if state.puzzle_id in incomplete or len(votes) != 2:
+        rating = rating_results.get(state.puzzle_id)
+        if rating is None or not rating.complete:
             log(
                 f'  [{state.puzzle_id}] Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity=0/10 (evaluare incompletă)'
             )
@@ -333,10 +378,8 @@ def _rate_batch_candidates(
             state.rejected_by_model.setdefault(generator_model.model_id, []).append((title, "evaluare incompletă"))
             continue
 
-        first_score, first_feedback = votes[ordered_models[0].model_id]
-        second_score, second_feedback = votes[ordered_models[1].model_id]
-        score = consensus_score(first_score, second_score)
-        feedback = _combine_title_feedback(first_feedback, second_feedback)
+        score = rating.score
+        feedback = rating.feedback
         log(
             f'  [{state.puzzle_id}] Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity={score}/10 ({feedback})'
         )
@@ -364,16 +407,17 @@ def generate_title_results_batch(
         if not pending:
             break
 
-        primary_model = runtime.activate_primary()
+        primary_model = PRIMARY_MODEL
         primary_candidates = _generate_batch_candidates(
             pending,
             client,
+            runtime=runtime,
             active_model=primary_model,
             round_idx=round_idx,
         )
 
         if multi_model:
-            secondary_model = runtime.activate_secondary()
+            secondary_model = SECONDARY_MODEL
             _rate_batch_candidates(
                 primary_candidates,
                 rate_client,
@@ -390,10 +434,10 @@ def generate_title_results_batch(
             secondary_candidates = _generate_batch_candidates(
                 pending,
                 client,
+                runtime=runtime,
                 active_model=secondary_model,
                 round_idx=round_idx,
             )
-            primary_model = runtime.activate_primary()
             _rate_batch_candidates(
                 secondary_candidates,
                 rate_client,
@@ -648,7 +692,6 @@ def main() -> None:
             log("")
 
         runtime = LmRuntime(multi_model=multi_model)
-        runtime.activate_primary()
 
         updated = 0
         unchanged = 0

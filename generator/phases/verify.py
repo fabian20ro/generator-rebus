@@ -20,6 +20,13 @@ from ..core.ai_clues import (
 from ..core.clue_family import words_share_family
 from ..core.dex_cache import DexProvider
 from ..core.lm_runtime import LmRuntime
+from ..core.llm_dispatch import (
+    run_llm_workload,
+    WorkConclusion,
+    WorkItem,
+    WorkStep,
+    WorkVote,
+)
 from ..core.model_manager import get_active_model_labels
 from ..core.pipeline_state import (
     ClueAssessment,
@@ -110,6 +117,212 @@ def _combine_rating_feedback(votes: dict[str, DefinitionRating], model_order: li
         seen.add(key)
         parts.append(feedback)
     return " / ".join(parts)
+
+
+def _all_pair_clues(puzzle: WorkingPuzzle, skip_words: set[str] | None = None) -> list[WorkingClue]:
+    clues: list[WorkingClue] = []
+    for clue in all_working_clues(puzzle):
+        if not isinstance(clue, WorkingClue):
+            clue = working_clue_from_entry(clue)
+        if skip_words and clue.word_normalized in skip_words:
+            continue
+        definition = clue.current.definition
+        if not definition or definition.startswith("["):
+            continue
+        clues.append(clue)
+    return clues
+
+
+def _verify_runner(client: OpenAI, *, max_guesses: int):
+    def _run(item: WorkItem[WorkingClue, list[str]], model) -> WorkVote[list[str]]:
+        clue = item.payload
+        try:
+            result = verify_definition_candidates(
+                client,
+                clue.current.definition,
+                len(clue.word_normalized),
+                word_type=clue.word_type,
+                max_guesses=max_guesses,
+                model=model.model_id,
+            )
+        except Exception as exc:
+            return WorkVote(
+                model_id=model.model_id,
+                value=[f"[Eroare: {exc}]"],
+                source="error",
+                terminal=True,
+                terminal_reason="verify_error",
+            )
+        terminal = not result.candidates and result.response_source == "no_thinking_retry"
+        return WorkVote(
+            model_id=model.model_id,
+            value=list(result.candidates),
+            source=result.response_source,
+            terminal=terminal,
+            terminal_reason="verify_empty_after_retry" if terminal else "",
+        )
+
+    return _run
+
+
+def _verify_conclusion(model_order: list[str]):
+    model_set = set(model_order)
+
+    def _conclude(item: WorkItem[WorkingClue, list[str]]) -> WorkConclusion:
+        if any(vote.terminal for vote in item.votes.values()):
+            return WorkConclusion(
+                failed=True,
+                skip_models=set(item.pending_models),
+                terminal_reason=next(
+                    (vote.terminal_reason for vote in item.votes.values() if vote.terminal_reason),
+                    "verify_terminal",
+                ),
+            )
+        clue = item.payload
+        for model_id, vote in item.votes.items():
+            candidates = list(vote.value or [])
+            normalized_candidates = [normalize(candidate) for candidate in candidates]
+            if clue.word_normalized not in normalized_candidates:
+                return WorkConclusion(
+                    complete=True,
+                    skip_models=model_set - {model_id},
+                    terminal_reason="verify_negative",
+                )
+        if len(item.votes) == len(model_order):
+            return WorkConclusion(complete=True)
+        return WorkConclusion()
+
+    return _conclude
+
+
+def _rate_runner(client: OpenAI, *, dex: DexProvider | None):
+    def _run(item: WorkItem[WorkingClue, DefinitionRating], model) -> WorkVote[DefinitionRating]:
+        clue = item.payload
+        dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
+        rating = rate_definition(
+            client,
+            clue.word_normalized,
+            clue.word_original,
+            clue.current.definition,
+            len(clue.word_normalized),
+            word_type=clue.word_type,
+            dex_definitions=dex_defs,
+            model=model.model_id,
+        )
+        if rating is None:
+            return WorkVote(
+                model_id=model.model_id,
+                value=None,
+                source="parse_error",
+                terminal=True,
+                terminal_reason="rating_parse_error",
+            )
+        return WorkVote(
+            model_id=model.model_id,
+            value=rating,
+            source=rating.response_source,
+        )
+
+    return _run
+
+
+def _rate_conclusion(model_order: list[str]):
+    def _conclude(item: WorkItem[WorkingClue, DefinitionRating]) -> WorkConclusion:
+        if any(vote.terminal for vote in item.votes.values()):
+            return WorkConclusion(
+                failed=True,
+                skip_models=set(item.pending_models),
+                terminal_reason=next(
+                    (vote.terminal_reason for vote in item.votes.values() if vote.terminal_reason),
+                    "rating_terminal",
+                ),
+            )
+        if len(item.votes) == len(model_order):
+            return WorkConclusion(complete=True)
+        return WorkConclusion()
+
+    return _conclude
+
+
+def _run_pair_verify(
+    puzzle: WorkingPuzzle,
+    client: OpenAI,
+    *,
+    runtime: LmRuntime,
+    skip_words: set[str] | None,
+    max_guesses: int,
+) -> tuple[list[str], str]:
+    models = [runtime.primary, runtime.secondary]
+    model_ids = [model.model_id for model in models]
+    pair_label = " + ".join(model.display_name for model in models) or _pair_labels()
+    items = [
+        WorkItem[WorkingClue, list[str]](
+            item_id=f"verify:{index}:{clue.word_normalized}",
+            task_kind="verify",
+            payload=clue,
+            pending_models=set(model_ids),
+        )
+        for index, clue in enumerate(_all_pair_clues(puzzle, skip_words), start=1)
+    ]
+    run_llm_workload(
+        runtime=runtime,
+        models=models,
+        items=items,
+        steps=[
+            WorkStep(model_id=model.model_id, purpose="definition_verify", runner=_verify_runner(client, max_guesses=max_guesses), can_conclude=_verify_conclusion(model_ids))
+            for model in models
+        ],
+        task_label="definition_verify",
+    )
+    for item in items:
+        clue = item.payload
+        clue.current.assessment.verify_votes = {
+            model_id: list(vote.value or [])
+            for model_id, vote in item.votes.items()
+        }
+        clue.current.assessment.verify_vote_sources = dict(item.sources)
+    return model_ids, pair_label
+
+
+def _run_pair_rate(
+    puzzle: WorkingPuzzle,
+    client: OpenAI,
+    *,
+    runtime: LmRuntime,
+    skip_words: set[str] | None,
+    dex: DexProvider | None,
+) -> tuple[list[str], str]:
+    models = [runtime.primary, runtime.secondary]
+    model_ids = [model.model_id for model in models]
+    pair_label = " + ".join(model.display_name for model in models) or _pair_labels()
+    items = [
+        WorkItem[WorkingClue, DefinitionRating](
+            item_id=f"rate:{index}:{clue.word_normalized}",
+            task_kind="rate",
+            payload=clue,
+            pending_models=set(model_ids),
+        )
+        for index, clue in enumerate(_all_pair_clues(puzzle, skip_words), start=1)
+    ]
+    run_llm_workload(
+        runtime=runtime,
+        models=models,
+        items=items,
+        steps=[
+            WorkStep(model_id=model.model_id, purpose="definition_rate", runner=_rate_runner(client, dex=dex), can_conclude=_rate_conclusion(model_ids))
+            for model in models
+        ],
+        task_label="definition_rate",
+    )
+    for item in items:
+        clue = item.payload
+        clue.current.assessment.rating_votes = {
+            model_id: vote.value
+            for model_id, vote in item.votes.items()
+            if vote.value is not None
+        }
+        clue.current.assessment.rating_vote_sources = dict(item.sources)
+    return model_ids, pair_label
 
 
 def _verify_clues(
@@ -340,7 +553,12 @@ def _finalize_pair_verification(
             for model_id in model_order
             if model_id in clue.current.assessment.verify_votes
         }
-        clue.current.assessment.verify_complete = len(votes) == len(model_order)
+        negative_votes = [
+            model_id
+            for model_id, candidates in votes.items()
+            if clue.word_normalized not in [normalize(candidate) for candidate in candidates]
+        ]
+        clue.current.assessment.verify_complete = len(votes) == len(model_order) or bool(negative_votes)
         combined_candidates = _combine_verify_candidates(votes, model_order)
         clue.current.assessment.verify_candidates = combined_candidates
         clue.current.assessment.verified_by = model_label
@@ -357,7 +575,7 @@ def _finalize_pair_verification(
             result.append(clue)
             continue
 
-        matched_all = all(
+        matched_all = len(votes) == len(model_order) and all(
             clue.word_normalized in [normalize(candidate) for candidate in votes[model_id]]
             for model_id in model_order
         )
@@ -533,30 +751,13 @@ def verify_working_puzzle(
         )
     else:
         pair_runtime = _pair_runtime(runtime)
-        active_models = [pair_runtime.activate_primary(), pair_runtime.activate_secondary()]
-        model_ids = [model.model_id for model in active_models]
-        pair_label = " + ".join(model.display_name for model in active_models) or _pair_labels()
-        for model in active_models:
-            log(f"Verifying horizontal definitions [{model.display_name}]...")
-            puzzle.horizontal_clues = _verify_clues(
-                puzzle.horizontal_clues,
-                client,
-                skip_words=skip_words,
-                model_label=model.display_name,
-                model_name=model.model_id,
-                max_guesses=max_guesses,
-                store_vote_only=True,
-            )
-            log(f"Verifying vertical definitions [{model.display_name}]...")
-            puzzle.vertical_clues = _verify_clues(
-                puzzle.vertical_clues,
-                client,
-                skip_words=skip_words,
-                model_label=model.display_name,
-                model_name=model.model_id,
-                max_guesses=max_guesses,
-                store_vote_only=True,
-            )
+        model_ids, pair_label = _run_pair_verify(
+            puzzle,
+            client,
+            runtime=pair_runtime,
+            skip_words=skip_words,
+            max_guesses=max_guesses,
+        )
         puzzle.horizontal_clues = _finalize_pair_verification(
             puzzle.horizontal_clues,
             model_order=model_ids,
@@ -596,30 +797,13 @@ def rate_working_puzzle(
         )
     else:
         pair_runtime = _pair_runtime(runtime)
-        active_models = [pair_runtime.activate_primary(), pair_runtime.activate_secondary()]
-        model_ids = [model.model_id for model in active_models]
-        pair_label = " + ".join(model.display_name for model in active_models) or _pair_labels()
-        for model in active_models:
-            log(f"Rating horizontal definitions [{model.display_name}]...")
-            _rate_clues(
-                puzzle.horizontal_clues,
-                client,
-                skip_words=skip_words,
-                dex=dex,
-                model_label=model.display_name,
-                model_name=model.model_id,
-                store_vote_only=True,
-            )
-            log(f"Rating vertical definitions [{model.display_name}]...")
-            _rate_clues(
-                puzzle.vertical_clues,
-                client,
-                skip_words=skip_words,
-                dex=dex,
-                model_label=model.display_name,
-                model_name=model.model_id,
-                store_vote_only=True,
-            )
+        model_ids, pair_label = _run_pair_rate(
+            puzzle,
+            client,
+            runtime=pair_runtime,
+            skip_words=skip_words,
+            dex=dex,
+        )
         _finalize_pair_rating(
             puzzle.horizontal_clues,
             model_order=model_ids,

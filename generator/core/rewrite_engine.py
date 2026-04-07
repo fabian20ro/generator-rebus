@@ -14,6 +14,7 @@ from .definition_referee import choose_better_clue_variant
 from .clue_canon import ClueCanonService
 from .clue_logging import clue_label_from_working_clue, log_definition_event
 from .lm_runtime import LmRuntime
+from .llm_dispatch import initial_generation_model, next_generation_model, run_single_model_call
 from .pipeline_state import (
     ClueCandidateVersion,
     WorkingClue,
@@ -106,6 +107,7 @@ def _build_pending_candidates(
     client,
     theme: str,
     current_model,
+    generation_runtime: LmRuntime,
     clue_canon: ClueCanonService | None,
     wrong_guess: str,
     wrong_guesses: list[str],
@@ -142,8 +144,12 @@ def _build_pending_candidates(
         clue_canon.fetch_prompt_examples(clue.word_normalized) if clue_canon is not None else []
     )
     if clue.current.definition.startswith("["):
-        _maybe_add(
-            generate_definition(
+        generated = run_single_model_call(
+            runtime=generation_runtime,
+            model=current_model,
+            purpose="definition_generate",
+            task_label="rewrite_generate",
+            callback=lambda model: generate_definition(
                 client,
                 clue.word_normalized,
                 clue.word_original,
@@ -152,31 +158,36 @@ def _build_pending_candidates(
                 word_type=clue.word_type,
                 dex_definitions=dex_defs,
                 existing_canonical_definitions=existing_canonical_definitions,
-                model=current_model.model_id,
+                model=model.model_id,
             ),
-            source="generate",
-            strategy_label="fresh_only",
         )
+        _maybe_add(generated or "", source="generate", strategy_label="fresh_only")
         return pending, had_error, rewrite_rejection_reason
 
     try:
-        rewrite_result = rewrite_definition(
-            client,
-            clue.word_normalized,
-            clue.word_original,
-            theme,
-            clue.current.definition,
-            wrong_guess,
-            wrong_guesses=wrong_guesses or None,
-            rating_feedback=rating_feedback,
-            bad_example_definition=bad_example_definition,
-            bad_example_reason=bad_example_reason,
-            word_type=clue.word_type,
-            dex_definitions=dex_defs,
-            existing_canonical_definitions=existing_canonical_definitions,
-            failure_history=failure_history or None,
-            model=current_model.model_id,
-            return_diagnostics=True,
+        rewrite_result = run_single_model_call(
+            runtime=generation_runtime,
+            model=current_model,
+            purpose="definition_rewrite",
+            task_label="rewrite_definition",
+            callback=lambda model: rewrite_definition(
+                client,
+                clue.word_normalized,
+                clue.word_original,
+                theme,
+                clue.current.definition,
+                wrong_guess,
+                wrong_guesses=wrong_guesses or None,
+                rating_feedback=rating_feedback,
+                bad_example_definition=bad_example_definition,
+                bad_example_reason=bad_example_reason,
+                word_type=clue.word_type,
+                dex_definitions=dex_defs,
+                existing_canonical_definitions=existing_canonical_definitions,
+                failure_history=failure_history or None,
+                model=model.model_id,
+                return_diagnostics=True,
+            ),
         )
         if isinstance(rewrite_result, RewriteAttemptResult):
             rewrite_candidate = rewrite_result.definition
@@ -190,18 +201,24 @@ def _build_pending_candidates(
 
     if use_hybrid:
         try:
-            fresh_candidate = generate_definition(
-                client,
-                clue.word_normalized,
-                clue.word_original,
-                theme,
-                retries=3,
-                word_type=clue.word_type,
-                dex_definitions=dex_defs,
-                existing_canonical_definitions=existing_canonical_definitions,
-                model=current_model.model_id,
+            fresh_candidate = run_single_model_call(
+                runtime=generation_runtime,
+                model=current_model,
+                purpose="definition_generate",
+                task_label="rewrite_fresh_generate",
+                callback=lambda model: generate_definition(
+                    client,
+                    clue.word_normalized,
+                    clue.word_original,
+                    theme,
+                    retries=3,
+                    word_type=clue.word_type,
+                    dex_definitions=dex_defs,
+                    existing_canonical_definitions=existing_canonical_definitions,
+                    model=model.model_id,
+                ),
             )
-            _maybe_add(fresh_candidate, source="generate", strategy_label="fresh_generate")
+            _maybe_add(str(fresh_candidate or ""), source="generate", strategy_label="fresh_generate")
         except Exception as exc:
             had_error = True
             log(f"  Fresh generate failed for {clue.word_normalized}: {exc}")
@@ -251,7 +268,8 @@ def _select_hybrid_candidate(
     candidates: list[tuple[PendingCandidate, ClueCandidateVersion]],
     *,
     client,
-    model_name: str,
+    runtime: LmRuntime,
+    model_config,
 ) -> tuple[PendingCandidate, ClueCandidateVersion]:
     if len(candidates) == 1:
         return candidates[0]
@@ -259,13 +277,19 @@ def _select_hybrid_candidate(
     (candidate_a, version_a), (candidate_b, version_b) = candidates[0], candidates[1]
 
     def _tiebreak(a_text: str, b_text: str) -> str:
-        return choose_better_clue_variant(
-            client,
-            clue.word_normalized,
-            len(clue.word_normalized),
-            a_text,
-            b_text,
-            model=model_name,
+        return run_single_model_call(
+            runtime=runtime,
+            model=model_config,
+            purpose="clue_tiebreaker",
+            task_label="clue_tiebreaker",
+            callback=lambda model: choose_better_clue_variant(
+                client,
+                clue.word_normalized,
+                len(clue.word_normalized),
+                a_text,
+                b_text,
+                model=model.model_id,
+            ),
         )
 
     chosen_version, _decision = choose_clue_version(version_a, version_b, tiebreaker=_tiebreak)
@@ -299,9 +323,9 @@ def run_rewrite_loop(
             clue_canon = None
     runtime = runtime or LmRuntime(multi_model=multi_model)
     scoring_runtime = LmRuntime(multi_model=True)
-    current_model = runtime.activate_initial_evaluator()
+    current_model = initial_generation_model(runtime)
     if multi_model:
-        log(f"  Model activ (evaluare inițială): {current_model.display_name}")
+        log(f"  Model selectat (evaluare inițială): {current_model.display_name}")
 
     preset_skip: set[str] = set()
     verify_working_puzzle(
@@ -318,8 +342,28 @@ def run_rewrite_loop(
         dex=dex,
         runtime=scoring_runtime,
     )
+
+    def _dispatch_tiebreak(word: str, a_text: str, b_text: str) -> str:
+        return run_single_model_call(
+            runtime=runtime,
+            model=current_model,
+            purpose="clue_tiebreaker",
+            task_label="clue_tiebreaker",
+            callback=lambda model: choose_better_clue_variant(
+                client,
+                word,
+                len(word),
+                a_text,
+                b_text,
+                model=model.model_id,
+            ),
+        )
+
     for clue in all_working_clues(puzzle):
-        _update_best_clue_version(clue, client=client, model_name=current_model.model_id)
+        _update_best_clue_version(
+            clue,
+            tiebreaker=lambda a_text, b_text, word=clue.word_normalized: _dispatch_tiebreak(word, a_text, b_text),
+        )
 
     initial_scores: dict[str, tuple[int, int]] = {}
     outcomes: dict[str, RewriteWordOutcome] = {}
@@ -416,6 +460,7 @@ def run_rewrite_loop(
                 client=client,
                 theme=theme,
                 current_model=current_model,
+                generation_runtime=runtime,
                 clue_canon=clue_canon,
                 wrong_guess=wrong_guess,
                 wrong_guesses=wrong_guesses,
@@ -460,9 +505,9 @@ def run_rewrite_loop(
                         f"{consecutive_failures[clue.word_normalized]} încercări eșuate consecutive"
                     )
 
-        current_model = runtime.alternate()
+        current_model = next_generation_model(runtime, current_model)
         if multi_model:
-            log(f"  Model activ (evaluare): {current_model.display_name}")
+            log(f"  Model selectat (evaluare): {current_model.display_name}")
 
         evaluated_words: set[str] = set()
         for clue in candidates:
@@ -507,7 +552,8 @@ def run_rewrite_loop(
                 clue,
                 evaluated_versions,
                 client=client,
-                model_name=current_model.model_id,
+                runtime=runtime,
+                model_config=current_model,
             )
             clue.current = copy.deepcopy(chosen_version)
             evaluated_words.add(clue.word_normalized)
@@ -537,7 +583,10 @@ def run_rewrite_loop(
         for clue in all_working_clues(puzzle):
             if clue.word_normalized not in changed_words:
                 continue
-            _update_best_clue_version(clue, client=client, model_name=current_model.model_id)
+            _update_best_clue_version(
+                clue,
+                tiebreaker=lambda a_text, b_text, word=clue.word_normalized: _dispatch_tiebreak(word, a_text, b_text),
+            )
             if clue.locked:
                 log(f"  {clue.word_normalized}: definiție blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
 

@@ -496,7 +496,6 @@ def main() -> None:
             log("")
 
         runtime = LmRuntime(multi_model=args.multi_model)
-        runtime.activate_primary()
 
         total_updated = 0
         total_puzzles = 0

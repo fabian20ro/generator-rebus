@@ -53,7 +53,10 @@ from .definition_referee import _compare_definition_variant_attempt
 
 RATE_MIN_SEMANTIC = 7
 RATE_MIN_REBUS = 5
+VERIFY_MAX_TOKENS = 300
+RATE_MAX_TOKENS = 300
 from .llm_client import (
+    RESPONSE_SOURCE_NO_THINKING_RETRY,
     RESPONSE_SOURCE_REASONING,
     create_client,
     _resolve_model_name,
@@ -213,6 +216,8 @@ def generate_definition(
                     f"    [rejected {word}: {rejection}; definition={definition[:120]}]",
                     level="WARN",
                 )
+                if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                    break
                 prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             return definition
@@ -311,6 +316,8 @@ def rewrite_definition(
                     f"    [rewrite rejected {word}: {rejection}; definition={definition[:120]}]",
                     level="WARN",
                 )
+                if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                    break
                 prompt = _augment_definition_retry_prompt(prompt, rejection)
                 continue
             result = RewriteAttemptResult(definition=definition)
@@ -345,9 +352,10 @@ def verify_definition_candidates(
     )
 
     last_candidates: list[str] = []
+    last_source = RESPONSE_SOURCE_REASONING
     for attempt in range(2):
         resolved_model = _resolve_model_name(model)
-        max_tokens = chat_max_tokens(resolved_model)
+        max_tokens = min(chat_max_tokens(resolved_model), VERIFY_MAX_TOKENS)
         response = _chat_completion_create(
             client,
             model=resolved_model,
@@ -364,11 +372,14 @@ def verify_definition_candidates(
             raw, answer_length, max_guesses=max_guesses
         )
         last_candidates = candidates
+        last_source = _response_source(response)
         if candidates:
-            return VerifyResult(candidates, response_source=_response_source(response))
+            return VerifyResult(candidates, response_source=last_source)
+        if last_source == RESPONSE_SOURCE_NO_THINKING_RETRY:
+            break
         prompt += "\nAtenție: răspunsul anterior nu a fost în română. Răspunde exclusiv în română."
 
-    return VerifyResult(last_candidates)
+    return VerifyResult(last_candidates, response_source=last_source)
 
 
 def rate_definition(
@@ -400,7 +411,7 @@ def rate_definition(
     for attempt in range(2):
         try:
             resolved_model = _resolve_model_name(model)
-            max_tokens = chat_max_tokens(resolved_model)
+            max_tokens = min(chat_max_tokens(resolved_model), RATE_MAX_TOKENS)
             response = _chat_completion_create(
                 client,
                 model=resolved_model,
@@ -425,6 +436,8 @@ def rate_definition(
                 try:
                     data = json.loads(json_str)
                 except json.JSONDecodeError:
+                    if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                        return None
                     prompt += (
                         "\nRăspunsul anterior nu a fost JSON valid. "
                         "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
@@ -444,6 +457,8 @@ def rate_definition(
                 rating = _guard_same_family_rating(word, definition, rating)
                 rating = _guard_english_meaning_rating(word, definition, rating)
                 return _guard_definition_centric_rating(rating)
+            if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                return None
             prompt += (
                 "\nRăspunsul anterior nu a fost JSON valid. "
                 "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."

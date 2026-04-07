@@ -156,6 +156,10 @@
 
 **[2026-04-07]** Two-model scoring upgrades should keep single-model prompt helpers intact and add consensus one layer up — low-level helpers like `rate_definition()` and `verify_definition_candidates()` are easier to test and reuse when they stay “one request in, one parsed vote out.” Put pair completeness, consensus math, and per-model batching in the phase/runtime layer (`verify`, `theme`, `retitle`) so prompt contracts do not fork and unit tests for raw model I/O stay stable.
 
+**[2026-04-07]** Loaded-model schedulers should prefer model-specific activation hooks over generic “ensure active” wrappers — batch orchestrators need one stable seam that works in production and in tests. If the runtime already exposes `activate_primary()` / `activate_secondary()`, call those first and accept duck-typed model descriptors (`model_id`, `display_name`) from test doubles; falling straight through a generic `ensure_active()` path bypasses mocks, leaks live model-load calls into unit tests, and obscures switch-trace assertions.
+
+**[2026-04-07]** “Shared request helper” is not enough; production LM Studio code also needs a shared dispatch helper — even when every chat call already funnels through one `_chat_completion_create(...)`, scattered `runtime.activate_*()` calls still reintroduce model-switch drift, warm-up hacks, and hidden batching differences. Keep one mandatory dispatch entrypoint above the request helper, and make production phases submit work items to it instead of touching runtime activation directly.
+
 ---
 
 ## Archive

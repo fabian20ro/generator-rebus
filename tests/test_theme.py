@@ -7,6 +7,8 @@ from generator.prompts.loader import load_system_prompt
 from generator.phases.theme import (
     FALLBACK_TITLES,
     NO_TITLE_LABEL,
+    TITLE_GENERATE_MAX_TOKENS,
+    TITLE_RATE_MAX_TOKENS,
     _fallback_title,
     _generate_single_title,
     _review_title_candidate,
@@ -133,7 +135,7 @@ class GenerateSingleTitleTests(unittest.TestCase):
         )
         self.assertEqual("  Metale și Ecouri  ", result)
         self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
-        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual(TITLE_GENERATE_MAX_TOKENS, client.calls[0]["max_tokens"])
         self.assertEqual("low", client.calls[0]["reasoning_effort"])
 
     def test_returns_empty_on_failure(self):
@@ -227,7 +229,7 @@ class RateTitleCreativityTests(unittest.TestCase):
         self.assertEqual("bun titlu", feedback)
         self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(SECONDARY_MODEL.model_id, client.calls[0]["model"])
-        self.assertEqual(chat_max_tokens(SECONDARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual(min(chat_max_tokens(SECONDARY_MODEL), TITLE_RATE_MAX_TOKENS), client.calls[0]["max_tokens"])
 
     def test_extracts_json_from_markdown_fence(self):
         client = _FakeClient('```json\n{"creativity_score": 8, "feedback": "clar"}\n```')

@@ -46,6 +46,9 @@ class LmRuntime:
             self.current_model = None
         return instances
 
+    def sync(self) -> dict[str, str]:
+        return self._sync_current_model()
+
     def _unload_model_ids(self, model_ids: list[str]) -> None:
         for model_id in model_ids:
             instances = get_loaded_model_instances()
@@ -125,6 +128,9 @@ class LmRuntime:
 
     def activate_primary(self) -> ModelConfig:
         return self.activate(self.primary)
+
+    def ensure_active(self, model: ModelConfig) -> ModelConfig:
+        return self.activate(model)
 
     def activate_secondary(self) -> ModelConfig:
         if not self.multi_model:

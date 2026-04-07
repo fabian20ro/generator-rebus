@@ -17,6 +17,14 @@ from ..core.llm_client import (
 )
 from ..core.ai_clues import consensus_score
 from ..core.diacritics import normalize
+from ..core.llm_dispatch import (
+    WorkConclusion,
+    WorkItem,
+    WorkStep,
+    WorkVote,
+    run_llm_workload,
+    run_single_model_workload,
+)
 from ..core.llm_text import clean_llm_text_response
 from ..core.lm_runtime import LmRuntime
 from ..core.markdown_io import parse_markdown, write_with_definitions
@@ -24,8 +32,6 @@ from ..core.model_manager import (
     ModelConfig,
     chat_max_tokens,
     get_active_models,
-    get_active_primary_model,
-    get_active_secondary_model,
 )
 from ..core.runtime_logging import log
 from ..core.text_rules import contains_normalized_forbidden_word
@@ -173,6 +179,12 @@ class TitleGenerateAttempt:
     response_source: str = RESPONSE_SOURCE_REASONING
 
 
+@dataclass(frozen=True)
+class _TitleRatingPayload:
+    title: str
+    words: list[str]
+
+
 def _contains_mixed_script(title: str) -> bool:
     has_latin = any(("A" <= ch.upper() <= "Z") or ch in "ĂÂÎȘŞȚŢăâîșşțţ" for ch in title)
     has_cyrillic = any("\u0400" <= ch <= "\u04ff" for ch in title)
@@ -313,6 +325,8 @@ def rate_title_creativity(
                 try:
                     data = json.loads(json_str)
                 except json.JSONDecodeError:
+                    if str(getattr(response, "_response_source", RESPONSE_SOURCE_REASONING)) == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                        return 0, "parse error"
                     prompt += (
                         "\nRăspunsul anterior nu a fost JSON valid. "
                         "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
@@ -323,6 +337,8 @@ def rate_title_creativity(
                 except (TypeError, ValueError):
                     score = 0
                 return max(0, min(10, score)), str(data.get("feedback", "")).strip()
+            if str(getattr(response, "_response_source", RESPONSE_SOURCE_REASONING)) == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                return 0, "parse error"
             prompt += (
                 "\nRăspunsul anterior nu a fost JSON valid. "
                 "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
@@ -354,6 +370,95 @@ def _combine_title_feedback(first: str, second: str) -> str:
     return " / ".join(parts)
 
 
+def _title_rating_runner(client):
+    def _run(item: WorkItem[_TitleRatingPayload, tuple[int, str]], model: ModelConfig) -> WorkVote[tuple[int, str]]:
+        score, feedback = rate_title_creativity(
+            item.payload.title,
+            item.payload.words,
+            client,
+            model_config=model,
+        )
+        if score <= 0 and feedback in {"api error", "parse error"}:
+            return WorkVote(
+                model_id=model.model_id,
+                value=None,
+                source=feedback,
+                terminal=True,
+                terminal_reason=feedback,
+            )
+        return WorkVote(
+            model_id=model.model_id,
+            value=(score, feedback),
+            source="ok",
+        )
+
+    return _run
+
+
+def _title_rating_conclusion(item: WorkItem[_TitleRatingPayload, tuple[int, str]]) -> WorkConclusion:
+    if any(vote.terminal for vote in item.votes.values()):
+        return WorkConclusion(failed=True, terminal_reason=next(
+            (vote.terminal_reason for vote in item.votes.values() if vote.terminal_reason),
+            "evaluare incompletă",
+        ))
+    if len(item.votes) >= 2:
+        return WorkConclusion(complete=True)
+    return WorkConclusion()
+
+
+def rate_title_creativity_batch(
+    titles: list[tuple[str, str, list[str]]],
+    client,
+    *,
+    runtime: LmRuntime | None = None,
+) -> dict[str, TitleRatingResult]:
+    pair_runtime = _pair_rating_runtime(runtime)
+    active_models = list(get_active_models(multi_model=True))
+    items = [
+        WorkItem[_TitleRatingPayload, tuple[int, str]](
+            item_id=item_id,
+            task_kind="title_rate",
+            payload=_TitleRatingPayload(title=title, words=list(words)),
+            pending_models={model.model_id for model in active_models},
+        )
+        for item_id, title, words in titles
+    ]
+    runner = _title_rating_runner(client)
+    run_llm_workload(
+        runtime=pair_runtime,
+        models=active_models,
+        items=items,
+        steps=[
+            WorkStep(model_id=model.model_id, purpose="title_rate", runner=runner, can_conclude=_title_rating_conclusion)
+            for model in active_models
+        ],
+        task_label="title_rate",
+    )
+    results: dict[str, TitleRatingResult] = {}
+    ordered_ids = [model.model_id for model in active_models]
+    for item in items:
+        votes = {
+            model_id: item.votes[model_id].value
+            for model_id in ordered_ids
+            if model_id in item.votes and item.votes[model_id].value is not None
+        }
+        if len(votes) != 2:
+            reason = item.terminal_reason or "evaluare incompletă"
+            results[item.item_id] = TitleRatingResult(0, reason, False, {
+                model_id: value for model_id, value in votes.items() if value is not None
+            })
+            continue
+        first_score, first_feedback = votes[ordered_ids[0]]
+        second_score, second_feedback = votes[ordered_ids[1]]
+        results[item.item_id] = TitleRatingResult(
+            score=consensus_score(first_score, second_score),
+            feedback=_combine_title_feedback(first_feedback, second_feedback),
+            complete=True,
+            votes={model_id: votes[model_id] for model_id in ordered_ids},
+        )
+    return results
+
+
 def rate_title_creativity_pair(
     title: str,
     words: list[str],
@@ -361,29 +466,11 @@ def rate_title_creativity_pair(
     *,
     runtime: LmRuntime | None = None,
 ) -> TitleRatingResult:
-    pair_runtime = _pair_rating_runtime(runtime)
-    active_models = [pair_runtime.activate_primary(), pair_runtime.activate_secondary()]
-    votes: dict[str, tuple[int, str]] = {}
-    for model in active_models:
-        score, feedback = rate_title_creativity(
-            title,
-            words,
-            client,
-            model_config=model,
-        )
-        if score <= 0 and feedback in {"api error", "parse error"}:
-            return TitleRatingResult(0, feedback, False, votes)
-        votes[model.model_id] = (score, feedback)
-    if len(votes) != 2:
-        return TitleRatingResult(0, "evaluare incompletă", False, votes)
-    first_score, first_feedback = votes[active_models[0].model_id]
-    second_score, second_feedback = votes[active_models[1].model_id]
-    return TitleRatingResult(
-        score=consensus_score(first_score, second_score),
-        feedback=_combine_title_feedback(first_feedback, second_feedback),
-        complete=True,
-        votes=votes,
-    )
+    return rate_title_creativity_batch(
+        [("single", title, words)],
+        client,
+        runtime=runtime,
+    )["single"]
 
 
 # ---------------------------------------------------------------------------
@@ -458,29 +545,6 @@ def _generate_single_title_attempt(
     except Exception:
         return TitleGenerateAttempt("")
 
-def _rating_model_for_generator(
-    runtime: LmRuntime,
-    generator_model: ModelConfig,
-    *,
-    multi_model: bool,
-) -> ModelConfig:
-    if not multi_model:
-        return generator_model
-    primary_model = get_active_primary_model()
-    if generator_model.model_id == primary_model.model_id:
-        return _activate_generator_model(runtime, get_active_secondary_model())
-    return _activate_generator_model(runtime, primary_model)
-
-
-def _activate_generator_model(runtime: LmRuntime, model: ModelConfig) -> ModelConfig:
-    if hasattr(runtime, "activate"):
-        return runtime.activate(model)
-    primary_model = get_active_primary_model()
-    if model.model_id == primary_model.model_id:
-        return runtime.activate_primary()
-    return runtime.activate_secondary()
-
-
 def _generate_candidate_for_model(
     definitions: list[str],
     words: list[str],
@@ -491,26 +555,57 @@ def _generate_candidate_for_model(
     rejected_context: str,
     empty_retry_instruction: str,
 ) -> str:
-    active_model = _activate_generator_model(runtime, generator_model)
-    first_attempt = _generate_single_title_attempt(
-        definitions,
-        client,
-        model_config=active_model,
-        rejected_context=rejected_context,
-        words=words,
+    items = [
+        WorkItem[dict[str, object], str](
+            item_id="single",
+            task_kind="title_generate",
+            payload={
+                "definitions": list(definitions),
+                "words": list(words),
+                "rejected_context": rejected_context,
+                "empty_retry_instruction": empty_retry_instruction,
+            },
+            pending_models={generator_model.model_id},
+        )
+    ]
+
+    def _runner(item: WorkItem[dict[str, object], str], model: ModelConfig) -> WorkVote[str]:
+        first_attempt = _generate_single_title_attempt(
+            item.payload["definitions"],
+            client,
+            model_config=model,
+            rejected_context=str(item.payload["rejected_context"]),
+            words=item.payload["words"],
+        )
+        if first_attempt.title.strip():
+            return WorkVote(model_id=model.model_id, value=first_attempt.title, source=first_attempt.response_source)
+        if first_attempt.response_source == RESPONSE_SOURCE_NO_THINKING_RETRY:
+            return WorkVote(
+                model_id=model.model_id,
+                value=first_attempt.title,
+                source=first_attempt.response_source,
+                terminal=True,
+                terminal_reason="title_empty_after_retry",
+            )
+        title = _generate_single_title(
+            item.payload["definitions"],
+            client,
+            model_config=model,
+            rejected_context=str(item.payload["empty_retry_instruction"]),
+            words=item.payload["words"],
+        )
+        return WorkVote(model_id=model.model_id, value=title, source=RESPONSE_SOURCE_REASONING)
+
+    run_single_model_workload(
+        runtime=runtime,
+        model=generator_model,
+        items=items,
+        purpose="title_generate",
+        runner=_runner,
+        task_label="title_generate",
     )
-    if first_attempt.title.strip():
-        return first_attempt.title
-    if first_attempt.response_source == RESPONSE_SOURCE_NO_THINKING_RETRY:
-        return first_attempt.title
-    retry_context = empty_retry_instruction
-    return _generate_single_title(
-        definitions,
-        client,
-        model_config=active_model,
-        rejected_context=retry_context,
-        words=words,
-    )
+    vote = items[0].votes.get(generator_model.model_id)
+    return str(vote.value or "") if vote is not None else ""
 
 
 def _generate_candidate_with_active_model(

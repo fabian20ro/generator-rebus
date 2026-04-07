@@ -9,7 +9,9 @@ from generator.core.llm_client import (
 )
 from generator.core.ai_clues import (
     DefinitionRating,
+    RATE_MAX_TOKENS,
     RewriteAttemptResult,
+    VERIFY_MAX_TOKENS,
     consensus_score,
     compute_rebus_score,
     generate_definition,
@@ -169,7 +171,7 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertIsNotNone(rating)
         self.assertEqual("low", client.calls[0]["reasoning_effort"])
-        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual(RATE_MAX_TOKENS, client.calls[0]["max_tokens"])
 
     def test_verify_definition_candidates_omits_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["CASA"])
@@ -182,7 +184,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertNotIn("reasoning_effort", client.calls[0])
-        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual(VERIFY_MAX_TOKENS, client.calls[0]["max_tokens"])
 
     def test_rate_definition_omits_reasoning_effort_for_secondary_model(self):
         client = _RecordingClient([
@@ -478,6 +480,74 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(2, len(client.calls))
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual(200, client.calls[1]["max_tokens"])
+
+    def test_verify_definition_does_not_retry_outer_loop_after_no_thinking_retry_terminal_blank(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3997,
+            ),
+            _chat_response(content=""),
+        ])
+
+        result = verify_definition_candidates(
+            client,
+            definition="Locuință pentru oameni.",
+            answer_length=4,
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual([], result.candidates)
+        self.assertEqual("no_thinking_retry", result.response_source)
+        self.assertEqual(2, len(client.calls))
+
+    def test_rate_definition_does_not_retry_outer_loop_after_no_thinking_retry_terminal_blank(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3997,
+            ),
+            _chat_response(content=""),
+        ])
+
+        rating = rate_definition(
+            client,
+            word="ARACI",
+            original="araci",
+            definition="Bețe de sprijin pentru viță",
+            answer_length=5,
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertIsNone(rating)
+        self.assertEqual(2, len(client.calls))
+
+    def test_generate_definition_does_not_retry_outer_loop_after_no_thinking_retry_invalid_definition(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                reasoning_content="plan",
+                finish_reason="length",
+                completion_tokens=4000,
+                reasoning_tokens=3997,
+            ),
+            _chat_response(content="casa"),
+        ])
+
+        definition = generate_definition(
+            client,
+            word="CASA",
+            original="casa",
+            theme="",
+            retries=3,
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("[Definiție negenerată]", definition)
+        self.assertEqual(2, len(client.calls))
 
     def test_chat_completion_does_not_retry_when_reasoning_stays_below_margin(self):
         client = _QueuedResponseClient([

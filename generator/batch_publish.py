@@ -27,6 +27,7 @@ from .core.definition_referee import (
 )
 from .core.dex_cache import DexProvider
 from .core.lm_runtime import LmRuntime
+from .core.llm_dispatch import run_single_model_call
 from .core.markdown_io import (
     ClueEntry,
     parse_markdown,
@@ -285,13 +286,21 @@ def _better_prepared_puzzle(
     def _tiebreak(a_summary: str, b_summary: str) -> str:
         if client is None:
             return "A"
-        if runtime is not None:
-            model = runtime.activate_primary()
-            model_id = model.model_id
-        else:
-            model_id = PRIMARY_MODEL.model_id
-        return choose_better_puzzle_variant(
-            client, a_summary, b_summary, model=model_id
+        if runtime is None:
+            return choose_better_puzzle_variant(
+                client, a_summary, b_summary, model=PRIMARY_MODEL.model_id
+            )
+        return run_single_model_call(
+            runtime=runtime,
+            model=PRIMARY_MODEL,
+            purpose="puzzle_tiebreaker",
+            task_label="puzzle_tiebreaker",
+            callback=lambda model: choose_better_puzzle_variant(
+                client,
+                a_summary,
+                b_summary,
+                model=model.model_id,
+            ),
         )
 
     winner, decision = choose_puzzle_assessment(
@@ -541,7 +550,6 @@ def run_batch(
     puzzle_metrics: list[PuzzleMetric] = []
     log(f"Batch seed: {rng_seed}")
     runtime = LmRuntime(multi_model=multi_model)
-    runtime.activate_primary()
     if multi_model:
         log(f"Multi-model mode: {' + '.join(get_active_model_labels(multi_model=True))}")
 

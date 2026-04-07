@@ -124,11 +124,13 @@ def _synthesize_failure_reason(clue: WorkingClue) -> str:
     return "Definiția trebuie făcută mai exactă."
 
 
-def _update_best_clue_version(clue: WorkingClue, client=None, model_name: str | None = None) -> None:
+def _update_best_clue_version(clue: WorkingClue, client=None, model_name: str | None = None, tiebreaker=None) -> None:
     if clue.best is None:
         clue.best = copy.deepcopy(clue.current)
     elif clue.current.definition:
         def _tiebreak(a_text: str, b_text: str) -> str:
+            if tiebreaker is not None:
+                return tiebreaker(a_text, b_text)
             if client is None:
                 return "A"
             return choose_better_clue_variant(

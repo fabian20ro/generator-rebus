@@ -421,7 +421,6 @@ def main() -> None:
 
         counters = {"accepted": 0, "rejected": 0, "skipped": 0, "failed": 0}
         runtime = LmRuntime(multi_model=args.multi_model)
-        runtime.activate_primary()
         for puzzle_row in selected:
             try:
                 status = repair_puzzle(
