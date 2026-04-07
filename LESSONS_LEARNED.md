@@ -166,6 +166,8 @@
 
 **[2026-04-07]** Supervisors must not call CLI-era runners as job steps — once `run_all` becomes the unattended production entrypoint, any reused helper that still owns `SystemExit`, signal handlers, shared resume-state files, or internal sleep/poll loops becomes a process-kill hazard. Keep supervisor paths on pure/staged primitives, and treat escaped `SystemExit` as a boundary violation to fail one topic job, not the whole orchestrator.
 
+**[2026-04-07]** Single-model LLM supervisors still need a separate worker lane for long local prep — if Rust/grid fill or other CPU-bound local phases run inline on the same orchestration thread as model scheduling, “multi-topic” slots collapse back into serial progress even after job-state refactors. Keep one serialized LLM lane for all model calls, but move long non-LLM prep attempts onto a conservative background worker and block that lane from doing any final persistence or shared-state writes.
+
 ---
 
 ## Archive

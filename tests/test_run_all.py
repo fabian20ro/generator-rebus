@@ -1,4 +1,5 @@
 import unittest
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -104,6 +105,7 @@ def _model_step(item_id: str, topic: str, model_id: str) -> StepState:
         purpose="test_step",
         model_id=model_id,
         runner=lambda ctx: None,
+        execution_mode="llm",
     )
 
 
@@ -391,6 +393,135 @@ class RunAllSupervisorTests(unittest.TestCase):
 
         self.assertEqual(1, supervisor.completed)
         self.assertEqual(0, supervisor.failed)
+
+    def test_worker_lane_can_overlap_with_llm_lane(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["generate", "retitle"],
+            topic_caps={"generate": 1, "retitle": 1},
+        )
+        self.addCleanup(supervisor.close)
+        started = threading.Event()
+        release = threading.Event()
+        llm_calls: list[str] = []
+
+        def _worker(_ctx):
+            started.set()
+            release.wait(1)
+
+        generate_step = StepState(
+            step_id="fill_grid",
+            job_id="generate:1",
+            topic="generate",
+            kind="non_llm",
+            purpose="generate_fill_grid",
+            model_id=None,
+            runner=_worker,
+            execution_mode="background_non_llm",
+        )
+        retitle_step = StepState(
+            step_id="generate_primary",
+            job_id="retitle:1",
+            topic="retitle",
+            kind="gemma",
+            purpose="retitle_generate_primary",
+            model_id=PRIMARY_MODEL.model_id,
+            runner=lambda _ctx: llm_calls.append("retitle"),
+            execution_mode="llm",
+        )
+        supervisor.slots["generate"].active_job = _StaticJob(_item("generate", "generate:1"), steps=[generate_step])
+        supervisor.slots["retitle"].active_job = _StaticJob(_item("retitle", "retitle:1"), steps=[retitle_step])
+
+        try:
+            ran = supervisor._run_ready_steps()
+            self.assertTrue(ran)
+            self.assertTrue(started.is_set())
+            self.assertEqual(["retitle"], llm_calls)
+            self.assertIsNotNone(supervisor.worker_task)
+        finally:
+            release.set()
+            supervisor._poll_worker_task()
+
+    def test_generate_fill_grid_runs_on_worker_lane(self):
+        item = _item("generate", "generate:1", preferred_model_id=SECONDARY_MODEL.model_id)
+        item.payload = {"size": 13, "index": 1}
+        job = RunAllSupervisor(
+            context=_context(_FakeRuntime(current_model=PRIMARY_MODEL)),
+            topics=["generate"],
+            topic_caps={"generate": 1},
+        )._build_job(item)
+
+        job.stage = "fill_grid"
+        step = job.next_steps(_context(_FakeRuntime(current_model=PRIMARY_MODEL)))[0]
+
+        self.assertEqual("background_non_llm", step.execution_mode)
+        self.assertEqual("fill_grid", step.step_id)
+
+    def test_redefine_job_splits_baseline_into_verify_rate_finalize(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["redefine"],
+            topic_caps={"redefine": 1},
+        )
+        item = _item("redefine", "redefine:puzzle:p1", puzzle_id="p1")
+        item.payload = {"puzzle_row": {"id": "p1", "title": "Titlu"}}
+        job = supervisor._build_job(item)
+        baseline_puzzle = SimpleNamespace(
+            title="Titlu",
+            horizontal_clues=[SimpleNamespace(active_version=lambda: SimpleNamespace(assessment=SimpleNamespace(verified=True)))],
+            vertical_clues=[],
+            assessment=None,
+        )
+        candidate_puzzle = SimpleNamespace(assessment=SimpleNamespace(min_rebus=0, avg_rebus=0.0, verified_count=0, total_clues=0))
+        with (
+            patch("generator.run_all.fetch_redefine_clues", return_value=[{"id": "c1"}]),
+            patch("generator.run_all.build_working_puzzle", side_effect=[baseline_puzzle, candidate_puzzle]),
+            patch("generator.run_all._run_pair_verify", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
+            patch("generator.run_all._run_pair_rate", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
+            patch("generator.run_all.DexProvider.for_puzzle", return_value=SimpleNamespace()),
+            patch("generator.run_all._finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
+            patch("generator.run_all._finalize_pair_rating"),
+            patch("generator.run_all.score_puzzle_state", return_value=SimpleNamespace(min_rebus=1, avg_rebus=2.0, verified_count=1, total_clues=1)),
+        ):
+            job._fetch(_context(runtime))
+            self.assertEqual("baseline_verify", job.stage)
+            self.assertEqual("baseline_verify", job.next_steps(_context(runtime))[0].step_id)
+            job._baseline_verify(_context(runtime))
+            self.assertEqual("baseline_rate", job.stage)
+            job._baseline_rate(_context(runtime))
+            self.assertEqual("baseline_finalize", job.stage)
+            job._baseline_finalize(_context(runtime))
+            self.assertEqual("rewrite", job.stage)
+
+    def test_retitle_job_yields_across_round_phases(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["retitle"],
+            topic_caps={"retitle": 1},
+        )
+        item = _item("retitle", "retitle:puzzle:p1", puzzle_id="p1")
+        item.payload = {"puzzle_row": {"id": "p1", "title": "Vechi"}}
+        job = supervisor._build_job(item)
+        ctx = _context(runtime)
+        with (
+            patch("generator.run_all.fetch_retitle_clues", return_value=[{"word_normalized": "APA", "definition": "Apa"}]),
+            patch("generator.run_all.fetch_retitle_puzzles", return_value=[]),
+            patch("generator.run_all._generate_batch_candidates", return_value=[(SimpleNamespace(), "Titlu Nou")]),
+            patch("generator.run_all._rate_batch_candidates"),
+            patch("generator.run_all._finalize_title_result", return_value=SimpleNamespace(title="Titlu Nou", used_fallback=False, score=8, score_complete=True)),
+            patch("generator.run_all._apply_title_result", return_value=True),
+        ):
+            job._fetch(ctx)
+            self.assertEqual("generate_primary", job.stage)
+            job._generate_primary(ctx)
+            self.assertEqual("rate_primary", job.stage)
+            job._rate_primary(ctx)
+            self.assertEqual("generate_secondary", job.stage)
+            job._round_finalize(ctx)
+            self.assertEqual("generate_primary", job.stage)
 
 
 class ClaimStateTests(unittest.TestCase):

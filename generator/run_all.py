@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
+import concurrent.futures
 import fcntl
 import json
 import os
@@ -46,13 +47,14 @@ from .core.clue_canon_simplify import (
 )
 from .core.ai_clues import rewrite_merged_canonical_definition, validate_merged_canonical_definition
 from .core.clue_canon_store import ClueCanonStore
+from .core.dex_cache import DexProvider
 from .core.llm_client import create_client as create_ai_client
 from .core.llm_dispatch import initial_generation_model
 from .core.lm_runtime import LmRuntime
 from .core.metrics import BatchMetric, write_metrics, update_word_difficulty
 from .core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from .core.pipeline_state import puzzle_from_working_state, working_puzzle_from_puzzle
-from .core.puzzle_metrics import evaluate_puzzle_state, score_puzzle_state
+from .core.puzzle_metrics import score_puzzle_state
 from .core.runtime_logging import (
     add_llm_debug_argument,
     install_process_logging,
@@ -64,7 +66,13 @@ from .core.runtime_logging import (
 from .core.supabase_ops import create_service_role_client
 from .loop_controller import select_auto_size
 from .phases.define import generate_definitions_for_puzzle
-from .phases.theme import generate_creative_title_result
+from .phases.verify import (
+    _finalize_pair_rating,
+    _finalize_pair_verification,
+    _run_pair_rate,
+    _run_pair_verify,
+)
+from .phases.theme import MAX_TITLE_ROUNDS
 from .redefine import (
     REDEFINE_ROUNDS,
     build_working_puzzle,
@@ -75,7 +83,11 @@ from .redefine import (
 )
 from .retitle import (
     RETITLE_BATCH_SIZE,
+    _RetitleBatchState,
     _apply_title_result,
+    _finalize_title_result,
+    _generate_batch_candidates,
+    _rate_batch_candidates,
     fetch_clues as fetch_retitle_clues,
     fetch_puzzles as fetch_retitle_puzzles,
     normalize_title_key,
@@ -87,6 +99,7 @@ SUPPORTED_TOPICS = ("generate", "redefine", "retitle", "simplify")
 DEFAULT_IDLE_SLEEP_SECONDS = 15
 DEFAULT_HEARTBEAT_SECONDS = 30
 DEFAULT_RETRY_LIMIT = 2
+WORKER_POLL_SLEEP_SECONDS = 1
 LOCK_PATH = Path("/tmp/generator_rebus_run_all.lock")
 
 
@@ -166,6 +179,14 @@ class StepState:
     purpose: str
     model_id: str | None
     runner: Callable[[RunAllContext], object] = field(repr=False)
+    execution_mode: str = "inline_non_llm"
+
+
+@dataclass
+class WorkerTask:
+    step: StepState
+    future: concurrent.futures.Future[object]
+    started_at: float
 
 
 class JobState:
@@ -186,11 +207,19 @@ class JobState:
         self.updated_at = self.started_at
         self.last_error = ""
         self.progress_detail = ""
+        self.running_step_id: str | None = None
 
     def next_steps(self, ctx: RunAllContext) -> list[StepState]:
         raise NotImplementedError
 
-    def _non_llm_step(self, step_id: str, purpose: str, runner: Callable[[RunAllContext], object]) -> StepState:
+    def _non_llm_step(
+        self,
+        step_id: str,
+        purpose: str,
+        runner: Callable[[RunAllContext], object],
+        *,
+        execution_mode: str = "inline_non_llm",
+    ) -> StepState:
         return StepState(
             step_id=step_id,
             job_id=self.item_id,
@@ -199,6 +228,15 @@ class JobState:
             purpose=purpose,
             model_id=None,
             runner=runner,
+            execution_mode=execution_mode,
+        )
+
+    def _background_step(self, step_id: str, purpose: str, runner: Callable[[RunAllContext], object]) -> StepState:
+        return self._non_llm_step(
+            step_id,
+            purpose,
+            runner,
+            execution_mode="background_non_llm",
         )
 
     def _llm_step(
@@ -217,6 +255,7 @@ class JobState:
             purpose=purpose,
             model_id=model_id,
             runner=runner,
+            execution_mode="llm",
         )
 
     def _complete(self, result: object = None, *, stage: str = "done", detail: str = "") -> object:
@@ -262,7 +301,7 @@ class GenerateJobState(JobState):
         if self.stage == "select_size":
             return [self._non_llm_step("select_size", "generate_select_size", self._select_size)]
         if self.stage == "fill_grid":
-            return [self._non_llm_step("fill_grid", "generate_fill_grid", self._fill_grid)]
+            return [self._background_step("fill_grid", "generate_fill_grid", self._fill_grid)]
         if self.stage == "define_initial":
             return [self._llm_step("define_initial", "generate_define_initial", PRIMARY_MODEL.model_id, self._define_initial)]
         if self.stage == "rewrite_evaluate":
@@ -423,14 +462,22 @@ class RedefineJobState(JobState):
         self.clue_rows: list[dict] = []
         self.baseline_puzzle = None
         self.candidate_puzzle = None
+        self.baseline_model_ids: list[str] = []
+        self.baseline_model_label = ""
+        self.baseline_passed = 0
+        self.baseline_total = 0
 
     def next_steps(self, ctx: RunAllContext) -> list[StepState]:
         if self.status != "active":
             return []
         if self.stage == "fetch":
             return [self._non_llm_step("fetch", "redefine_fetch", self._fetch)]
-        if self.stage == "baseline":
-            return [self._llm_step("baseline", "redefine_baseline", PRIMARY_MODEL.model_id, self._baseline)]
+        if self.stage == "baseline_verify":
+            return [self._llm_step("baseline_verify", "redefine_baseline_verify", PRIMARY_MODEL.model_id, self._baseline_verify)]
+        if self.stage == "baseline_rate":
+            return [self._llm_step("baseline_rate", "redefine_baseline_rate", PRIMARY_MODEL.model_id, self._baseline_rate)]
+        if self.stage == "baseline_finalize":
+            return [self._non_llm_step("baseline_finalize", "redefine_baseline_finalize", self._baseline_finalize)]
         if self.stage == "rewrite":
             return [self._llm_step("rewrite", "redefine_rewrite", PRIMARY_MODEL.model_id, self._rewrite)]
         if self.stage == "persist":
@@ -446,27 +493,63 @@ class RedefineJobState(JobState):
         self.baseline_puzzle = build_working_puzzle(self.puzzle_row, self.clue_rows)
         self.candidate_puzzle = build_working_puzzle(self.puzzle_row, self.clue_rows)
         log(f"  [{puzzle_id}] {len(self.clue_rows)} clues, title: {self.baseline_puzzle.title}")
-        self._progress("baseline", detail=f"clues={len(self.clue_rows)}")
+        self._progress("baseline_verify", detail=f"clues={len(self.clue_rows)}")
         return None
 
-    def _baseline(self, ctx: RunAllContext) -> object:
+    def _baseline_verify(self, ctx: RunAllContext) -> object:
         assert self.baseline_puzzle is not None
-        baseline_eval = evaluate_puzzle_state(
+        self.baseline_model_ids, self.baseline_model_label = _run_pair_verify(
             self.baseline_puzzle,
             ctx.ai_client,
-            multi_model=ctx.multi_model,
-            verify_candidates=ctx.verify_candidates,
             runtime=ctx.runtime,
+            skip_words=None,
+            max_guesses=ctx.verify_candidates,
         )
-        self.baseline_puzzle.assessment = baseline_eval.assessment
+        self._progress("baseline_rate", detail=f"clues={len(self.clue_rows)}")
+        return None
+
+    def _baseline_rate(self, ctx: RunAllContext) -> object:
+        assert self.baseline_puzzle is not None
+        self.baseline_model_ids, self.baseline_model_label = _run_pair_rate(
+            self.baseline_puzzle,
+            ctx.ai_client,
+            runtime=ctx.runtime,
+            skip_words=None,
+            dex=DexProvider.for_puzzle(self.baseline_puzzle),
+        )
+        self._progress("baseline_finalize", detail=f"clues={len(self.clue_rows)}")
+        return None
+
+    def _baseline_finalize(self, ctx: RunAllContext) -> object:
+        assert self.baseline_puzzle is not None
+        clues = _finalize_pair_verification(
+            self.baseline_puzzle.horizontal_clues + self.baseline_puzzle.vertical_clues,
+            model_order=self.baseline_model_ids,
+            model_label=self.baseline_model_label,
+        )
+        split = len(self.baseline_puzzle.horizontal_clues)
+        self.baseline_puzzle.horizontal_clues = clues[:split]
+        self.baseline_puzzle.vertical_clues = clues[split:]
+        _finalize_pair_rating(
+            self.baseline_puzzle.horizontal_clues + self.baseline_puzzle.vertical_clues,
+            model_order=self.baseline_model_ids,
+            model_label=self.baseline_model_label,
+        )
+        self.baseline_puzzle.assessment = score_puzzle_state(self.baseline_puzzle)
+        self.baseline_passed = sum(
+            1
+            for clue in self.baseline_puzzle.horizontal_clues + self.baseline_puzzle.vertical_clues
+            if clue.active_version().assessment.verified is True
+        )
+        self.baseline_total = len(self.baseline_puzzle.horizontal_clues) + len(self.baseline_puzzle.vertical_clues)
         puzzle_id = str(self.puzzle_row["id"])
         log(
-            f"  [{puzzle_id}] baseline min={baseline_eval.assessment.min_rebus}/10 "
-            f"avg={baseline_eval.assessment.avg_rebus:.1f}/10 "
-            f"verified={baseline_eval.assessment.verified_count}/{baseline_eval.assessment.total_clues}"
+            f"  [{puzzle_id}] baseline min={self.baseline_puzzle.assessment.min_rebus}/10 "
+            f"avg={self.baseline_puzzle.assessment.avg_rebus:.1f}/10 "
+            f"verified={self.baseline_puzzle.assessment.verified_count}/{self.baseline_puzzle.assessment.total_clues}"
         )
         self._progress("rewrite", detail="baseline_done")
-        return baseline_eval
+        return self.baseline_puzzle.assessment
 
     def _rewrite(self, ctx: RunAllContext) -> object:
         assert self.candidate_puzzle is not None
@@ -513,15 +596,27 @@ class RetitleJobState(JobState):
         self.puzzle_row = copy.deepcopy(dict(item.payload["puzzle_row"]))
         self.words_list: list[str] = []
         self.definitions: list[str] = []
-        self.title_result = None
+        self.forbidden_title_keys: set[str] = set()
+        self.title_state: _RetitleBatchState | None = None
+        self.pending_title: str | None = None
+        self.pending_generator_model = PRIMARY_MODEL
+        self.round_idx = 1
 
     def next_steps(self, ctx: RunAllContext) -> list[StepState]:
         if self.status != "active":
             return []
         if self.stage == "fetch":
             return [self._non_llm_step("fetch", "retitle_fetch", self._fetch)]
-        if self.stage == "generate":
-            return [self._llm_step("generate", "retitle_generate", PRIMARY_MODEL.model_id, self._generate)]
+        if self.stage == "generate_primary":
+            return [self._llm_step("generate_primary", "retitle_generate_primary", PRIMARY_MODEL.model_id, self._generate_primary)]
+        if self.stage == "rate_primary":
+            return [self._llm_step("rate_primary", "retitle_rate_primary", PRIMARY_MODEL.model_id, self._rate_primary)]
+        if self.stage == "generate_secondary":
+            return [self._llm_step("generate_secondary", "retitle_generate_secondary", SECONDARY_MODEL.model_id, self._generate_secondary)]
+        if self.stage == "rate_secondary":
+            return [self._llm_step("rate_secondary", "retitle_rate_secondary", SECONDARY_MODEL.model_id, self._rate_secondary)]
+        if self.stage == "round_finalize":
+            return [self._non_llm_step("round_finalize", "retitle_round_finalize", self._round_finalize)]
         if self.stage == "persist":
             return [self._non_llm_step("persist", "retitle_persist", self._persist)]
         return []
@@ -537,44 +632,100 @@ class RetitleJobState(JobState):
         if not self.words_list or not self.definitions:
             log(f"  [{puzzle_id}] Missing words or definitions, skipping")
             return self._complete(False, detail="missing_words_or_definitions")
-        self._progress("generate", detail=f"clues={len(self.words_list)}")
+        self.forbidden_title_keys = {
+            normalize_title_key(row.get("title", "") or "")
+            for row in fetch_retitle_puzzles(ctx.supabase)
+            if str(row.get("id") or "") != str(self.puzzle_row.get("id") or "")
+            and normalize_title_key(row.get("title", "") or "")
+        }
+        self.title_state = _RetitleBatchState(
+            puzzle_row=self.puzzle_row,
+            words=self.words_list,
+            definitions=self.definitions,
+            forbidden_title_keys=self.forbidden_title_keys,
+        )
+        self._progress("generate_primary", detail=f"round={self.round_idx} clues={len(self.words_list)}")
         return None
 
-    def _generate(self, ctx: RunAllContext) -> object:
-        forbidden_title_keys = {
-            normalize_title_key(row.get("title", "") or "")
-            for row in fetch_retitle_puzzles(ctx.supabase)
-            if str(row.get("id") or "") != str(self.puzzle_row.get("id") or "")
-            and normalize_title_key(row.get("title", "") or "")
-        }
-        self.title_result = generate_creative_title_result(
-            self.words_list,
-            self.definitions,
+    def _generate_with_model(self, ctx: RunAllContext, model) -> object:
+        assert self.title_state is not None
+        candidates = _generate_batch_candidates(
+            [self.title_state],
             ctx.ai_client,
-            rate_client=ctx.rate_client,
             runtime=ctx.runtime,
-            multi_model=ctx.multi_model,
-            forbidden_title_keys=forbidden_title_keys,
+            active_model=model,
+            round_idx=self.round_idx,
         )
-        self._progress("persist", detail=f"title={self.title_result.title}")
-        return self.title_result
+        if candidates:
+            self.pending_title = candidates[0][1]
+            self.pending_generator_model = model
+            self._progress(
+                "rate_primary" if model.model_id == PRIMARY_MODEL.model_id else "rate_secondary",
+                detail=f"round={self.round_idx} title={self.pending_title}",
+            )
+            return self.pending_title
+        next_stage = "generate_secondary" if model.model_id == PRIMARY_MODEL.model_id and ctx.multi_model else "round_finalize"
+        self._progress(next_stage, detail=f"round={self.round_idx} no_candidate")
+        return None
+
+    def _generate_primary(self, ctx: RunAllContext) -> object:
+        return self._generate_with_model(ctx, PRIMARY_MODEL)
+
+    def _generate_secondary(self, ctx: RunAllContext) -> object:
+        return self._generate_with_model(ctx, SECONDARY_MODEL)
+
+    def _rate_current(self, ctx: RunAllContext) -> object:
+        assert self.title_state is not None
+        assert self.pending_title is not None
+        _rate_batch_candidates(
+            [(self.title_state, self.pending_title)],
+            ctx.rate_client,
+            generator_model=self.pending_generator_model,
+            runtime=ctx.runtime,
+            rating_model=SECONDARY_MODEL if self.pending_generator_model.model_id == PRIMARY_MODEL.model_id else PRIMARY_MODEL,
+            round_idx=self.round_idx,
+        )
+        if self.title_state.done:
+            self._progress("persist", detail=f"title={self.title_state.final_result.title}")
+            return self.title_state.final_result
+        next_stage = (
+            "generate_secondary"
+            if self.pending_generator_model.model_id == PRIMARY_MODEL.model_id and ctx.multi_model
+            else "round_finalize"
+        )
+        self.pending_title = None
+        self._progress(next_stage, detail=f"round={self.round_idx}")
+        return None
+
+    def _rate_primary(self, ctx: RunAllContext) -> object:
+        return self._rate_current(ctx)
+
+    def _rate_secondary(self, ctx: RunAllContext) -> object:
+        return self._rate_current(ctx)
+
+    def _round_finalize(self, ctx: RunAllContext) -> object:
+        assert self.title_state is not None
+        if self.title_state.done or self.round_idx >= MAX_TITLE_ROUNDS:
+            result = _finalize_title_result(self.title_state)
+            self._progress("persist", detail=f"title={result.title}")
+            return result
+        self.round_idx += 1
+        self.pending_title = None
+        self._progress("generate_primary", detail=f"round={self.round_idx}")
+        return None
 
     def _persist(self, ctx: RunAllContext) -> object:
-        forbidden_title_keys = {
-            normalize_title_key(row.get("title", "") or "")
-            for row in fetch_retitle_puzzles(ctx.supabase)
-            if str(row.get("id") or "") != str(self.puzzle_row.get("id") or "")
-            and normalize_title_key(row.get("title", "") or "")
-        }
+        assert self.title_state is not None
+        title_result = _finalize_title_result(self.title_state)
         changed = _apply_title_result(
             ctx.supabase,
             self.puzzle_row,
-            self.title_result,
+            title_result,
             ctx.rate_client,
             dry_run=ctx.dry_run,
             multi_model=ctx.multi_model,
             runtime=ctx.runtime,
-            forbidden_title_keys=forbidden_title_keys,
+            forbidden_title_keys=self.forbidden_title_keys,
             words=self.words_list,
         )
         return self._complete(changed, detail=f"changed={changed}")
@@ -807,19 +958,26 @@ class RunAllSupervisor:
         self.completed = 0
         self.failed = 0
         self.last_heartbeat_at = 0.0
+        self.worker_executor: concurrent.futures.ThreadPoolExecutor | None = None
+        self.worker_task: WorkerTask | None = None
         self.ctx.runtime.switch_callback = self._on_model_switch
 
     def run(self, *, max_cycles: int | None = None) -> None:
         cycles = 0
         while True:
             cycles += 1
+            self._poll_worker_task()
             self._maybe_heartbeat(force=cycles == 1)
             self._refill_slots()
             ran_work = self._run_ready_steps()
+            self._poll_worker_task()
             self._finalize_finished_jobs()
             if max_cycles is not None and cycles >= max_cycles:
                 return
             if ran_work:
+                continue
+            if self.worker_task is not None:
+                time.sleep(WORKER_POLL_SLEEP_SECONDS)
                 continue
             if self._refill_slots():
                 continue
@@ -830,33 +988,38 @@ class RunAllSupervisor:
             time.sleep(self.idle_sleep_seconds)
 
     def _run_ready_steps(self) -> bool:
+        self._poll_worker_task()
         ran_any = False
-        while True:
-            steps = self._collect_steps()
-            non_llm_steps = [step for step in steps if step.model_id is None]
-            if non_llm_steps:
-                for step in non_llm_steps:
-                    self._run_step(step)
-                    ran_any = True
-                    self._finalize_finished_jobs()
-                continue
-            llm_steps = [step for step in steps if step.model_id]
-            if not llm_steps:
-                return ran_any
-            model_id = self._choose_model_for_steps(llm_steps)
-            self._ensure_model_active(model_id)
-            batch = [step for step in llm_steps if step.model_id == model_id]
-            topic_counts = Counter(step.topic for step in batch)
-            topic_text = " ".join(f"{topic}={topic_counts.get(topic, 0)}" for topic in self.topics)
-            log(
-                f"[run_all batch] model={model_id} steps={len(batch)} "
-                f"topics=({topic_text}) {self._queue_snapshot_text()}"
-            )
-            for step in batch:
-                self._run_step(step)
-                ran_any = True
+        steps = self._collect_steps()
+        inline_steps = [step for step in steps if step.execution_mode == "inline_non_llm"]
+        for step in inline_steps:
+            self._run_step(step, lane="supervisor")
+            ran_any = True
+            self._poll_worker_task()
             self._finalize_finished_jobs()
+        if self.worker_task is None:
+            background_steps = [step for step in self._collect_steps() if step.execution_mode == "background_non_llm"]
+            if background_steps:
+                self._submit_background_step(background_steps[0])
+                ran_any = True
+        llm_steps = [step for step in self._collect_steps() if step.execution_mode == "llm"]
+        if not llm_steps:
             return ran_any
+        model_id = self._choose_model_for_steps(llm_steps)
+        self._ensure_model_active(model_id)
+        batch = [step for step in llm_steps if step.model_id == model_id]
+        topic_counts = Counter(step.topic for step in batch)
+        topic_text = " ".join(f"{topic}={topic_counts.get(topic, 0)}" for topic in self.topics)
+        log(
+            f"[run_all batch] model={model_id} steps={len(batch)} "
+            f"topics=({topic_text}) {self._queue_snapshot_text()}"
+        )
+        for step in batch:
+            self._run_step(step, lane="llm")
+            ran_any = True
+            self._poll_worker_task()
+            self._finalize_finished_jobs()
+        return ran_any
 
     def _collect_steps(self) -> list[StepState]:
         now = time.monotonic()
@@ -864,7 +1027,12 @@ class RunAllSupervisor:
         for topic in self.topics:
             slot = self.slots[topic]
             job = slot.active_job
-            if job is None or job.status != "active" or job.available_after > now:
+            if (
+                job is None
+                or job.status != "active"
+                or job.available_after > now
+                or job.running_step_id is not None
+            ):
                 continue
             steps.extend(job.next_steps(self.ctx))
         return steps
@@ -889,30 +1057,75 @@ class RunAllSupervisor:
             return
         self.ctx.runtime.activate(PRIMARY_MODEL)
 
-    def _run_step(self, step: StepState) -> None:
+    def _run_step(self, step: StepState, *, lane: str) -> None:
         job = self._job_by_id(step.job_id)
         if job is None or job.status != "active":
             return
+        job.running_step_id = step.step_id
         log(
             f"[run_all step] topic={job.topic} job={job.item_id} stage={job.stage} "
-            f"step={step.step_id} purpose={step.purpose} model={step.model_id or '-'}"
+            f"step={step.step_id} purpose={step.purpose} lane={lane} model={step.model_id or '-'}"
         )
         try:
             step.runner(self.ctx)
         except KeyboardInterrupt:
+            job.running_step_id = None
             raise
         except SystemExit as exc:
+            job.running_step_id = None
             self._handle_step_error(
                 job,
                 step,
                 RuntimeError(f"supervisor boundary violation: SystemExit escaped step: {exc}"),
             )
         except Exception as exc:
+            job.running_step_id = None
             self._handle_step_error(job, step, exc)
+        else:
+            job.running_step_id = None
+
+    def _submit_background_step(self, step: StepState) -> None:
+        job = self._job_by_id(step.job_id)
+        if job is None or job.status != "active":
+            return
+        if self.worker_executor is None:
+            self.worker_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="run_all_worker")
+        job.running_step_id = step.step_id
+        log(
+            f"[run_all step] topic={job.topic} job={job.item_id} stage={job.stage} "
+            f"step={step.step_id} purpose={step.purpose} lane=worker model=-"
+        )
+        future = self.worker_executor.submit(step.runner, self.ctx)
+        self.worker_task = WorkerTask(step=step, future=future, started_at=time.monotonic())
+
+    def _poll_worker_task(self) -> bool:
+        if self.worker_task is None or not self.worker_task.future.done():
+            return False
+        task = self.worker_task
+        self.worker_task = None
+        job = self._job_by_id(task.step.job_id)
+        if job is not None:
+            job.running_step_id = None
+        try:
+            task.future.result()
+        except KeyboardInterrupt:
+            raise
+        except SystemExit as exc:
+            if job is not None:
+                self._handle_step_error(
+                    job,
+                    task.step,
+                    RuntimeError(f"supervisor boundary violation: SystemExit escaped worker step: {exc}"),
+                )
+        except Exception as exc:
+            if job is not None:
+                self._handle_step_error(job, task.step, exc)
+        return True
 
     def _handle_step_error(self, job: JobState, step: StepState, exc: Exception) -> None:
         job.item.attempts += 1
         job.last_error = str(exc)
+        job.running_step_id = None
         if job.item.attempts <= self.retry_limit:
             backoff_seconds = min(60, 5 * (2 ** (job.item.attempts - 1)))
             job.available_after = time.monotonic() + backoff_seconds
@@ -1157,6 +1370,11 @@ class RunAllSupervisor:
             for topic in self.topics
         )
 
+    def _worker_slot_text(self) -> str:
+        if self.worker_task is None:
+            return "-"
+        return f"{self.worker_task.step.topic}:{self.worker_task.step.step_id}"
+
     def _queue_snapshot_text(self) -> str:
         model_counts = self._runnable_counts_by_model()
         topic_counts = self._queue_counts_by_topic()
@@ -1164,7 +1382,8 @@ class RunAllSupervisor:
         topic_text = " ".join(f"{topic}={count}" for topic, count in sorted(topic_counts.items()))
         return (
             f"queues_model=({model_text}) queues_topic=({topic_text}) "
-            f"active_slots=({self._active_slot_text()}) completed={self.completed} failed={self.failed}"
+            f"active_slots=({self._active_slot_text()}) worker={self._worker_slot_text()} "
+            f"completed={self.completed} failed={self.failed}"
         )
 
     def _on_model_switch(self, previous_model_id: str, next_model_id: str, runtime: LmRuntime) -> None:
@@ -1189,8 +1408,13 @@ class RunAllSupervisor:
         )
         log(
             f"[run_all heartbeat] loaded={self.ctx.runtime.current_model_label or '-'} "
-            f"blocked={blocked} {self._queue_snapshot_text()}"
+            f"blocked={blocked} worker={self._worker_slot_text()} {self._queue_snapshot_text()}"
         )
+
+    def close(self) -> None:
+        if self.worker_executor is not None:
+            self.worker_executor.shutdown(wait=True, cancel_futures=False)
+            self.worker_executor = None
 
 
 def _parse_topics(value: str | None) -> list[str]:
@@ -1322,7 +1546,10 @@ def main(argv: list[str] | None = None) -> int:
                 heartbeat_seconds=max(1, args.heartbeat_seconds),
                 debug=bool(args.debug),
             )
-            supervisor.run()
+            try:
+                supervisor.run()
+            finally:
+                supervisor.close()
         return 0
     finally:
         handle.restore()
