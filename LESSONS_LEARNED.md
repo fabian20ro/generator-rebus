@@ -160,6 +160,8 @@
 
 **[2026-04-07]** “Shared request helper” is not enough; production LM Studio code also needs a shared dispatch helper — even when every chat call already funnels through one `_chat_completion_create(...)`, scattered `runtime.activate_*()` calls still reintroduce model-switch drift, warm-up hacks, and hidden batching differences. Keep one mandatory dispatch entrypoint above the request helper, and make production phases submit work items to it instead of touching runtime activation directly.
 
+**[2026-04-07]** Strict empty-only model phases need an admission freeze or they starve forever — if a supervisor promises “keep the loaded model until its queue empties” but keeps admitting fresh same-model work after the opposite model already has waiting items, the other side may never run. Once both model queues are non-empty, freeze new admissions until the currently loaded model drains its admitted queue, then switch/reconsider.
+
 ---
 
 ## Archive

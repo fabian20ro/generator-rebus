@@ -10,7 +10,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage: ./run_title_improve.sh [options]
 
 Wrapper over:
-  python -m generator.retitle --all
+  ./run_all.sh --topics retitle
 
 Options:
   --debug    Verbose streamed LM Studio reasoning/output logs in run.log
@@ -18,9 +18,9 @@ Options:
 Examples:
   ./run_title_improve.sh
   ./run_title_improve.sh --debug
-  ./run_title_improve.sh --debug --duplicates-only
+  ./run_title_improve.sh --debug
 EOF
   exit 0
 fi
 
-exec .venv/bin/python -m generator.retitle --all "$@"
+exec "$ROOT_DIR/run_all.sh" --topics retitle "$@"

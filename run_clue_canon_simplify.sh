@@ -9,15 +9,15 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage: ./run_clue_canon_simplify.sh [--apply|--dry-run] [extra args]
 
 Wrapper over:
-  python -m generator.clue_canon simplify-fanout
+  python -m generator.run_all --topics simplify
 
 Options:
   --debug    Verbose streamed LM Studio reasoning/output logs in run.log
 
 Examples:
-  ./run_clue_canon_simplify.sh --apply --batch-size 40
-  ./run_clue_canon_simplify.sh --apply --debug --batch-size 40
-  ./run_clue_canon_simplify.sh --dry-run --batch-size 20 --word LA
+  ./run_clue_canon_simplify.sh --apply --simplify-batch-size 40
+  ./run_clue_canon_simplify.sh --apply --debug --simplify-batch-size 40
+  ./run_clue_canon_simplify.sh --dry-run --simplify-batch-size 20
 EOF
   exit 0
 fi
@@ -44,4 +44,12 @@ else
   fi
 fi
 
-exec "$PYTHON_BIN" -m generator.clue_canon simplify-fanout "${args[@]}"
+translated=(--topics simplify)
+for arg in "${args[@]}"; do
+  if [[ "$arg" == "--apply" ]]; then
+    continue
+  fi
+  translated+=("$arg")
+done
+
+exec "$PYTHON_BIN" -m generator.run_all "${translated[@]}"

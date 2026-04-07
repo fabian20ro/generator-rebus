@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import urllib.error
 from dataclasses import dataclass
+from typing import Callable
 
 from .model_manager import (
     ModelConfig,
@@ -25,6 +26,7 @@ class LmRuntime:
     current_model: ModelConfig | None = None
     switch_count: int = 0
     activation_count: int = 0
+    switch_callback: Callable[[str, str, "LmRuntime"], None] | None = None
 
     @property
     def current_model_id(self) -> str:
@@ -111,6 +113,8 @@ class LmRuntime:
                 self.current_model = target
                 if prior_model_id and prior_model_id != target.model_id:
                     self.switch_count += 1
+                    if self.switch_callback is not None:
+                        self.switch_callback(prior_model_id, target.model_id, self)
                 self.activation_count += 1
                 return target
             except Exception as exc:

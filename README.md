@@ -184,6 +184,29 @@ Notes:
 - `simplify-fanout` prefers the best existing canonical survivor; it only rewrites a new survivor when same-sense inputs are all weak
 - the simplify wrapper defaults to `--apply` if no mode is given
 
+## `run_all` supervisor
+
+For unattended mixed work, use:
+
+```bash
+./run_all.sh --debug
+```
+
+Current shape:
+- supported topics: `generate`, `redefine`, `retitle`, `simplify`
+- single-process supervisor/orchestrator with queued work items and local claims
+- one shared LM Studio runtime with queue telemetry for admissions, switches, and heartbeats
+- puzzle topics claim work by `puzzle_id`
+- `simplify` is excluded from words currently owned by active puzzle jobs
+
+Current limitation:
+- protection is local to one supervisor process
+- manual legacy entrypoints or a second process can still race because claims are in-memory, not DB-backed
+
+Architecture note:
+- current system is not a durable event bus
+- no replay, pub/sub subscriber graph, or multi-consumer idempotent event handling
+
 ## Markdown format
 
 Each phase progressively adds to the same markdown structure:

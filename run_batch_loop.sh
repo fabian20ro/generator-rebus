@@ -10,7 +10,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage: ./run_batch_loop.sh [options]
 
 Wrapper over:
-  python -m generator.loop_controller --auto-size
+  ./run_all.sh --topics generate
 
 Options:
   --debug    Verbose streamed LM Studio reasoning/output logs in each batch run.log
@@ -18,11 +18,11 @@ Options:
 Examples:
   ./run_batch_loop.sh
   ./run_batch_loop.sh --debug
-  ./run_batch_loop.sh --debug --sleep-seconds 10
+  ./run_batch_loop.sh --debug --idle-sleep-seconds 10
 EOF
   exit 0
 fi
 
 cargo build --release --manifest-path "$ROOT_DIR/crossword_engine/Cargo.toml"
 
-exec .venv/bin/python -m generator.loop_controller --auto-size "$@"
+exec "$ROOT_DIR/run_all.sh" --topics generate "$@"

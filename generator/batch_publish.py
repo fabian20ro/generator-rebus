@@ -531,6 +531,7 @@ def run_batch(
     run_dir: Path | None = None,
     multi_model: bool = False,
     verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    runtime: LmRuntime | None = None,
 ) -> list[dict]:
     raw_words = _load_words(words_path)
     word_metadata = _metadata_by_word(raw_words)
@@ -549,7 +550,7 @@ def run_batch(
     all_word_metrics: list[WordMetric] = []
     puzzle_metrics: list[PuzzleMetric] = []
     log(f"Batch seed: {rng_seed}")
-    runtime = LmRuntime(multi_model=multi_model)
+    runtime = runtime or LmRuntime(multi_model=multi_model)
     if multi_model:
         log(f"Multi-model mode: {' + '.join(get_active_model_labels(multi_model=True))}")
 

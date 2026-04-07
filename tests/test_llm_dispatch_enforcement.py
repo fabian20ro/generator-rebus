@@ -28,6 +28,7 @@ def test_no_direct_runtime_activation_in_production_pipelines() -> None:
         "generator/core/lm_runtime.py",
         "generator/core/model_aware_scheduler.py",
         "generator/core/llm_dispatch.py",
+        "generator/run_all.py",
         "generator/assessment/run_assessment.py",
         "generator/core/clue_canon_simplify.py",
         "generator/core/definition_referee.py",

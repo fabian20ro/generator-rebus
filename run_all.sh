@@ -7,20 +7,22 @@ cd "$ROOT_DIR"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
-Usage: ./run_definition_improve.sh [options]
+Usage: ./run_all.sh [options]
 
 Wrapper over:
-  ./run_all.sh --topics redefine
+  python -m generator.run_all
 
 Options:
   --debug    Verbose streamed LM Studio reasoning/output logs in run.log
 
 Examples:
-  ./run_definition_improve.sh
-  ./run_definition_improve.sh --debug
-  ./run_definition_improve.sh --debug --rounds 3
+  ./run_all.sh
+  ./run_all.sh --debug
+  ./run_all.sh --topics retitle,redefine
 EOF
   exit 0
 fi
 
-exec "$ROOT_DIR/run_all.sh" --topics redefine "$@"
+cargo build --release --manifest-path "$ROOT_DIR/crossword_engine/Cargo.toml"
+
+exec .venv/bin/python -m generator.run_all "$@"

@@ -500,6 +500,7 @@ def run_simplify_fanout(
     idle_sleep_seconds: int = DEFAULT_IDLE_SLEEP_SECONDS,
     word: str | None = None,
     stop_after_idle_cycles: int | None = None,
+    max_batches: int | None = None,
 ) -> int:
     if dry_run == apply:
         raise SystemExit("Specify exactly one of --dry-run or --apply")
@@ -546,6 +547,7 @@ def run_simplify_fanout(
     previous_int = signal.signal(signal.SIGINT, _request_stop)
     previous_term = signal.signal(signal.SIGTERM, _request_stop)
     idle_cycles = 0
+    batches_run = 0
     try:
         while True:
             all_rows = [row for rows in buckets.values() for row in rows]
@@ -756,6 +758,9 @@ def run_simplify_fanout(
                 f"[simplify-batch-done] merged={stats.pairs_merged} same_sense={stats.pairs_same_sense} "
                 f"compare_invalid={stats.compare_invalid} rewrite_invalid={stats.rewrite_invalid}"
             )
+            batches_run += 1
+            if max_batches is not None and batches_run >= max_batches:
+                return 0
             if stop_requested:
                 return 0
     finally:

@@ -13,6 +13,7 @@ from generator.rebus import build_parser as build_rebus_parser
 from generator.redefine import build_parser as build_redefine_parser
 from generator.repair_puzzles import build_parser as build_repair_parser
 from generator.retitle import build_parser as build_retitle_parser
+from generator.run_all import build_parser as build_run_all_parser
 
 
 class _FakeStreamingClient:
@@ -222,6 +223,7 @@ class DebugParserTests(unittest.TestCase):
         self.assertTrue(build_redefine_parser().parse_args(["--debug"]).debug)
         self.assertTrue(build_repair_parser().parse_args(["--debug"]).debug)
         self.assertTrue(build_rebus_parser().parse_args(["theme", "-", "-", "--debug"]).debug)
+        self.assertTrue(build_run_all_parser().parse_args(["--debug"]).debug)
 
     def test_clue_canon_subcommands_accept_debug(self):
         parser = build_clue_canon_parser()

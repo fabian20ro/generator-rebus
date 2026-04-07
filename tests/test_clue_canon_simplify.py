@@ -318,7 +318,7 @@ class ClueCanonSimplifyTests(unittest.TestCase):
         wrapper = Path("run_clue_canon_simplify.sh").read_text(encoding="utf-8")
 
         self.assertIn('args=(--apply)', wrapper)
-        self.assertIn("simplify-fanout", wrapper)
+        self.assertIn("--topics simplify", wrapper)
 
 
 if __name__ == "__main__":
