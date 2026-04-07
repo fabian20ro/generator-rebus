@@ -91,16 +91,16 @@
 .definition-bar {
   width: 100%;
   max-width: min(90vw, 500px);
-  min-height: 5.8rem;
-  padding: 0.55rem 0.75rem 0.6rem;
+  min-height: 4.35rem;
+  padding: 0.45rem 0.75rem;
   background: var(--card-bg);
   border: 2px solid var(--black-cell);
   border-bottom: none;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 0.5rem;
-  line-height: 1.25;
+  grid-template-columns: 3.15rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  line-height: 1.15;
   transition: opacity 0.15s;
   overflow: hidden;
 }
@@ -110,28 +110,43 @@
 }
 
 .definition-bar__badge {
-  display: inline-block;
+  display: grid;
+  grid-template-rows: auto auto;
+  justify-items: center;
+  align-content: center;
   background: var(--black-cell);
   color: #fff;
-  font-size: 0.7rem;
   font-weight: 700;
-  padding: 0.15rem 0.4rem;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.3rem 0.35rem;
   border-radius: 3px;
-  white-space: nowrap;
   letter-spacing: 0.03em;
-  flex-shrink: 0;
+  text-align: center;
+}
+
+.definition-bar__direction {
+  font-size: 0.68rem;
+  line-height: 1.1;
+}
+
+.definition-bar__number {
+  font-size: 1rem;
+  line-height: 1.05;
 }
 
 .definition-bar__text {
-  display: block;
+  display: grid;
+  place-items: center;
   font-style: italic;
   color: var(--text);
-  font-size: var(--definition-font-size, 1.05rem);
-  line-height: 1.25;
-  min-height: calc(1em * 3 * 1.25);
-  max-height: calc(1em * 3 * 1.25);
+  font-size: var(--definition-font-size, 1.08rem);
+  line-height: 1.15;
+  min-height: calc(1em * 2 * 1.15);
+  max-height: calc(1em * 2 * 1.15);
   overflow: hidden;
   text-wrap: pretty;
+  text-align: center;
 }
 
 /* --- Header points display --- */

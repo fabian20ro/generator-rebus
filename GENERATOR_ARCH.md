@@ -7,19 +7,21 @@ effect before proposing code modifications.
 
 ---
 
-## Entry Point 1: Batch Generation Loop
+## Entry Point 1: `run_all` Supervisor
 
 ```
-run_batch_loop.sh
-  └─ loop_controller.main()
+run_all.sh
+  └─ run_all.main()
        │
-       │  sizes = [7, 8, 9, 10, 11, 12]          # OVERNIGHT_LOOP_SIZES
+       │  one active slot / topic:
+       │    generate, redefine, retitle, simplify
        │
        └─ FOREVER:
-            for each size in sizes:
-              seed = SystemRandom.randint(1..10_000_000)    # ← RANDOMNESS: OS entropy
-              subprocess → batch_publish.main(--size, --seed, --rewrite-rounds=30)
-            sleep 2s
+            refill empty topic slots
+            run non-LLM steps
+            batch same-model LLM steps across active topics
+            switch model only when current runnable queue empty
+            persist completed jobs
 ```
 
 ## Entry Point 2: Retitle Existing Puzzles

@@ -839,8 +839,8 @@ class BatchPublishTests(unittest.TestCase):
         self.assertEqual(7, PLATEAU_LOOKBACK)
         self.assertEqual(30, MAX_REWRITE_ROUNDS)
 
-    def test_run_batch_loop_builds_rust_binary_before_python(self):
-        script = Path("run_batch_loop.sh").read_text(encoding="utf-8")
+    def test_run_all_builds_rust_binary_before_python(self):
+        script = Path("run_all.sh").read_text(encoding="utf-8")
         self.assertIn("cargo build --release --manifest-path", script)
 
 

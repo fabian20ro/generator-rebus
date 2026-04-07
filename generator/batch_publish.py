@@ -521,6 +521,128 @@ def _write_text(path: Path, content: str) -> None:
         f.write(content)
 
 
+def publish_prepared_puzzle(
+    *,
+    prepared: PreparedPuzzle,
+    index: int,
+    total_puzzles: int,
+    size: int,
+    puzzle_dir: Path,
+    multi_model: bool,
+) -> tuple[dict[str, object], PuzzleMetric, list[WordMetric]]:
+    template_path = puzzle_dir / "template.md"
+    filled_path = puzzle_dir / "filled.md"
+    rendered_puzzle = puzzle_from_working_state(prepared.puzzle)
+    _write_text(
+        template_path, write_grid_template(size, prepared.candidate.template)
+    )
+    _write_text(filled_path, write_with_definitions(rendered_puzzle))
+
+    defs_puzzle = _clear_verification_state(prepared.puzzle)
+    defs_path = puzzle_dir / "defs.md"
+    verified_path = puzzle_dir / "verified.md"
+    _write_text(
+        defs_path, write_with_definitions(puzzle_from_working_state(defs_puzzle))
+    )
+    _write_text(verified_path, write_with_definitions(rendered_puzzle))
+
+    non_preset_rebus = [
+        c.active_version().assessment.scores.rebus_score or 0
+        for c in all_working_clues(prepared.puzzle)
+    ]
+    min_rebus = min(non_preset_rebus) if non_preset_rebus else 10
+    models_used_desc = get_active_model_labels(multi_model=multi_model)
+    description = build_puzzle_description(prepared.assessment, models_used_desc)
+    difficulty = _compute_difficulty(size, prepared.candidate.report)
+    puzzle_id = upload_puzzle(
+        puzzle_from_working_state(defs_puzzle),
+        difficulty=difficulty,
+        description=description,
+        metadata={
+            **puzzle_metadata_payload(prepared.assessment, description=description),
+            "title_score": prepared.title_score,
+        },
+    )
+    set_published(puzzle_id, True)
+
+    word_metrics = _collect_word_metrics(prepared.puzzle)
+    clues = all_working_clues(prepared.puzzle)
+    rewrite_attempted_words = sum(1 for wm in word_metrics if wm.rewrite_attempted)
+    rewrite_changed_words = sum(
+        1 for wm in word_metrics if wm.rewrite_changed_definition
+    )
+    rewrite_rescued_words = sum(
+        1 for wm in word_metrics if wm.rewrite_rescued_verify
+    )
+    semantic_scores = [
+        c.active_version().assessment.scores.semantic_exactness or 0 for c in clues
+    ]
+    guess_scores = [
+        c.active_version().assessment.scores.answer_targeting or 0 for c in clues
+    ]
+    rebus_scores = [
+        c.active_version().assessment.scores.rebus_score or 0 for c in clues
+    ]
+    creativity_scores = [
+        c.active_version().assessment.scores.creativity or 0 for c in clues
+    ]
+    phase1_elapsed_ms = int(prepared.candidate.stats.get("elapsed_ms", 0) or 0)
+    puzzle_metric = PuzzleMetric(
+        size=size,
+        fill_elapsed_ms=phase1_elapsed_ms,
+        word_count=len(clues),
+        avg_word_length=prepared.candidate.report.average_length,
+        avg_rarity=prepared.candidate.report.average_rarity,
+        definition_first_pass_rate=prepared.first_passed / prepared.total
+        if prepared.total
+        else 0.0,
+        definition_final_pass_rate=prepared.final_passed / prepared.total
+        if prepared.total
+        else 0.0,
+        avg_semantic=sum(semantic_scores) / len(semantic_scores)
+        if semantic_scores
+        else 0.0,
+        avg_guessability=sum(guess_scores) / len(guess_scores)
+        if guess_scores
+        else 0.0,
+        avg_creativity=sum(creativity_scores) / len(creativity_scores)
+        if creativity_scores
+        else 0.0,
+        avg_rebus=sum(rebus_scores) / len(rebus_scores)
+        if rebus_scores
+        else 0.0,
+        min_rebus=min_rebus,
+        rewrite_attempted_words=rewrite_attempted_words,
+        rewrite_changed_words=rewrite_changed_words,
+        rewrite_rescued_words=rewrite_rescued_words,
+        blocker_count=len(prepared.blocking_words),
+        blocker_words=prepared.blocking_words,
+        model_switches=int(
+            prepared.puzzle.metadata.get("rewrite_model_switches", 0) or 0
+        ),
+        total_elapsed_ms=0,
+    )
+    manifest_item = {
+        "index": index,
+        "size": size,
+        "title": prepared.title,
+        "puzzle_id": puzzle_id,
+        "score": prepared.candidate.score,
+        "quality": prepared.candidate.report.to_dict(),
+        "phase1_stats": prepared.candidate.stats,
+        "verification_first_passed": prepared.first_passed,
+        "verification_final_passed": prepared.final_passed,
+        "verification_passed": prepared.final_passed,
+        "verification_total": prepared.total,
+        "output_dir": str(puzzle_dir),
+        "template_path": str(template_path),
+        "template_fingerprint": _template_fingerprint(prepared.candidate.template),
+        "puzzle_index": index,
+        "puzzle_total": total_puzzles,
+    }
+    return manifest_item, puzzle_metric, word_metrics
+
+
 def run_batch(
     sizes: list[int],
     output_root: Path,
@@ -600,125 +722,20 @@ def run_batch(
 
         puzzle_elapsed_ms = int((time.monotonic() - puzzle_start) * 1000)
 
-        template_path = puzzle_dir / "template.md"
-        filled_path = puzzle_dir / "filled.md"
-        rendered_puzzle = puzzle_from_working_state(prepared.puzzle)
-        _write_text(
-            template_path, write_grid_template(size, prepared.candidate.template)
+        manifest_item, puzzle_metric, word_metrics = publish_prepared_puzzle(
+            prepared=prepared,
+            index=index,
+            total_puzzles=len(sizes),
+            size=size,
+            puzzle_dir=puzzle_dir,
+            multi_model=multi_model,
         )
-        _write_text(filled_path, write_with_definitions(rendered_puzzle))
-
-        defs_puzzle = _clear_verification_state(prepared.puzzle)
-        defs_path = puzzle_dir / "defs.md"
-        verified_path = puzzle_dir / "verified.md"
-        _write_text(
-            defs_path, write_with_definitions(puzzle_from_working_state(defs_puzzle))
-        )
-        _write_text(verified_path, write_with_definitions(rendered_puzzle))
-
-        non_preset_rebus = [
-            c.active_version().assessment.scores.rebus_score or 0
-            for c in all_working_clues(prepared.puzzle)
-        ]
-        min_rebus = min(non_preset_rebus) if non_preset_rebus else 10
-        models_used_desc = get_active_model_labels(multi_model=multi_model)
-        description = build_puzzle_description(prepared.assessment, models_used_desc)
-        difficulty = _compute_difficulty(size, prepared.candidate.report)
-        puzzle_id = upload_puzzle(
-            puzzle_from_working_state(defs_puzzle),
-            difficulty=difficulty,
-            description=description,
-            metadata={
-                **puzzle_metadata_payload(prepared.assessment, description=description),
-                "title_score": prepared.title_score,
-            },
-        )
-        set_published(puzzle_id, True)
-
-        word_metrics = _collect_word_metrics(prepared.puzzle)
         all_word_metrics.extend(word_metrics)
-        clues = all_working_clues(prepared.puzzle)
-        verified_count = sum(
-            1 for c in clues if c.active_version().assessment.verified is True
-        )
-        rewrite_attempted_words = sum(1 for wm in word_metrics if wm.rewrite_attempted)
-        rewrite_changed_words = sum(
-            1 for wm in word_metrics if wm.rewrite_changed_definition
-        )
-        rewrite_rescued_words = sum(
-            1 for wm in word_metrics if wm.rewrite_rescued_verify
-        )
-        semantic_scores = [
-            c.active_version().assessment.scores.semantic_exactness or 0 for c in clues
-        ]
-        guess_scores = [
-            c.active_version().assessment.scores.answer_targeting or 0 for c in clues
-        ]
-        rebus_scores = [
-            c.active_version().assessment.scores.rebus_score or 0 for c in clues
-        ]
-        creativity_scores = [
-            c.active_version().assessment.scores.creativity or 0 for c in clues
-        ]
-        puzzle_metrics.append(
-            PuzzleMetric(
-                size=size,
-                fill_elapsed_ms=int(prepared.candidate.stats.get("elapsed_ms", 0) or 0),
-                word_count=len(clues),
-                avg_word_length=prepared.candidate.report.average_length,
-                avg_rarity=prepared.candidate.report.average_rarity,
-                definition_first_pass_rate=prepared.first_passed / prepared.total
-                if prepared.total
-                else 0.0,
-                definition_final_pass_rate=prepared.final_passed / prepared.total
-                if prepared.total
-                else 0.0,
-                avg_semantic=sum(semantic_scores) / len(semantic_scores)
-                if semantic_scores
-                else 0.0,
-                avg_guessability=sum(guess_scores) / len(guess_scores)
-                if guess_scores
-                else 0.0,
-                avg_creativity=sum(creativity_scores) / len(creativity_scores)
-                if creativity_scores
-                else 0.0,
-                avg_rebus=sum(rebus_scores) / len(rebus_scores)
-                if rebus_scores
-                else 0.0,
-                min_rebus=min_rebus,
-                rewrite_attempted_words=rewrite_attempted_words,
-                rewrite_changed_words=rewrite_changed_words,
-                rewrite_rescued_words=rewrite_rescued_words,
-                blocker_count=len(prepared.blocking_words),
-                blocker_words=prepared.blocking_words,
-                model_switches=int(
-                    prepared.puzzle.metadata.get("rewrite_model_switches", 0) or 0
-                ),
-                total_elapsed_ms=puzzle_elapsed_ms,
-            )
-        )
+        puzzle_metric.total_elapsed_ms = puzzle_elapsed_ms
+        puzzle_metrics.append(puzzle_metric)
 
-        manifest.append(
-            {
-                "index": index,
-                "size": size,
-                "title": prepared.title,
-                "puzzle_id": puzzle_id,
-                "score": prepared.candidate.score,
-                "quality": prepared.candidate.report.to_dict(),
-                "phase1_stats": prepared.candidate.stats,
-                "verification_first_passed": prepared.first_passed,
-                "verification_final_passed": prepared.final_passed,
-                "verification_passed": prepared.final_passed,
-                "verification_total": prepared.total,
-                "output_dir": str(puzzle_dir),
-                "template_path": str(template_path),
-                "seed": rng_seed,
-                "template_fingerprint": _template_fingerprint(
-                    prepared.candidate.template
-                ),
-            }
-        )
+        manifest_item["seed"] = rng_seed
+        manifest.append(manifest_item)
         _write_text(
             run_dir / "manifest.json",
             json.dumps(manifest, ensure_ascii=False, indent=2),

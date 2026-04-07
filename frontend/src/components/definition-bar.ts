@@ -7,9 +7,9 @@ import type { Clue } from "../db/puzzle-repository";
 import type { GridState } from "./grid-renderer";
 import { findActiveClue } from "./grid-renderer";
 
-const MAX_FONT_SIZE_REM = 1.05;
-const MIN_FONT_SIZE_REM = 0.66;
-const FONT_STEP_REM = 0.04;
+const MAX_FONT_SIZE_REM = 1.08;
+const MIN_FONT_SIZE_REM = 0.72;
+const FONT_STEP_REM = 0.02;
 
 export function renderDefinitionBar(
   container: HTMLElement,
@@ -30,12 +30,21 @@ export function renderDefinitionBar(
 
   const badge = document.createElement("span");
   badge.className = "definition-bar__badge";
-  badge.textContent = `${clue.clue_number}${dirLabel}`;
+
+  const badgeDirection = document.createElement("span");
+  badgeDirection.className = "definition-bar__direction";
+  badgeDirection.textContent = dirLabel;
+
+  const badgeNumber = document.createElement("span");
+  badgeNumber.className = "definition-bar__number";
+  badgeNumber.textContent = String(clue.clue_number);
 
   const text = document.createElement("span");
   text.className = "definition-bar__text";
   text.textContent = clue.definition;
 
+  badge.appendChild(badgeDirection);
+  badge.appendChild(badgeNumber);
   container.appendChild(badge);
   container.appendChild(text);
   fitDefinitionText(container, text);

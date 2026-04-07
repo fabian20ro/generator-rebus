@@ -252,57 +252,19 @@ def rewrite_puzzle_definitions(
     )
 
 
-def redefine_puzzle(
+def persist_redefined_puzzle(
     supabase,
     puzzle_row: dict,
+    clue_rows: list[dict],
+    baseline_puzzle: WorkingPuzzle,
+    candidate_puzzle: WorkingPuzzle,
     client,
     *,
     dry_run: bool = False,
     multi_model: bool = True,
-    rounds: int = REDEFINE_ROUNDS,
-    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
     runtime: LmRuntime | None = None,
 ) -> int:
-    """Redefine definitions for one puzzle. Returns count of updated clues."""
     puzzle_id = puzzle_row["id"]
-    clue_rows = sorted(fetch_clues(supabase, puzzle_id), key=_clue_row_sort_key)
-    if not clue_rows:
-        log(f"  [{puzzle_id}] No clues found, skipping")
-        return 0
-
-    baseline_puzzle = build_working_puzzle(puzzle_row, clue_rows)
-    log(f"  [{puzzle_id}] {len(clue_rows)} clues, title: {baseline_puzzle.title}")
-    runtime = runtime or LmRuntime(multi_model=multi_model)
-    baseline_eval = evaluate_puzzle_state(
-        baseline_puzzle,
-        client,
-        multi_model=multi_model,
-        verify_candidates=verify_candidates,
-        runtime=runtime,
-    )
-    baseline_puzzle.assessment = baseline_eval.assessment
-    log(
-        f"  [{puzzle_id}] baseline min={baseline_eval.assessment.min_rebus}/10 "
-        f"avg={baseline_eval.assessment.avg_rebus:.1f}/10 "
-        f"verified={baseline_eval.assessment.verified_count}/{baseline_eval.assessment.total_clues}"
-    )
-
-    candidate_puzzle = build_working_puzzle(puzzle_row, clue_rows)
-    rewrite_puzzle_definitions(
-        candidate_puzzle,
-        client,
-        rounds=rounds,
-        multi_model=multi_model,
-        verify_candidates=verify_candidates,
-        runtime=runtime,
-    )
-    candidate_puzzle.assessment = score_puzzle_state(candidate_puzzle)
-    log(
-        f"  [{puzzle_id}] candidate min={candidate_puzzle.assessment.min_rebus}/10 "
-        f"avg={candidate_puzzle.assessment.avg_rebus:.1f}/10 "
-        f"verified={candidate_puzzle.assessment.verified_count}/{candidate_puzzle.assessment.total_clues}"
-    )
-
     desired_payloads = _desired_clue_payloads(candidate_puzzle)
     candidate_clues = _working_clue_map(candidate_puzzle)
     persistence_puzzle = copy.deepcopy(baseline_puzzle)
@@ -360,7 +322,7 @@ def redefine_puzzle(
         if comparable_current == update_payload:
             continue
 
-        word = row.get("word_normalized", "")
+        clue_ref = clue_label_from_row(row)
         log_definition_event(
             "redefine",
             puzzle_id=puzzle_id,
@@ -408,6 +370,69 @@ def redefine_puzzle(
             log(f"  [{puzzle_id}] No clue or metadata changes")
 
     return updated_count
+
+
+def redefine_puzzle(
+    supabase,
+    puzzle_row: dict,
+    client,
+    *,
+    dry_run: bool = False,
+    multi_model: bool = True,
+    rounds: int = REDEFINE_ROUNDS,
+    verify_candidates: int = VERIFY_CANDIDATE_COUNT,
+    runtime: LmRuntime | None = None,
+) -> int:
+    """Redefine definitions for one puzzle. Returns count of updated clues."""
+    puzzle_id = puzzle_row["id"]
+    clue_rows = sorted(fetch_clues(supabase, puzzle_id), key=_clue_row_sort_key)
+    if not clue_rows:
+        log(f"  [{puzzle_id}] No clues found, skipping")
+        return 0
+
+    baseline_puzzle = build_working_puzzle(puzzle_row, clue_rows)
+    log(f"  [{puzzle_id}] {len(clue_rows)} clues, title: {baseline_puzzle.title}")
+    runtime = runtime or LmRuntime(multi_model=multi_model)
+    baseline_eval = evaluate_puzzle_state(
+        baseline_puzzle,
+        client,
+        multi_model=multi_model,
+        verify_candidates=verify_candidates,
+        runtime=runtime,
+    )
+    baseline_puzzle.assessment = baseline_eval.assessment
+    log(
+        f"  [{puzzle_id}] baseline min={baseline_eval.assessment.min_rebus}/10 "
+        f"avg={baseline_eval.assessment.avg_rebus:.1f}/10 "
+        f"verified={baseline_eval.assessment.verified_count}/{baseline_eval.assessment.total_clues}"
+    )
+
+    candidate_puzzle = build_working_puzzle(puzzle_row, clue_rows)
+    rewrite_puzzle_definitions(
+        candidate_puzzle,
+        client,
+        rounds=rounds,
+        multi_model=multi_model,
+        verify_candidates=verify_candidates,
+        runtime=runtime,
+    )
+    candidate_puzzle.assessment = score_puzzle_state(candidate_puzzle)
+    log(
+        f"  [{puzzle_id}] candidate min={candidate_puzzle.assessment.min_rebus}/10 "
+        f"avg={candidate_puzzle.assessment.avg_rebus:.1f}/10 "
+        f"verified={candidate_puzzle.assessment.verified_count}/{candidate_puzzle.assessment.total_clues}"
+    )
+    return persist_redefined_puzzle(
+        supabase,
+        puzzle_row,
+        clue_rows,
+        baseline_puzzle,
+        candidate_puzzle,
+        client,
+        dry_run=dry_run,
+        multi_model=multi_model,
+        runtime=runtime,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

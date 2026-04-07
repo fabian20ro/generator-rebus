@@ -162,6 +162,10 @@
 
 **[2026-04-07]** Strict empty-only model phases need an admission freeze or they starve forever — if a supervisor promises “keep the loaded model until its queue empties” but keeps admitting fresh same-model work after the opposite model already has waiting items, the other side may never run. Once both model queues are non-empty, freeze new admissions until the currently loaded model drains its admitted queue, then switch/reconsider.
 
+**[2026-04-07]** “Model switches observed” does not prove cross-topic parallelism — a supervisor with one global active job can still switch models many times while every other topic is just queued. If the product requirement is “one active task per topic progressing at once,” the orchestration unit must be resumable per-topic job state, not a whole-job call wrapped in a global pending queue.
+
+**[2026-04-07]** Supervisors must not call CLI-era runners as job steps — once `run_all` becomes the unattended production entrypoint, any reused helper that still owns `SystemExit`, signal handlers, shared resume-state files, or internal sleep/poll loops becomes a process-kill hazard. Keep supervisor paths on pure/staged primitives, and treat escaped `SystemExit` as a boundary violation to fail one topic job, not the whole orchestrator.
+
 ---
 
 ## Archive

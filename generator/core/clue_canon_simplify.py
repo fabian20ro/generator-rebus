@@ -76,6 +76,15 @@ class SimplifyRunState:
     pool_version: int = 0
 
 
+SimplifyApprovedMerge = tuple[
+    SimplifyCandidatePair,
+    CanonicalDefinition,
+    CanonicalDefinition,
+    str,
+    bool,
+]
+
+
 def _canonical_bucket_key(row: CanonicalDefinition) -> tuple[str, str, str]:
     return (row.word_normalized, row.word_type, row.usage_label)
 
@@ -179,6 +188,26 @@ def sample_candidate_batch(
         selected.append(chosen)
         used_ids.add(chosen.left_id)
         used_ids.add(chosen.right_id)
+    return selected
+
+
+def select_candidate_batch(
+    pairs: list[SimplifyCandidatePair],
+    *,
+    batch_size: int,
+) -> list[SimplifyCandidatePair]:
+    if batch_size <= 0 or not pairs:
+        return []
+    selected: list[SimplifyCandidatePair] = []
+    used_ids: set[str] = set()
+    for pair in pairs:
+        if pair.left_id in used_ids or pair.right_id in used_ids:
+            continue
+        selected.append(pair)
+        used_ids.add(pair.left_id)
+        used_ids.add(pair.right_id)
+        if len(selected) >= batch_size:
+            break
     return selected
 
 
@@ -404,6 +433,20 @@ def _all_bucket_rows(
     return buckets
 
 
+def load_simplify_bucket(
+    store: ClueCanonStore,
+    *,
+    word: str | None,
+    batch_size: int,
+) -> tuple[dict[tuple[str, str, str], list[CanonicalDefinition]], list[SimplifyCandidatePair]]:
+    normalized_word = str(word or "").strip().upper() or None
+    buckets = _all_bucket_rows(store, word_filter=normalized_word)
+    pairs = build_candidate_pairs(
+        [row for rows in buckets.values() for row in rows],
+    )
+    return buckets, select_candidate_batch(pairs, batch_size=batch_size)
+
+
 def _find_pair_rows(
     pair: SimplifyCandidatePair,
     buckets: dict[tuple[str, str, str], list[CanonicalDefinition]],
@@ -415,6 +458,13 @@ def _find_pair_rows(
     if left is None or right is None:
         return None
     return left, right
+
+
+def find_simplify_pair_rows(
+    pair: SimplifyCandidatePair,
+    buckets: dict[tuple[str, str, str], list[CanonicalDefinition]],
+) -> tuple[CanonicalDefinition, CanonicalDefinition] | None:
+    return _find_pair_rows(pair, buckets)
 
 
 def _run_compare_phase(client, runtime, pairs: list[SimplifyCandidatePair], *, model_id: str) -> dict[str, object]:
@@ -431,6 +481,16 @@ def _run_compare_phase(client, runtime, pairs: list[SimplifyCandidatePair], *, m
             model=model_id,
         )
     return results
+
+
+def compare_simplify_pairs(
+    client,
+    runtime,
+    pairs: list[SimplifyCandidatePair],
+    *,
+    model_id: str,
+) -> dict[str, object]:
+    return _run_compare_phase(client, runtime, pairs, model_id=model_id)
 
 
 def _apply_merge(
@@ -460,10 +520,46 @@ def _apply_merge(
     return survivor.id
 
 
+def apply_simplify_merge(
+    *,
+    store: ClueCanonStore,
+    left: CanonicalDefinition,
+    right: CanonicalDefinition,
+    survivor_definition: str,
+    dry_run: bool,
+) -> str:
+    return _apply_merge(
+        store=store,
+        left=left,
+        right=right,
+        survivor_definition=survivor_definition,
+        dry_run=dry_run,
+    )
+
+
 def _update_top_reductions(stats: SimplifyStats, *, word: str) -> None:
     current = {existing_word: reduction for existing_word, reduction in stats.top_words_reduced}
     current[word] = current.get(word, 0) + 1
     stats.top_words_reduced = sorted(current.items(), key=lambda item: (-item[1], item[0]))[:20]
+
+
+def update_top_reductions(stats: SimplifyStats, *, word: str) -> None:
+    _update_top_reductions(stats, word=word)
+
+
+def refresh_simplify_bucket_rows(
+    store: ClueCanonStore,
+    buckets: dict[tuple[str, str, str], list[CanonicalDefinition]],
+    *,
+    touched_words: set[str],
+    word_filter: str | None,
+) -> None:
+    _refresh_bucket_rows(
+        store,
+        buckets,
+        touched_words=touched_words,
+        word_filter=word_filter,
+    )
 
 
 def _build_summary(

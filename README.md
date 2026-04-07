@@ -22,10 +22,8 @@ Romanian rebus (crossword) generator. Pipeline CLI that creates puzzles from a S
   Cloudflare Worker that exposes puzzle endpoints to the frontend.
 - `tests/`
   Unit coverage for clue prompts, selection behavior, quality filters, title generation, and verification.
-- `run_batch_loop.sh`
-  Thin wrapper over the Python loop controller for repeated overnight batches (`7x7` through `12x12`).
-- `generator/loop_controller.py`
-  Size-resilient overnight controller that runs one size at a time and keeps going after per-size failures.
+- `run_all.sh`
+  Only unattended production entrypoint. One active slot each for `generate`, `redefine`, `retitle`, `simplify`.
 
 ```
 download → generate-grid → fill → theme → define → verify → upload → activate
@@ -168,21 +166,21 @@ python -m generator activate a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 ## Canonical clue maintenance
 
-Canonical clue cleanup now has two steady-state surfaces:
+Canonical clue cleanup now has two surfaces:
 
 ```bash
 # Audit canonical library health
 python -m generator.clue_canon audit
 
-# Continuously reduce duplicate canonicals
-./run_clue_canon_simplify.sh --dry-run
-./run_clue_canon_simplify.sh --apply
+# One-off simplify maintenance
+python -m generator.clue_canon simplify-fanout --dry-run
+python -m generator.clue_canon simplify-fanout --apply
 ```
 
 Notes:
 - `audit` checks pointer integrity, superseded links, duplicate active canonicals, oversized fanout, and effective-view coverage
 - `simplify-fanout` prefers the best existing canonical survivor; it only rewrites a new survivor when same-sense inputs are all weak
-- the simplify wrapper defaults to `--apply` if no mode is given
+- unattended simplify now runs only through `./run_all.sh --topics simplify`
 
 ## `run_all` supervisor
 
@@ -194,8 +192,9 @@ For unattended mixed work, use:
 
 Current shape:
 - supported topics: `generate`, `redefine`, `retitle`, `simplify`
-- single-process supervisor/orchestrator with queued work items and local claims
-- one shared LM Studio runtime with queue telemetry for admissions, switches, and heartbeats
+- single-process supervisor/orchestrator with one active job slot per topic and local claims
+- one shared LM Studio runtime with queue telemetry for admissions, step batches, switches, and heartbeats
+- jobs keep in-memory stage/state and advance in small steps across topics
 - puzzle topics claim work by `puzzle_id`
 - `simplify` is excluded from words currently owned by active puzzle jobs
 

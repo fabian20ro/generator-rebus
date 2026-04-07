@@ -314,11 +314,8 @@ class ClueCanonSimplifyTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["backfill", "--apply"])
 
-    def test_wrapper_defaults_to_apply_mode(self):
-        wrapper = Path("run_clue_canon_simplify.sh").read_text(encoding="utf-8")
-
-        self.assertIn('args=(--apply)', wrapper)
-        self.assertIn("--topics simplify", wrapper)
+    def test_legacy_simplify_wrapper_removed(self):
+        self.assertFalse(Path("run_clue_canon_simplify.sh").exists())
 
 
 if __name__ == "__main__":

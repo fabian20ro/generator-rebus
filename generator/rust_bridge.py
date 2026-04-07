@@ -68,7 +68,7 @@ def _rust_binary_path() -> Path:
     if RUST_ENGINE_DEBUG_BINARY.exists():
         return RUST_ENGINE_DEBUG_BINARY
     raise RuntimeError(
-        "Rust phase-1 binary missing. Run `run_batch_loop.sh` or "
+        "Rust phase-1 binary missing. Run `run_all.sh` or "
         "`cargo build --release --manifest-path crossword_engine/Cargo.toml` first."
     )
 
@@ -226,5 +226,4 @@ def _best_candidate(
 
 def _template_fingerprint(template: list[list[bool]]) -> str:
     return "|".join("".join("." if cell else "#" for cell in row) for row in template)
-
 
