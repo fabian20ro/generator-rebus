@@ -16,7 +16,11 @@ if TYPE_CHECKING:
 
 
 def poll_generate(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
-    size = select_auto_size(client=supervisor.ctx.supabase)
+    size = select_auto_size(
+        client=supervisor.ctx.supabase,
+        excluded_sizes=supervisor.active_generate_size_exclusions(),
+        size_penalties=supervisor.generate_size_penalty_map(),
+    )
     preferred_model = initial_generation_model(supervisor.ctx.runtime).model_id
     item = SupervisorWorkItem(
         item_id=f"generate:size:{size}:{int(time.time() * 1000)}",
@@ -106,4 +110,3 @@ def poll_simplify(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
         supervisor._admit_item(item)
         return supervisor._next_pending_for_topic("simplify")
     return None
-

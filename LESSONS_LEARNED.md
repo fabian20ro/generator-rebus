@@ -170,6 +170,10 @@
 
 **[2026-04-07]** After lane separation, mixed “persist/apply” helpers become the next hidden scheduler bug — a helper that sometimes writes to Supabase and sometimes quietly does title scoring, canonical arbitration, or referee calls defeats the whole `llm` vs `non_llm` contract. Split those helpers into `prepare_*` (LLM-allowed, returns a pure plan) and `apply_*` (pure writes only), then make the supervisor schedule them as separate stages.
 
+**[2026-04-09]** Pair-eval short-circuit rules must not leak into finalizers as “all votes exist” assumptions — if verification can conclude after one negative model vote, downstream pair finalizers must iterate only over present votes and explicitly mark missing-model state as incomplete when needed. Any direct `votes[model_id]` lookup after short-circuiting is a latent unattended crash.
+
+**[2026-04-09]** Unattended supervisors need deterministic-failure memory, not just per-job retries — retrying a broken `(topic, stable item, stage, error signature)` three times without quarantining it turns a real bug into a day-long silent stall. Keep a run-local failure ledger, emit heartbeat summaries even outside debug mode, back off unhealthy selection targets, and fail fast once the same signature proves deterministic.
+
 ---
 
 ## Archive

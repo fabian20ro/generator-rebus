@@ -9,7 +9,14 @@ from generator.core.markdown_io import ClueEntry
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.core.pipeline_state import ClueScores, working_clue_from_entry
 from generator.core.puzzle_metrics import score_puzzle_state, puzzle_metadata_payload
-from generator.phases.verify import _rate_clues, _verify_clues, rate_puzzle, verify_working_puzzle
+from generator.phases.verify import (
+    _finalize_pair_rating,
+    _finalize_pair_verification,
+    _rate_clues,
+    _verify_clues,
+    rate_puzzle,
+    verify_working_puzzle,
+)
 
 
 class VerifyPhaseTests(unittest.TestCase):
@@ -330,6 +337,45 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertFalse(assessment.scores_complete)
         self.assertIsNone(payload["rebus_score_min"])
         self.assertIsNone(payload["definition_score"])
+
+    def test_finalize_pair_verification_handles_single_negative_vote_without_keyerror(self):
+        clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
+        clue.current.assessment.verify_votes = {
+            PRIMARY_MODEL.model_id: ["PARI"],
+        }
+
+        assessed = _finalize_pair_verification(
+            [clue],
+            model_order=[PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
+            model_label="gemma + eurollm",
+        )[0].current.assessment
+
+        self.assertTrue(assessed.verify_complete)
+        self.assertFalse(assessed.verified)
+        self.assertEqual("PARI", assessed.wrong_guess)
+        self.assertEqual("wrong_guess", assessed.failure_reason.kind)  # type: ignore[union-attr]
+
+    def test_finalize_pair_rating_handles_missing_second_vote_without_keyerror(self):
+        clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
+        clue.current.assessment.rating_votes = {
+            PRIMARY_MODEL.model_id: DefinitionRating(
+                semantic_score=8,
+                guessability_score=6,
+                feedback="ok",
+                creativity_score=6,
+            ),
+        }
+
+        _finalize_pair_rating(
+            [clue],
+            model_order=[PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
+            model_label="gemma + eurollm",
+        )
+
+        assessed = clue.current.assessment
+        self.assertFalse(assessed.rating_complete)
+        self.assertIsNone(assessed.scores.semantic_exactness)
+        self.assertEqual("unrated", assessed.failure_reason.kind)  # type: ignore[union-attr]
 
 
 if __name__ == "__main__":

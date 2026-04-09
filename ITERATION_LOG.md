@@ -17,6 +17,17 @@
 
 ---
 
+### [2026-04-09] Stabilize `run_all` deterministic stalls and fail fast
+
+**Context:** user asked why `run_all.sh` had burned ~2 days without a new puzzle and wanted root cause plus implementation to prevent repeats.
+**Happened:** audited `generator/output/run_all_runs/20260407_132542/run.log`; confirmed partial outage, not total outage (`retitle` and `simplify` progressed, `generate`/`redefine` did not). Fixed pair-finalization crash in `generator/phases/verify.py` so negative short-circuit verification no longer indexes missing second-model votes. Refactored `generator/supervisor/jobs/simplify.py` to split survivor handling into `plan_survivors -> rewrite_secondary -> validate_primary -> apply_merge`, removing the hidden eurollm+gemma hop from one scheduled step. Added run-local supervisor failure memory and deterministic quarantine in `generator/supervisor/scheduler.py` / `generator/supervisor/types.py`, plus always-on heartbeat summaries and generate-size cooldown/penalty input into `generator/loop_controller.py` / `generator/supervisor/pollers.py`. Extended targeted tests for verify finalization, supervisor quarantine, loop-controller penalties, and scheduler activation allowlist.
+**Verification:** `python3 -m py_compile generator/phases/verify.py generator/supervisor/types.py generator/supervisor/scheduler.py generator/supervisor/pollers.py generator/supervisor/jobs/simplify.py generator/loop_controller.py tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py`; `python3 -m pytest tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py -q` (`52 passed`); `python3 -m pytest tests/test_clue_canon_simplify.py tests/test_llm_dispatch_enforcement.py -q` (`15 passed`).
+**Outcome:** success
+**Insight:** unattended orchestration bugs usually need two fixes, not one: the direct crash path and the missing supervisor policy that allowed the same deterministic failure to repeat forever.
+**Promoted:** yes
+
+---
+
 ### [2026-04-03] Convert repo-wide Python progress prints to shared runtime logging
 
 **Context:** user wanted verbose timestamped logs everywhere, then asked for a repo-wide conversion of Python `print()` usage to the standard logger and asked to keep the implementation dry.

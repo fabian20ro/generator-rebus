@@ -60,17 +60,48 @@ def choose_balanced_size(
     counts: dict[int, int],
     *,
     supported_sizes: tuple[int, ...] = SUPPORTED_GRID_SIZES,
+    excluded_sizes: set[int] | None = None,
+    size_penalties: dict[int, int] | None = None,
 ) -> tuple[int, dict[int, int]]:
     inventory = {size: int(counts.get(size, 0) or 0) for size in supported_sizes}
-    selected_size = min(inventory.items(), key=lambda item: (item[1], item[0]))[0]
+    excluded = set(excluded_sizes or set())
+    penalties = {size: int(size_penalties.get(size, 0) or 0) for size in supported_sizes} if size_penalties else {}
+    selectable_sizes = [size for size in supported_sizes if size not in excluded]
+    if not selectable_sizes:
+        selectable_sizes = list(supported_sizes)
+    selected_size = min(
+        selectable_sizes,
+        key=lambda size: (
+            inventory[size] + penalties.get(size, 0),
+            inventory[size],
+            size,
+        ),
+    )
     return selected_size, inventory
 
 
-def select_auto_size(*, client=None) -> int:
+def select_auto_size(
+    *,
+    client=None,
+    excluded_sizes: set[int] | None = None,
+    size_penalties: dict[int, int] | None = None,
+) -> int:
     counts = fetch_puzzle_size_counts(client=client)
-    selected_size, inventory = choose_balanced_size(counts)
+    selected_size, inventory = choose_balanced_size(
+        counts,
+        excluded_sizes=excluded_sizes,
+        size_penalties=size_penalties,
+    )
     summary = " ".join(f"{size}:{inventory[size]}" for size in sorted(inventory))
-    log(f"Auto-selected size={selected_size} inventory={summary}")
+    excluded_text = ""
+    if excluded_sizes:
+        excluded_text = " excluded=" + ",".join(str(size) for size in sorted(excluded_sizes))
+    penalty_text = ""
+    if size_penalties:
+        nonzero = {size: penalty for size, penalty in size_penalties.items() if penalty}
+        if nonzero:
+            penalty_text = " penalties=" + ",".join(f"{size}:{nonzero[size]}" for size in sorted(nonzero))
+    log(f"Auto-selected size={selected_size} inventory={summary}{excluded_text}{penalty_text}")
     return selected_size
 
 

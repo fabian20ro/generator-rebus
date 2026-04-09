@@ -29,6 +29,8 @@ class SimplifyJobState(JobState):
         self.primary_votes: dict[str, object] = {}
         self.secondary_votes: dict[str, object] = {}
         self.approved_pairs: list[tuple[object, object, object, str, bool]] = []
+        self.pending_rewrite_pairs: list[tuple[object, object, object]] = []
+        self.rewritten_definitions: dict[str, str] = {}
         self.stats = SimplifyStats()
         self.report_dir: Path | None = None
         self.merges_path: Path | None = None
@@ -43,8 +45,12 @@ class SimplifyJobState(JobState):
             return [self._llm_step("compare_gemma", "simplify_compare_gemma", PRIMARY_MODEL.model_id, self._compare_gemma)]
         if self.stage == "compare_eurollm":
             return [self._llm_step("compare_eurollm", "simplify_compare_eurollm", SECONDARY_MODEL.model_id, self._compare_eurollm)]
-        if self.stage == "rewrite_or_choose_survivor":
-            return [self._llm_step("rewrite_or_choose_survivor", "simplify_rewrite_or_choose_survivor", PRIMARY_MODEL.model_id, self._rewrite_or_choose_survivor)]
+        if self.stage == "plan_survivors":
+            return [self._non_llm_step("plan_survivors", "simplify_plan_survivors", self._plan_survivors)]
+        if self.stage == "rewrite_secondary":
+            return [self._llm_step("rewrite_secondary", "simplify_rewrite_secondary", SECONDARY_MODEL.model_id, self._rewrite_secondary)]
+        if self.stage == "validate_primary":
+            return [self._llm_step("validate_primary", "simplify_validate_primary", PRIMARY_MODEL.model_id, self._validate_primary)]
         if self.stage == "apply_merge":
             return [self._non_llm_step("apply_merge", "simplify_apply_merge", self._apply_merge)]
         return []
@@ -83,11 +89,13 @@ class SimplifyJobState(JobState):
             model_id=SECONDARY_MODEL.model_id,
         )
         self.stats.pairs_compared += len(self.batch_pairs) * 2
-        self._progress("rewrite_or_choose_survivor", detail=f"pairs={len(self.batch_pairs)}")
+        self._progress("plan_survivors", detail=f"pairs={len(self.batch_pairs)}")
         return self.secondary_votes
 
-    def _rewrite_or_choose_survivor(self, ctx):
+    def _plan_survivors(self, ctx):
         self.approved_pairs = []
+        self.pending_rewrite_pairs = []
+        self.rewritten_definitions = {}
         for pair in self.batch_pairs:
             first = self.primary_votes[pair.key]
             second = self.secondary_votes[pair.key]
@@ -122,31 +130,49 @@ class SimplifyJobState(JobState):
             left, right = found
             self.stats.pairs_same_sense += 1
             if should_rewrite_survivor(left, right):
-                rewrite = rewrite_merged_canonical_definition(
-                    ctx.ai_client,
-                    word=pair.word,
-                    definition_a=left.definition,
-                    definition_b=right.definition,
-                    model=SECONDARY_MODEL.model_id,
-                )
-                rewritten_definition = rewrite.definition
-                validation = validate_merged_canonical_definition(
-                    ctx.ai_client,
-                    word=pair.word,
-                    answer_length=len(pair.word),
-                    definition_a=left.definition,
-                    definition_b=right.definition,
-                    candidate_definition=rewritten_definition,
-                    model=PRIMARY_MODEL.model_id,
-                )
-                if not validation.accepted:
-                    self.stats.rewrite_invalid += 1
-                    self.stats.rewrite_fallback_existing += 1
-                    rewritten_definition = choose_existing_survivor(left, right).definition
-                self.approved_pairs.append((pair, left, right, rewritten_definition, True))
+                self.pending_rewrite_pairs.append((pair, left, right))
                 continue
             survivor_definition = choose_existing_survivor(left, right).definition
             self.approved_pairs.append((pair, left, right, survivor_definition, False))
+        if self.pending_rewrite_pairs:
+            self._progress(
+                "rewrite_secondary",
+                detail=f"approved={len(self.approved_pairs)} rewrites={len(self.pending_rewrite_pairs)}",
+            )
+            return self.pending_rewrite_pairs
+        self._progress("apply_merge", detail=f"approved={len(self.approved_pairs)}")
+        return self.approved_pairs
+
+    def _rewrite_secondary(self, ctx):
+        for pair, left, right in self.pending_rewrite_pairs:
+            rewrite = rewrite_merged_canonical_definition(
+                ctx.ai_client,
+                word=pair.word,
+                definition_a=left.definition,
+                definition_b=right.definition,
+                model=SECONDARY_MODEL.model_id,
+            )
+            self.rewritten_definitions[pair.key] = rewrite.definition
+        self._progress("validate_primary", detail=f"rewrites={len(self.pending_rewrite_pairs)}")
+        return self.rewritten_definitions
+
+    def _validate_primary(self, ctx):
+        for pair, left, right in self.pending_rewrite_pairs:
+            rewritten_definition = self.rewritten_definitions.get(pair.key, "")
+            validation = validate_merged_canonical_definition(
+                ctx.ai_client,
+                word=pair.word,
+                answer_length=len(pair.word),
+                definition_a=left.definition,
+                definition_b=right.definition,
+                candidate_definition=rewritten_definition,
+                model=PRIMARY_MODEL.model_id,
+            )
+            if not validation.accepted:
+                self.stats.rewrite_invalid += 1
+                self.stats.rewrite_fallback_existing += 1
+                rewritten_definition = choose_existing_survivor(left, right).definition
+            self.approved_pairs.append((pair, left, right, rewritten_definition, True))
         self._progress("apply_merge", detail=f"approved={len(self.approved_pairs)}")
         return self.approved_pairs
 

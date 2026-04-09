@@ -3,19 +3,31 @@ from __future__ import annotations
 import concurrent.futures
 import time
 from collections import Counter
+import re
 
 from ..core.clue_canon_store import ClueCanonStore
 from ..core.lm_runtime import LmRuntime
 from ..core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
-from ..core.runtime_logging import log
+from ..core.runtime_logging import audit, log
 from .jobs import build_job
 from .pollers import poll_generate, poll_redefine, poll_retitle, poll_simplify
-from .types import ClaimState, RunAllContext, StepState, SupervisorWorkItem, TopicSlot, WorkerTask
+from .types import (
+    ClaimState,
+    DeterministicFailureQuarantine,
+    RunAllContext,
+    StepState,
+    SupervisorWorkItem,
+    TopicSlot,
+    WorkerTask,
+)
 
 DEFAULT_IDLE_SLEEP_SECONDS = 15
 DEFAULT_HEARTBEAT_SECONDS = 30
 DEFAULT_RETRY_LIMIT = 2
 WORKER_POLL_SLEEP_SECONDS = 1
+DETERMINISTIC_FAILURE_THRESHOLD = 3
+GENERATE_SIZE_COOLDOWN_SECONDS = 60 * 60
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
 class RunAllSupervisor:
@@ -46,6 +58,11 @@ class RunAllSupervisor:
         self.last_heartbeat_at = 0.0
         self.worker_executor: concurrent.futures.ThreadPoolExecutor | None = None
         self.worker_task: WorkerTask | None = None
+        self.topic_last_success_at = {topic: 0.0 for topic in self.topics}
+        self.failure_signature_counts: Counter[tuple[str, str, str, str]] = Counter()
+        self.topic_failure_signature_counts = {topic: Counter() for topic in self.topics}
+        self.generate_size_cooldowns: dict[int, float] = {}
+        self.generate_size_penalties: Counter[int] = Counter()
         self.ctx.runtime.switch_callback = self._on_model_switch
 
     def run(self, *, max_cycles: int | None = None) -> None:
@@ -212,19 +229,23 @@ class RunAllSupervisor:
         job.item.attempts += 1
         job.last_error = str(exc)
         job.running_step_id = None
+        signature = self._normalize_error_signature(exc)
+        self._record_failure_occurrence(job, step, signature, exc)
         if job.item.attempts <= self.retry_limit:
             backoff_seconds = min(60, 5 * (2 ** (job.item.attempts - 1)))
             job.available_after = time.monotonic() + backoff_seconds
             log(
                 f"[run_all retry] topic={job.topic} job={job.item_id} step={step.step_id} "
-                f"attempt={job.item.attempts} backoff_seconds={backoff_seconds} error={exc}"
+                f"attempt={job.item.attempts} backoff_seconds={backoff_seconds} "
+                f"signature={signature} error={exc}"
             )
             return
         job.status = "failed"
         job.result = exc
+        self._record_generate_size_failure(job, signature)
         log(
             f"[run_all failed] topic={job.topic} job={job.item_id} step={step.step_id} "
-            f"attempts={job.item.attempts} error={exc}",
+            f"attempts={job.item.attempts} signature={signature} error={exc}",
             level="ERROR",
         )
 
@@ -245,6 +266,7 @@ class RunAllSupervisor:
             if job.status == "complete":
                 slot.completed_count += 1
                 self.completed += 1
+                self.topic_last_success_at[job.topic] = time.monotonic()
                 log(
                     f"[run_all finalize] topic={job.topic} job={job.item_id} outcome=complete "
                     f"elapsed_ms={elapsed_ms} persisted=yes detail={job.progress_detail or '-'} result={job.result!r}"
@@ -339,6 +361,16 @@ class RunAllSupervisor:
             return (PRIMARY_MODEL.model_id,)
         return (PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id)
 
+    def active_generate_size_exclusions(self) -> set[int]:
+        now = time.monotonic()
+        expired = [size for size, until in self.generate_size_cooldowns.items() if until <= now]
+        for size in expired:
+            self.generate_size_cooldowns.pop(size, None)
+        return {size for size, until in self.generate_size_cooldowns.items() if until > now}
+
+    def generate_size_penalty_map(self) -> dict[int, int]:
+        return {size: penalty for size, penalty in self.generate_size_penalties.items() if penalty > 0}
+
     def _admit_item(self, item: SupervisorWorkItem) -> None:
         self.pending_items.append(item)
         self.claims.claim(item)
@@ -393,9 +425,78 @@ class RunAllSupervisor:
             f"{self._queue_snapshot_text()}"
         )
 
-    def _maybe_heartbeat(self, *, force: bool) -> None:
-        if not self.debug:
+    def _format_age_seconds(self, started_at: float) -> str:
+        if started_at <= 0:
+            return "-"
+        return f"{int(max(0.0, time.monotonic() - started_at))}s"
+
+    def _dominant_failure_text(self, topic: str) -> str:
+        topic_counts = self.topic_failure_signature_counts.get(topic)
+        if not topic_counts:
+            return "-"
+        signature, count = topic_counts.most_common(1)[0]
+        return f"{signature} x{count}"
+
+    def _normalize_error_signature(self, exc: Exception) -> str:
+        raw = str(exc).strip() or exc.__class__.__name__
+        if raw.startswith("'") and raw.endswith("'") and len(raw) > 1:
+            raw = raw[1:-1]
+        lowered = raw.lower()
+        if "failed to load model" in lowered and "insufficient system resources" in lowered:
+            return "lmstudio_resource_guard"
+        if isinstance(exc, KeyError):
+            return f"KeyError:{raw}"
+        normalized = _WHITESPACE_RE.sub(" ", raw)
+        if len(normalized) > 160:
+            normalized = normalized[:157] + "..."
+        return f"{exc.__class__.__name__}:{normalized}"
+
+    def _stable_item_key(self, job) -> str:
+        return job.item.stable_key()
+
+    def _record_generate_size_failure(self, job, signature: str) -> None:
+        if job.topic != "generate":
             return
+        size = int(job.item.payload.get("size") or 0)
+        if size <= 0:
+            return
+        self.generate_size_penalties[size] += 1
+        self.generate_size_cooldowns[size] = time.monotonic() + GENERATE_SIZE_COOLDOWN_SECONDS
+        log(
+            f"[run_all generate_cooldown] size={size} signature={signature} "
+            f"cooldown={GENERATE_SIZE_COOLDOWN_SECONDS}s penalty={self.generate_size_penalties[size]}"
+        )
+
+    def _record_failure_occurrence(self, job, step: StepState, signature: str, exc: Exception) -> None:
+        failure_key = (job.topic, self._stable_item_key(job), step.step_id, signature)
+        self.failure_signature_counts[failure_key] += 1
+        self.topic_failure_signature_counts.setdefault(job.topic, Counter())[signature] += 1
+        count = self.failure_signature_counts[failure_key]
+        if count < DETERMINISTIC_FAILURE_THRESHOLD:
+            return
+        job.status = "failed"
+        job.result = exc
+        job.last_error = str(exc)
+        self._record_generate_size_failure(job, signature)
+        message = (
+            f"Quarantined deterministic failure after {count} occurrences: "
+            f"topic={job.topic} item={self._stable_item_key(job)} stage={step.step_id} signature={signature}"
+        )
+        audit(
+            "run_all_quarantine",
+            component="run_all",
+            payload={
+                "topic": job.topic,
+                "item": self._stable_item_key(job),
+                "stage": step.step_id,
+                "signature": signature,
+                "count": count,
+            },
+        )
+        log(f"[run_all quarantine] {message}", level="ERROR")
+        raise DeterministicFailureQuarantine(message)
+
+    def _maybe_heartbeat(self, *, force: bool) -> None:
         now = time.monotonic()
         if not force and (now - self.last_heartbeat_at) < self.heartbeat_seconds:
             return
@@ -406,9 +507,19 @@ class RunAllSupervisor:
             for slot in self.slots.values()
             if slot.active_job is not None and slot.active_job.available_after > time.monotonic()
         )
+        success_text = " ".join(
+            f"{topic}={self._format_age_seconds(self.topic_last_success_at.get(topic, 0.0))}"
+            for topic in self.topics
+        )
+        failure_text = " ".join(
+            f"{topic}={self._dominant_failure_text(topic)}"
+            for topic in self.topics
+        )
         log(
             f"[run_all heartbeat] loaded={self.ctx.runtime.current_model_label or '-'} "
-            f"blocked={blocked} worker={self._worker_slot_text()} {self._queue_snapshot_text()}"
+            f"blocked={blocked} worker={self._worker_slot_text()} "
+            f"last_success=({success_text}) dominant_failures=({failure_text}) "
+            f"{self._queue_snapshot_text()}"
         )
 
     def close(self) -> None:

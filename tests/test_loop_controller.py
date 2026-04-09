@@ -126,6 +126,23 @@ class LoopControllerTests(unittest.TestCase):
         self.assertEqual(9, size)
         self.assertEqual(0, inventory[9])
 
+    def test_choose_balanced_size_skips_temporarily_excluded_sizes(self):
+        size, _inventory = choose_balanced_size(
+            {7: 3, 8: 1, 9: 0, 10: 0},
+            excluded_sizes={9},
+        )
+
+        self.assertEqual(10, size)
+
+    def test_choose_balanced_size_penalizes_repeatedly_failing_size(self):
+        size, _inventory = choose_balanced_size(
+            {13: 0, 14: 1},
+            supported_sizes=(13, 14),
+            size_penalties={13: 10},
+        )
+
+        self.assertEqual(14, size)
+
     def test_fetch_puzzle_size_counts_aggregates_grid_sizes_from_supabase_rows(self):
         class _Query:
             def __init__(self, batches):

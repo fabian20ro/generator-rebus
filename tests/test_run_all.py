@@ -6,7 +6,14 @@ from unittest.mock import patch
 
 from generator.core.model_manager import PRIMARY_MODEL, SECONDARY_MODEL
 from generator.run_all import build_parser
-from generator.supervisor import ClaimState, RunAllContext, RunAllSupervisor, StepState, SupervisorWorkItem
+from generator.supervisor import (
+    ClaimState,
+    DeterministicFailureQuarantine,
+    RunAllContext,
+    RunAllSupervisor,
+    StepState,
+    SupervisorWorkItem,
+)
 from generator.supervisor.jobs.base import JobState
 
 
@@ -336,6 +343,39 @@ class RunAllSupervisorTests(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             supervisor._run_ready_steps()
+
+    def test_identical_failures_quarantine_and_stop_run(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["generate"],
+            topic_caps={"generate": 1},
+            retry_limit=5,
+        )
+        failure_step = StepState(
+            step_id="rewrite_evaluate",
+            job_id="generate:size:13:1",
+            topic="generate",
+            kind="gemma",
+            purpose="generate_rewrite_evaluate",
+            model_id=PRIMARY_MODEL.model_id,
+            runner=lambda ctx: (_ for _ in ()).throw(KeyError(PRIMARY_MODEL.model_id)),
+            execution_mode="llm",
+        )
+        item = _item("generate", "generate:size:13:1", preferred_model_id=SECONDARY_MODEL.model_id)
+        item.payload = {"size": 13, "index": 1}
+        supervisor.slots["generate"].active_job = _StaticJob(item, steps=[failure_step])
+
+        supervisor._run_ready_steps()
+        supervisor.slots["generate"].active_job.available_after = 0
+        supervisor._run_ready_steps()
+        supervisor.slots["generate"].active_job.available_after = 0
+
+        with self.assertRaises(DeterministicFailureQuarantine):
+            supervisor._run_ready_steps()
+
+        self.assertIn(13, supervisor.generate_size_penalty_map())
+        self.assertIn(13, supervisor.active_generate_size_exclusions())
 
     def test_simplify_job_ignores_stale_global_state_file(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)

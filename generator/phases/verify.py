@@ -91,6 +91,10 @@ def _combine_verify_candidates(votes: dict[str, list[str]], model_order: list[st
     return combined
 
 
+def _available_model_order(votes: dict[str, object], model_order: list[str]) -> list[str]:
+    return [model_id for model_id in model_order if model_id in votes]
+
+
 def _related_guess_for_candidates(word: str, candidates: list[str]) -> str:
     return next(
         (
@@ -553,6 +557,7 @@ def _finalize_pair_verification(
             for model_id in model_order
             if model_id in clue.current.assessment.verify_votes
         }
+        available_model_order = _available_model_order(votes, model_order)
         negative_votes = [
             model_id
             for model_id, candidates in votes.items()
@@ -577,7 +582,7 @@ def _finalize_pair_verification(
 
         matched_all = len(votes) == len(model_order) and all(
             clue.word_normalized in [normalize(candidate) for candidate in votes[model_id]]
-            for model_id in model_order
+            for model_id in available_model_order
         )
         if matched_all:
             clue.current.assessment.verified = True
@@ -592,7 +597,7 @@ def _finalize_pair_verification(
         failing_candidates = next(
             (
                 votes[model_id]
-                for model_id in model_order
+                for model_id in available_model_order
                 if clue.word_normalized not in [normalize(candidate) for candidate in votes[model_id]]
             ),
             combined_candidates,
@@ -641,6 +646,7 @@ def _finalize_pair_rating(
             for model_id in model_order
             if model_id in clue.current.assessment.rating_votes
         }
+        available_model_order = _available_model_order(votes, model_order)
         clue.current.assessment.rating_complete = len(votes) == len(model_order)
         clue.current.assessment.rated_by = model_label
 
@@ -664,8 +670,29 @@ def _finalize_pair_rating(
             log(f"    ⚠ {clue.word_normalized}: evaluare în pereche incompletă")
             continue
 
-        first_vote = votes[model_order[0]]
-        second_vote = votes[model_order[1]]
+        if len(available_model_order) < 2:
+            clue.current.assessment.rating_complete = False
+            clue.current.assessment.feedback = ""
+            clue.current.assessment.rarity_only_override = False
+            clue.current.assessment.scores = ClueScores(
+                semantic_exactness=None,
+                answer_targeting=None,
+                ambiguity_risk=None,
+                family_leakage=False,
+                language_integrity=10,
+                creativity=None,
+                rebus_score=None,
+            )
+            if clue.current.assessment.failure_reason is None:
+                clue.current.assessment.failure_reason = ClueFailureReason(
+                    "unrated",
+                    "Evaluarea în pereche este incompletă.",
+                )
+            log(f"    ⚠ {clue.word_normalized}: evaluare în pereche incompletă")
+            continue
+
+        first_vote = votes[available_model_order[0]]
+        second_vote = votes[available_model_order[1]]
         if first_vote is None or second_vote is None:
             clue.current.assessment.rating_complete = False
             clue.current.assessment.feedback = ""

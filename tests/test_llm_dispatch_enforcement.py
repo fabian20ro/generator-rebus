@@ -32,6 +32,7 @@ def test_no_direct_runtime_activation_in_production_pipelines() -> None:
         "generator/assessment/run_assessment.py",
         "generator/core/clue_canon_simplify.py",
         "generator/core/definition_referee.py",
+        "generator/supervisor/scheduler.py",
     }
     banned_markers = (
         "activate_primary(",
