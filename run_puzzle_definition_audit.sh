@@ -9,7 +9,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage: ./run_puzzle_definition_audit.sh [options]
 
 Wrapper over:
-  python -m generator.puzzle_definition_audit
+  python -m rebus_generator.workflows.canonicals.puzzle_definition_audit
 
 Examples:
   ./run_puzzle_definition_audit.sh
@@ -31,4 +31,4 @@ if [[ -z "$PYTHON_BIN" ]]; then
   fi
 fi
 
-exec "$PYTHON_BIN" -m generator.puzzle_definition_audit "$@"
+exec "$PYTHON_BIN" -m rebus_generator.workflows.canonicals.puzzle_definition_audit "$@"

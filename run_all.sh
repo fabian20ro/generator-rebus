@@ -10,7 +10,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage: ./run_all.sh [options]
 
 Wrapper over:
-  python -m generator.run_all
+  python -m rebus_generator.cli.run_all
 
 Options:
   --debug    Verbose streamed LM Studio reasoning/output logs in run.log
@@ -23,6 +23,6 @@ EOF
   exit 0
 fi
 
-cargo build --release --manifest-path "$ROOT_DIR/crossword_engine/Cargo.toml"
+cargo build --release --manifest-path "$ROOT_DIR/engines/crossword-engine/Cargo.toml"
 
-exec .venv/bin/python -m generator.run_all "$@"
+exec .venv/bin/python -m rebus_generator.cli.run_all "$@"

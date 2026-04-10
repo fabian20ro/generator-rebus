@@ -3,7 +3,7 @@ name: Deploy Frontend to GitHub Pages
 on:
   push:
     branches: [main]
-    paths: ['frontend/**']
+    paths: ['apps/frontend/**']
   workflow_dispatch:
 
 permissions:
@@ -25,21 +25,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: apps/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
-        working-directory: frontend
+        working-directory: apps/frontend
 
       - name: Build
         run: npm run build
-        working-directory: frontend
+        working-directory: apps/frontend
         env:
           VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: apps/frontend/dist
 
   deploy:
     needs: build

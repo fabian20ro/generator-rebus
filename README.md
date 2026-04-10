@@ -4,21 +4,19 @@ Romanian rebus (crossword) generator. Pipeline CLI that creates puzzles from a S
 
 ## Current map
 
-- `generator/batch_publish.py`
-  Main batch runner. Generates, evaluates, rewrites, uploads, and activates puzzles.
-- `generator/core/size_tuning.py`
-  Single source of truth for size-specific generation/search settings (`7` through `12`, plus `15`).
-- `generator/core/pipeline_state.py`
-  Internal typed working state for clues and puzzles. This is the main in-memory model used by the modern batch pipeline.
-- `generator/core/selection_engine.py`
-  Centralized clue and puzzle comparison logic, including deterministic ranking and tie-break routing.
-- `generator/phases/define.py` and `generator/phases/verify.py`
-  LLM-facing phases for definition generation, verification, and rating.
-- `generator/core/quality.py`, `generator/core/constraint_solver.py`, `generator/core/grid_template.py`
-  Word filtering, candidate scoring, CSP fill logic, and template generation.
-- `frontend/`
+- `packages/rebus-generator/src/rebus_generator/workflows/generate/service.py`
+  Main generation workflow. prepares candidate grids, runs definition/rewrite/title passes, publishes.
+- `packages/rebus-generator/src/rebus_generator/domain/`
+  Puzzle/clue state, scoring, selection, text rules, shared business logic.
+- `packages/rebus-generator/src/rebus_generator/platform/llm/`
+  LM Studio client/runtime/model registry and prompt-facing helpers.
+- `packages/rebus-generator/src/rebus_generator/evaluation/`
+  Assessment runs, datasets, campaign policy, reports, prompt-lab tooling.
+- `engines/crossword-engine/`
+  Rust crossword fill engine, split by generation/solver/template/model/quality capability.
+- `apps/frontend/`
   Static client app that reads published puzzles from the worker API.
-- `worker/`
+- `apps/worker/`
   Cloudflare Worker that exposes puzzle endpoints to the frontend.
 - `tests/`
   Unit coverage for clue prompts, selection behavior, quality filters, title generation, and verification.
@@ -26,9 +24,14 @@ Romanian rebus (crossword) generator. Pipeline CLI that creates puzzles from a S
   Only unattended production entrypoint. One active slot each for `generate`, `redefine`, `retitle`, `simplify`.
 
 ```
-download → generate-grid → fill → theme → define → verify → upload → activate
-   ↓           ↓            ↓       ↓        ↓         ↓        ↓         ↓
-words.json  grid.md     filled.md themed.md defs.md  verified.md  (id)   (toggle)
+run_all / cli
+   ↓
+workflows/
+  generate    redefine    retitle    canonicals    run_all
+   ↓
+platform/llm + platform/persistence + platform/io
+   ↓
+engines/crossword-engine + Supabase + LM Studio + apps/worker + apps/frontend
 ```
 
 ## Prerequisites
@@ -40,7 +43,7 @@ words.json  grid.md     filled.md themed.md defs.md  verified.md  (id)   (toggle
 
 ## Setup
 
-All generator commands run from the **repo root** (not from inside `generator/`).
+All generator commands run from the repo root.
 
 ```bash
 # Create and activate a virtual environment
@@ -49,7 +52,7 @@ source .venv/bin/activate  # macOS/Linux
 # .venv\Scripts\activate   # Windows
 
 # Install Python dependencies
-pip install -r generator/requirements.txt
+pip install -r packages/rebus-generator/requirements.txt
 
 # Copy and fill in your credentials
 cp .env.example .env
@@ -65,99 +68,53 @@ LMSTUDIO_BASE_URL=http://127.0.0.1:1234
 
 ### Database setup
 
-Fresh install: run [`schema.sql`](/Users/fabian/git/generator-rebus/schema.sql) in Supabase SQL Editor. It creates:
+Fresh install: run [schema.sql](/Users/fabian/git/generator-rebus/db/schema.sql) in Supabase SQL Editor. It creates:
 - `crossword_puzzles`
 - `crossword_clues`
 - canonical clue library tables
 - `crossword_clue_effective` view
 
-Existing install: apply migrations in `migrations/` first.
+Existing install: apply migrations in `db/migrations/` first.
 
 ## Generator CLI
 
 ```bash
-python -m generator <phase> <input_file> <output_file> [options]
+python -m rebus_generator <phase> <input_file> <output_file> [options]
 ```
 
-### Full pipeline example
+Supported CLI phases:
+- `download`
+- `theme`
+- `define`
+- `verify`
+- `upload`
+- `activate`
+- `deactivate`
+
+Typical manual flow:
 
 ```bash
-# 1. Download words from Supabase (one-time, ~70K words)
-python -m generator download - generator/output/words.json
-
-# 2. Generate a grid template
-python -m generator generate-grid - generator/output/grid.md --size 10
-
-# 3. Fill grid with dictionary words
-python -m generator fill generator/output/grid.md generator/output/filled.md \
-  --words generator/output/words.json
-
-# 4. Generate a theme (requires LM Studio)
-python -m generator theme generator/output/filled.md generator/output/themed.md
-
-# 5. Generate definitions (requires LM Studio)
-python -m generator define generator/output/themed.md generator/output/defs.md
-
-# --- Edit generator/output/defs.md manually if needed ---
-
-# 6. Verify definitions (AI tries to guess each word)
-python -m generator verify generator/output/defs.md generator/output/verified.md
-
-# --- Fix any definitions marked ✗, then re-verify or continue ---
-
-# 7. Upload to Supabase (starts unpublished)
-python -m generator upload generator/output/verified.md -
-
-# 8. Publish it
-python -m generator activate <puzzle-id-from-step-7>
+python -m rebus_generator download - build/words.json
+python -m rebus_generator theme build/filled.md build/themed.md
+python -m rebus_generator define build/themed.md build/defs.md
+python -m rebus_generator verify build/defs.md build/verified.md
+python -m rebus_generator upload build/verified.md -
+python -m rebus_generator activate <puzzle-id>
 ```
 
-### Phases
+For unattended generation + improvement, use:
 
-| Phase | Input | Output | Needs Supabase | Needs LM Studio |
-|-------|-------|--------|:-:|:-:|
-| `download` | `-` | `words.json` | yes | no |
-| `generate-grid` | `-` | `grid.md` | no | no |
-| `fill` | `grid.md` | `filled.md` | no | no |
-| `theme` | `filled.md` | `themed.md` | no | yes |
-| `define` | `themed.md` | `defs.md` | no | yes |
-| `verify` | `defs.md` | `verified.md` | no | yes |
-| `upload` | `verified.md` | `-` (prints ID) | yes | no |
-| `activate` | `<puzzle-id>` | (none) | yes | no |
-| `deactivate` | `<puzzle-id>` | (none) | yes | no |
-
-### Options
-
-| Flag | Default | Used by | Description |
-|------|---------|---------|-------------|
-| `--size` | `10` | `generate-grid` | Grid size: `7`, `8`, `9`, `10`, `11`, `12`, or `15` |
-| `--words` | (required) | `fill` | Path to `words.json` |
-| `--max-backtracks` | `50000` | `fill` | Solver gives up after this many backtracks |
-| `--max-rarity` | `5` | `fill` | Filter out words with rarity > N (1-5 scale) |
-| `--force` | off | `upload` | Upload even if some definitions failed verification |
+```bash
+./run_all.sh --debug
+```
 
 ## Things that aren't obvious
 
-**`-` as input/output.** Phases that don't read a file (`download`, `generate-grid`) take `-` as their input_file. `upload` takes `-` as output because it prints the puzzle ID to stdout instead.
+**`-` as input/output.** `download` uses `-` for no input. `upload` uses `-` for no output because it prints the puzzle id.
 
-**`fill` requires `--words`.** The solver needs the word list downloaded in step 1. Pass it explicitly:
-```bash
-python -m generator fill grid.md filled.md --words generator/output/words.json
-```
+**Artifacts go under `build/`.** Word caches, batch runs, assessments, and logs should not live inside source packages.
 
-**`activate`/`deactivate` use the puzzle ID as the input argument.** There's no file involved:
-```bash
-python -m generator activate a1b2c3d4-e5f6-7890-abcd-ef1234567890
-```
-
-**The solver can fail.** If `fill` says "Failed to find a solution", either:
-- Re-run it (grids are random, another template may work)
-- Raise the limit: `--max-backtracks 200000`
-- Try a smaller grid: `--size 7`
-
-**`generator/output/` is gitignored.** Use it freely as your workspace for intermediate files.
-
-**LM Studio models.** The pipeline targets a two-model workflow via LM Studio's OpenAI-compatible API. The active pair defaults to `gemma-4` + `eurollm-22b`, and the central registry / pair selector lives in [`generator/core/model_manager.py`](/Users/fabian/git/generator-rebus/generator/core/model_manager.py). Keep the configured pair available locally before running `theme` / `define` / `verify` / canonical referee flows.
+**LM Studio models.** The pipeline uses a two-model workflow via LM Studio's OpenAI-compatible API. The active pair defaults to `gemma-4` + `eurollm-22b`; registry/policy live in [models.py](/Users/fabian/git/generator-rebus/packages/rebus-generator/src/rebus_generator/platform/llm/models.py) and LM Studio REST helpers in [lm_studio_api.py](/Users/fabian/git/generator-rebus/packages/rebus-generator/src/rebus_generator/platform/llm/lm_studio_api.py).
 
 **You can skip phases.** The markdown format is human-readable and editable. You can:
 - Write definitions manually instead of using `define`
@@ -170,11 +127,11 @@ Canonical clue cleanup now has two surfaces:
 
 ```bash
 # Audit canonical library health
-python -m generator.clue_canon audit
+python -m rebus_generator.workflows.canonicals.service audit
 
 # One-off simplify maintenance
-python -m generator.clue_canon simplify-fanout --dry-run
-python -m generator.clue_canon simplify-fanout --apply
+python -m rebus_generator.workflows.canonicals.service simplify-fanout --dry-run
+python -m rebus_generator.workflows.canonicals.service simplify-fanout --apply
 ```
 
 Notes:
@@ -248,15 +205,13 @@ O . . . # . . . . #
 Vanilla TypeScript + Vite. No framework. Reads puzzle data from a Cloudflare Worker proxy.
 
 ```bash
-cd frontend
+cd apps/frontend
 npm install
 npm run dev     # local dev server
 npm run build   # production build → dist/
 ```
 
-The frontend needs `VITE_API_BASE` set to the Cloudflare Worker URL. For local dev, you can either:
-- Point it to a local worker (`wrangler dev` in the `worker/` folder)
-- Hard-code a deployed worker URL in `src/db/puzzle-repository.ts`
+The frontend needs `VITE_API_BASE` set to the Cloudflare Worker URL. For local dev, either point it at `wrangler dev` in `apps/worker` or use the deployed worker URL.
 
 ### GitHub Pages deploy
 
@@ -268,12 +223,12 @@ The `.github/workflows/deploy-frontend.yml` action builds and deploys to Pages o
 
 ## Cloudflare Worker
 
-The `worker/` folder contains a Cloudflare Worker that proxies frontend requests to Supabase, adding auth headers so the Supabase key is never exposed in the browser.
+The `apps/worker/` folder contains a Cloudflare Worker that proxies frontend requests to Supabase, adding auth headers so the Supabase key is never exposed in the browser.
 
-It auto-deploys from the `worker/` folder. To set its secrets:
+To set its secrets:
 
 ```bash
-cd worker
+cd apps/worker
 npm install
 npx wrangler secret put SUPABASE_URL
 npx wrangler secret put SUPABASE_ANON_KEY
@@ -289,30 +244,20 @@ Routes:
 
 ```
 generator-rebus/
-├── generator/                     # Python CLI (run from repo root)
-│   ├── rebus.py                   # CLI entry point
-│   ├── requirements.txt           # Python deps: supabase, openai, python-dotenv
-│   ├── config.py                  # Reads .env
-│   ├── phases/                    # One module per pipeline phase
-│   │   ├── download.py
-│   │   ├── generate_grid.py
-│   │   ├── fill.py
-│   │   ├── theme.py
-│   │   ├── define.py
-│   │   ├── verify.py
-│   │   ├── upload.py
-│   │   └── activate.py
-│   ├── core/                      # Shared logic
-│   │   ├── diacritics.py          # ă→A, â→A, î→I, ș→S, ț→T
-│   │   ├── word_index.py          # Length-bucketed positional index
-│   │   ├── grid_template.py       # Procedural template generation
-│   │   ├── slot_extractor.py      # Find H/V word slots + intersections
-│   │   ├── constraint_solver.py   # CSP backtracking with MRV
-│   │   └── markdown_io.py         # Read/write the markdown format
-│   └── output/                    # Gitignored workspace
-├── frontend/                      # Vanilla TS + Vite
-├── worker/                        # Cloudflare Worker (Supabase proxy)
-├── schema.sql                     # Database DDL
+├── apps/
+│   ├── frontend/                  # Vanilla TS + Vite
+│   └── worker/                    # Cloudflare Worker (Supabase proxy)
+├── engines/
+│   └── crossword-engine/          # Rust generator/fill engine
+├── packages/
+│   └── rebus-generator/
+│       ├── requirements.txt
+│       └── src/rebus_generator/   # Python generator package
+├── db/
+│   ├── migrations/
+│   └── schema.sql                 # Database DDL
+├── docs/
+│   └── architecture/
 ├── .env.example                   # Template for credentials
 └── .github/workflows/
     └── deploy-frontend.yml        # GitHub Pages deploy

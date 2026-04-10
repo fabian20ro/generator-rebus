@@ -89,7 +89,7 @@
 
 **[2026-03-21]** Prompt campaign manifests need an anchor-existence test against live prompt files — literal `find -> replace` runners will silently skip experiments when prompt text drifts. Keep one regression test that loads current prompt files and asserts every manifest edit anchor still exists before launching a long campaign.
 
-**[2026-03-21]** Benchmark incumbent metrics should stay sourced from `generator/assessment/results.tsv`, not duplicated in policy constants — the ledger row is the working score history, while code should only keep labels, ranges, and rules. Read the latest kept row when you need the incumbent numbers; use assessment JSON only for per-word drilldown such as control-word stability.
+**[2026-03-21]** Benchmark incumbent metrics should stay sourced from `build/evaluation/assessment/results.tsv`, not duplicated in policy constants — the ledger row is the working score history, while code should only keep labels, ranges, and rules. Read the latest kept row when you need the incumbent numbers; use assessment JSON only for per-word drilldown such as control-word stability.
 
 **[2026-03-22]** Prompt experiment runners/tests should accept “replacement already present” as a valid already-landed state — when baseline prompt text absorbs a prior cleanup edit, strict “find anchor must exist” checks create false CI failures even though the manifest is semantically aligned. Treat either the original anchor or the replacement text as acceptable, and have apply logic no-op cleanly when the replacement is already present.
 
@@ -103,9 +103,9 @@
 
 **[2026-03-23]** Maintenance-only autoresearch commands must stay side-effect free — flags like `--rebuild-state` and `--status` are recovery tools, not trial launchers. If a repair/status path can also start assessments, a “safe resume” tool becomes a source of accidental prompt drift and wasted benchmark runs. Return immediately after rebuild/status work, and make audit writers create parent directories lazily so these maintenance paths also work in isolated temp-state tests.
 
-**[2026-03-23]** Benchmark runner state artifacts should live under a gitignored build/state root, never beside live prompt source — files like `best_assessment.json` are experiment cache, not prompt inputs. If they sit under `generator/prompts/`, they look committable and can confuse prompt diffs. Save them under `build/` and keep only read-only fallback support for legacy locations.
+**[2026-03-23]** Benchmark runner state artifacts should live under a gitignored build/state root, never beside live prompt source — files like `best_assessment.json` are experiment cache, not prompt inputs. If they sit under `packages/rebus-generator/src/rebus_generator/prompts/production/`, they look committable and can confuse prompt diffs. Save them under `build/` and keep only read-only fallback support for legacy locations.
 
-**[2026-03-23]** Autoresearch rebuilds must refresh both snapshot paths and the live prompt tree after swapping temp state into place — if `seed_prompt_snapshot` still points at the temporary rebuild dir, or if `generator/prompts/` is not restored from the rebuilt incumbent snapshot, the next validator run reports a false incumbent mismatch even though the durable state itself is correct.
+**[2026-03-23]** Autoresearch rebuilds must refresh both snapshot paths and the live prompt tree after swapping temp state into place — if `seed_prompt_snapshot` still points at the temporary rebuild dir, or if `packages/rebus-generator/src/rebus_generator/prompts/production/` is not restored from the rebuilt incumbent snapshot, the next validator run reports a false incumbent mismatch even though the durable state itself is correct.
 
 **[2026-03-23]** Supabase clue directions must accept persisted `H`/`V` codes, not only spelled-out names — upload stores `crossword_clues.direction` as `H`/`V`, so any DB-to-working-state adapter that only checks `"vertical"` silently routes every clue into the horizontal list. Treat both compact DB codes and verbose strings as valid inputs before running redefine/repair flows.
 
@@ -132,7 +132,7 @@
 
 **[2026-03-18]** Prompt experiment runs must roll back assessment artifacts on discard — `run_assessment.py` always appends to the assessment results TSV, so an outer hill-climber cannot trust "last row = current best" unless it snapshots and restores the TSV for discarded or interrupted experiments. Experiment logs also need per-campaign isolation or reset support, otherwise reruns silently skip prior experiment names.
 
-**[2026-03-18]** Interrupted prompt campaigns can leave prompt files mid-experiment — if a run stops due to power loss or crash, compare `generator/prompts/` against the campaign backup dir before trusting the working tree. The current prompt files may contain the next experiment's unreviewed edit even when no result was recorded.
+**[2026-03-18]** Interrupted prompt campaigns can leave prompt files mid-experiment — if a run stops due to power loss or crash, compare `packages/rebus-generator/src/rebus_generator/prompts/production/` against the campaign backup dir before trusting the working tree. The current prompt files may contain the next experiment's unreviewed edit even when no result was recorded.
 
 **[2026-03-18]** One log per experiment beats one monolithic campaign log — full multistep assessments are too verbose to share a single append-only file. Use a campaign JSON/TSV for summaries and a separate `expNNN.log` file for each assessment run.
 
@@ -173,6 +173,18 @@
 **[2026-04-09]** Pair-eval short-circuit rules must not leak into finalizers as “all votes exist” assumptions — if verification can conclude after one negative model vote, downstream pair finalizers must iterate only over present votes and explicitly mark missing-model state as incomplete when needed. Any direct `votes[model_id]` lookup after short-circuiting is a latent unattended crash.
 
 **[2026-04-09]** Unattended supervisors need deterministic-failure memory, not just per-job retries — retrying a broken `(topic, stable item, stage, error signature)` three times without quarantining it turns a real bug into a day-long silent stall. Keep a run-local failure ledger, emit heartbeat summaries even outside debug mode, back off unhealthy selection targets, and fail fast once the same signature proves deterministic.
+
+**[2026-04-09]** Run-local LLM budget policy should be opt-in state, not a silent global default — task-specific token caps, reasoning downgrades, and truncation-triggered fallback logic are valuable for unattended `run_all`, but they can distort standalone CLIs and unit expectations if applied process-wide by default. Keep the shared chat helper capable of run-local policy injection, but enable the policy explicitly from the unattended entrypoint and reset it around preflight/test boundaries.
+
+**[2026-04-09]** Compatibility wrappers must preserve patch surfaces, not just imports — `from X import *` drops underscore-prefixed helpers and also leaves function globals bound to the original module, so tests patching `generator.foo._helper` or constants on the compatibility module silently stop affecting behavior. For legacy compatibility modules that tests/scripts patch directly, either keep the real implementation there or alias the module identity itself.
+
+**[2026-04-09]** Repo-local `sitecustomize.py` is not reliable when the interpreter already loads a global vendor `sitecustomize` first — bootstrap package paths again inside legacy entry packages (`generator/__init__.py`, `generator/__main__.py`) instead of assuming the repo-local hook will win import precedence.
+
+**[2026-04-09]** After moving Python source under `packages/.../src`, keep one explicit repo-root import bootstrap for the real package name — deleting the legacy namespace is correct, but tests and `python -m rebus_generator ...` still need a deterministic way to resolve `rebus_generator` from repo root. A tiny root package that sets `__path__` to the src package is simpler and less fragile than relying on `sitecustomize.py` or compatibility alias trees.
+
+**[2026-04-10]** Deterministic generate-size dead ends should quarantine the size, not the whole unattended run — when `run_all` already maintains generate-size cooldowns and penalties, repeated Rust phase-1 `fill_grid` unsat failures (`could not generate a valid filled grid`) are selection dead ends, not necessarily code regressions. Mark the size failed, cool it down, and continue the supervisor; reserve whole-run deterministic quarantine for failures that indicate broken logic rather than one bad size choice.
+
+**[2026-04-10]** Bidirectional compatibility facades across architectural layers are a refactor trap — when `domain/*` re-exports `platform/*` in one place while `platform/*` re-exports `domain/*` in another, the repo keeps old import paths alive at the cost of unclear ownership, broken patch surfaces, and silent runtime drift. Pick one real owner module, make any temporary compat surface explicit and one-way, and add surface-contract tests until the facade is deleted.
 
 ---
 

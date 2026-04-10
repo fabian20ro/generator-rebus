@@ -5,22 +5,17 @@ __pycache__/
 dist/
 build/
 .venv/
-venv/
-logs/
 .cache/
 
-# Generator output
-generator/output/
+# Rust
+target/
 
 # Environment
 .env
+logs/
 
 # Node
 node_modules/
-frontend/dist/
-
-# Rust
-crossword_engine/target/
 
 # IDE
 .vscode/
