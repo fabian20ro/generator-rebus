@@ -852,14 +852,14 @@ mod tests {
     fn settings_use_exact_start_targets_and_15s_budget() {
         let expected = [
             (7, 0),
-            (8, 2),
-            (9, 5),
-            (10, 8),
+            (8, 1),
+            (9, 4),
+            (10, 7),
             (11, 11),
             (12, 16),
             (13, 20),
-            (14, 28),
-            (15, 34),
+            (14, 26),
+            (15, 32),
         ];
 
         for (size, target_blacks) in expected {

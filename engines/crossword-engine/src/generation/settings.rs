@@ -32,14 +32,14 @@ pub(crate) fn settings_for_size(size: usize) -> Option<SizeSettings> {
     let max_nodes = round_to(600_000.0 * 1.45_f64.powf(step), 50_000.0);
     let target_blacks = match size {
         7 => 0,
-        8 => 2,
-        9 => 5,
-        10 => 8,
+        8 => 1,
+        9 => 4,
+        10 => 7,
         11 => 11,
         12 => 16,
         13 => 20,
-        14 => 28,
-        15 => 34,
+        14 => 26,
+        15 => 32,
         _ => unreachable!("validated size range"),
     };
     let max_extra_blacks = match size {
