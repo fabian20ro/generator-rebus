@@ -4,6 +4,11 @@ import re
 
 from rebus_generator.domain.clue_family import forbidden_definition_stems
 from rebus_generator.domain.diacritics import normalize
+from rebus_generator.domain.guards.definition_guards import (
+    definition_describes_english_meaning as _definition_describes_english_meaning,
+    has_prompt_residue,
+    strip_trailing_usage_suffixes as _strip_trailing_usage_suffixes,
+)
 from rebus_generator.domain.quality import ENGLISH_HOMOGRAPH_HINTS
 from rebus_generator.platform.config import VERIFY_CANDIDATE_COUNT
 from rebus_generator.prompts.loader import load_user_template
@@ -24,45 +29,6 @@ _TRAILING_USAGE_SUFFIX_RE = re.compile(
     r"(?:\s+\((?:arh|inv|reg|tehn|pop|fam|arg|livr)\.\))+\s*$",
     flags=re.IGNORECASE,
 )
-
-_ENGLISH_MEANING_PATTERNS: dict[str, list[str]] = {
-    "AN": ["articol nehotărât", "articol nehotarat"],
-    "OF": [
-        "prepoziție de posesie",
-        "prepozitie de posesie",
-        "indică posesia",
-        "indica posesia",
-    ],
-    "IN": [
-        "prepoziție de loc",
-        "prepozitie de loc",
-        "indică poziția",
-        "indica pozitia",
-        "prepoziție care indică",
-    ],
-    "AT": [
-        "prepoziție care indică locul",
-        "prepozitie care indica locul",
-        "prepoziție de loc",
-    ],
-    "HAT": ["pălărie", "palarie"],
-    "NAT": ["network address", "traducere a adreselor", "adreselor ip"],
-    "IDE": ["dezvoltare software", "editor și compilator", "mediu de dezvoltare"],
-    "REF": ["referință", "referinta"],
-}
-
-_PROMPT_RESIDUE_MARKERS = (
-    "definiția:",
-    "definitia:",
-    "propusă:",
-    "propusa:",
-    "```",
-    "{\"",
-)
-
-def _strip_trailing_usage_suffixes(definition: str) -> str:
-    return _TRAILING_USAGE_SUFFIX_RE.sub("", definition or "").strip()
-
 
 def _extract_definition_usage_suffix(definition: str) -> str | None:
     matches = re.findall(
@@ -116,16 +82,6 @@ def _build_usage_label_line(required_suffix: str | None, *, purpose: str) -> str
     if purpose == "rate":
         return f"Marcaj DEX permis: {required_suffix}\n"
     return ""
-
-
-def _definition_describes_english_meaning(word: str, definition: str) -> bool:
-    if not definition:
-        return False
-    lower_def = definition.lower()
-    if "engleză" in lower_def or "engleza" in lower_def or "english" in lower_def:
-        return True
-    patterns = _ENGLISH_MEANING_PATTERNS.get(word.upper(), [])
-    return any(pattern in lower_def for pattern in patterns)
 
 
 def _family_exclusion_note(word: str) -> str:
@@ -336,12 +292,6 @@ def _build_puzzle_tiebreak_prompt(summary_a: str, summary_b: str) -> str:
         summary_b=summary_b,
     )
 
-
-def has_prompt_residue(text: str | None) -> bool:
-    lower = str(text or "").strip().lower()
-    if not lower:
-        return False
-    return any(marker in lower for marker in _PROMPT_RESIDUE_MARKERS)
 
 def _augment_definition_retry_prompt(prompt: str, rejection: str) -> str:
     return (

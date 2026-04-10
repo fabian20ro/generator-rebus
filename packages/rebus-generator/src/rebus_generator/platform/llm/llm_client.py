@@ -26,11 +26,15 @@ DEFAULT_TRUNCATION_THRESHOLD = 3
 DEFAULT_SLOW_CALL_SECONDS = 20.0
 _DEFAULT_REASONING_SENTINEL = object()
 _SHORT_FORM_MAX_TOKENS: dict[tuple[str, str], int] = {
-    (PRIMARY_MODEL.model_id, "definition_verify"): 180,
+    (PRIMARY_MODEL.model_id, "definition_verify"): 256,
     (PRIMARY_MODEL.model_id, "definition_rate"): 240,
-    (PRIMARY_MODEL.model_id, "title_generate"): 220,
-    (PRIMARY_MODEL.model_id, "title_rate"): 180,
+    (PRIMARY_MODEL.model_id, "title_generate"): 256,
+    (PRIMARY_MODEL.model_id, "title_rate"): 224,
+    (PRIMARY_MODEL.model_id, "clue_compare"): 320,
+    (PRIMARY_MODEL.model_id, "clue_tiebreaker"): 256,
 }
+_JSON_SHORT_FORM_PURPOSES = {"title_rate", "clue_compare"}
+_CHOICE_SHORT_FORM_PURPOSES = {"clue_tiebreaker"}
 
 
 @dataclass
@@ -397,6 +401,14 @@ def _adaptive_downgrade_active(model: str, purpose: str) -> bool:
 def _effective_max_tokens(*, model: str, purpose: str, requested_max_tokens: int) -> int:
     if not _run_policy_enabled():
         return requested_max_tokens
+    return short_form_max_tokens(
+        model=model,
+        purpose=purpose,
+        requested_max_tokens=requested_max_tokens,
+    )
+
+
+def short_form_max_tokens(*, model: str, purpose: str, requested_max_tokens: int) -> int:
     cap = _SHORT_FORM_MAX_TOKENS.get((model, purpose))
     if cap is None:
         return requested_max_tokens
@@ -441,7 +453,7 @@ def _record_call_stats(*, model: str, purpose: str, max_tokens: int, response, e
                     "reasoning=none]",
                     level="WARN",
                 )
-    if purpose == "clue_compare" and elapsed_seconds >= _RUN_SLOW_CALL_SECONDS:
+    if purpose in {"clue_compare", "clue_tiebreaker"} and elapsed_seconds >= _RUN_SLOW_CALL_SECONDS:
         stats.slow_calls += 1
         log(
             "  [slow llm_call "
@@ -465,15 +477,26 @@ def _response_shows_hidden_reasoning_overrun(
 def _should_retry_without_thinking(
     response,
     *,
+    purpose: str,
     max_tokens: int,
 ) -> bool:
     if max_tokens <= _retry_without_thinking_max_tokens():
         return False
     if _response_finish_reason(response) != "length":
         return False
-    if _response_content_text(response).strip():
-        return False
+    raw_content = _response_content_text(response)
+    if raw_content.strip():
+        return _short_form_payload_unusable(raw_content, purpose=purpose)
     return _response_shows_hidden_reasoning_overrun(response, max_tokens=max_tokens)
+
+
+def _short_form_payload_unusable(raw_content: str, *, purpose: str) -> bool:
+    if purpose in _JSON_SHORT_FORM_PURPOSES:
+        return _extract_json_object(raw_content) is None
+    if purpose in _CHOICE_SHORT_FORM_PURPOSES:
+        choice = _clean_response(raw_content).strip().upper()
+        return choice not in {"A", "B", "EQUAL"}
+    return False
 
 
 def _log_retry_without_thinking(
@@ -607,6 +630,7 @@ def _chat_completion_create(
     _mark_response_source(response, RESPONSE_SOURCE_REASONING)
     if not _should_retry_without_thinking(
         response,
+        purpose=purpose,
         max_tokens=max_tokens,
     ):
         return response

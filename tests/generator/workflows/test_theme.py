@@ -2,23 +2,26 @@ import json
 import unittest
 from types import SimpleNamespace
 
+from rebus_generator.domain.guards.title_guards import normalize_title_key, review_title_candidate as _review_title_candidate
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL, chat_max_tokens
 from rebus_generator.prompts.loader import load_system_prompt
-from rebus_generator.workflows.retitle.titleing import (
+from rebus_generator.workflows.retitle.generate import (
+    _generate_single_title,
+    generate_creative_title,
+    generate_creative_title_result,
+    generate_title_for_final_puzzle,
+)
+from rebus_generator.workflows.retitle.rate import (
+    rate_title_creativity,
+    rate_title_creativity_pair,
+)
+from rebus_generator.workflows.retitle.sanitize import (
     FALLBACK_TITLES,
     NO_TITLE_LABEL,
     TITLE_GENERATE_MAX_TOKENS,
     TITLE_RATE_MAX_TOKENS,
     _fallback_title,
-    _generate_single_title,
-    _review_title_candidate,
     _sanitize_title,
-    generate_creative_title,
-    generate_creative_title_result,
-    generate_title_for_final_puzzle,
-    normalize_title_key,
-    rate_title_creativity,
-    rate_title_creativity_pair,
 )
 
 

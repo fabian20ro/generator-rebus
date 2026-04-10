@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import Counter
 
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
-from rebus_generator.workflows.retitle.titleing import FALLBACK_TITLES, normalize_title_key
+from rebus_generator.domain.guards.title_guards import normalize_title_key
+from rebus_generator.workflows.retitle.sanitize import FALLBACK_TITLES
 
 
 def fetch_puzzles(

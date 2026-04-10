@@ -29,14 +29,16 @@ from .models import (
 from rebus_generator.domain.quality import ENGLISH_HOMOGRAPH_HINTS
 from rebus_generator.platform.io.runtime_logging import llm_debug_enabled, log
 
-from .validation_guards import (
+from rebus_generator.domain.guards.definition_guards import (
     contains_english_markers,
-    _validate_definition,
-    _guard_same_family_rating,
-    _guard_english_meaning_rating,
-    _guard_definition_centric_rating,
-    _clamp_score,
-    _extract_verify_candidates,
+    extract_verify_candidates as _extract_verify_candidates,
+    validate_definition_text as _validate_definition,
+)
+from rebus_generator.domain.guards.rating_guards import (
+    clamp_score as _clamp_score,
+    guard_definition_centric_rating as _guard_definition_centric_rating,
+    guard_english_meaning_rating as _guard_english_meaning_rating,
+    guard_same_family_rating as _guard_same_family_rating,
 )
 from .prompt_builders import (
     _build_generate_prompt,

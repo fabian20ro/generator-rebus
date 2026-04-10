@@ -34,8 +34,9 @@ from rebus_generator.platform.io.runtime_logging import (
     set_llm_debug_enabled,
 )
 from rebus_generator.platform.persistence.supabase_ops import execute_logged_update
-from rebus_generator.workflows.retitle.titleing import TitleGenerationResult, generate_creative_title_result
-from rebus_generator.workflows.redefine.service import build_working_puzzle
+from rebus_generator.workflows.retitle.generate import generate_creative_title_result
+from rebus_generator.workflows.retitle.sanitize import TitleGenerationResult
+from rebus_generator.workflows.redefine.load import build_working_puzzle
 
 REPAIR_ROUNDS = 7
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

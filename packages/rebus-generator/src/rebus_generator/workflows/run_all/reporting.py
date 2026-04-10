@@ -104,7 +104,7 @@ def maybe_raise_stall(supervisor) -> None:
     stall_seconds = max(0, int(getattr(supervisor.ctx, "llm_stall_seconds", 0)))
     if stall_seconds <= 0:
         return
-    idle_seconds = time.monotonic() - supervisor.last_completion_at
+    idle_seconds = time.monotonic() - getattr(supervisor, "last_progress_at", supervisor.last_completion_at)
     if idle_seconds < stall_seconds:
         return
     retry_delta = llm_run_retry_count() - supervisor.retry_count_at_last_completion

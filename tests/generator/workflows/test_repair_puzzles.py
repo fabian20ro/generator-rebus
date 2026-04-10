@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from rebus_generator.platform.llm.models import SECONDARY_MODEL
 from rebus_generator.domain.pipeline_state import ClueAssessment, ClueScores, PuzzleAssessment
 from rebus_generator.domain.puzzle_metrics import PuzzleEvaluationResult
-from rebus_generator.workflows.retitle.titleing import TitleGenerationResult
+from rebus_generator.workflows.retitle.sanitize import TitleGenerationResult
 from rebus_generator.workflows.redefine.repair import (
     build_parser,
     repair_puzzle,

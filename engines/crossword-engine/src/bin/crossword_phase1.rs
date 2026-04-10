@@ -10,6 +10,8 @@ struct Args {
     seed: u64,
     #[arg(long, default_value_t = 1)]
     preparation_attempts: usize,
+    #[arg(long)]
+    step_time_budget_ms: Option<u64>,
 }
 
 fn main() {
@@ -19,6 +21,7 @@ fn main() {
         &args.words,
         args.seed,
         args.preparation_attempts,
+        args.step_time_budget_ms,
     ) {
         Ok(output) => {
             println!(

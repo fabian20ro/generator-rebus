@@ -5,6 +5,7 @@ import re
 import time
 from collections import Counter
 
+from rebus_generator.platform.orchestration import RunLedger
 from rebus_generator.platform.llm.llm_client import llm_run_retry_count, llm_run_stats_snapshot
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
@@ -78,20 +79,31 @@ class RunAllSupervisor:
         self.failed = 0
         self.started_at = time.monotonic()
         self.last_completion_at = self.started_at
+        self.last_progress_at = self.started_at
         self.last_heartbeat_at = 0.0
+        initial_load_seconds = float(getattr(self.ctx.runtime, "activation_seconds_total", 0.0)) + float(
+            getattr(self.ctx.runtime, "unload_seconds_total", 0.0)
+        )
+        self.ledger = RunLedger(
+            topics=self.topics,
+            started_at=self.started_at,
+            retry_count_at_last_completion=0,
+            switch_count_at_last_completion=self.ctx.runtime.switch_count,
+            load_seconds_at_last_completion=initial_load_seconds,
+        )
         self.worker_executor: concurrent.futures.ThreadPoolExecutor | None = None
         self.worker_task: WorkerTask | None = None
-        self.topic_last_success_at = {topic: 0.0 for topic in self.topics}
-        self.topic_started_counts = {topic: 0 for topic in self.topics}
-        self.topic_quarantined_counts = {topic: 0 for topic in self.topics}
-        self.failure_signature_counts: Counter[tuple[str, str, str, str]] = Counter()
-        self.topic_failure_signature_counts = {topic: Counter() for topic in self.topics}
-        self.generate_size_cooldowns: dict[int, float] = {}
-        self.generate_size_penalties: Counter[int] = Counter()
-        self.stable_item_progress: dict[str, StableItemProgress] = {}
-        self.retry_count_at_last_completion = 0
-        self.switch_count_at_last_completion = self.ctx.runtime.switch_count
-        self.load_seconds_at_last_completion = self._runtime_load_seconds_total()
+        self.topic_last_success_at = self.ledger.topic_last_success_at
+        self.topic_started_counts = self.ledger.topic_started_counts
+        self.topic_quarantined_counts = self.ledger.topic_quarantined_counts
+        self.failure_signature_counts = self.ledger.failure_signature_counts
+        self.topic_failure_signature_counts = self.ledger.topic_failure_signature_counts
+        self.generate_size_cooldowns = self.ledger.generate_size_cooldowns
+        self.generate_size_penalties = self.ledger.generate_size_penalties
+        self.stable_item_progress = self.ledger.stable_item_progress
+        self.retry_count_at_last_completion = self.ledger.retry_count_at_last_completion
+        self.switch_count_at_last_completion = self.ledger.switch_count_at_last_completion
+        self.load_seconds_at_last_completion = self.ledger.load_seconds_at_last_completion
         self.stop_reason = ""
         self.summary_written = False
         self.ctx.runtime.switch_callback = self._on_model_switch
@@ -231,6 +243,7 @@ class RunAllSupervisor:
             self._handle_step_error(job, step, exc)
         else:
             job.running_step_id = None
+            self._note_progress(f"step:{job.topic}:{step.step_id}")
 
     def _submit_background_step(self, step: StepState) -> None:
         job = self._job_by_id(step.job_id)
@@ -268,6 +281,9 @@ class RunAllSupervisor:
         except Exception as exc:
             if job is not None:
                 self._handle_step_error(job, task.step, exc)
+        else:
+            if job is not None:
+                self._note_progress(f"worker:{job.topic}:{task.step.step_id}")
         return True
 
     def _handle_step_error(self, job, step: StepState, exc: Exception) -> None:
@@ -295,6 +311,7 @@ class RunAllSupervisor:
             f"attempts={job.item.attempts} signature={signature} error={exc}",
             level="ERROR",
         )
+        self._note_progress(f"error:{job.topic}:{step.step_id}")
 
     def _job_by_id(self, item_id: str):
         for slot in self.slots.values():
@@ -320,6 +337,9 @@ class RunAllSupervisor:
                 self.retry_count_at_last_completion = llm_run_retry_count()
                 self.switch_count_at_last_completion = self.ctx.runtime.switch_count
                 self.load_seconds_at_last_completion = self._runtime_load_seconds_total()
+                self.ledger.retry_count_at_last_completion = self.retry_count_at_last_completion
+                self.ledger.switch_count_at_last_completion = self.switch_count_at_last_completion
+                self.ledger.load_seconds_at_last_completion = self.load_seconds_at_last_completion
                 self._note_job_finished(job, outcome="complete")
                 log(
                     f"[run_all finalize] topic={job.topic} job={job.item_id} outcome=complete "
@@ -413,13 +433,25 @@ class RunAllSupervisor:
         }
 
     def _runtime_load_seconds_total(self) -> float:
+        if not hasattr(self, "ledger"):
+            return float(getattr(self.ctx.runtime, "activation_seconds_total", 0.0)) + float(
+                getattr(self.ctx.runtime, "unload_seconds_total", 0.0)
+            )
         return runtime_load_seconds_total(self)
 
     def _stable_progress(self, stable_key: str, *, topic: str) -> StableItemProgress:
         return stable_progress(self, stable_key, topic=topic)
 
     def _observe_job_stage(self, job) -> StableItemProgress:
-        return observe_job_stage(self, job)
+        previous_stage = ""
+        stable_key = self._stable_item_key(job)
+        existing = self.stable_item_progress.get(stable_key)
+        if existing is not None:
+            previous_stage = existing.last_stage
+        progress = observe_job_stage(self, job)
+        if progress.last_stage and progress.last_stage != previous_stage:
+            self._note_progress(f"stage:{job.topic}:{progress.last_stage}")
+        return progress
 
     def _note_job_started(self, job) -> None:
         note_job_started(self, job)
@@ -504,6 +536,16 @@ class RunAllSupervisor:
 
     def _maybe_raise_stall(self) -> None:
         maybe_raise_stall(self)
+
+    def _note_progress(self, _reason: str) -> None:
+        now = time.monotonic()
+        self.last_progress_at = now
+        self.retry_count_at_last_completion = llm_run_retry_count()
+        self.switch_count_at_last_completion = self.ctx.runtime.switch_count
+        self.load_seconds_at_last_completion = self._runtime_load_seconds_total()
+        self.ledger.retry_count_at_last_completion = self.retry_count_at_last_completion
+        self.ledger.switch_count_at_last_completion = self.switch_count_at_last_completion
+        self.ledger.load_seconds_at_last_completion = self.load_seconds_at_last_completion
 
     def close(self) -> None:
         if not self.stop_reason:

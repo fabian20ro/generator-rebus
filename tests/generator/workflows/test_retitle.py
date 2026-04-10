@@ -4,9 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
-from rebus_generator.workflows.retitle.titleing import TitleGenerationResult
-from rebus_generator.workflows.retitle.service import (
-    build_parser,
+from rebus_generator.workflows.retitle.sanitize import TitleGenerationResult
+from rebus_generator.workflows.retitle.service import build_parser
+from rebus_generator.workflows.retitle.runtime import (
     fetch_clues,
     fetch_puzzles,
     generate_title_results_batch,
@@ -197,8 +197,8 @@ class FetchCluesTests(unittest.TestCase):
 
 
 class RetitlePuzzleTests(unittest.TestCase):
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Orizont Verde", 8))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Orizont Verde", 8))
     def test_retitle_dry_run_skips_update(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -227,8 +227,8 @@ class RetitlePuzzleTests(unittest.TestCase):
         # update should NOT have been called
         mock_supabase.table.return_value.update.assert_not_called()
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Orizont Verde", 8))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Orizont Verde", 8))
     def test_retitle_updates_supabase(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -253,7 +253,7 @@ class RetitlePuzzleTests(unittest.TestCase):
         rate_client = _fake_rate_client(8)
 
         changed = retitle_puzzle(
-            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False, runtime=runtime
         )
 
         self.assertTrue(changed)
@@ -265,8 +265,8 @@ class RetitlePuzzleTests(unittest.TestCase):
         self.assertEqual("Orizont Verde", puzzle_row["title"])
         self.assertEqual(8, puzzle_row["title_score"])
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("sensuri romanesti", 8))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("sensuri romanesti", 8))
     def test_retitle_rejects_normalized_duplicate_title(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -298,8 +298,8 @@ class RetitlePuzzleTests(unittest.TestCase):
         self.assertFalse(changed)
         mock_supabase.table.return_value.update.assert_not_called()
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Fir de Cuvinte", 0, used_fallback=True))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Fir de Cuvinte", 0, used_fallback=True))
     def test_retitle_skips_when_only_fallback_candidate_exists(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -346,8 +346,8 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         update_chain.eq.return_value = update_chain
         return mock_supabase
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Titlu Mediocru", 4))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Titlu Mediocru", 4))
     def test_skips_when_old_scores_higher(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -359,7 +359,7 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         rate_client = _fake_rate_client_sequential([8, 8])
 
         changed = retitle_puzzle(
-            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False, runtime=runtime
         )
 
         self.assertFalse(changed)
@@ -368,8 +368,8 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertEqual(8, payload["title_score"])
         self.assertNotIn("title", payload)
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 9))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 9))
     def test_replaces_when_new_scores_higher(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -381,14 +381,14 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         rate_client = _fake_rate_client_sequential([3, 3])
 
         changed = retitle_puzzle(
-            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False, runtime=runtime
         )
 
         self.assertTrue(changed)
         mock_supabase.table.return_value.update.assert_called_once()
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Titlu Egal Nou", 6))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Titlu Egal Nou", 6))
     def test_skips_when_scores_equal(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -400,7 +400,7 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         rate_client = _fake_rate_client_sequential([6, 6])
 
         changed = retitle_puzzle(
-            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False
+            mock_supabase, puzzle_row, ai_client, rate_client, dry_run=False, runtime=runtime
         )
 
         self.assertFalse(changed)
@@ -409,8 +409,8 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertEqual(6, payload["title_score"])
         self.assertNotIn("title", payload)
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Orice Titlu Nou", 1))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Orice Titlu Nou", 1))
     def test_always_replaces_fallback_title(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -429,9 +429,9 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertTrue(changed)
         mock_supabase.table.return_value.update.assert_called_once()
 
-    @patch("rebus_generator.workflows.retitle.service.rate_title_creativity")
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 9))
+    @patch("rebus_generator.workflows.retitle.persist.rate_title_creativity")
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 9))
     def test_uses_stored_old_title_score_when_available(self, _mock_gen, mock_runtime_cls, mock_rate):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -451,9 +451,9 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertEqual("Titlu Nou Superior", payload["title"])
         self.assertEqual(9, payload["title_score"])
 
-    @patch("rebus_generator.workflows.retitle.service.rate_title_creativity")
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 8))
+    @patch("rebus_generator.workflows.retitle.persist.rate_title_creativity")
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Titlu Nou Superior", 8))
     def test_invalid_old_title_gets_zero_without_llm_rating(self, _mock_gen, mock_runtime_cls, mock_rate):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)
@@ -476,8 +476,8 @@ class RetitleScoreComparisonTests(unittest.TestCase):
         self.assertEqual("Titlu Nou Superior", payload["title"])
         self.assertEqual(8, payload["title_score"])
 
-    @patch("rebus_generator.workflows.retitle.service.LmRuntime")
-    @patch("rebus_generator.workflows.retitle.service.generate_creative_title_result", return_value=_title_result("Titlu Mai Slab", 4))
+    @patch("rebus_generator.workflows.retitle.runtime.LmRuntime")
+    @patch("rebus_generator.workflows.retitle.runtime.generate_creative_title_result", return_value=_title_result("Titlu Mai Slab", 4))
     def test_invalid_old_title_backfills_zero_when_new_title_loses(self, _mock_gen, mock_runtime_cls):
         runtime = mock_runtime_cls.return_value
         runtime.activate_primary.return_value = ModelConfig(registry_key="primary", model_id="primary", display_name="primary", max_completion_tokens=100)

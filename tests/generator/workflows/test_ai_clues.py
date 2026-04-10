@@ -9,6 +9,7 @@ from rebus_generator.platform.llm.llm_client import (
     configure_run_llm_policy,
     llm_run_stats_snapshot,
     reset_run_llm_state,
+    short_form_max_tokens,
 )
 from rebus_generator.platform.llm.ai_clues import (
     DefinitionRating,
@@ -31,11 +32,12 @@ from rebus_generator.platform.llm.prompt_builders import (
     _build_rate_prompt,
     _build_rewrite_prompt,
 )
-from rebus_generator.domain.validation_guards import (
+from rebus_generator.domain.guards.definition_guards import (
     contains_english_markers,
 )
 from rebus_generator.platform.llm.definition_referee import (
     DefinitionComparisonVote,
+    choose_better_clue_variant,
     compare_definition_variants,
     run_definition_referee,
     run_definition_referee_batch,
@@ -383,7 +385,36 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual("low", client.calls[0]["reasoning_effort"])
-        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual(
+            short_form_max_tokens(
+                model=PRIMARY_MODEL.model_id,
+                purpose="clue_compare",
+                requested_max_tokens=chat_max_tokens(PRIMARY_MODEL),
+            ),
+            client.calls[0]["max_tokens"],
+        )
+
+    def test_choose_better_clue_variant_uses_short_form_budget(self):
+        client = _RecordingClient(["B"])
+
+        choice = choose_better_clue_variant(
+            client,
+            word="LA",
+            answer_length=2,
+            definition_a="Prepoziție care indică locul.",
+            definition_b="Prepoziție care indică destinația.",
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual("B", choice)
+        self.assertEqual(
+            short_form_max_tokens(
+                model=PRIMARY_MODEL.model_id,
+                purpose="clue_tiebreaker",
+                requested_max_tokens=chat_max_tokens(PRIMARY_MODEL),
+            ),
+            client.calls[0]["max_tokens"],
+        )
 
     def test_chat_completion_logs_reasoning_budget_warning(self):
         response = SimpleNamespace(
@@ -745,19 +776,33 @@ class AiCluesTests(unittest.TestCase):
         snapshot = llm_run_stats_snapshot()
         self.assertIn(f"{PRIMARY_MODEL.model_id}|definition_rate", snapshot["adaptive_downgrades"])
 
-    def test_run_policy_bounds_title_generate_and_title_rate_tokens(self):
+    def test_run_policy_bounds_short_form_tokens_and_reasoning(self):
         configure_run_llm_policy(
             reasoning_overrides={
-                (PRIMARY_MODEL.model_id, "title_generate"): "minimal",
-                (PRIMARY_MODEL.model_id, "title_rate"): "minimal",
+                (PRIMARY_MODEL.model_id, "definition_verify"): "none",
+                (PRIMARY_MODEL.model_id, "title_generate"): "none",
+                (PRIMARY_MODEL.model_id, "title_rate"): "none",
+                (PRIMARY_MODEL.model_id, "clue_compare"): "none",
+                (PRIMARY_MODEL.model_id, "clue_tiebreaker"): "none",
             },
             truncation_threshold=3,
         )
         client = _QueuedResponseClient([
+            _chat_response(content="GUAS"),
             _chat_response(content="Titlu"),
             _chat_response(content='{"creativity_score": 7, "feedback": "ok"}'),
+            _chat_response(content='{"same_meaning": true, "better": "A"}'),
+            _chat_response(content="B"),
         ])
 
+        _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "verify"}],
+            temperature=0.0,
+            max_tokens=400,
+            purpose="definition_verify",
+        )
         _chat_completion_create(
             client,
             model=PRIMARY_MODEL.model_id,
@@ -774,11 +819,93 @@ class AiCluesTests(unittest.TestCase):
             max_tokens=300,
             purpose="title_rate",
         )
+        _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "compare"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="clue_compare",
+        )
+        _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "tiebreak"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="clue_tiebreaker",
+        )
 
-        self.assertEqual(220, client.calls[0]["max_tokens"])
-        self.assertEqual("minimal", client.calls[0]["reasoning_effort"])
-        self.assertEqual(180, client.calls[1]["max_tokens"])
-        self.assertEqual("minimal", client.calls[1]["reasoning_effort"])
+        self.assertEqual(256, client.calls[0]["max_tokens"])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        self.assertEqual(256, client.calls[1]["max_tokens"])
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual(224, client.calls[2]["max_tokens"])
+        self.assertEqual("none", client.calls[2]["reasoning_effort"])
+        self.assertEqual(320, client.calls[3]["max_tokens"])
+        self.assertEqual("none", client.calls[3]["reasoning_effort"])
+        self.assertEqual(256, client.calls[4]["max_tokens"])
+        self.assertEqual("none", client.calls[4]["reasoning_effort"])
+
+    def test_chat_completion_retries_title_rate_when_truncated_json_is_invalid(self):
+        configure_run_llm_policy(
+            reasoning_overrides={(PRIMARY_MODEL.model_id, "title_rate"): "none"},
+            truncation_threshold=3,
+        )
+        client = _QueuedResponseClient([
+            _chat_response(
+                content='{"creativity_score": 7',
+                finish_reason="length",
+                completion_tokens=224,
+                reasoning_tokens=150,
+            ),
+            _chat_response(content='{"creativity_score": 7, "feedback": "ok"}'),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "rate"}],
+            temperature=0.0,
+            max_tokens=300,
+            purpose="title_rate",
+        )
+
+        self.assertEqual(2, len(client.calls))
+        self.assertEqual(224, client.calls[0]["max_tokens"])
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual(200, client.calls[1]["max_tokens"])
+        self.assertEqual('{"creativity_score": 7, "feedback": "ok"}', response.choices[0].message.content)
+
+    def test_chat_completion_retries_compare_when_truncated_json_is_invalid(self):
+        configure_run_llm_policy(
+            reasoning_overrides={(PRIMARY_MODEL.model_id, "clue_compare"): "none"},
+            truncation_threshold=3,
+        )
+        client = _QueuedResponseClient([
+            _chat_response(
+                content='{"same_meaning": true',
+                finish_reason="length",
+                completion_tokens=320,
+                reasoning_tokens=210,
+            ),
+            _chat_response(content='{"same_meaning": true, "better": "A"}'),
+        ])
+
+        response = _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "compare"}],
+            temperature=0.0,
+            max_tokens=4000,
+            purpose="clue_compare",
+        )
+
+        self.assertEqual(2, len(client.calls))
+        self.assertEqual(320, client.calls[0]["max_tokens"])
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual(200, client.calls[1]["max_tokens"])
+        self.assertEqual('{"same_meaning": true, "better": "A"}', response.choices[0].message.content)
 
     def test_rate_definition_marks_no_thinking_retry_source(self):
         response = _chat_response(

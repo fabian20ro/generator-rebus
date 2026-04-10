@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from rebus_generator.domain.pipeline_state import ClueAssessment, ClueCandidateVersion, ClueScores
-from rebus_generator.domain.selection_engine import choose_clue_version
+from rebus_generator.domain.selection_engine import choose_clue_version, stable_tie_rng
 
 
 @dataclass
@@ -176,5 +176,13 @@ def pick_best(candidate: WordCandidate) -> None:
             ),
         )
 
-    chosen, _decision = choose_clue_version(_version("pass1"), _version("pass2"))
+    chosen, _decision = choose_clue_version(
+        _version("pass1"),
+        _version("pass2"),
+        rng=stable_tie_rng(
+            "assessment_pick_best",
+            candidate.pass1_definition,
+            candidate.pass2_definition,
+        ),
+    )
     candidate.best_source = "pass2" if chosen.source == "pass2" else "pass1"

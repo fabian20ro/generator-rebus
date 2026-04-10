@@ -17,6 +17,7 @@ from .llm_client import (
     _resolve_model_name,
     _extract_json_object,
     _clean_response,
+    short_form_max_tokens,
 )
 from .models import PRIMARY_MODEL, SECONDARY_MODEL, chat_max_tokens
 from .prompt_builders import (
@@ -108,7 +109,11 @@ def _compare_definition_variant_attempt(
         "fără text suplimentar."
     )
     resolved_model = _resolve_model_name(model)
-    max_tokens = chat_max_tokens(resolved_model)
+    max_tokens = short_form_max_tokens(
+        model=resolved_model,
+        purpose="clue_compare",
+        requested_max_tokens=chat_max_tokens(resolved_model),
+    )
     for attempt in range(2):
         compare_started = time.monotonic()
         try:
@@ -393,7 +398,11 @@ def choose_better_clue_variant(
     )
     try:
         resolved_model = _resolve_model_name(model)
-        max_tokens = chat_max_tokens(resolved_model)
+        max_tokens = short_form_max_tokens(
+            model=resolved_model,
+            purpose="clue_tiebreaker",
+            requested_max_tokens=chat_max_tokens(resolved_model),
+        )
         response = _chat_completion_create(
             client,
             model=resolved_model,

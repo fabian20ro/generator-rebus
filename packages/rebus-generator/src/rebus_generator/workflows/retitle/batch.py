@@ -6,17 +6,16 @@ from rebus_generator.platform.llm.llm_dispatch import WorkItem, WorkVote, run_si
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL, ModelConfig
 from rebus_generator.platform.io.runtime_logging import log
-from rebus_generator.workflows.retitle.titleing import (
+from rebus_generator.domain.guards.title_guards import normalize_title_key, review_title_candidate as _review_title_candidate
+from rebus_generator.workflows.retitle.generate import _generate_candidate_with_active_model
+from rebus_generator.workflows.retitle.rate import rate_title_creativity_batch
+from rebus_generator.workflows.retitle.sanitize import (
     FALLBACK_TITLES,
     MAX_TITLE_ROUNDS,
     NO_TITLE_LABEL,
     TITLE_MIN_CREATIVITY,
     TitleGenerationResult,
     _build_rejected_context,
-    _generate_candidate_with_active_model,
-    _review_title_candidate,
-    normalize_title_key,
-    rate_title_creativity_batch,
 )
 
 

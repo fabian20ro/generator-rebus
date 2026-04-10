@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import random
 
 from .diacritics import normalize
 from .pipeline_state import ClueCandidateVersion, PuzzleAssessment
@@ -16,6 +18,12 @@ class SelectionDecision:
     a_summary: str
     b_summary: str
     winner_summary: str
+
+
+def stable_tie_rng(*parts: object) -> random.Random:
+    payload = "\x1f".join("" if part is None else str(part) for part in parts)
+    digest = hashlib.sha256(payload.encode("utf-8")).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
 
 
 def _normalized_definition(text: str) -> str:
@@ -41,6 +49,7 @@ def choose_clue_version(
     b: ClueCandidateVersion,
     *,
     tiebreaker=None,
+    rng: random.Random | None = None,
 ) -> tuple[ClueCandidateVersion, SelectionDecision]:
     a_summary = a.definition
     b_summary = b.definition
@@ -65,13 +74,15 @@ def choose_clue_version(
                 b_summary=b_summary,
                 winner_summary=b_summary,
             )
-        return a, SelectionDecision(
-            winner="A",
+        winner = (rng.choice(["A", "B"]) if rng is not None else random.choice(["A", "B"]))
+        chosen = a if winner == "A" else b
+        return chosen, SelectionDecision(
+            winner=winner,
             used_tiebreak=False,
-            reason="equivalent_after_normalization",
+            reason="random_equal_tie",
             a_summary=a_summary,
             b_summary=b_summary,
-            winner_summary=a_summary,
+            winner_summary=chosen.definition,
         )
 
     a_rank = clue_rank(a)
@@ -84,11 +95,15 @@ def choose_clue_version(
     winner = "A"
     if tiebreaker is not None:
         winner = tiebreaker(a.definition, b.definition)
+    elif rng is not None:
+        winner = rng.choice(["A", "B"])
+    else:
+        winner = random.choice(["A", "B"])
     chosen = a if winner != "B" else b
     return chosen, SelectionDecision(
         winner="B" if winner == "B" else "A",
-        used_tiebreak=True,
-        reason="llm_tiebreak",
+        used_tiebreak=tiebreaker is not None,
+        reason="llm_tiebreak" if tiebreaker is not None else "random_equal_tie",
         a_summary=a_summary,
         b_summary=b_summary,
         winner_summary=chosen.definition,
@@ -110,6 +125,7 @@ def choose_puzzle_assessment(
     b: PuzzleAssessment,
     *,
     tiebreaker=None,
+    rng: random.Random | None = None,
 ) -> tuple[str, SelectionDecision]:
     a_summary = (
         f"score={a.definition_score:.2f}, verified={a.verified_count}/{a.total_clues}, "
@@ -129,11 +145,15 @@ def choose_puzzle_assessment(
     winner = "A"
     if tiebreaker is not None:
         winner = tiebreaker(a_summary, b_summary)
+    elif rng is not None:
+        winner = rng.choice(["A", "B"])
+    else:
+        winner = random.choice(["A", "B"])
     winner_summary = a_summary if winner != "B" else b_summary
     return ("B" if winner == "B" else "A"), SelectionDecision(
         winner="B" if winner == "B" else "A",
-        used_tiebreak=True,
-        reason="llm_tiebreak",
+        used_tiebreak=tiebreaker is not None,
+        reason="llm_tiebreak" if tiebreaker is not None else "random_equal_tie",
         a_summary=a_summary,
         b_summary=b_summary,
         winner_summary=winner_summary,

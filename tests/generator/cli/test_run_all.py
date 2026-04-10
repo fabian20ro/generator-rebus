@@ -148,6 +148,19 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual(4, args.llm_truncation_threshold)
         self.assertEqual("none", args.gemma_verify_reasoning)
 
+    def test_supervisor_init_seeds_runtime_load_seconds_before_ledger_exists(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        runtime.activation_seconds_total = 12.5
+        runtime.unload_seconds_total = 3.5
+
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["generate"],
+            topic_caps={"generate": 1},
+        )
+
+        self.assertEqual(16.0, supervisor.load_seconds_at_last_completion)
+
     def test_refill_starts_one_job_per_topic_slot(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(
@@ -458,10 +471,27 @@ class RunAllSupervisorTests(unittest.TestCase):
         )
         supervisor.ctx.llm_stall_seconds = 60
         supervisor.last_completion_at -= 120
+        supervisor.last_progress_at -= 120
         runtime.switch_count = 4
 
         with self.assertRaises(RunAllStallDetected):
             supervisor._maybe_raise_stall()
+
+    def test_recent_stage_progress_suppresses_stall(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["retitle"],
+            topic_caps={"retitle": 1},
+        )
+        supervisor.ctx.llm_stall_seconds = 60
+        supervisor.last_completion_at -= 3600
+        supervisor.last_progress_at = supervisor.started_at
+        runtime.switch_count = 10
+        runtime.activation_seconds_total = 70.0
+        supervisor._note_progress("stage:retitle:rerank")
+
+        supervisor._maybe_raise_stall()
 
     @patch("rebus_generator.workflows.run_all.pollers.fetch_redefine_puzzles")
     def test_redefine_poll_deprioritizes_repeated_no_progress_item_when_fresh_exists(self, fetch_mock):
@@ -673,6 +703,38 @@ class RunAllSupervisorTests(unittest.TestCase):
             self.assertEqual("baseline_finalize", job.stage)
             job._baseline_finalize(_context(runtime))
             self.assertEqual("rewrite_initial_verify", job.stage)
+
+    def test_redefine_job_yields_after_bounded_rewrite_round_and_resumes_same_session(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["redefine"],
+            topic_caps={"redefine": 1},
+        )
+        item = _item("redefine", "redefine:puzzle:p1", puzzle_id="p1")
+        item.payload = {"puzzle_row": {"id": "p1", "title": "Titlu"}}
+        job = supervisor._build_job(item)
+        ctx = _context(runtime)
+        rewrite_session = SimpleNamespace(final_result=None, round_index=1)
+        job.rewrite_session = rewrite_session
+        job.candidate_puzzle = SimpleNamespace(assessment=None)
+        job.stage = "rewrite_prepare_round"
+        round_state = SimpleNamespace(round_index=1, changed_words={"APA"})
+
+        with (
+            patch("rebus_generator.workflows.run_all.jobs.redefine.rewrite_session_prepare_round", return_value=round_state),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.rewrite_session_score_round"),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.rewrite_session_finalize_round", side_effect=lambda session: setattr(session, "round_index", 2)),
+        ):
+            job._rewrite_prepare_round(ctx)
+            self.assertEqual("rewrite_score_round", job.stage)
+            job._rewrite_score_round(ctx)
+            self.assertEqual("rewrite_finalize_round", job.stage)
+            job._rewrite_finalize_round(ctx)
+
+        self.assertIs(job.rewrite_session, rewrite_session)
+        self.assertEqual(2, job.rewrite_session.round_index)
+        self.assertEqual("rewrite_prepare_round", job.stage)
 
     def test_retitle_job_yields_across_round_phases(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)

@@ -15,7 +15,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from rebus_generator.workflows.generate.service import _best_candidate, _metadata_by_word
+from rebus_generator.platform.io.rust_bridge import (
+    _best_candidate,
+    _metadata_by_word,
+    rebuild_dictionary_profile,
+)
 
 
 def _ensure_rust_binary(repo_root: Path) -> None:
@@ -41,6 +45,7 @@ def _time_call(fn) -> tuple[float, object]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark Rust phase-1 candidate generation.")
     parser.add_argument("--sizes", nargs="+", type=int, default=[7, 9, 11])
+    parser.add_argument("--step-budgets", nargs="+", type=int, default=[15000])
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--words", default="build/words.json")
     parser.add_argument("--output-dir", default="build/benchmarks/phase1")
@@ -48,31 +53,49 @@ def main() -> None:
 
     repo_root = REPO_ROOT
     words_path = repo_root / args.words
+    _ensure_rust_binary(repo_root)
+    rebuild_dictionary_profile(words_path)
     raw_words = json.loads(words_path.read_text(encoding="utf-8"))
     metadata = _metadata_by_word(raw_words)
-    _ensure_rust_binary(repo_root)
 
     rows = []
     for size in args.sizes:
-        rust_elapsed, rust_candidate = _time_call(
-            lambda: _best_candidate(
-                size,
-                "Benchmark",
-                raw_words,
-                random.Random(args.seed),
-                words_path=words_path,
-                word_metadata=metadata,
-            )
-        )
-        row = {
-            "size": size,
-            "rust_elapsed_sec": round(rust_elapsed, 3),
-            "rust_score": round(rust_candidate.score, 2),
-            "rust_phase1_stats": rust_candidate.stats,
-        }
-        rows.append(row)
-        sys.stdout.write(json.dumps(row, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+        for step_budget in args.step_budgets:
+            started = time.perf_counter()
+            try:
+                rust_elapsed, rust_candidate = _time_call(
+                    lambda: _best_candidate(
+                        size,
+                        "Benchmark",
+                        raw_words,
+                        random.Random(args.seed),
+                        words_path=words_path,
+                        word_metadata=metadata,
+                        step_time_budget_ms=step_budget,
+                    )
+                )
+                row = {
+                    "size": size,
+                    "step_time_budget_ms": step_budget,
+                    "status": rust_candidate.stats.get("status", "solved"),
+                    "rust_elapsed_sec": round(rust_elapsed, 3),
+                    "rust_score": round(rust_candidate.score, 2),
+                    "rust_phase1_stats": rust_candidate.stats,
+                    "error": "",
+                }
+            except Exception as exc:
+                row = {
+                    "size": size,
+                    "step_time_budget_ms": step_budget,
+                    "status": "failed",
+                    "rust_elapsed_sec": round(time.perf_counter() - started, 3),
+                    "rust_score": None,
+                    "rust_phase1_stats": None,
+                    "error": str(exc),
+                }
+            rows.append(row)
+            sys.stdout.write(json.dumps(row, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
 
     out_dir = repo_root / args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)

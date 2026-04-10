@@ -6,15 +6,28 @@ import random
 import time
 from pathlib import Path
 
-from rebus_generator.workflows.generate import service as batch_publish_pipeline
-from rebus_generator.workflows.generate.service import PreparedPuzzle, publish_prepared_puzzle
+from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.io.metrics import BatchMetric, update_word_difficulty, write_metrics
+from rebus_generator.platform.io.rust_bridge import _best_candidate, _load_words, _metadata_by_word
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.domain.pipeline_state import puzzle_from_working_state, working_puzzle_from_puzzle
 from rebus_generator.domain.puzzle_metrics import score_puzzle_state
+from rebus_generator.domain.score_helpers import _restore_best_versions
 from rebus_generator.platform.io.runtime_logging import path_timestamp, utc_timestamp, log
 from rebus_generator.platform.io.markdown_io import parse_markdown
 from rebus_generator.workflows.generate.define import generate_definitions_for_puzzle
+from rebus_generator.workflows.generate.models import PreparedPuzzle
+from rebus_generator.workflows.generate.prepare import (
+    _backfill_generated_model,
+    _blocking_clues,
+    _choose_metadata_variants_for_puzzle,
+    _inject_word_metadata,
+    _preparation_attempts_for_size,
+    _rewrite_failed_clues,
+)
+from rebus_generator.workflows.generate.publish import publish_prepared_puzzle
+from rebus_generator.workflows.generate.quality_gate import _better_prepared_puzzle, _is_publishable
+from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
 from .base import JobState
 
 
@@ -59,17 +72,17 @@ class GenerateJobState(JobState):
     def _select_size(self, ctx):
         self.run_dir = ctx.batch_output_root / f"{path_timestamp()}_{self.size}x{self.size}_{self.index:02d}"
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        self.raw_words = batch_publish_pipeline._load_words(ctx.words_path)
-        self.word_metadata = batch_publish_pipeline._metadata_by_word(self.raw_words)
+        self.raw_words = _load_words(ctx.words_path)
+        self.word_metadata = _metadata_by_word(self.raw_words)
         self.batch_rng = random.Random(random.SystemRandom().randint(1, 10_000_000))
-        self.effective_attempts = batch_publish_pipeline._preparation_attempts_for_size(self.size, 3)
+        self.effective_attempts = _preparation_attempts_for_size(self.size, 3)
         self._progress("fill_grid", detail=f"size={self.size}")
         return None
 
     def _fill_grid(self, ctx):
         self.attempt_index += 1
         provisional_title = f"Puzzle {self.index}"
-        self.candidate = batch_publish_pipeline._best_candidate(
+        self.candidate = _best_candidate(
             self.size,
             provisional_title,
             self.raw_words,
@@ -81,7 +94,7 @@ class GenerateJobState(JobState):
         )
         puzzle = parse_markdown(self.candidate.markdown)
         puzzle.title = ""
-        self.resolved_metadata = batch_publish_pipeline._choose_metadata_variants_for_puzzle(
+        self.resolved_metadata = _choose_metadata_variants_for_puzzle(
             puzzle,
             self.candidate.metadata,
         )
@@ -99,16 +112,16 @@ class GenerateJobState(JobState):
             model_config=PRIMARY_MODEL,
         )
         state = working_puzzle_from_puzzle(self.working_puzzle, split_compound=False)
-        batch_publish_pipeline._backfill_generated_model(state, PRIMARY_MODEL.display_name)
-        batch_publish_pipeline._inject_word_metadata(state, self.resolved_metadata)
+        _backfill_generated_model(state, PRIMARY_MODEL.display_name)
+        _inject_word_metadata(state, self.resolved_metadata)
         self.working_puzzle = state
         self._progress("rewrite_evaluate", detail=f"attempt={self.attempt_index}/{self.effective_attempts}")
         return None
 
     def _rewrite_evaluate(self, ctx):
         assert self.working_puzzle is not None
-        dex = batch_publish_pipeline.DexProvider.for_puzzle(self.working_puzzle)
-        self.first_passed, self.final_passed, self.total = batch_publish_pipeline._rewrite_failed_clues(
+        dex = DexProvider.for_puzzle(self.working_puzzle)
+        self.first_passed, self.final_passed, self.total = _rewrite_failed_clues(
             self.working_puzzle,
             ctx.ai_client,
             ctx.generate_rewrite_rounds,
@@ -117,7 +130,7 @@ class GenerateJobState(JobState):
             verify_candidates=ctx.verify_candidates,
             runtime=ctx.runtime,
         )
-        batch_publish_pipeline._restore_best_versions(self.working_puzzle)
+        _restore_best_versions(self.working_puzzle)
         self.working_puzzle.assessment = score_puzzle_state(self.working_puzzle, self.candidate.report)
         self._progress("title", detail=f"verified={self.final_passed}/{self.total}")
         return self.working_puzzle.assessment
@@ -125,7 +138,7 @@ class GenerateJobState(JobState):
     def _title(self, ctx):
         assert self.working_puzzle is not None
         rendered_for_title = puzzle_from_working_state(self.working_puzzle)
-        title_result = batch_publish_pipeline.generate_title_for_final_puzzle_result(
+        title_result = generate_title_for_final_puzzle_result(
             rendered_for_title,
             client=ctx.ai_client,
             rate_client=ctx.ai_client,
@@ -142,16 +155,16 @@ class GenerateJobState(JobState):
             final_passed=self.final_passed,
             total=self.total,
             definition_score=self.working_puzzle.assessment.definition_score,
-            blocking_words=[clue.word_normalized for clue in batch_publish_pipeline._blocking_clues(self.working_puzzle)],
+            blocking_words=[clue.word_normalized for clue in _blocking_clues(self.working_puzzle)],
             assessment=copy.deepcopy(self.working_puzzle.assessment),
         )
-        self.best_prepared = batch_publish_pipeline._better_prepared_puzzle(
+        self.best_prepared = _better_prepared_puzzle(
             self.best_prepared,
             prepared,
             client=ctx.ai_client,
             runtime=ctx.runtime,
         )
-        if self.best_prepared and batch_publish_pipeline._is_publishable(self.best_prepared):
+        if self.best_prepared and _is_publishable(self.best_prepared):
             self._progress("publish", detail=f"title={self.best_prepared.title}")
             return self.best_prepared
         if self.attempt_index < self.effective_attempts:
@@ -181,7 +194,7 @@ class GenerateJobState(JobState):
             BatchMetric(
                 timestamp=utc_timestamp(),
                 seed=0,
-                models_used=batch_publish_pipeline.get_active_model_labels(multi_model=ctx.multi_model),
+                models_used=[label for label in (ctx.runtime.current_model_label,) if label],
                 puzzles=[puzzle_metric],
                 word_metrics=word_metrics,
                 total_elapsed_ms=puzzle_metric.total_elapsed_ms,

@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from rebus_generator.workflows.canonicals.service import build_parser, run_audit
+from rebus_generator.workflows.canonicals.runtime import run_audit
+from rebus_generator.workflows.canonicals.service import build_parser
 from rebus_generator.workflows.canonicals.domain_service import (
     aggregate_referee_votes,
     build_definition_record,

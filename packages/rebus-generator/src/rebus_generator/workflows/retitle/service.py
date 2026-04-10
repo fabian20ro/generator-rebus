@@ -19,13 +19,7 @@ from rebus_generator.platform.io.runtime_logging import (
     path_timestamp,
     set_llm_debug_enabled,
 )
-from rebus_generator.platform.persistence.supabase_ops import execute_logged_update
-from rebus_generator.workflows.retitle.titleing import (
-    TitleGenerationResult,
-    generate_creative_title_result,
-    normalize_title_key,
-    rate_title_creativity,
-)
+from rebus_generator.domain.guards.title_guards import normalize_title_key
 from .batch import _RetitleBatchState, generate_title_results_batch
 from .load import (
     fetch_clues,
@@ -34,79 +28,8 @@ from .load import (
     select_puzzles_for_retitle,
     stored_title_score as _stored_title_score,
 )
-from .persist import PreparedTitleUpdate, apply_title_update, prepare_title_update
-
-RETITLE_BATCH_SIZE = 10
-def _apply_title_result(
-    supabase,
-    puzzle_row: dict,
-    title_result: TitleGenerationResult,
-    rate_client,
-    *,
-    dry_run: bool,
-    multi_model: bool,
-    runtime: LmRuntime | None,
-    forbidden_title_keys: set[str] | None,
-    words: list[str],
-) -> bool:
-    prepared = prepare_title_update(
-        puzzle_row,
-        title_result,
-        rate_client,
-        multi_model=multi_model,
-        runtime=runtime,
-        forbidden_title_keys=forbidden_title_keys,
-        words=words,
-    )
-    return apply_title_update(supabase, puzzle_row, prepared, dry_run=dry_run)
-
-
-def retitle_puzzle(
-    supabase,
-    puzzle_row: dict,
-    ai_client,
-    rate_client,
-    *,
-    dry_run: bool = False,
-    multi_model: bool = True,
-    runtime: LmRuntime | None = None,
-    forbidden_title_keys: set[str] | None = None,
-) -> bool:
-    """Generate a new title for a puzzle. Returns True if title changed."""
-    puzzle_id = puzzle_row["id"]
-
-    clues = fetch_clues(supabase, puzzle_id)
-    if not clues:
-        log(f"  [{puzzle_id}] No clues found, skipping")
-        return False
-
-    words = [c["word_normalized"] for c in clues if c.get("word_normalized")]
-    definitions = [c["definition"] for c in clues if c.get("definition")]
-
-    if not words or not definitions:
-        log(f"  [{puzzle_id}] Missing words or definitions, skipping")
-        return False
-
-    title_result = generate_creative_title_result(
-        words,
-        definitions,
-        client=ai_client,
-        rate_client=rate_client,
-        runtime=runtime,
-        multi_model=multi_model,
-        forbidden_title_keys=forbidden_title_keys,
-    )
-    return _apply_title_result(
-        supabase,
-        puzzle_row,
-        title_result,
-        rate_client,
-        dry_run=dry_run,
-        multi_model=multi_model,
-        runtime=runtime,
-        forbidden_title_keys=forbidden_title_keys,
-        words=words,
-    )
+from .persist import apply_title_update, prepare_title_update
+from .runtime import RETITLE_BATCH_SIZE
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -289,16 +212,20 @@ def main() -> None:
                         for other_puzzle_id, key in active_title_keys.items()
                         if other_puzzle_id != puzzle_row.get("id") and key
                     }
-                    changed = _apply_title_result(
-                        supabase,
+                    prepared = prepare_title_update(
                         puzzle_row,
                         batch_results[puzzle_id],
                         rate_client,
-                        dry_run=args.dry_run,
                         multi_model=multi_model,
                         runtime=runtime,
                         forbidden_title_keys=forbidden_title_keys,
                         words=batch_words[puzzle_id],
+                    )
+                    changed = apply_title_update(
+                        supabase,
+                        puzzle_row,
+                        prepared,
+                        dry_run=args.dry_run,
                     )
                     if changed:
                         updated += 1

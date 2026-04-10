@@ -11,6 +11,7 @@ from rebus_generator.domain.pipeline_state import (
     WorkingPuzzle,
     all_working_clues,
 )
+from rebus_generator.workflows.redefine.rewrite_rounds import _build_pending_candidates
 from rebus_generator.workflows.redefine.rewrite_engine import run_rewrite_loop
 
 
@@ -79,6 +80,39 @@ class RewriteEngineTests(unittest.TestCase):
             return 0.0, 0.0, len(all_working_clues(puzzle))
 
         return _verify, _rate
+
+    @patch("rebus_generator.workflows.redefine.rewrite_engine.rewrite_definition")
+    @patch("rebus_generator.workflows.redefine.rewrite_rounds.run_single_model_call")
+    def test_build_pending_candidates_uses_definition_guard_owner_directly(
+        self,
+        mock_run_single_model_call,
+        mock_rewrite_definition,
+    ):
+        clue = _make_puzzle().horizontal_clues[0]
+        model = MagicMock(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id)
+        mock_rewrite_definition.return_value = "Țesătură delicată cu aspect foarte fin."
+        mock_run_single_model_call.side_effect = lambda *, callback, model, **_kwargs: callback(model)
+
+        pending, had_error, rejection = _build_pending_candidates(
+            clue,
+            client=MagicMock(),
+            theme="Test",
+            current_model=model,
+            generation_runtime=MagicMock(),
+            clue_canon=None,
+            wrong_guess="",
+            wrong_guesses=[],
+            rating_feedback="",
+            bad_example_definition="",
+            bad_example_reason="",
+            dex_defs="",
+            failure_history=[],
+            use_hybrid=False,
+        )
+
+        self.assertFalse(had_error)
+        self.assertEqual("", rejection)
+        self.assertEqual(["Țesătură delicată cu aspect foarte fin."], [candidate.definition for candidate in pending])
 
     @patch("rebus_generator.workflows.redefine.rewrite_engine.audit")
     @patch("rebus_generator.workflows.redefine.rewrite_engine._update_best_clue_version")

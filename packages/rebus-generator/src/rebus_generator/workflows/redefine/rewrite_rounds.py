@@ -12,7 +12,8 @@ from rebus_generator.platform.llm.llm_dispatch import next_generation_model, run
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.domain.pipeline_state import WorkingClue, WorkingPuzzle, all_working_clues, set_current_definition
 from rebus_generator.domain.plateau import has_plateaued
-from rebus_generator.domain.selection_engine import choose_clue_version
+from rebus_generator.domain.selection_engine import choose_clue_version, stable_tie_rng
+from rebus_generator.domain.guards.definition_guards import validate_definition_text
 from rebus_generator.domain.score_helpers import (
     LOCKED_REBUS,
     LOCKED_SEMANTIC,
@@ -37,6 +38,7 @@ from .rewrite_session import (
 )
 
 HYBRID_REBUS_THRESHOLD = 4
+MAX_REWRITE_CANDIDATES_PER_ROUND = 12
 
 
 def _definition_key(text: str) -> str:
@@ -56,6 +58,16 @@ def _should_try_hybrid(
     if clue.current.assessment.verified is False:
         return True
     return (_extract_rebus_score(clue) or 0) <= HYBRID_REBUS_THRESHOLD
+
+
+def _rewrite_priority(clue: WorkingClue) -> tuple[object, ...]:
+    assessment = clue.current.assessment
+    return (
+        0 if assessment.verified is False else 1,
+        _extract_rebus_score(clue) or 0,
+        _extract_semantic_score(clue) or 0,
+        clue.word_normalized,
+    )
 
 
 def _build_pending_candidates(
@@ -79,10 +91,21 @@ def _build_pending_candidates(
 
     pending: list[PendingCandidate] = []
     seen: set[str] = set()
+    rewrite_rejection_reason = ""
 
     def _maybe_add(definition: str, *, source: str, strategy_label: str) -> None:
+        nonlocal rewrite_rejection_reason
         cleaned = (definition or "").strip()
         if not cleaned or cleaned == clue.current.definition:
+            return
+        rejection = validate_definition_text(clue.word_normalized, cleaned)
+        if rejection:
+            if not rewrite_rejection_reason:
+                rewrite_rejection_reason = rejection
+            log(
+                f"    [rewrite rejected {clue.word_normalized}: {rejection}; definition={cleaned[:120]}]",
+                level="WARN",
+            )
             return
         key = _definition_key(cleaned)
         if key in seen:
@@ -91,7 +114,6 @@ def _build_pending_candidates(
         pending.append(PendingCandidate(source=source, definition=cleaned, generated_by=current_model.display_name, strategy_label=strategy_label))
 
     had_error = False
-    rewrite_rejection_reason = ""
     existing_canonical_definitions = clue_canon.fetch_prompt_examples(clue.word_normalized) if clue_canon is not None else []
     if clue.current.definition.startswith("["):
         generated = run_single_model_call(
@@ -226,7 +248,17 @@ def _select_hybrid_candidate(
             ),
         )
 
-    chosen_version, _ = choose_clue_version(version_a, version_b, tiebreaker=_tiebreak)
+    chosen_version, _ = choose_clue_version(
+        version_a,
+        version_b,
+        tiebreaker=_tiebreak,
+        rng=stable_tie_rng(
+            "_select_hybrid_candidate",
+            clue.word_normalized,
+            version_a.definition,
+            version_b.definition,
+        ),
+    )
     if _definition_key(chosen_version.definition) == _definition_key(version_b.definition):
         return candidate_b, version_b
     return candidate_a, version_a
@@ -250,15 +282,16 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
         return None
 
     round_min_rebus = current_min + 1
-    candidates = [
+    all_candidates = [
         clue
         for clue in all_working_clues(session.puzzle)
         if _needs_rewrite(clue, min_rebus=round_min_rebus)
         and clue.word_normalized not in session.stuck_words
     ]
-    if not candidates:
+    if not all_candidates:
         finish_rewrite_session(session)
         return None
+    candidates = sorted(all_candidates, key=_rewrite_priority)[:MAX_REWRITE_CANDIDATES_PER_ROUND]
 
     if session.multi_model:
         log(f"  Model activ (rescriere): {session.current_model.display_name}")
@@ -272,6 +305,7 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
     )
     log(
         f"Rewrite round {session.round_index}: {len(candidates)} candidates "
+        f"(selected from {len(all_candidates)}) "
         f"({failed_count} failed, {low_rated_count} low-rated, {len(candidates) - failed_count - low_rated_count} unrated)"
     )
 

@@ -10,7 +10,7 @@ import os
 import time
 from pathlib import Path
 
-from rebus_generator.workflows.canonicals.service import DEFAULT_SIMPLIFY_BATCH_SIZE
+from rebus_generator.workflows.canonicals.runtime import DEFAULT_SIMPLIFY_BATCH_SIZE
 from rebus_generator.platform.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.llm.llm_client import (
@@ -75,14 +75,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--simplify-cap", type=int, default=1)
     parser.add_argument("--idle-sleep-seconds", type=int, default=DEFAULT_IDLE_SLEEP_SECONDS)
     parser.add_argument("--heartbeat-seconds", type=int, default=DEFAULT_HEARTBEAT_SECONDS)
-    parser.add_argument("--rewrite-rounds", type=int, default=30)
+    parser.add_argument("--rewrite-rounds", type=int, default=8)
     parser.add_argument("--rounds", type=int, default=7)
     parser.add_argument("--verify-candidates", type=int, default=VERIFY_CANDIDATE_COUNT)
     parser.add_argument("--simplify-batch-size", type=int, default=DEFAULT_SIMPLIFY_BATCH_SIZE)
-    parser.add_argument("--gemma-verify-reasoning", default="minimal")
+    parser.add_argument("--gemma-verify-reasoning", default="none")
     parser.add_argument("--gemma-rate-reasoning", default="minimal")
-    parser.add_argument("--gemma-title-generate-reasoning", default="minimal")
-    parser.add_argument("--gemma-title-rate-reasoning", default="minimal")
+    parser.add_argument("--gemma-title-generate-reasoning", default="none")
+    parser.add_argument("--gemma-title-rate-reasoning", default="none")
     parser.add_argument("--llm-preflight", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--llm-stall-seconds", type=int, default=1800)
     parser.add_argument("--llm-truncation-threshold", type=int, default=3)
@@ -158,7 +158,8 @@ def _reasoning_overrides(args: argparse.Namespace) -> dict[tuple[str, str], str 
         (PRIMARY_MODEL.model_id, "definition_rate"): args.gemma_rate_reasoning,
         (PRIMARY_MODEL.model_id, "title_generate"): args.gemma_title_generate_reasoning,
         (PRIMARY_MODEL.model_id, "title_rate"): args.gemma_title_rate_reasoning,
-        (PRIMARY_MODEL.model_id, "clue_compare"): "minimal",
+        (PRIMARY_MODEL.model_id, "clue_compare"): "none",
+        (PRIMARY_MODEL.model_id, "clue_tiebreaker"): "none",
     }
 
 

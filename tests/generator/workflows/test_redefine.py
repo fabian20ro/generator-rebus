@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.domain.pipeline_state import ClueAssessment, ClueScores, PuzzleAssessment
 from rebus_generator.domain.puzzle_metrics import PuzzleEvaluationResult
-from rebus_generator.workflows.redefine.service import (
+from rebus_generator.workflows.redefine.service import build_parser
+from rebus_generator.workflows.redefine.runtime import (
     REDEFINE_ROUNDS,
-    build_parser,
     build_working_puzzle,
     fetch_clues,
     fetch_puzzles,
@@ -397,8 +397,8 @@ class RedefinePuzzleTests(unittest.TestCase):
             evaluator_model=PRIMARY_MODEL.display_name,
         )
 
-    @patch("rebus_generator.workflows.redefine.service.rewrite_puzzle_definitions")
-    @patch("rebus_generator.workflows.redefine.service.evaluate_puzzle_state")
+    @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
+    @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
     def test_dry_run_skips_db_update(self, mock_evaluate, mock_rewrite):
         clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1")]
         fixture = _SupabaseFixture(clue_rows)
@@ -442,8 +442,8 @@ class RedefinePuzzleTests(unittest.TestCase):
         fixture.clue_table.update.assert_not_called()
         fixture.puzzle_table.update.assert_not_called()
 
-    @patch("rebus_generator.workflows.redefine.service.rewrite_puzzle_definitions")
-    @patch("rebus_generator.workflows.redefine.service.evaluate_puzzle_state")
+    @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
+    @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
     def test_updates_clue_state_and_metadata_when_not_dry_run(self, mock_evaluate, mock_rewrite):
         clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1")]
         fixture = _SupabaseFixture(clue_rows)
@@ -508,8 +508,8 @@ class RedefinePuzzleTests(unittest.TestCase):
         self.assertIn("repaired_at", puzzle_payload)
         self.assertNotIn("title", puzzle_payload)
 
-    @patch("rebus_generator.workflows.redefine.service.rewrite_puzzle_definitions")
-    @patch("rebus_generator.workflows.redefine.service.evaluate_puzzle_state")
+    @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
+    @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
     def test_updates_metadata_after_each_changed_clue(self, mock_evaluate, mock_rewrite):
         clue_rows = [
             _make_clue_row("MUNTE", "Formă de relief", clue_id="c1", clue_number=1, row=0, col=0),
@@ -584,8 +584,8 @@ class RedefinePuzzleTests(unittest.TestCase):
         self.assertEqual(7, final_payload["rebus_score_min"])
         self.assertEqual(2, final_payload["verified_count"])
 
-    @patch("rebus_generator.workflows.redefine.service.rewrite_puzzle_definitions")
-    @patch("rebus_generator.workflows.redefine.service.evaluate_puzzle_state")
+    @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
+    @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
     def test_backfills_metadata_when_no_clue_changes(self, mock_evaluate, mock_rewrite):
         clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1", canonical_definition_id="canon-existing")]
         fixture = _SupabaseFixture(clue_rows)
@@ -644,8 +644,8 @@ class RedefinePuzzleTests(unittest.TestCase):
         self.assertIn("updated_at", payload)
         self.assertIn("repaired_at", payload)
 
-    @patch("rebus_generator.workflows.redefine.service.rewrite_puzzle_definitions")
-    @patch("rebus_generator.workflows.redefine.service.evaluate_puzzle_state")
+    @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
+    @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
     def test_noop_when_no_clue_changes_and_metadata_present(self, mock_evaluate, mock_rewrite):
         clue_rows = [_make_clue_row("MUNTE", "Formă de relief", clue_id="c1", canonical_definition_id="canon-existing")]
         fixture = _SupabaseFixture(clue_rows)
@@ -700,8 +700,8 @@ class RedefinePuzzleTests(unittest.TestCase):
         self.assertEqual(0, fixture.clue_table.update.call_count)
         self.assertEqual(0, fixture.puzzle_table.update.call_count)
 
-    @patch("rebus_generator.workflows.redefine.service.rewrite_puzzle_definitions")
-    @patch("rebus_generator.workflows.redefine.service.evaluate_puzzle_state")
+    @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
+    @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
     def test_persists_state_only_clue_delta(self, mock_evaluate, mock_rewrite):
         clue_rows = [
             _make_clue_row(

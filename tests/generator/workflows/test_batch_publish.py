@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from rebus_generator.workflows.generate.service import (
+from rebus_generator.workflows.generate.runtime import (
     Candidate,
     LOCKED_REBUS,
     MAX_REWRITE_ROUNDS,
@@ -25,9 +25,9 @@ from rebus_generator.workflows.generate.service import (
     _prepare_puzzle_for_publication,
     _synthesize_failure_reason,
     _template_fingerprint,
-    build_parser as build_batch_parser,
     run_batch,
 )
+from rebus_generator.workflows.generate.service import build_parser as build_batch_parser
 from rebus_generator.domain.clue_rating import append_rating_to_note
 from rebus_generator.platform.io.markdown_io import ClueEntry, write_with_definitions
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
@@ -41,7 +41,7 @@ from rebus_generator.domain.pipeline_state import (
     working_clue_from_entry,
 )
 from rebus_generator.domain.quality import QualityReport
-from rebus_generator.workflows.retitle.titleing import TitleGenerationResult
+from rebus_generator.workflows.retitle.sanitize import TitleGenerationResult
 from rebus_generator.cli.pipeline import build_parser as build_rebus_parser
 
 
@@ -296,7 +296,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertFalse(_needs_rewrite(clue))
 
     def test_eight_seven_clue_not_locked(self):
-        from rebus_generator.workflows.generate.service import _update_best_clue_version
+        from rebus_generator.workflows.generate.runtime import _update_best_clue_version
         clue = working_clue_from_entry(ClueEntry(
             row_number=1,
             word_normalized="AER",
@@ -316,7 +316,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertFalse(clue.locked)
 
     def test_nine_eight_clue_gets_locked_via_update(self):
-        from rebus_generator.workflows.generate.service import _update_best_clue_version
+        from rebus_generator.workflows.generate.runtime import _update_best_clue_version
         clue = working_clue_from_entry(ClueEntry(
             row_number=1,
             word_normalized="AER",
@@ -503,13 +503,14 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertEqual(PRIMARY_MODEL.display_name, puzzle.horizontal_clues[0].current.generated_by)
 
-    def test_service_compat_exports_inject_word_metadata(self):
+    def test_runtime_exports_workflow_helpers_without_service_fascade(self):
+        from rebus_generator.workflows.generate import runtime as batch_publish_runtime
         from rebus_generator.workflows.generate import service as batch_publish_service
 
-        self.assertTrue(hasattr(batch_publish_service, "_inject_word_metadata"))
-        self.assertTrue(hasattr(batch_publish_service, "DexProvider"))
-        self.assertTrue(hasattr(batch_publish_service, "_restore_best_versions"))
-        self.assertTrue(hasattr(batch_publish_service, "generate_title_for_final_puzzle_result"))
+        self.assertTrue(hasattr(batch_publish_runtime, "_inject_word_metadata"))
+        self.assertTrue(hasattr(batch_publish_runtime, "_restore_best_versions"))
+        self.assertTrue(hasattr(batch_publish_runtime, "generate_title_for_final_puzzle_result"))
+        self.assertFalse(hasattr(batch_publish_service, "_inject_word_metadata"))
 
     @patch("rebus_generator.workflows.generate.titleing.generate_title_for_final_puzzle_result")
     @patch("rebus_generator.workflows.generate.prepare._rewrite_failed_clues")
@@ -649,10 +650,10 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertEqual("Definiția este prea vagă.", reason)
 
-    @patch("rebus_generator.workflows.generate.service.LmRuntime")
+    @patch("rebus_generator.workflows.generate.runtime.LmRuntime")
     @patch("rebus_generator.workflows.generate.publish.upload_puzzle")
-    @patch("rebus_generator.workflows.generate.service._prepare_puzzle_for_publication")
-    @patch("rebus_generator.workflows.generate.service._load_words")
+    @patch("rebus_generator.workflows.generate.runtime._prepare_puzzle_for_publication")
+    @patch("rebus_generator.workflows.generate.runtime._load_words")
     def test_run_batch_rejects_blocked_puzzle_before_upload(
         self,
         mock_load_words,
@@ -850,6 +851,7 @@ class BatchPublishTests(unittest.TestCase):
     def test_run_all_builds_rust_binary_before_python(self):
         script = Path("run_all.sh").read_text(encoding="utf-8")
         self.assertIn("cargo build --release --manifest-path", script)
+        self.assertIn(".venv/bin/python -m rebus_generator profile", script)
 
 
 def _count_two_letter_slots(grid: list[list[bool]]) -> int:

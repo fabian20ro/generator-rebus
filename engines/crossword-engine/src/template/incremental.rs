@@ -1,6 +1,6 @@
-use rand::{seq::SliceRandom, Rng};
+use rand::{Rng, seq::SliceRandom};
 
-use super::validate::{black_spacing_ok, creates_single_letter, is_connected};
+use super::validate::{black_spacing_ok, is_connected, placement_creates_invalid_slots};
 
 pub fn generate_incremental_template<R, F>(
     size: usize,
@@ -31,7 +31,7 @@ where
                 continue;
             }
             grid[r][c] = false;
-            if creates_single_letter(&grid, r, c, size) || !is_connected(&grid) {
+            if placement_creates_invalid_slots(&grid, r, c, size) || !is_connected(&grid) {
                 grid[r][c] = true;
                 continue;
             }

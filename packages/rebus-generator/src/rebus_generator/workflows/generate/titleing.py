@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rebus_generator.workflows.retitle.titleing import generate_title_for_final_puzzle_result
+from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
 
 
 def generate_publication_title(puzzle, *, client, runtime, multi_model: bool):

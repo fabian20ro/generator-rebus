@@ -18,7 +18,7 @@ class Candidate:
     template: list[list[bool]]
     markdown: str
     metadata: dict[str, list[dict]] = field(default_factory=dict)
-    stats: dict[str, int | float] = field(default_factory=dict)
+    stats: dict[str, object] = field(default_factory=dict)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
@@ -27,6 +27,12 @@ RUST_ENGINE_BINARY = (
 )
 RUST_ENGINE_DEBUG_BINARY = (
     REPO_ROOT / "engines" / "crossword-engine" / "target" / "debug" / "crossword_phase1"
+)
+RUST_PROFILE_BINARY = (
+    REPO_ROOT / "engines" / "crossword-engine" / "target" / "release" / "crossword_dictionary_profile"
+)
+RUST_PROFILE_DEBUG_BINARY = (
+    REPO_ROOT / "engines" / "crossword-engine" / "target" / "debug" / "crossword_dictionary_profile"
 )
 
 
@@ -62,6 +68,10 @@ def _normalize_metadata_pool(
     return normalized
 
 
+def _dictionary_profile_path(words_path: Path) -> Path:
+    return words_path.with_name(f"{words_path.stem}.profile.json")
+
+
 def _rust_binary_path() -> Path:
     if RUST_ENGINE_BINARY.exists():
         return RUST_ENGINE_BINARY
@@ -71,6 +81,49 @@ def _rust_binary_path() -> Path:
         "Rust phase-1 binary missing. Run `run_all.sh` or "
         "`cargo build --release --manifest-path engines/crossword-engine/Cargo.toml` first."
     )
+
+
+def _rust_profile_binary_path() -> Path:
+    if RUST_PROFILE_BINARY.exists():
+        return RUST_PROFILE_BINARY
+    if RUST_PROFILE_DEBUG_BINARY.exists():
+        return RUST_PROFILE_DEBUG_BINARY
+    raise RuntimeError(
+        "Rust dictionary-profile binary missing. Run `run_all.sh` or "
+        "`cargo build --release --manifest-path engines/crossword-engine/Cargo.toml` first."
+    )
+
+
+def rebuild_dictionary_profile(
+    words_path: Path,
+    *,
+    download_if_missing: bool = False,
+) -> Path:
+    if download_if_missing and not words_path.exists():
+        words_path.parent.mkdir(parents=True, exist_ok=True)
+        download_words("-", str(words_path))
+    output_path = _dictionary_profile_path(words_path)
+    result = subprocess.run(
+        [
+            str(_rust_profile_binary_path()),
+            "--words",
+            str(words_path),
+            "--output",
+            str(output_path),
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.stderr:
+        log(result.stderr.rstrip("\n"))
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Rust dictionary profile build failed with exit {result.returncode}: "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    return output_path
 
 
 def _quality_report_from_payload(payload: dict) -> QualityReport:
@@ -136,6 +189,7 @@ def _best_candidate_rust(
     metadata: dict[str, list[dict]],
     rng: random.Random,
     preparation_attempts: int = 1,
+    step_time_budget_ms: int | None = None,
 ) -> Candidate:
     seed = rng.randint(1, 10_000_000)
     command = [
@@ -149,6 +203,8 @@ def _best_candidate_rust(
         "--preparation-attempts",
         str(max(1, preparation_attempts)),
     ]
+    if step_time_budget_ms is not None:
+        command.extend(["--step-time-budget-ms", str(max(1, int(step_time_budget_ms)))])
     result = subprocess.run(
         command,
         cwd=str(REPO_ROOT),
@@ -205,6 +261,7 @@ def _best_candidate(
     words_path: Path | None = None,
     word_metadata: dict[str, dict] | dict[str, list[dict]] | None = None,
     preparation_attempts: int = 1,
+    step_time_budget_ms: int | None = None,
 ) -> Candidate:
     if words_path is None:
         raise ValueError("Rust phase-1 requires `words_path`.")
@@ -216,6 +273,7 @@ def _best_candidate(
         or _metadata_by_word(raw_words),
         rng=rng,
         preparation_attempts=preparation_attempts,
+        step_time_budget_ms=step_time_budget_ms,
     )
     if seen_template_fingerprints is not None and size == 7:
         seen_template_fingerprints.add(_template_fingerprint(candidate.template))

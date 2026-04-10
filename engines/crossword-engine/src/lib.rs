@@ -1,3 +1,4 @@
+pub mod dictionary_profile;
 pub mod generation;
 pub mod model;
 pub mod quality;

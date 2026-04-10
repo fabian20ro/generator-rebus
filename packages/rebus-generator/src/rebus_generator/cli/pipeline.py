@@ -6,6 +6,7 @@ Usage:
 
 Phases:
     download       Download words from Supabase
+    profile        Build dictionary profile sidecar for Rust phase-1
     theme          Find a theme using LM Studio
     define         Generate definitions using LM Studio
     verify         Verify definitions (AI guesses the word)
@@ -15,6 +16,7 @@ Phases:
 
 Examples:
     python -m rebus_generator download - build/words.json
+    python -m rebus_generator profile build/words.json -
     python -m rebus_generator theme build/filled.md build/themed.md
     python -m rebus_generator define build/themed.md build/defs.md
     python -m rebus_generator verify build/defs.md build/verified.md
@@ -42,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=__doc__,
     )
     parser.add_argument("phase", choices=[
-        "download", "theme",
+        "download", "profile", "theme",
         "define", "verify", "upload", "activate", "deactivate",
     ])
     parser.add_argument("input_file", help="Input file path (use '-' for none)")
@@ -81,8 +83,10 @@ def main():
 
         if phase == "download":
             from rebus_generator.workflows.generate.download import run
+        elif phase == "profile":
+            from rebus_generator.workflows.generate.profile import run
         elif phase == "theme":
-            from rebus_generator.workflows.retitle.titleing import run
+            from rebus_generator.workflows.retitle.generate import run
         elif phase == "define":
             from rebus_generator.workflows.generate.define import run
         elif phase == "verify":

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
+from rebus_generator.domain.guards.title_guards import normalize_title_key
 from rebus_generator.workflows.retitle.batch import (
     _RetitleBatchState,
     _finalize_title_result,
@@ -15,11 +16,7 @@ from rebus_generator.workflows.retitle.load import (
     stored_title_score as _stored_title_score,
 )
 from rebus_generator.workflows.retitle.persist import apply_title_update, prepare_title_update
-from rebus_generator.workflows.retitle.titleing import (
-    FALLBACK_TITLES,
-    MAX_TITLE_ROUNDS,
-    normalize_title_key,
-)
+from rebus_generator.workflows.retitle.sanitize import FALLBACK_TITLES, MAX_TITLE_ROUNDS
 from .base import JobState
 
 

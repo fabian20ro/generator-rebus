@@ -1,6 +1,6 @@
-use rand::{seq::SliceRandom, Rng};
+use rand::{Rng, seq::SliceRandom};
 
-use super::validate::{creates_single_letter, validate_template, black_spacing_ok};
+use super::validate::{black_spacing_ok, placement_creates_invalid_slots, validate_template};
 
 pub fn generate_procedural_template<R: Rng + ?Sized>(
     size: usize,
@@ -20,7 +20,9 @@ pub fn generate_procedural_template<R: Rng + ?Sized>(
                 break;
             }
             grid[r][c] = false;
-            if !black_spacing_ok(&grid, r, c, size) || creates_single_letter(&grid, r, c, size) {
+            if !black_spacing_ok(&grid, r, c, size)
+                || placement_creates_invalid_slots(&grid, r, c, size)
+            {
                 grid[r][c] = true;
                 continue;
             }

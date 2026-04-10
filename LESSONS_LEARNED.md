@@ -186,6 +186,20 @@
 
 **[2026-04-10]** Bidirectional compatibility facades across architectural layers are a refactor trap — when `domain/*` re-exports `platform/*` in one place while `platform/*` re-exports `domain/*` in another, the repo keeps old import paths alive at the cost of unclear ownership, broken patch surfaces, and silent runtime drift. Pick one real owner module, make any temporary compat surface explicit and one-way, and add surface-contract tests until the facade is deleted.
 
+**[2026-04-10]** Shared-state wrappers must not become constructor prerequisites during scheduler refactors — if a supervisor moves counters/ledgers behind a new shared object, any helper like `_runtime_load_seconds_total()` that now delegates through that object cannot be called while the object is still being constructed. Seed constructor-time values directly from raw runtime state, then switch helpers to the shared owner after initialization.
+
+**[2026-04-10]** Short-form truncation fallback must treat malformed visible payloads as failures, not successes — for JSON/choice micro-tasks (`title_rate`, `clue_compare`, `clue_tiebreaker`), `finish_reason="length"` with visible but incomplete output is still a bad result. Blank-only retry logic misses the common case where Gemma emits half a JSON object or partial choice text. Keep a purpose-aware “payload unusable” check and trigger the no-thinking retry when truncated content cannot satisfy the parser/contract.
+
+**[2026-04-10]** Equal-rank selector randomization must be seed-owned, not ambient — replacing “pick first on tie” with bare `random.choice(...)` fixes bias but quietly breaks reproducibility in unattended runs and tests. Put one stable RNG helper at the selection layer, derive its seed from run/item/content identity, and pass it only into accidental equal-rank fallbacks; keep deliberate business-rule ties deterministic.
+
+**[2026-04-10]** Template generators must prune with the same slot policy as final validation — if the validator allows a structure (for example edge singletons with orthogonal 2+ coverage) but generator-time placement still uses an older stricter precheck, large-size failures will look like search-budget problems when the real issue is stale pruning logic. Align generator-time guards first; only then trust benchmark results enough to retune attempts/nodes.
+
+**[2026-04-10]** Search benchmark stats must separate search totals from chosen-grid quality metrics — counters like `solver_nodes`, `rejected_*`, and `solved_candidates` should accumulate across attempts, but structural fields like `edge_singletons` or chosen black count must describe the selected candidate only. Summing candidate-local quality metrics across attempts produces impossible benchmark numbers and sends tuning in the wrong direction.
+
+**[2026-04-10]** Base black-target retunes are only half the real start point when dictionary tuning is still active — changing `settings_for_size()` can look correct in code (`15 -> 38`) while live runs still start higher (`42`) because `tune_settings_for_dictionary()` adds a long-word scarcity bonus. Benchmark logs and acceptance checks should distinguish base target from tuned effective target, or future retunes will be misread.
+
+**[2026-04-11]** Static dictionary scarcity should be a sidecar artifact with one builder owner — if phase-1 uses one normalized/deduplicated filter path but scarcity heuristics are recomputed elsewhere (or inline during search), structural knobs, effort scaling, and solver heuristics can silently diverge on what “the dictionary” contains. Build one `words.profile.json` sidecar from the same Rust filter semantics, let size policy own black counts, and let the sidecar drive only effort scaling and solver tie-break heuristics.
+
 ---
 
 ## Archive

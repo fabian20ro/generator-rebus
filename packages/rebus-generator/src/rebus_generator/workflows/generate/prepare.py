@@ -20,7 +20,7 @@ from rebus_generator.domain.pipeline_state import (
 )
 from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.domain.score_helpers import _coerce_working_clue, _compact_log_text, _restore_best_versions
-from rebus_generator.domain.selection_engine import choose_clue_version
+from rebus_generator.domain.selection_engine import choose_clue_version, stable_tie_rng
 from rebus_generator.domain.size_tuning import get_min_preparation_attempts
 from rebus_generator.workflows.generate.define import generate_definitions_for_puzzle
 from rebus_generator.workflows.generate.titleing import generate_publication_title
@@ -101,6 +101,12 @@ def _merge_best_clue_variants(
             best_working.active_version(),
             current_working.active_version(),
             tiebreaker=_tiebreak,
+            rng=stable_tie_rng(
+                "merge_best_clue_variants",
+                best_working.word_normalized,
+                best_working.active_version().definition,
+                current_working.active_version().definition,
+            ),
         )
         if client is not None:
             log(

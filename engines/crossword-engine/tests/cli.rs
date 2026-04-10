@@ -1,8 +1,7 @@
 #[test]
 fn cli_emits_json() {
     let words_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/words.json");
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.json");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_crossword_phase1"))
         .args([
             "--size",
@@ -32,13 +31,16 @@ fn cli_emits_json() {
             .iter()
             .all(|word| word.get("original").is_none())
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("inward grid"), "stderr={stderr}");
+    assert!(stderr.contains("outward grid"), "stderr={stderr}");
+    assert!(stderr.contains('+'), "stderr={stderr}");
 }
 
 #[test]
 fn cli_invalid_size_fails_cleanly() {
     let words_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/words.json");
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.json");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_crossword_phase1"))
         .args([
             "--size",
@@ -58,4 +60,31 @@ fn cli_invalid_size_fails_cleanly() {
         "stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn dictionary_profile_cli_writes_sidecar_json() {
+    let words_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.json");
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let output_path = tempdir.path().join("words.profile.json");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_crossword_dictionary_profile"))
+        .args([
+            "--words",
+            words_path.to_str().expect("words path"),
+            "--output",
+            output_path.to_str().expect("profile path"),
+        ])
+        .output()
+        .expect("run profile cli");
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&output_path).expect("read profile"))
+            .expect("profile json");
+    assert!(json["sizes"].get("7").is_some());
+    assert!(json["sizes"]["7"]["positional"].is_object());
 }

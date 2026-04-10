@@ -7,8 +7,8 @@ from rebus_generator.workflows.canonicals.simplify import build_candidate_pairs
 from rebus_generator.platform.llm.llm_dispatch import initial_generation_model
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.cli.loop_controller import select_auto_size
-from rebus_generator.workflows.redefine.service import fetch_puzzles as fetch_redefine_puzzles
-from rebus_generator.workflows.retitle.service import fetch_puzzles as fetch_retitle_puzzles, select_puzzles_for_retitle
+from rebus_generator.workflows.redefine.load import fetch_puzzles as fetch_redefine_puzzles
+from rebus_generator.workflows.retitle.load import fetch_puzzles as fetch_retitle_puzzles, select_puzzles_for_retitle
 from .types import SupervisorWorkItem
 
 if TYPE_CHECKING:

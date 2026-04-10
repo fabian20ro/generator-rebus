@@ -65,11 +65,16 @@ pub fn filter_word_records(
             stats.skipped_rows += 1;
             continue;
         }
-        grouped.entry(normalized.to_string()).or_default().push(word);
+        grouped
+            .entry(normalized.to_string())
+            .or_default()
+            .push(word);
     }
 
     let grouped_count = grouped.len();
-    stats.duplicate_rows = raw_words.len().saturating_sub(grouped_count + stats.skipped_rows);
+    stats.duplicate_rows = raw_words
+        .len()
+        .saturating_sub(grouped_count + stats.skipped_rows);
 
     let mut entries = Vec::new();
     for (normalized, variants) in grouped {

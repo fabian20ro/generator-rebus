@@ -18,7 +18,7 @@ from .pipeline_state import (
     working_clue_from_entry,
 )
 from rebus_generator.platform.io.runtime_logging import log
-from .selection_engine import choose_clue_version
+from .selection_engine import choose_clue_version, stable_tie_rng
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -142,7 +142,17 @@ def _update_best_clue_version(clue: WorkingClue, client=None, model_name: str | 
                 model=model_name or PRIMARY_MODEL.model_id,
             )
 
-        chosen, decision = choose_clue_version(clue.best, clue.current, tiebreaker=_tiebreak)
+        chosen, decision = choose_clue_version(
+            clue.best,
+            clue.current,
+            tiebreaker=_tiebreak,
+            rng=stable_tie_rng(
+                "_update_best_clue_version",
+                clue.word_normalized,
+                clue.best.definition,
+                clue.current.definition,
+            ),
+        )
         if decision.used_tiebreak:
             log(
                 f"  Tie-break definiție {clue.word_normalized}: "
