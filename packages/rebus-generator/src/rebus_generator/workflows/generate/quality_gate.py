@@ -9,7 +9,7 @@ from rebus_generator.domain.selection_engine import choose_puzzle_assessment
 from rebus_generator.domain.quality import QualityReport
 from rebus_generator.domain.score_helpers import _compact_log_text
 
-from .models import MIN_PUBLISHABLE_PASS_RATE, PUZZLE_TIEBREAK_DELTA, PreparedPuzzle
+from .models import MIN_PUBLISHABLE_CONSENSUS_CLUES, PUZZLE_TIEBREAK_DELTA, PreparedPuzzle
 
 
 def _compute_difficulty(size: int, report: QualityReport) -> int:
@@ -31,7 +31,7 @@ def _compute_difficulty(size: int, report: QualityReport) -> int:
 def _is_publishable(prepared: PreparedPuzzle) -> bool:
     return (
         not prepared.blocking_words
-        and prepared.assessment.pass_rate >= MIN_PUBLISHABLE_PASS_RATE
+        and prepared.assessment.verified_count >= MIN_PUBLISHABLE_CONSENSUS_CLUES
     )
 
 
@@ -41,9 +41,9 @@ def _describe_publishability_failure(prepared: PreparedPuzzle) -> str:
         reasons.append(
             "missing definitions: " + ", ".join(prepared.blocking_words[:12])
         )
-    if prepared.assessment.pass_rate < MIN_PUBLISHABLE_PASS_RATE:
+    if prepared.assessment.verified_count < MIN_PUBLISHABLE_CONSENSUS_CLUES:
         reasons.append(
-            f"low pass rate: {prepared.assessment.pass_rate:.3f} < {MIN_PUBLISHABLE_PASS_RATE:.3f}"
+            "no consensus-verified clue"
         )
     if not prepared.assessment.scores_complete:
         detail = (

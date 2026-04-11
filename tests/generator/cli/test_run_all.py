@@ -550,7 +550,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         try:
             with (
                 patch("rebus_generator.workflows.run_all.jobs.simplify.load_simplify_bucket", return_value=({("APA", "", ""): [row_left, row_right]}, [pair])),
-                patch("rebus_generator.workflows.run_all.jobs.simplify.compare_simplify_pairs", return_value={"l::r": vote}),
+                patch("rebus_generator.workflows.run_all.jobs.simplify.compare_definition_variants_attempt", return_value=vote),
                 patch("rebus_generator.workflows.run_all.jobs.simplify.find_simplify_pair_rows", return_value=(row_left, row_right)),
                 patch("rebus_generator.workflows.run_all.jobs.simplify.should_rewrite_survivor", return_value=False),
                 patch("rebus_generator.workflows.run_all.jobs.simplify.choose_existing_survivor", return_value=SimpleNamespace(definition="stanga")),
@@ -618,6 +618,90 @@ class RunAllSupervisorTests(unittest.TestCase):
             release.set()
             supervisor._poll_worker_task()
 
+    def test_run_ready_steps_drains_loaded_model_before_switching(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["generate", "retitle", "simplify"],
+            topic_caps={"generate": 1, "retitle": 1, "simplify": 1},
+        )
+        calls: list[str] = []
+        generate_job = _StaticJob(
+            _item("generate", "generate:1"),
+            steps=[StepState(
+                step_id="generate:gemma",
+                job_id="generate:1",
+                topic="generate",
+                kind="gemma",
+                purpose="generate_define",
+                model_id=PRIMARY_MODEL.model_id,
+                runner=lambda _ctx: (calls.append("generate"), setattr(generate_job, "status", "complete")),
+                execution_mode="llm",
+            )],
+        )
+        retitle_job = _StaticJob(
+            _item("retitle", "retitle:1"),
+            steps=[StepState(
+                step_id="retitle:gemma",
+                job_id="retitle:1",
+                topic="retitle",
+                kind="gemma",
+                purpose="retitle_generate",
+                model_id=PRIMARY_MODEL.model_id,
+                runner=lambda _ctx: (calls.append("retitle"), setattr(retitle_job, "status", "complete")),
+                execution_mode="llm",
+            )],
+        )
+        simplify_job = _StaticJob(
+            _item("simplify", "simplify:1"),
+            steps=[StepState(
+                step_id="simplify:eurollm",
+                job_id="simplify:1",
+                topic="simplify",
+                kind="eurollm",
+                purpose="simplify_compare",
+                model_id=SECONDARY_MODEL.model_id,
+                runner=lambda _ctx: (calls.append("simplify"), setattr(simplify_job, "status", "complete")),
+                execution_mode="llm",
+            )],
+        )
+        supervisor.slots["generate"].active_job = generate_job
+        supervisor.slots["retitle"].active_job = retitle_job
+        supervisor.slots["simplify"].active_job = simplify_job
+
+        supervisor._run_ready_steps()
+
+        self.assertEqual(["generate", "retitle"], calls)
+        self.assertEqual(PRIMARY_MODEL.model_id, runtime.current_model_id)
+        self.assertEqual(0, runtime.switch_count)
+
+    def test_switch_counts_only_after_loaded_model_drains(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["simplify"],
+            topic_caps={"simplify": 1},
+        )
+        job = _StaticJob(
+            _item("simplify", "simplify:1"),
+            steps=[StepState(
+                step_id="simplify:eurollm",
+                job_id="simplify:1",
+                topic="simplify",
+                kind="eurollm",
+                purpose="simplify_compare",
+                model_id=SECONDARY_MODEL.model_id,
+                runner=lambda _ctx: setattr(job, "status", "complete"),
+                execution_mode="llm",
+            )],
+        )
+        supervisor.slots["simplify"].active_job = job
+
+        supervisor._run_ready_steps()
+
+        self.assertEqual(1, runtime.switch_count)
+        self.assertEqual(1, supervisor.loaded_model_drain_switches)
+
     def test_generate_fill_grid_runs_on_worker_lane(self):
         item = _item("generate", "generate:1", preferred_model_id=SECONDARY_MODEL.model_id)
         item.payload = {"size": 13, "index": 1}
@@ -633,7 +717,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual("background_non_llm", step.execution_mode)
         self.assertEqual("fill_grid", step.step_id)
 
-    @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definitions_for_puzzle")
+    @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definitions_for_state_direct")
     def test_generate_define_initial_injects_metadata_into_working_state(self, mock_generate_definitions):
         item = _item("generate", "generate:size:13:1", preferred_model_id=SECONDARY_MODEL.model_id)
         item.payload = {"size": 13, "index": 1}
@@ -651,8 +735,8 @@ class RunAllSupervisorTests(unittest.TestCase):
             "AER": {"normalized": "AER", "original": "aer", "word_type": "N"}
         }
 
-        def _fill_defs(puzzle, client, metadata=None, runtime=None, model_config=None):
-            puzzle.horizontal_clues[0].definition = "Gaz din atmosferă"
+        def _fill_defs(state, client, dex=None, model_config=None):
+            state.horizontal_clues[0].current.definition = "Gaz din atmosferă"
 
         mock_generate_definitions.side_effect = _fill_defs
 
@@ -750,7 +834,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         with (
             patch("rebus_generator.workflows.run_all.jobs.retitle.fetch_retitle_clues", return_value=[{"word_normalized": "APA", "definition": "Apa"}]),
             patch("rebus_generator.workflows.run_all.jobs.retitle.fetch_retitle_puzzles", return_value=[]),
-            patch("rebus_generator.workflows.run_all.jobs.retitle._generate_batch_candidates", return_value=[(SimpleNamespace(), "Titlu Nou")]),
+            patch("rebus_generator.workflows.run_all.jobs.retitle._generate_candidate_with_active_model", return_value="Titlu Nou"),
             patch("rebus_generator.workflows.run_all.jobs.retitle._rate_batch_candidates"),
             patch("rebus_generator.workflows.run_all.jobs.retitle._finalize_title_result", return_value=SimpleNamespace(title="Titlu Nou", used_fallback=False, score=8, score_complete=True)),
             patch("rebus_generator.workflows.run_all.jobs.retitle.apply_title_update", return_value=True),
@@ -804,6 +888,8 @@ class RunAllSupervisorTests(unittest.TestCase):
 
             summary = json.loads((Path(tmpdir) / "run_summary.json").read_text(encoding="utf-8"))
             self.assertEqual("test_stop", summary["stop_reason"])
+            self.assertIn("activation_overhead_seconds", summary)
+            self.assertIn("loaded_model_drain_switches", summary)
             self.assertIn("definition_rate", summary["llm"]["per_purpose"])
             self.assertIn("retitle", summary["topics"])
 

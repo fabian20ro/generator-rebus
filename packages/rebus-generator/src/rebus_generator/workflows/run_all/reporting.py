@@ -141,16 +141,21 @@ def topic_summary(supervisor, topic: str) -> dict[str, object]:
 
 
 def build_summary_payload(supervisor) -> dict[str, object]:
+    activation_seconds_total = float(getattr(supervisor.ctx.runtime, "activation_seconds_total", 0.0))
+    unload_seconds_total = float(getattr(supervisor.ctx.runtime, "unload_seconds_total", 0.0))
     return {
         "stop_reason": supervisor.stop_reason or "closed",
         "started_at_monotonic": round(supervisor.started_at, 3),
         "completed": supervisor.completed,
         "failed": supervisor.failed,
         "switch_count": supervisor.ctx.runtime.switch_count,
+        "loaded_model_drain_switches": getattr(supervisor, "loaded_model_drain_switches", 0),
+        "nested_activation_warnings": getattr(supervisor, "nested_activation_warnings", 0),
         "activation_count": getattr(supervisor.ctx.runtime, "activation_count", 0),
         "unload_count": getattr(supervisor.ctx.runtime, "unload_count", 0),
-        "activation_seconds_total": round(float(getattr(supervisor.ctx.runtime, "activation_seconds_total", 0.0)), 3),
-        "unload_seconds_total": round(float(getattr(supervisor.ctx.runtime, "unload_seconds_total", 0.0)), 3),
+        "activation_seconds_total": round(activation_seconds_total, 3),
+        "unload_seconds_total": round(unload_seconds_total, 3),
+        "activation_overhead_seconds": round(activation_seconds_total + unload_seconds_total, 3),
         "llm": llm_run_stats_snapshot(),
         "topics": {topic: topic_summary(supervisor, topic) for topic in supervisor.topics},
     }

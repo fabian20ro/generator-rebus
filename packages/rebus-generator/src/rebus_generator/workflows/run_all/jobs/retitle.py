@@ -4,10 +4,10 @@ import copy
 
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.domain.guards.title_guards import normalize_title_key
+from rebus_generator.workflows.retitle.generate import _generate_candidate_with_active_model
 from rebus_generator.workflows.retitle.batch import (
     _RetitleBatchState,
     _finalize_title_result,
-    _generate_batch_candidates,
     _rate_batch_candidates,
 )
 from rebus_generator.workflows.retitle.load import (
@@ -16,7 +16,7 @@ from rebus_generator.workflows.retitle.load import (
     stored_title_score as _stored_title_score,
 )
 from rebus_generator.workflows.retitle.persist import apply_title_update, prepare_title_update
-from rebus_generator.workflows.retitle.sanitize import FALLBACK_TITLES, MAX_TITLE_ROUNDS
+from rebus_generator.workflows.retitle.sanitize import FALLBACK_TITLES, MAX_TITLE_ROUNDS, _build_rejected_context
 from .base import JobState
 
 
@@ -81,15 +81,18 @@ class RetitleJobState(JobState):
 
     def _generate_with_model(self, ctx, model):
         assert self.title_state is not None
-        candidates = _generate_batch_candidates(
-            [self.title_state],
+        candidate = _generate_candidate_with_active_model(
+            self.title_state.definitions,
+            self.title_state.words,
             ctx.ai_client,
-            runtime=ctx.runtime,
             active_model=model,
-            round_idx=self.round_idx,
+            rejected_context=_build_rejected_context(
+                self.title_state.rejected_by_model.setdefault(model.model_id, [])
+            ),
+            empty_retry_instruction="Răspunde obligatoriu cu un singur titlu concret de 2-5 cuvinte, exclusiv în limba română.",
         )
-        if candidates:
-            self.pending_title = candidates[0][1]
+        if candidate:
+            self.pending_title = candidate
             self.pending_generator_model = model
             self._progress(
                 "rate_primary" if model.model_id == PRIMARY_MODEL.model_id else "rate_secondary",

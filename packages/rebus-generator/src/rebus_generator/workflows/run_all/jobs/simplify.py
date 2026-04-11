@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rebus_generator.platform.llm.definition_referee import compare_definition_variants_attempt
 from rebus_generator.platform.llm.ai_clues import rewrite_merged_canonical_definition, validate_merged_canonical_definition
 from rebus_generator.workflows.canonicals.simplify import (
     _append_jsonl,
     SimplifyStats,
     apply_simplify_merge,
     choose_existing_survivor,
-    compare_simplify_pairs,
     find_simplify_pair_rows,
     load_simplify_bucket,
     refresh_simplify_bucket_rows,
@@ -72,22 +72,32 @@ class SimplifyJobState(JobState):
         return None
 
     def _compare_gemma(self, ctx):
-        self.primary_votes = compare_simplify_pairs(
-            ctx.ai_client,
-            ctx.runtime,
-            self.batch_pairs,
-            model_id=PRIMARY_MODEL.model_id,
-        )
+        self.primary_votes = {
+            pair.key: compare_definition_variants_attempt(
+                ctx.ai_client,
+                pair.word,
+                len(pair.word),
+                pair.left_definition,
+                pair.right_definition,
+                model=PRIMARY_MODEL.model_id,
+            )
+            for pair in self.batch_pairs
+        }
         self._progress("compare_eurollm", detail=f"pairs={len(self.batch_pairs)}")
         return self.primary_votes
 
     def _compare_eurollm(self, ctx):
-        self.secondary_votes = compare_simplify_pairs(
-            ctx.ai_client,
-            ctx.runtime,
-            self.batch_pairs,
-            model_id=SECONDARY_MODEL.model_id,
-        )
+        self.secondary_votes = {
+            pair.key: compare_definition_variants_attempt(
+                ctx.ai_client,
+                pair.word,
+                len(pair.word),
+                pair.left_definition,
+                pair.right_definition,
+                model=SECONDARY_MODEL.model_id,
+            )
+            for pair in self.batch_pairs
+        }
         self.stats.pairs_compared += len(self.batch_pairs) * 2
         self._progress("plan_survivors", detail=f"pairs={len(self.batch_pairs)}")
         return self.secondary_votes

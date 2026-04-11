@@ -24,6 +24,7 @@ class LmRuntime:
     activation_seconds_total: float = 0.0
     unload_seconds_total: float = 0.0
     switch_callback: Callable[[str, str, "LmRuntime"], None] | None = None
+    nested_activation_callback: Callable[[str, str, dict[str, str]], None] | None = None
 
     @property
     def current_model_id(self) -> str:
@@ -79,6 +80,14 @@ class LmRuntime:
             return target
 
         prior_model_id = self.current_model.model_id if self.current_model else None
+        active_step = getattr(self, "_run_all_active_step", None)
+        if (
+            active_step is not None
+            and prior_model_id
+            and prior_model_id != target.model_id
+            and self.nested_activation_callback is not None
+        ):
+            self.nested_activation_callback(prior_model_id, target.model_id, dict(active_step))
 
         other_model_ids = [model_id for model_id in instances if model_id != target.model_id]
         if other_model_ids:

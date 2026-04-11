@@ -169,6 +169,28 @@ def _verify_runner(client: OpenAI, *, max_guesses: int):
     return _run
 
 
+def verify_clue_with_model(
+    clue: WorkingClue,
+    client: OpenAI,
+    *,
+    model_id: str,
+    max_guesses: int,
+) -> list[str]:
+    vote = _verify_runner(client, max_guesses=max_guesses)(
+        WorkItem(
+            item_id=f"verify:{clue.word_normalized}",
+            task_kind="verify",
+            payload=clue,
+            pending_models={model_id},
+        ),
+        type("_ModelRef", (), {"model_id": model_id})(),
+    )
+    candidates = list(vote.value or [])
+    clue.current.assessment.verify_votes[model_id] = candidates
+    clue.current.assessment.verify_vote_sources[model_id] = vote.source
+    return candidates
+
+
 def _verify_conclusion(model_order: list[str]):
     model_set = set(model_order)
 
@@ -228,6 +250,28 @@ def _rate_runner(client: OpenAI, *, dex: DexProvider | None):
         )
 
     return _run
+
+
+def rate_clue_with_model(
+    clue: WorkingClue,
+    client: OpenAI,
+    *,
+    dex: DexProvider | None,
+    model_id: str,
+) -> DefinitionRating | None:
+    vote = _rate_runner(client, dex=dex)(
+        WorkItem(
+            item_id=f"rate:{clue.word_normalized}",
+            task_kind="rate",
+            payload=clue,
+            pending_models={model_id},
+        ),
+        type("_ModelRef", (), {"model_id": model_id})(),
+    )
+    clue.current.assessment.rating_vote_sources[model_id] = vote.source
+    if vote.value is not None:
+        clue.current.assessment.rating_votes[model_id] = vote.value
+    return vote.value
 
 
 def _rate_conclusion(model_order: list[str]):

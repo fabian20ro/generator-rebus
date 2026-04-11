@@ -194,7 +194,7 @@ class ClueCanonStoreTests(unittest.TestCase):
         self.assertEqual("LA", rows[0].word_normalized)
 
     @patch("rebus_generator.platform.persistence.clue_canon_store.execute_logged_insert")
-    def test_create_canonical_definition_recovers_from_duplicate_conflict(self, mock_insert):
+    def test_create_canonical_definition_recovers_from_duplicate_conflict_via_exact_db_reload(self, mock_insert):
         client = MagicMock()
         store = ClueCanonStore(client=client)
         record = SimpleNamespace(
@@ -225,9 +225,9 @@ class ClueCanonStoreTests(unittest.TestCase):
 
         mock_insert.side_effect = APIError({"code": "23505", "message": "dup"})
 
-        with patch.object(store, "find_exact_canonical", side_effect=[None, existing]), \
-             patch.object(store, "bump_usage", return_value=existing) as bump_usage, \
-             patch.object(store, "fetch_canonical_variants", return_value=[existing]):
+        with patch.object(store, "find_exact_canonical", return_value=None), \
+             patch.object(store, "find_exact_canonical_db", side_effect=[None, existing]), \
+             patch.object(store, "bump_usage", return_value=existing) as bump_usage:
             created = store.create_canonical_definition(record)
 
         self.assertEqual(existing, created)

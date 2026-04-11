@@ -717,23 +717,23 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertTrue(_is_publishable(prepared))
 
-    def test_low_pass_rate_blocks_publication_even_without_missing_definitions(self):
+    def test_zero_consensus_verified_clues_blocks_publication_even_without_missing_definitions(self):
         prepared = _prepared_puzzle(
             title="Test",
             definition_score=8.0,
             blocking_words=[],
-            verified_count=2,
+            verified_count=0,
             total_clues=22,
         )
 
         self.assertFalse(_is_publishable(prepared))
 
-    def test_publishability_failure_reports_low_pass_rate_and_incomplete_pairs(self):
+    def test_publishability_failure_reports_missing_consensus_and_incomplete_pairs(self):
         prepared = _prepared_puzzle(
             title="Test",
             definition_score=8.0,
             blocking_words=[],
-            verified_count=2,
+            verified_count=0,
             total_clues=22,
             scores_complete=False,
             verify_incomplete_count=1,
@@ -743,7 +743,7 @@ class BatchPublishTests(unittest.TestCase):
 
         message = _describe_publishability_failure(prepared)
 
-        self.assertIn("low pass rate", message)
+        self.assertIn("no consensus-verified clue", message)
         self.assertIn("incomplete pair evaluation", message)
         self.assertIn("AER, NOR", message)
 

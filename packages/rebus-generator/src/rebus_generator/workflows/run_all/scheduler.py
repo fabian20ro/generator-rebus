@@ -106,7 +106,12 @@ class RunAllSupervisor:
         self.load_seconds_at_last_completion = self.ledger.load_seconds_at_last_completion
         self.stop_reason = ""
         self.summary_written = False
+        self.loaded_model_drain_switches = 0
+        self.nested_activation_warnings = 0
+        self._next_switch_reason = "initial_load"
         self.ctx.runtime.switch_callback = self._on_model_switch
+        if hasattr(self.ctx.runtime, "nested_activation_callback"):
+            self.ctx.runtime.nested_activation_callback = self._on_nested_activation
 
     def run(self, *, max_cycles: int | None = None) -> None:
         cycles = 0
@@ -166,15 +171,21 @@ class RunAllSupervisor:
             return ran_any
         model_id = self._choose_model_for_steps(llm_steps)
         self._ensure_model_active(model_id)
-        batch = [step for step in llm_steps if step.model_id == model_id]
-        topic_counts = Counter(step.topic for step in batch)
+        topic_counts = Counter(step.topic for step in llm_steps if step.model_id == model_id)
         topic_text = " ".join(f"{topic}={topic_counts.get(topic, 0)}" for topic in self.topics)
         log(
-            f"[run_all batch] model={model_id} steps={len(batch)} "
+            f"[run_all drain] model={model_id} ready={sum(topic_counts.values())} "
             f"topics=({topic_text}) {self._queue_snapshot_text()}"
         )
-        for step in batch:
-            self._run_step(step, lane="llm")
+        while True:
+            same_model_steps = [
+                step
+                for step in self._collect_steps()
+                if step.execution_mode == "llm" and step.model_id == model_id
+            ]
+            if not same_model_steps:
+                break
+            self._run_step(same_model_steps[0], lane="llm")
             ran_any = True
             self._poll_worker_task()
             self._finalize_finished_jobs()
@@ -209,6 +220,13 @@ class RunAllSupervisor:
         return PRIMARY_MODEL.model_id
 
     def _ensure_model_active(self, model_id: str) -> None:
+        previous_model_id = self.ctx.runtime.current_model_id
+        if previous_model_id and previous_model_id != model_id:
+            self._next_switch_reason = "loaded_model_drained"
+        elif not previous_model_id:
+            self._next_switch_reason = "initial_load"
+        else:
+            self._next_switch_reason = "already_loaded"
         if model_id == PRIMARY_MODEL.model_id:
             self.ctx.runtime.activate_primary()
             return
@@ -227,6 +245,12 @@ class RunAllSupervisor:
             f"step={step.step_id} purpose={step.purpose} lane={lane} model={step.model_id or '-'}"
         )
         try:
+            if lane == "llm":
+                setattr(
+                    self.ctx.runtime,
+                    "_run_all_active_step",
+                    {"topic": job.topic, "job_id": job.item_id, "step_id": step.step_id},
+                )
             step.runner(self.ctx)
         except KeyboardInterrupt:
             job.running_step_id = None
@@ -244,6 +268,9 @@ class RunAllSupervisor:
         else:
             job.running_step_id = None
             self._note_progress(f"step:{job.topic}:{step.step_id}")
+        finally:
+            if lane == "llm" and hasattr(self.ctx.runtime, "_run_all_active_step"):
+                setattr(self.ctx.runtime, "_run_all_active_step", None)
 
     def _submit_background_step(self, step: StepState) -> None:
         job = self._job_by_id(step.job_id)
@@ -493,10 +520,23 @@ class RunAllSupervisor:
         return queue_snapshot_text(self)
 
     def _on_model_switch(self, previous_model_id: str, next_model_id: str, runtime: LmRuntime) -> None:
+        reason = self._next_switch_reason or "unknown"
+        if reason == "loaded_model_drained":
+            self.loaded_model_drain_switches += 1
         log(
             f"[run_all switch] from={previous_model_id or '-'} to={next_model_id} "
-            f"reason=current_queue_empty switch_count={runtime.switch_count} "
+            f"reason={reason} switch_count={runtime.switch_count} "
             f"{self._queue_snapshot_text()}"
+        )
+        self._next_switch_reason = ""
+
+    def _on_nested_activation(self, previous_model_id: str, next_model_id: str, step_info: dict[str, str]) -> None:
+        self.nested_activation_warnings += 1
+        log(
+            "[run_all nested_activation] "
+            f"topic={step_info.get('topic') or '-'} job={step_info.get('job_id') or '-'} "
+            f"step={step_info.get('step_id') or '-'} from={previous_model_id} to={next_model_id}",
+            level="WARN",
         )
 
     def _format_age_seconds(self, started_at: float) -> str:

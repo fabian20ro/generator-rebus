@@ -14,11 +14,69 @@ from rebus_generator.platform.llm.models import ModelConfig, PRIMARY_MODEL
 from rebus_generator.domain.pipeline_state import (
     WorkingClue,
     WorkingPuzzle,
+    all_working_clues,
     puzzle_from_working_state,
     set_current_definition,
     working_puzzle_from_puzzle,
 )
 from rebus_generator.platform.io.runtime_logging import log
+
+
+def generate_definition_for_working_clue(
+    clue: WorkingClue,
+    client: OpenAI,
+    *,
+    theme: str,
+    dex: DexProvider | None = None,
+    clue_canon: ClueCanonService | None = None,
+    model_config: ModelConfig = PRIMARY_MODEL,
+) -> str:
+    clue_canon = clue_canon or ClueCanonService()
+    dex_defs = dex.get(clue.word_normalized, clue.word_original) if dex else None
+    dex_defs = dex_defs or ""
+    existing_canonical_definitions = clue_canon.fetch_prompt_examples(clue.word_normalized)
+    return generate_definition(
+        client,
+        clue.word_normalized,
+        clue.word_original,
+        theme,
+        word_type=clue.word_type,
+        dex_definitions=dex_defs,
+        existing_canonical_definitions=existing_canonical_definitions,
+        model=model_config.model_id,
+    )
+
+
+def generate_definitions_for_state_direct(
+    state: WorkingPuzzle,
+    client: OpenAI,
+    *,
+    dex: DexProvider | None = None,
+    clue_canon: ClueCanonService | None = None,
+    model_config: ModelConfig = PRIMARY_MODEL,
+) -> None:
+    theme = state.title or "Rebus Românesc"
+    clue_canon = clue_canon or ClueCanonService()
+    for clue in all_working_clues(state):
+        if clue.current.definition:
+            continue
+        definition = generate_definition_for_working_clue(
+            clue,
+            client,
+            theme=theme,
+            dex=dex,
+            clue_canon=clue_canon,
+            model_config=model_config,
+        )
+        set_current_definition(
+            clue,
+            definition,
+            round_index=0,
+            source="generate",
+            generated_by=model_config.display_name,
+        )
+        if clue.best is None:
+            clue.best = clue.current
 
 
 def _split_and_define(

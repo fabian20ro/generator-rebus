@@ -30,24 +30,25 @@ pub(crate) fn settings_for_size(size: usize) -> Option<SizeSettings> {
 
     let step = (size - 7) as f64;
     let max_nodes = round_to(600_000.0 * 1.45_f64.powf(step), 50_000.0);
+    // 7:1  8:2  9:5  10:8  11:11  12:16  13:20  14:24  15:32
     let target_blacks = match size {
         7 => 0,
         8 => 1,
         9 => 4,
         10 => 7,
         11 => 10,
-        12 => 16,
+        12 => 15,
         13 => 18,
-        14 => 25,
-        15 => 32,
+        14 => 23,
+        15 => 31,
         _ => unreachable!("validated size range"),
     };
     let max_extra_blacks = match size {
         7..=8 => 6,
-        9..=10 => 7,
-        11..=12 => 8,
-        13..=14 => 9,
-        _ => 10,
+        9..=10 => 8,
+        11..=12 => 10,
+        13..=14 => 12,
+        _ => 14,
     };
     let attempt_budget = 48 + 6 * (size - 7) + (3 * (size - 7) * (size - 7)) / 4;
     let step_time_budget_ms = 15_000;

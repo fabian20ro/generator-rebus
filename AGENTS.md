@@ -4,6 +4,8 @@ work style: telegraph; noun-phrases ok; drop grammar; min tokens.
 
 > bootstrap context only. discoverable from codebase → don't put here.
 > corrections + patterns → LESSONS_LEARNED.md.
+> aim for extensibility, maintainability, testability, performance, reusability, DRY, YAGNI. small fixes in the right places are preferable to refactors. leave the code in a better state than you found it.
+> you find contradicting information and can't decide from code → explain problem to user. ask for clarification, don't assume.
 
 ## Constraints
 

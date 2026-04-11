@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import re
+import time
 
 from postgrest.exceptions import APIError
 
 from rebus_generator.domain.clue_canon_ranking import canonical_reset_safe_sort_key
 from rebus_generator.domain.clue_canon_types import CanonicalDefinition, ClueDefinitionRecord
-from rebus_generator.platform.io.runtime_logging import log
+from rebus_generator.platform.io.runtime_logging import audit, log
 from .supabase_ops import create_service_role_client, execute_logged_insert, execute_logged_update
 
 _CANONICAL_SELECT = (
@@ -18,6 +19,7 @@ _CANONICAL_SELECT = (
     "creativity_score, usage_count, superseded_by"
 )
 _CLUE_PAGE_SIZE = 1000
+_CONFLICT_RELOAD_RETRY_SECONDS = 0.1
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-"
     r"[0-9a-fA-F]{4}-"
@@ -165,6 +167,37 @@ class ClueCanonStore:
             _canonical_identity_key(word, word_type, usage_label, definition_norm)
         )
 
+    def find_exact_canonical_db(
+        self,
+        word_normalized: str,
+        definition_norm: str,
+        *,
+        word_type: str = "",
+        usage_label: str = "",
+    ) -> CanonicalDefinition | None:
+        word = str(word_normalized or "").strip().upper()
+        exact_word_type = str(word_type or "").strip().upper()
+        exact_usage_label = str(usage_label or "").strip()
+        exact_definition_norm = str(definition_norm or "").strip()
+        if not word or not exact_definition_norm:
+            return None
+        result = (
+            self.client.table("canonical_clue_definitions")
+            .select(_CANONICAL_SELECT)
+            .eq("word_normalized", word)
+            .eq("word_type", exact_word_type)
+            .eq("usage_label", exact_usage_label)
+            .eq("definition_norm", exact_definition_norm)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        if not rows:
+            return None
+        canonical = self._canonical_from_row(rows[0])
+        self._prime_canonical_cache(canonical)
+        return canonical
+
     def create_canonical_definition(self, record: ClueDefinitionRecord) -> CanonicalDefinition | None:
         existing = self.find_exact_canonical(
             record.word_normalized,
@@ -172,6 +205,13 @@ class ClueCanonStore:
             word_type=record.word_type,
             usage_label=record.usage_label,
         )
+        if existing is None:
+            existing = self.find_exact_canonical_db(
+                record.word_normalized,
+                record.definition_norm,
+                word_type=record.word_type,
+                usage_label=record.usage_label,
+            )
         if existing is not None:
             return self.bump_usage(existing.id, record.word_normalized)
 
@@ -200,18 +240,51 @@ class ClueCanonStore:
             if not _is_unique_conflict(exc):
                 raise
             self._invalidate_canonical_cache(record.word_normalized)
-            existing = self.find_exact_canonical(
+            existing = self.find_exact_canonical_db(
                 record.word_normalized,
                 record.definition_norm,
                 word_type=record.word_type,
                 usage_label=record.usage_label,
             )
+            if existing is None:
+                time.sleep(_CONFLICT_RELOAD_RETRY_SECONDS)
+                existing = self.find_exact_canonical_db(
+                    record.word_normalized,
+                    record.definition_norm,
+                    word_type=record.word_type,
+                    usage_label=record.usage_label,
+                )
             if existing is not None:
+                audit(
+                    "clue_canon_conflict_recovered_direct_exact",
+                    component="clue_canon",
+                    payload={
+                        "word": record.word_normalized,
+                        "word_type": record.word_type,
+                        "usage_label": record.usage_label,
+                        "definition_norm": record.definition_norm,
+                    },
+                )
                 log(
-                    "[canonical conflict recovered] "
+                    "[canonical conflict recovered_direct_exact] "
                     f"word={record.word_normalized} definition_norm={record.definition_norm}"
                 )
                 return self.bump_usage(existing.id, record.word_normalized) or existing
+            audit(
+                "clue_canon_conflict_unresolved",
+                component="clue_canon",
+                payload={
+                    "word": record.word_normalized,
+                    "word_type": record.word_type,
+                    "usage_label": record.usage_label,
+                    "definition_norm": record.definition_norm,
+                },
+            )
+            log(
+                "[canonical conflict unresolved] "
+                f"word={record.word_normalized} definition_norm={record.definition_norm}",
+                level="ERROR",
+            )
             raise RuntimeError(
                 "Canonical insert conflicted but exact canonical could not be reloaded: "
                 f"word={record.word_normalized} word_type={record.word_type} "

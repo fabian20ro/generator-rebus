@@ -15,7 +15,7 @@ from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.domain.score_helpers import _restore_best_versions
 from rebus_generator.platform.io.runtime_logging import path_timestamp, utc_timestamp, log
 from rebus_generator.platform.io.markdown_io import parse_markdown
-from rebus_generator.workflows.generate.define import generate_definitions_for_puzzle
+from rebus_generator.workflows.generate.define import generate_definitions_for_state_direct
 from rebus_generator.workflows.generate.models import PreparedPuzzle
 from rebus_generator.workflows.generate.prepare import (
     _backfill_generated_model,
@@ -108,14 +108,16 @@ class GenerateJobState(JobState):
 
     def _define_initial(self, ctx):
         assert self.working_puzzle is not None
-        generate_definitions_for_puzzle(
-            self.working_puzzle,
+        state = working_puzzle_from_puzzle(self.working_puzzle, split_compound=True)
+        for clue in state.horizontal_clues + state.vertical_clues:
+            word_meta = self.resolved_metadata.get(clue.word_normalized, {})
+            clue.word_type = word_meta.get("word_type", "")
+        generate_definitions_for_state_direct(
+            state,
             ctx.ai_client,
-            metadata=self.resolved_metadata,
-            runtime=ctx.runtime,
+            dex=DexProvider.for_puzzle(state),
             model_config=PRIMARY_MODEL,
         )
-        state = working_puzzle_from_puzzle(self.working_puzzle, split_compound=False)
         _backfill_generated_model(state, PRIMARY_MODEL.display_name)
         _inject_word_metadata(state, self.resolved_metadata)
         self.working_puzzle = state
