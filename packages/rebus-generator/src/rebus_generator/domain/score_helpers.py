@@ -64,8 +64,10 @@ def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     """
     clue = _coerce_working_clue(clue)
     definition = clue.current.definition
-    if not definition or definition.startswith("["):
+    if not definition:
         return True
+    if definition.startswith("["):
+        return False
 
     semantic_score = _extract_semantic_score(clue)
     rebus_score = _extract_rebus_score(clue)

@@ -31,42 +31,49 @@ def score_puzzle_state(
     if not clues:
         return PuzzleAssessment()
 
+    ratable_clues = [
+        c for c in clues 
+        if c.active_version().definition and not c.active_version().definition.startswith("[")
+    ]
+
     verified_count = sum(1 for clue in clues if clue.active_version().assessment.verified is True)
     total_clues = len(clues)
     pass_rate = verified_count / total_clues if total_clues else 0.0
-    exact_scores = [clue.active_version().assessment.scores.semantic_exactness or 0 for clue in clues]
-    rebus_scores = [clue.active_version().assessment.scores.rebus_score or 0 for clue in clues]
-    creativity_scores = [clue.active_version().assessment.scores.creativity or 0 for clue in clues]
-    targeting_scores = [clue.active_version().assessment.scores.answer_targeting or 0 for clue in clues]
+    
+    exact_scores = [c.active_version().assessment.scores.semantic_exactness for c in ratable_clues]
+    rebus_scores = [c.active_version().assessment.scores.rebus_score for c in ratable_clues]
+    creativity_scores = [c.active_version().assessment.scores.creativity for c in ratable_clues]
+    targeting_scores = [c.active_version().assessment.scores.answer_targeting for c in ratable_clues]
+    
     verify_incomplete_words = [
         clue.word_normalized
-        for clue in clues
+        for clue in ratable_clues
         if not clue.active_version().assessment.verify_complete
     ]
     rating_incomplete_words = [
         clue.word_normalized
-        for clue in clues
+        for clue in ratable_clues
         if not clue.active_version().assessment.rating_complete
     ]
     incomplete_words = list(dict.fromkeys(verify_incomplete_words + rating_incomplete_words))
     ambiguity_count = sum(
         1
-        for clue in clues
+        for clue in ratable_clues
         if (clue.active_version().assessment.scores.ambiguity_risk or 0) >= (11 - RATE_MIN_REBUS)
     )
     scores_complete = all(
-        clue.active_version().assessment.verify_complete
-        and clue.active_version().assessment.rating_complete
-        and clue.active_version().assessment.scores.semantic_exactness is not None
-        and clue.active_version().assessment.scores.answer_targeting is not None
-        and clue.active_version().assessment.scores.creativity is not None
-        and clue.active_version().assessment.scores.rebus_score is not None
-        for clue in clues
+        c.active_version().assessment.verify_complete
+        and c.active_version().assessment.rating_complete
+        and c.active_version().assessment.scores.semantic_exactness is not None
+        and c.active_version().assessment.scores.answer_targeting is not None
+        and c.active_version().assessment.scores.creativity is not None
+        and c.active_version().assessment.scores.rebus_score is not None
+        for c in ratable_clues
     )
     short_word_burden = sum(1 for clue in clues if len(clue.word_normalized) <= 3)
     rare_word_burden = candidate_report.high_rarity_words if candidate_report else 0
     blocker_words = [clue.word_normalized for clue in clues if _needs_rewrite(clue)]
-    non_preset_rebus = [clue.active_version().assessment.scores.rebus_score or 0 for clue in clues]
+    non_preset_rebus = [s for s in rebus_scores if s is not None]
 
     if not scores_complete:
         return PuzzleAssessment(
@@ -83,15 +90,15 @@ def score_puzzle_state(
         )
 
     return PuzzleAssessment(
-        definition_score=sum(e + r for e, r in zip(exact_scores, rebus_scores)) / len(clues),
-        avg_exactness=sum(exact_scores) / len(exact_scores),
-        avg_targeting=sum(targeting_scores) / len(targeting_scores),
+        definition_score=sum(e + r for e, r in zip(exact_scores, rebus_scores)) / len(ratable_clues) if ratable_clues else 0.0,
+        avg_exactness=sum(exact_scores) / len(exact_scores) if exact_scores else 0.0,
+        avg_targeting=sum(targeting_scores) / len(targeting_scores) if targeting_scores else 0.0,
         ambiguity_count=ambiguity_count,
         short_word_burden=short_word_burden,
         rare_word_burden=rare_word_burden,
         blocker_words=blocker_words,
-        avg_creativity=sum(creativity_scores) / len(creativity_scores),
-        avg_rebus=sum(rebus_scores) / len(rebus_scores),
+        avg_creativity=sum(creativity_scores) / len(creativity_scores) if creativity_scores else 0.0,
+        avg_rebus=sum(rebus_scores) / len(rebus_scores) if rebus_scores else 0.0,
         min_rebus=min(non_preset_rebus) if non_preset_rebus else 0,
         verified_count=verified_count,
         total_clues=total_clues,
