@@ -353,7 +353,7 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertEqual(1, assessment.verify_incomplete_count)
         self.assertEqual(0, assessment.rating_incomplete_count)
         self.assertEqual(["NOR"], assessment.incomplete_words)
-        self.assertIsNone(payload["rebus_score_min"])
+        self.assertEqual(6, payload["rebus_score_min"])
         self.assertIsNone(payload["definition_score"])
         self.assertEqual(1, payload["verified_count"])
         self.assertEqual(0.5, payload["pass_rate"])

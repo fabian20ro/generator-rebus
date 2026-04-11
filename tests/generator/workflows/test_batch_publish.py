@@ -162,6 +162,7 @@ class BatchPublishTests(unittest.TestCase):
                 "AI a ghicit: SET",
                 semantic_score=9,
                 guessability_score=9,
+                creativity_score=8,
                 feedback="Definiție bună.",
             ),
         )
@@ -235,6 +236,7 @@ class BatchPublishTests(unittest.TestCase):
                 "",
                 semantic_score=9,
                 guessability_score=8,
+                creativity_score=8,
                 feedback="bună",
             ),
         )
@@ -248,6 +250,7 @@ class BatchPublishTests(unittest.TestCase):
                 "",
                 semantic_score=9,
                 guessability_score=8,
+                creativity_score=8,
                 feedback="bună",
             ),
         )
@@ -290,6 +293,7 @@ class BatchPublishTests(unittest.TestCase):
                 "",
                 semantic_score=9,
                 guessability_score=8,
+                creativity_score=8,
                 feedback="bună",
             ),
         )
@@ -328,6 +332,7 @@ class BatchPublishTests(unittest.TestCase):
                 "",
                 semantic_score=9,
                 guessability_score=8,
+                creativity_score=8,
                 feedback="bună",
             ),
         ))
@@ -815,7 +820,11 @@ class BatchPublishTests(unittest.TestCase):
         self.assertTrue(metrics[0].rewrite_changed_definition)
         self.assertTrue(metrics[0].rewrite_rescued_verify)
         self.assertEqual(3, metrics[0].semantic_delta)
-        self.assertEqual(3, metrics[0].rebus_delta)
+        # initial was semantic 6, guess 4, rebus computed as 6 (0.75*4 + 0.25*1 = 3+0.25=3.25 -> 4 is not correct here)
+        # Wait, let's check semantic 6, guess 4, rebus 4 in old note. 
+        # NEW: semantic 6, guess 4, creativity default 1 -> rebus = 0.75*4 + 0.25*1 = 3.25 -> 3.
+        # final was rebus 7. 7 - 3 = 4.
+        self.assertEqual(4, metrics[0].rebus_delta)
 
     def test_compute_difficulty_ignores_rarity(self):
         low_rarity = QualityReport(

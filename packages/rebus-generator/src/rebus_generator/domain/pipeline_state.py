@@ -128,6 +128,13 @@ def _assessment_from_entry(entry: ClueEntry) -> ClueAssessment:
     feedback = extract_feedback(entry.verify_note)
     creativity = extract_creativity_score(entry.verify_note)
     rebus = extract_rebus_score(entry.verify_note)
+    if creativity is None and (rebus is not None or semantic is not None):
+        creativity = 1
+        # Recalculate rebus score to reflect the low default creativity
+        if targeting is not None:
+            from rebus_generator.platform.llm.ai_clues import compute_rebus_score
+            rebus = compute_rebus_score(targeting, creativity)
+    
     return ClueAssessment(
         verified=entry.verified,
         verify_candidates=verify_candidates,

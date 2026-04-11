@@ -74,7 +74,7 @@ class DefinitionRating:
     semantic_score: int
     guessability_score: int
     feedback: str
-    creativity_score: int = 5
+    creativity_score: int = 1
     rarity_only_override: bool = False
     response_source: str = RESPONSE_SOURCE_REASONING
 
