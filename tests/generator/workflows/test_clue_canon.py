@@ -6,6 +6,7 @@ from pathlib import Path
 from rebus_generator.workflows.canonicals.runtime import run_audit
 from rebus_generator.workflows.canonicals.service import build_parser
 from rebus_generator.workflows.canonicals.domain_service import (
+    ClueCanonService,
     aggregate_referee_votes,
     build_definition_record,
     build_exact_groups,
@@ -26,6 +27,9 @@ def _canonical(
     usage_label: str = "",
     verified: bool = True,
     usage_count: int = 1,
+    semantic_score: int | None = 8,
+    rebus_score: int | None = 7,
+    creativity_score: int | None = 6,
     superseded_by: str | None = None,
 ) -> CanonicalDefinition:
     return CanonicalDefinition(
@@ -37,9 +41,9 @@ def _canonical(
         word_type=word_type,
         usage_label=usage_label,
         verified=verified,
-        semantic_score=8,
-        rebus_score=7,
-        creativity_score=6,
+        semantic_score=semantic_score,
+        rebus_score=rebus_score,
+        creativity_score=creativity_score,
         usage_count=usage_count,
         superseded_by=superseded_by,
     )
@@ -130,6 +134,65 @@ class ClueCanonTests(unittest.TestCase):
         winner = choose_canonical_winner(rows)
 
         self.assertEqual("2", winner.id)
+
+    def test_choose_canonical_winner_uses_stable_fallback_after_reset(self):
+        rows = [
+            build_definition_record({
+                "id": "2",
+                "word_normalized": "APA",
+                "word_original": "apă",
+                "definition": "Zonă lichidă.",
+                "verified": False,
+                "semantic_score": None,
+                "rebus_score": None,
+                "creativity_score": None,
+            }),
+            build_definition_record({
+                "id": "1",
+                "word_normalized": "APA",
+                "word_original": "apă",
+                "definition": "Arie lichidă.",
+                "verified": False,
+                "semantic_score": None,
+                "rebus_score": None,
+                "creativity_score": None,
+            }),
+        ]
+
+        winner = choose_canonical_winner(rows)
+
+        self.assertEqual("1", winner.id)
+
+    def test_fetch_prompt_examples_keeps_reset_safe_store_order(self):
+        store = type("Store", (), {
+            "fetch_canonical_variants": lambda _self, _word, limit=None: [
+                _canonical(
+                    canonical_id="1",
+                    word="LA",
+                    definition="Abordare lexicală.",
+                    verified=False,
+                    usage_count=0,
+                    semantic_score=None,
+                    rebus_score=None,
+                    creativity_score=None,
+                ),
+                _canonical(
+                    canonical_id="2",
+                    word="LA",
+                    definition="Zidire lexicală.",
+                    verified=False,
+                    usage_count=0,
+                    semantic_score=None,
+                    rebus_score=None,
+                    creativity_score=None,
+                ),
+            ][:limit],
+        })()
+        service = ClueCanonService(store=store)
+
+        examples = service.fetch_prompt_examples("LA", limit=2)
+
+        self.assertEqual(["Abordare lexicală.", "Zidire lexicală."], examples)
 
     def test_generate_near_duplicate_candidates_finds_similar_same_word_defs(self):
         rows = [

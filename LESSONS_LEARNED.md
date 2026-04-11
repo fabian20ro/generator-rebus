@@ -200,6 +200,8 @@
 
 **[2026-04-11]** Static dictionary scarcity should be a sidecar artifact with one builder owner — if phase-1 uses one normalized/deduplicated filter path but scarcity heuristics are recomputed elsewhere (or inline during search), structural knobs, effort scaling, and solver heuristics can silently diverge on what “the dictionary” contains. Build one `words.profile.json` sidecar from the same Rust filter semantics, let size policy own black counts, and let the sidecar drive only effort scaling and solver tie-break heuristics.
 
+**[2026-04-11]** Resettable DB quality fields must be treated as cache/history, never as runtime truth — if a migration or ops reset clears `crossword_clues.verified`, puzzle pass metadata, or canonical quality scores, live publishability and rewrite decisions must still come from fresh in-memory verify/rate results. Whole-puzzle pass rate must not collapse to `0` just because one pair evaluation is incomplete, and canonical ranking must fall back to deterministic neutral ordering when quality evidence is blank instead of treating reset rows as “bad”.
+
 ---
 
 ## Archive

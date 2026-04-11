@@ -84,6 +84,7 @@ class RewriteSession:
     current_round: RewriteRoundState | None = None
     round_index: int = 1
     initialized: bool = False
+    initial_passed: int = 0
     final_result: RewriteLoopResult | None = None
 
 
@@ -150,13 +151,15 @@ def start_rewrite_session(
 def rewrite_session_initial_verify(session: RewriteSession) -> tuple[int, int]:
     from . import rewrite_engine as facade
 
-    return facade.verify_working_puzzle(
+    passed, total = facade.verify_working_puzzle(
         session.puzzle,
         session.client,
         skip_words=session.preset_skip,
         runtime=session.scoring_runtime,
         max_guesses=session.verify_candidates,
     )
+    session.initial_passed = passed
+    return passed, total
 
 
 def rewrite_session_initial_rate(session: RewriteSession) -> None:
@@ -217,7 +220,7 @@ def finish_rewrite_session(session: RewriteSession) -> RewriteLoopResult:
             payload={"word": clue.word_normalized, "definition": unresolved_definition, "reason": reason},
         )
     session.final_result = RewriteLoopResult(
-        initial_passed=sum(1 for clue in all_working_clues(session.puzzle) if clue.history and clue.history[0].assessment.verified),
+        initial_passed=session.initial_passed,
         final_passed=final_passed,
         total=len(all_working_clues(session.puzzle)),
         model_switches=session.runtime.switch_count,

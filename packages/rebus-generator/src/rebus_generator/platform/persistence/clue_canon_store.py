@@ -7,6 +7,7 @@ import re
 
 from postgrest.exceptions import APIError
 
+from rebus_generator.domain.clue_canon_ranking import canonical_reset_safe_sort_key
 from rebus_generator.domain.clue_canon_types import CanonicalDefinition, ClueDefinitionRecord
 from rebus_generator.platform.io.runtime_logging import log
 from .supabase_ops import create_service_role_client, execute_logged_insert, execute_logged_update
@@ -706,15 +707,7 @@ class ClueCanonStore:
         )
 
 def _canonical_sort_key(row: CanonicalDefinition) -> tuple[object, ...]:
-    return (
-        0 if row.verified else 1,
-        -(row.semantic_score or -1),
-        -(row.rebus_score or -1),
-        -(row.creativity_score or -1),
-        -row.usage_count,
-        len(row.definition or ""),
-        row.id,
-    )
+    return canonical_reset_safe_sort_key(row)
 
 
 def _to_int(value) -> int | None:

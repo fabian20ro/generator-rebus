@@ -8,7 +8,7 @@ from rebus_generator.domain.clue_rating import append_rating_to_note
 from rebus_generator.platform.io.markdown_io import ClueEntry
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.domain.pipeline_state import ClueScores, working_clue_from_entry
-from rebus_generator.domain.puzzle_metrics import score_puzzle_state, puzzle_metadata_payload
+from rebus_generator.domain.puzzle_metrics import build_puzzle_description, puzzle_metadata_payload, score_puzzle_state
 from rebus_generator.workflows.generate.verify import (
     _finalize_pair_rating,
     _finalize_pair_verification,
@@ -319,24 +319,45 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertEqual((0.0, 0.0, 0), (avg_semantic, avg_guessability, rated))
         self.assertEqual("", puzzle.horizontal_clues[0].verify_note)
 
-    def test_puzzle_metrics_emit_null_payload_when_pair_incomplete(self):
-        clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
-        clue.current.assessment.verify_complete = False
-        clue.current.assessment.rating_complete = True
-        clue.current.assessment.scores = ClueScores(
+    def test_puzzle_metrics_keep_live_pass_rate_when_pair_incomplete(self):
+        passed = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
+        passed.current.assessment.verified = True
+        passed.current.assessment.verify_complete = True
+        passed.current.assessment.rating_complete = True
+        passed.current.assessment.scores = ClueScores(
             semantic_exactness=8,
             answer_targeting=6,
             creativity=6,
             rebus_score=6,
         )
-        puzzle = SimpleNamespace(horizontal_clues=[clue], vertical_clues=[])
+        incomplete = working_clue_from_entry(ClueEntry(2, "NOR", "nor", "Masă albă pe cer"))
+        incomplete.current.assessment.verified = False
+        incomplete.current.assessment.verify_complete = False
+        incomplete.current.assessment.rating_complete = True
+        incomplete.current.assessment.scores = ClueScores(
+            semantic_exactness=8,
+            answer_targeting=6,
+            creativity=6,
+            rebus_score=6,
+        )
+        puzzle = SimpleNamespace(horizontal_clues=[passed, incomplete], vertical_clues=[])
 
         assessment = score_puzzle_state(puzzle)
         payload = puzzle_metadata_payload(assessment, description="x")
+        description = build_puzzle_description(assessment, ["gemma", "eurollm"])
 
         self.assertFalse(assessment.scores_complete)
+        self.assertEqual(1, assessment.verified_count)
+        self.assertEqual(2, assessment.total_clues)
+        self.assertEqual(0.5, assessment.pass_rate)
+        self.assertEqual(1, assessment.verify_incomplete_count)
+        self.assertEqual(0, assessment.rating_incomplete_count)
+        self.assertEqual(["NOR"], assessment.incomplete_words)
         self.assertIsNone(payload["rebus_score_min"])
         self.assertIsNone(payload["definition_score"])
+        self.assertEqual(1, payload["verified_count"])
+        self.assertEqual(0.5, payload["pass_rate"])
+        self.assertIn("Verificate: 1/2", description)
 
     def test_finalize_pair_verification_handles_single_negative_vote_without_keyerror(self):
         clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))

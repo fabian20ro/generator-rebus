@@ -27,7 +27,7 @@ from rebus_generator.workflows.generate.titleing import generate_publication_tit
 from rebus_generator.workflows.redefine.rewrite_engine import run_rewrite_loop
 
 from .models import PreparedPuzzle
-from .quality_gate import _better_prepared_puzzle, _is_publishable
+from .quality_gate import _better_prepared_puzzle, _describe_publishability_failure, _is_publishable
 
 
 def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
@@ -248,14 +248,13 @@ def _prepare_puzzle_for_publication(
             best_prepared, prepared, client=client, runtime=runtime
         )
 
-        if blockers:
-            log(
-                "Rejected puzzle after quality gate: "
-                + ", ".join(clue.word_normalized for clue in blockers[:10])
-            )
-        elif _is_publishable(best_prepared):
+        if _is_publishable(best_prepared):
             log(f"  Puzzle publicabil la tentativa {attempt_index}/{effective_attempts}")
             break
+        log(
+            "Rejected puzzle after quality gate: "
+            + _describe_publishability_failure(prepared)
+        )
 
     if best_prepared is None:
         raise RuntimeError(f"Failed to prepare any {size}x{size} puzzle candidate")

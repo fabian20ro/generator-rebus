@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 from itertools import combinations
 import re
 
+from rebus_generator.domain.clue_canon_ranking import canonical_reset_safe_sort_key
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.domain.clue_canon_types import (
     BackfillStats,
@@ -169,14 +170,7 @@ def update_reduction_stats(stats: BackfillStats, *, word: str, before: int, afte
 
 
 def _canonical_sort_key(row: ClueDefinitionRecord) -> tuple[object, ...]:
-    return (
-        0 if row.verified else 1,
-        -(row.semantic_score or -1),
-        -(row.rebus_score or -1),
-        -(row.creativity_score or -1),
-        len(row.definition or ""),
-        row.id,
-    )
+    return canonical_reset_safe_sort_key(row)
 
 
 def _to_int(value) -> int | None:
@@ -379,11 +373,4 @@ class ClueCanonService:
 
 
 def _canonical_match_key(row: CanonicalDefinition) -> tuple[object, ...]:
-    return (
-        0 if row.verified else 1,
-        -(row.semantic_score or -1),
-        -(row.rebus_score or -1),
-        -(row.usage_count or 0),
-        len(row.definition),
-        row.id,
-    )
+    return canonical_reset_safe_sort_key(row)

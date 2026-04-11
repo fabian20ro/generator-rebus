@@ -16,6 +16,10 @@ from rebus_generator.platform.llm.ai_clues import (
     rewrite_merged_canonical_definition,
     validate_merged_canonical_definition,
 )
+from rebus_generator.domain.clue_canon_ranking import (
+    canonical_is_known_weak,
+    canonical_reset_safe_sort_key,
+)
 from rebus_generator.platform.llm.definition_referee import compare_definition_variants_attempt
 from rebus_generator.workflows.canonicals.domain_service import (
     content_tokens,
@@ -219,34 +223,14 @@ def choose_existing_survivor(
     left: CanonicalDefinition,
     right: CanonicalDefinition,
 ) -> CanonicalDefinition:
-    return sorted(
-        [left, right],
-        key=lambda row: (
-            0 if row.verified else 1,
-            -(row.usage_count or 0),
-            -(row.semantic_score or -1),
-            -(row.rebus_score or -1),
-            -(row.creativity_score or -1),
-            len(row.definition or ""),
-            row.id,
-        ),
-    )[0]
+    return sorted([left, right], key=canonical_reset_safe_sort_key)[0]
 
 
 def should_rewrite_survivor(
     left: CanonicalDefinition,
     right: CanonicalDefinition,
 ) -> bool:
-    return not (_strong_existing_survivor(left) or _strong_existing_survivor(right))
-
-
-def _strong_existing_survivor(row: CanonicalDefinition) -> bool:
-    if row.verified:
-        return True
-    semantic = int(row.semantic_score or 0)
-    rebus = int(row.rebus_score or 0)
-    creativity = int(row.creativity_score or 0)
-    return semantic >= 8 and rebus >= 7 and creativity >= 5
+    return canonical_is_known_weak(left) and canonical_is_known_weak(right)
 
 
 def _survivor_record_from_definition(

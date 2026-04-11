@@ -108,6 +108,49 @@ class ClueCanonStoreTests(unittest.TestCase):
         self.assertEqual("Lichid vital.", prefetched["APA"][0].definition)
         self.assertEqual("Conjuncție.", store.fetch_canonical_variants("SI")[0].definition)
 
+    def test_fetch_canonical_variants_uses_stable_fallback_order_after_reset(self):
+        client = MagicMock()
+        query = MagicMock()
+        query.eq.return_value = query
+        query.execute.return_value = SimpleNamespace(data=[
+            {
+                "id": "canon-z",
+                "word_normalized": "LA",
+                "word_original_seed": "la",
+                "definition": "Zidire lexicală.",
+                "definition_norm": "zidire lexicala",
+                "word_type": "",
+                "usage_label": "",
+                "verified": False,
+                "semantic_score": None,
+                "rebus_score": None,
+                "creativity_score": None,
+                "usage_count": 0,
+                "superseded_by": None,
+            },
+            {
+                "id": "canon-a",
+                "word_normalized": "LA",
+                "word_original_seed": "la",
+                "definition": "Abordare lexicală.",
+                "definition_norm": "abordare lexicala",
+                "word_type": "",
+                "usage_label": "",
+                "verified": False,
+                "semantic_score": None,
+                "rebus_score": None,
+                "creativity_score": None,
+                "usage_count": 0,
+                "superseded_by": None,
+            },
+        ])
+        client.table.return_value.select.return_value = query
+        store = ClueCanonStore(client=client)
+
+        rows = store.fetch_canonical_variants("LA")
+
+        self.assertEqual(["canon-a", "canon-z"], [row.id for row in rows])
+
     def test_fetch_canonical_definitions_by_ids_skips_invalid_ids(self):
         client = MagicMock()
         query = MagicMock()

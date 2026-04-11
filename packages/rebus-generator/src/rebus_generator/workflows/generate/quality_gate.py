@@ -35,6 +35,27 @@ def _is_publishable(prepared: PreparedPuzzle) -> bool:
     )
 
 
+def _describe_publishability_failure(prepared: PreparedPuzzle) -> str:
+    reasons: list[str] = []
+    if prepared.blocking_words:
+        reasons.append(
+            "missing definitions: " + ", ".join(prepared.blocking_words[:12])
+        )
+    if prepared.assessment.pass_rate < MIN_PUBLISHABLE_PASS_RATE:
+        reasons.append(
+            f"low pass rate: {prepared.assessment.pass_rate:.3f} < {MIN_PUBLISHABLE_PASS_RATE:.3f}"
+        )
+    if not prepared.assessment.scores_complete:
+        detail = (
+            f"incomplete pair evaluation: verify={prepared.assessment.verify_incomplete_count}, "
+            f"rate={prepared.assessment.rating_incomplete_count}"
+        )
+        if prepared.assessment.incomplete_words:
+            detail += f" ({', '.join(prepared.assessment.incomplete_words[:12])})"
+        reasons.append(detail)
+    return "; ".join(reasons) if reasons else "quality gate failed"
+
+
 def _better_prepared_puzzle(
     best: PreparedPuzzle | None,
     candidate: PreparedPuzzle,

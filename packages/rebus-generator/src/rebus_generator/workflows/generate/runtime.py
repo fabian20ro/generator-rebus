@@ -35,7 +35,12 @@ from .prepare import (
     _rewrite_failed_clues,
 )
 from .publish import _clear_verification_state, _collect_word_metrics, publish_prepared_puzzle
-from .quality_gate import _better_prepared_puzzle, _compute_difficulty, _is_publishable
+from .quality_gate import (
+    _better_prepared_puzzle,
+    _compute_difficulty,
+    _describe_publishability_failure,
+    _is_publishable,
+)
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -93,12 +98,15 @@ def run_batch(
             word_metadata=word_metadata,
             runtime=runtime,
         )
-        if prepared.blocking_words:
+        if not _is_publishable(prepared):
             log("\n--- Detailed rejection report ---")
-            blocking_set = set(prepared.blocking_words)
             try:
                 for clue in all_working_clues(prepared.puzzle):
-                    if clue.word_normalized in blocking_set:
+                    if (
+                        clue.word_normalized in set(prepared.blocking_words)
+                        or clue.word_normalized in set(prepared.assessment.incomplete_words)
+                        or clue.active_version().assessment.verified is not True
+                    ):
                         version = clue.active_version()
                         semantic = version.assessment.scores.semantic_exactness
                         rebus = version.assessment.scores.rebus_score
@@ -110,11 +118,11 @@ def run_batch(
                             f"motiv: {reason}"
                         )
             except (AttributeError, TypeError):
-                log(f"  Blocked words: {', '.join(prepared.blocking_words[:12])}")
+                log(f"  Failure detail: {_describe_publishability_failure(prepared)}")
             log("--- End rejection report ---\n")
             raise RuntimeError(
                 f"Could not prepare a publishable {size}x{size} puzzle. "
-                f"Missing definitions for: {', '.join(prepared.blocking_words[:12])}"
+                f"Quality gate failed: {_describe_publishability_failure(prepared)}"
             )
 
         manifest_item, puzzle_metric, word_metrics = publish_prepared_puzzle(
@@ -176,4 +184,3 @@ __all__ = [
     "publish_prepared_puzzle",
     "run_batch",
 ]
-

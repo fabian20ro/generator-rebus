@@ -27,6 +27,7 @@ from rebus_generator.workflows.generate.runtime import (
     _template_fingerprint,
     run_batch,
 )
+from rebus_generator.workflows.generate.quality_gate import _describe_publishability_failure
 from rebus_generator.workflows.generate.service import build_parser as build_batch_parser
 from rebus_generator.domain.clue_rating import append_rating_to_note
 from rebus_generator.platform.io.markdown_io import ClueEntry, write_with_definitions
@@ -727,6 +728,25 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertFalse(_is_publishable(prepared))
 
+    def test_publishability_failure_reports_low_pass_rate_and_incomplete_pairs(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=8.0,
+            blocking_words=[],
+            verified_count=2,
+            total_clues=22,
+            scores_complete=False,
+            verify_incomplete_count=1,
+            rating_incomplete_count=2,
+            incomplete_words=["AER", "NOR"],
+        )
+
+        message = _describe_publishability_failure(prepared)
+
+        self.assertIn("low pass rate", message)
+        self.assertIn("incomplete pair evaluation", message)
+        self.assertIn("AER, NOR", message)
+
     def test_missing_definition_blocks_publication(self):
         prepared = _prepared_puzzle(
             title="Test",
@@ -888,6 +908,10 @@ def _prepared_puzzle(
     min_rebus: int = 8,
     first_passed: int | None = None,
     final_passed: int | None = None,
+    scores_complete: bool = True,
+    verify_incomplete_count: int = 0,
+    rating_incomplete_count: int = 0,
+    incomplete_words: list[str] | None = None,
 ) -> PreparedPuzzle:
     clue = ClueEntry(
         row_number=1,
@@ -940,6 +964,10 @@ def _prepared_puzzle(
             verified_count=verified_count,
             total_clues=total_clues,
             pass_rate=(verified_count / total_clues) if total_clues else 0.0,
+            scores_complete=scores_complete,
+            verify_incomplete_count=verify_incomplete_count,
+            rating_incomplete_count=rating_incomplete_count,
+            incomplete_words=list(incomplete_words or []),
         ),
     )
 

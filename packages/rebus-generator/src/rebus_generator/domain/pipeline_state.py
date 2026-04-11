@@ -98,6 +98,9 @@ class PuzzleAssessment:
     total_clues: int = 0
     pass_rate: float = 0.0
     scores_complete: bool = True
+    verify_incomplete_count: int = 0
+    rating_incomplete_count: int = 0
+    incomplete_words: list[str] = field(default_factory=list)
 
 
 @dataclass

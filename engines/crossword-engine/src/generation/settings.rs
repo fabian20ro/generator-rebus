@@ -38,7 +38,7 @@ pub(crate) fn settings_for_size(size: usize) -> Option<SizeSettings> {
         11 => 10,
         12 => 16,
         13 => 18,
-        14 => 26,
+        14 => 25,
         15 => 32,
         _ => unreachable!("validated size range"),
     };

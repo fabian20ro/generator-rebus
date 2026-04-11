@@ -130,6 +130,56 @@ class ClueCanonSimplifyTests(unittest.TestCase):
         self.assertFalse(should_rewrite_survivor(strong, weak_a))
         self.assertTrue(should_rewrite_survivor(weak_a, weak_b))
 
+    def test_choose_existing_survivor_uses_stable_fallback_after_reset(self):
+        winner = choose_existing_survivor(
+            _canonical(
+                canonical_id="2",
+                word="LA",
+                definition="Zidire lexicală.",
+                verified=False,
+                usage_count=0,
+                semantic_score=None,
+                rebus_score=None,
+                creativity_score=None,
+            ),
+            _canonical(
+                canonical_id="1",
+                word="LA",
+                definition="Abordare lexicală.",
+                verified=False,
+                usage_count=0,
+                semantic_score=None,
+                rebus_score=None,
+                creativity_score=None,
+            ),
+        )
+
+        self.assertEqual("1", winner.id)
+
+    def test_should_not_rewrite_survivor_when_reset_clears_quality_fields(self):
+        reset_a = _canonical(
+            canonical_id="1",
+            word="LA",
+            definition="Def 1",
+            verified=False,
+            usage_count=0,
+            semantic_score=None,
+            rebus_score=None,
+            creativity_score=None,
+        )
+        reset_b = _canonical(
+            canonical_id="2",
+            word="LA",
+            definition="Def 2",
+            verified=False,
+            usage_count=0,
+            semantic_score=None,
+            rebus_score=None,
+            creativity_score=None,
+        )
+
+        self.assertFalse(should_rewrite_survivor(reset_a, reset_b))
+
     def test_apply_merge_dry_run_does_not_touch_store(self):
         store = SimpleNamespace()
         survivor_id = _apply_merge(

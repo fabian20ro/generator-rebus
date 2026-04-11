@@ -26,7 +26,11 @@ from rebus_generator.workflows.generate.prepare import (
     _rewrite_failed_clues,
 )
 from rebus_generator.workflows.generate.publish import publish_prepared_puzzle
-from rebus_generator.workflows.generate.quality_gate import _better_prepared_puzzle, _is_publishable
+from rebus_generator.workflows.generate.quality_gate import (
+    _better_prepared_puzzle,
+    _describe_publishability_failure,
+    _is_publishable,
+)
 from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
 from .base import JobState
 
@@ -168,12 +172,15 @@ class GenerateJobState(JobState):
             self._progress("publish", detail=f"title={self.best_prepared.title}")
             return self.best_prepared
         if self.attempt_index < self.effective_attempts:
-            log("Rejected generated puzzle after quality gate: " + ", ".join(prepared.blocking_words[:10]))
+            log(
+                "Rejected generated puzzle after quality gate: "
+                + _describe_publishability_failure(prepared)
+            )
             self._progress("fill_grid", detail=f"retry={self.attempt_index + 1}/{self.effective_attempts}")
             return prepared
         raise RuntimeError(
             f"Could not prepare a publishable {self.size}x{self.size} puzzle. "
-            f"Missing definitions for: {', '.join(prepared.blocking_words[:12])}"
+            f"Quality gate failed: {_describe_publishability_failure(prepared)}"
         )
 
     def _publish(self, ctx):
