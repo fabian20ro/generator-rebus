@@ -37,16 +37,17 @@ pub(crate) fn settings_for_size(size: usize) -> Option<SizeSettings> {
         10 => 7,
         11 => 10,
         12 => 16,
-        13 => 20,
+        13 => 18,
         14 => 26,
         15 => 32,
         _ => unreachable!("validated size range"),
     };
     let max_extra_blacks = match size {
-        7..=10 => 5,
-        11..=12 => 6,
-        13..=14 => 7,
-        _ => 8,
+        7..=8 => 6,
+        9..=10 => 7,
+        11..=12 => 8,
+        13..=14 => 9,
+        _ => 10,
     };
     let attempt_budget = 48 + 6 * (size - 7) + (3 * (size - 7) * (size - 7)) / 4;
     let step_time_budget_ms = 15_000;
