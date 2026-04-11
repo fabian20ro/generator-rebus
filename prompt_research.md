@@ -48,9 +48,9 @@ Interpretation rules:
 
 Manual runbook:
 - baseline only:
-  - `.venv/bin/python -u -m rebus_generator.cli.assessment --description "baseline_results_20260329_v4exp001" --json-out logs/baseline_results_20260329_v4exp001.json`
+  - `uv run python -u -m rebus_generator.cli.assessment --description "baseline_results_20260329_v4exp001" --json-out logs/baseline_results_20260329_v4exp001.json`
 - one-off `v6` probe; fresh ad-hoc state/log dir:
-  - `.venv/bin/python tools/scripts/run_prompt_campaign.py --experiment-set v6 --start-from 1 --end-at 1 --log-path build/manual_v6/experiment_log.json --assessment-logs-dir build/manual_v6/assessment_logs --description-prefix manual_v6/ --comparison-runs 3 --stream-assessment-output`
+  - `uv run python tools/scripts/run_prompt_campaign.py --experiment-set v6 --start-from 1 --end-at 1 --log-path build/manual_v6/experiment_log.json --assessment-logs-dir build/manual_v6/assessment_logs --description-prefix manual_v6/ --comparison-runs 3 --stream-assessment-output`
 - `v6` probes:
   - `1-4` = verify lane
   - `5-6` = rate lane

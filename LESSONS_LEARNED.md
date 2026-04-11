@@ -208,3 +208,6 @@
 
 ## Archive
 <!-- **[YYYY-MM-DD] Archived [YYYY-MM-DD]** title — reason -->
+
+### Python Dependency Management and Execution
+**Lesson:** In multi-package or monorepo-like Python projects, migrating to `uv` with a root `pyproject.toml` significantly reduces setup friction. By configuring the build backend (like `hatchling`) to point to the inner `src` directories, you can rely on `uv sync` to install the project in editable mode automatically. This replaces the need for `PYTHONPATH` hacks, manual `venv` orchestration, and custom `sitecustomize.py` scripts that previously injected source paths into `sys.path`. It also unifies dependency management across local dev and GitHub Actions via the `astral-sh/setup-uv` action.

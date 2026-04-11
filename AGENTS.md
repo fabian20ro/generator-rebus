@@ -2,10 +2,32 @@
 
 work style: telegraph; noun-phrases ok; drop grammar; min tokens.
 
-> bootstrap context only. discoverable from codebase → don't put here.
+> bootstrap context only
+- discoverable from codebase → don't put here.
 > corrections + patterns → LESSONS_LEARNED.md.
-> aim for extensibility, maintainability, testability, performance, reusability, DRY, YAGNI. small fixes in the right places are preferable to refactors. leave the code in a better state than you found it.
-> you find contradicting information and can't decide from code → explain problem to user. ask for clarification, don't assume.
+> development:
+- correctness first
+- smallest good change
+- preserve behavior / interfaces / invariants unless task says otherwise
+- simple, explicit code
+- KISS
+- YAGNI
+- DRY; rule of three; temp duplication ok during migration
+- high cohesion; low coupling
+- follow repo patterns unless intentionally replacing with better consistent one
+- refactor when patch would raise future complexity
+- for broad changes: optimize for coherent end-state; stage changes; each step verifiable
+- no unrelated churn
+- leave code better
+> validation:
+- fastest relevant proof
+- targeted tests first
+- typecheck / build / lint as needed
+- smoke tests for affected flows when useful
+- update tests when behavior intentionally changes
+> ambiguity:
+- cannot decide from code -> explain; ask; no assume
+- otherwise choose most reversible reasonable path; state assumption
 
 ## Constraints
 

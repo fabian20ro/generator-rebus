@@ -872,7 +872,7 @@ class BatchPublishTests(unittest.TestCase):
     def test_run_all_builds_rust_binary_before_python(self):
         script = Path("run_all.sh").read_text(encoding="utf-8")
         self.assertIn("cargo build --release --manifest-path", script)
-        self.assertIn(".venv/bin/python -m rebus_generator profile", script)
+        self.assertIn("uv run python -m rebus_generator profile", script)
 
 
 def _count_two_letter_slots(grid: list[list[bool]]) -> int:

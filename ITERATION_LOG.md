@@ -777,6 +777,177 @@
 **Promoted:** yes — see LESSONS_LEARNED entry on per-model, per-purpose reasoning with explicit omission support.
 
 <!-- new entries above this line, most recent first -->
+
+---
+
+### [2026-04-09] Stabilize `run_all` deterministic stalls and fail fast
+
+**Context:** user asked why `run_all.sh` had burned ~2 days without a new puzzle and wanted root cause plus implementation to prevent repeats.
+**Happened:** audited `generator/output/run_all_runs/20260407_132542/run.log`; confirmed partial outage, not total outage (`retitle` and `simplify` progressed, `generate`/`redefine` did not). Fixed pair-finalization crash in `generator/phases/verify.py` so negative short-circuit verification no longer indexes missing second-model votes. Refactored `generator/supervisor/jobs/simplify.py` to split survivor handling into `plan_survivors -> rewrite_secondary -> validate_primary -> apply_merge`, removing the hidden eurollm+gemma hop from one scheduled step. Added run-local supervisor failure memory and deterministic quarantine in `generator/supervisor/scheduler.py` / `generator/supervisor/types.py`, plus always-on heartbeat summaries and generate-size cooldown/penalty input into `generator/loop_controller.py` / `generator/supervisor/pollers.py`. Extended targeted tests for verify finalization, supervisor quarantine, loop-controller penalties, and scheduler activation allowlist.
+**Verification:** `python3 -m py_compile generator/phases/verify.py generator/supervisor/types.py generator/supervisor/scheduler.py generator/supervisor/pollers.py generator/supervisor/jobs/simplify.py generator/loop_controller.py tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py`; `python3 -m pytest tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py -q` (`52 passed`); `python3 -m pytest tests/test_clue_canon_simplify.py tests/test_llm_dispatch_enforcement.py -q` (`15 passed`).
+**Outcome:** success
+**Insight:** unattended orchestration bugs usually need two fixes, not one: the direct crash path and the missing supervisor policy that allowed the same deterministic failure to repeat forever.
+**Promoted:** yes
+
+---
+
+### [2026-04-03] Convert repo-wide Python progress prints to shared runtime logging
+
+**Context:** user wanted verbose timestamped logs everywhere, then asked for a repo-wide conversion of Python `print()` usage to the standard logger and asked to keep the implementation dry.
+**Happened:** Audited Python sources with `rg`, found raw `print()` spread across long-running jobs, phase scripts, experiment runners, and helper modules. Replaced human-facing progress output with `generator.core.runtime_logging.log()` across assessment, batch publish, retitle/redefine/repair, define/verify/theme/upload/download/activate, rewrite engine, prompt-autoresearch, and experiment scripts. Reused the existing `install_process_logging()`/`log()` stack instead of introducing per-file logging systems; left raw stdout writes only in the benchmark row emitter and the logger primitive itself. Updated `tests/test_runtime_logging.py` to assert through `log()`.
+**Verification:** `python3 -m py_compile generator/assessment/run_assessment.py generator/batch_publish.py generator/core/ai_clues.py generator/core/rewrite_engine.py generator/core/score_helpers.py generator/loop_controller.py generator/phases/activate.py generator/phases/define.py generator/phases/download.py generator/phases/theme.py generator/phases/upload.py generator/phases/verify.py generator/repair_puzzles.py generator/redefine.py generator/retitle.py scripts/benchmark_phase1.py scripts/prompt_autoresearch.py scripts/run_experiments.py scripts/run_multistep_assessment_series.py generator/assessment/prepare_dataset.py`; `python3 -m pytest tests/test_runtime_logging.py tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_upload_phase.py -q` (`121 passed`); final `rg -n "\\bprint\\(" --glob '*.py' --glob '!.venv/**'` now only returns `generator/core/runtime_logging.py`.
+**Outcome:** success
+**Insight:** when a repo already has a timestamped tee logger, the fastest low-risk cleanup is to standardize on that single primitive and reserve raw stdout only for explicit data-export scripts.
+**Promoted:** yes
+
+---
+
+### [2026-04-03] Make clue-canon backfill resumable, singleton-complete, and cutover-safe
+
+**Context:** user needed `run_clue_canon_backfill.sh` to stop feeling hung, stop requiring babysitting, migrate singleton clue rows too, and make canonical clue storage the permanent storage model so dropping `crossword_clues.definition` can be the final storage migration.
+**Happened:** Refactored `generator/clue_canon.py` from 50-word chunk commits into streaming per-word commits with a resumable JSON checkpoint under `build/clue_canon/`. Backfill now processes all clue rows (verified and unverified), includes singleton words by default, persists one canonical pointer per clue row, and writes disagreements/quarantine reports incrementally. Added backfill-only adaptive referee voting in `generator/core/ai_clues.py` so obvious non-matches or unanimous same-sense pairs can stop before the full 6-vote budget, while keeping two-model evaluation. Hardened upload/redefine/repair writers to fail if canonical resolution does not return `canonical_definition_id`. Added `python -m generator.clue_canon audit` to block final cutover when clue rows still have null canonical refs, effective-view rows still fall back to legacy definitions, or production code still contains direct legacy-column references. Updated the final SQL migration to assert no null canonical ids before dropping the legacy column.
+**Verification:** `python3 -m py_compile generator/clue_canon.py generator/core/ai_clues.py generator/core/clue_canon.py generator/core/clue_canon_types.py generator/core/lm_runtime.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py -q` (`81 passed`); `python3 -m pytest tests/test_redefine.py tests/test_repair_puzzles.py -q` (`33 passed`); `python3 -m pytest tests/test_upload_phase.py -q` (`1 passed`).
+**Outcome:** success
+**Insight:** final schema cutovers are only really final if migration coverage, live writer guarantees, and legacy-read detection are all enforced by one audit command before the destructive SQL step.
+**Promoted:** yes
+
+---
+
+### [2026-04-01] Decouple clue flows from `crossword_clues.definition` and standardize clue/canonical logs
+
+**Context:** user wanted code made safe for dropping the legacy `crossword_clues.definition` column after canonical migration, plus clearer clue-generation / merge / redefine logging with maintainable shared formatting.
+**Happened:** Added clue-definition compatibility methods to `ClueCanonStore`: schema probing for legacy/canonical columns, hydrated clue fetches that resolve canonical text first and fall back to legacy text only when needed, batched canonical-id lookups, and payload builders that only materialize `definition` when the legacy column still exists. Switched `redefine`, `repair_puzzles`, `retitle`, and clue-canon backfill reads onto that helper; switched upload / attach / redefine / repair writes onto the shared payload builder. Added `generator/core/clue_logging.py` and routed generation, rewrite, upload, redefine, repair, and clue-canon merge/disagreement messages through common clue/canonical event formatting. Updated the Cloudflare worker puzzle-clue fetch path to resolve clue text via `canonical_definition_id` first, with legacy definition fallback only if still available.
+**Verification:** `python3 -m py_compile generator/core/clue_canon_store.py generator/core/clue_logging.py generator/clue_canon.py generator/phases/define.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py generator/retitle.py generator/core/rewrite_engine.py tests/test_clue_canon_store.py`; `python3 -m pytest tests/test_clue_canon_store.py tests/test_clue_canon.py tests/test_ai_clues.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_retitle.py -q` (`129 passed`). Could not run Worker TypeScript typecheck in-session because no local `tsc` / `worker/node_modules` is present.
+**Outcome:** success
+**Insight:** schema migrations around canonicalized clue text stay tractable only if both reads and writes go through one compatibility surface; the same centralization also gives one place to standardize clue-event logging instead of hand-formatting strings in every flow.
+**Promoted:** yes
+
+---
+
+### [2026-04-01] Batch clue-canon referee work across words to avoid per-comparison model thrash
+
+**Context:** user flagged that clue-canon backfill can touch ~12k clues, so loading/unloading LM Studio models per comparison is too expensive; requirement: backfill batching only, no regressions in other clue-canon flows, logging/extensibility considered.
+**Happened:** Traced the hot path: `run_backfill()` merged words one-by-one, and every near-duplicate comparison ran a full `primary votes -> secondary votes` cycle before moving on. Added `DefinitionRefereeInput` plus `run_definition_referee_batch()` in `generator/core/ai_clues.py`, keeping the same 6-vote schedule but grouping many requests under one primary activation and one secondary activation. Added `ClueCanonService._run_referee_batch()` for reuse, then replaced backfill’s local merge loop with a round-robin `_MergeState` batch state machine in `generator/clue_canon.py` that preserves per-word merge order while collecting up to `--referee-batch-size` pending comparisons across a chunk of words. Kept single-item `resolve_definition()` behavior unchanged, preserved existing per-comparison audit payloads, and added a lightweight batch log plus summary field for batch size.
+**Verification:** `python3 -m py_compile generator/core/ai_clues.py generator/core/clue_canon.py generator/core/clue_canon_types.py generator/clue_canon.py tests/test_ai_clues.py tests/test_clue_canon.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_redefine.py tests/test_repair_puzzles.py -q` (`100 passed`).
+**Outcome:** success
+**Insight:** high-volume two-model referee jobs need a dedicated batched execution path; reusing the exact vote semantics while moving model activation to batch boundaries gives most of the win without complicating live clue-resolution flows.
+**Promoted:** yes
+
+---
+
+### [2026-04-01] Fix empty-arg crash in `run_clue_canon_backfill.sh`
+
+**Context:** user ran `./run_clue_canon_backfill.sh` with no extra args; wrapper crashed immediately with `line 34: args[@]: unbound variable`.
+**Happened:** Read local lessons first, then traced the failure to `set -euo pipefail` under macOS `bash 3.2.57`: the script built `args=("$@")` and later expanded `"${args[@]}"` even when no CLI args were supplied. Reworked the wrapper to scan `"$@"` directly for `--apply|--dry-run`, branch on `$#`, and only build/expand `args` after guaranteeing at least one element (`--apply` default when empty).
+**Verification:** reproduced the fixed control flow in `bash -lc` with `set -euo pipefail` for two cases: no args produced `--apply`; `--word APA --limit 10` produced `--apply --word APA --limit 10`. Did not run the real backfill command itself in-session, to avoid triggering live apply behavior during a wrapper-only fix.
+**Outcome:** success
+**Insight:** on this repo's macOS shell baseline, empty array expansion is not safe under `nounset`; thin helper scripts should prefer `$#`/`"$@"` gating over assuming empty arrays behave portably.
+**Promoted:** yes
+
+---
+
+### [2026-04-02] — Cut over clue reads to SQL view and freeze canonical rows
+**Context:** user wanted the canonical clue plan implemented end-to-end with dry/maintainable/extensible structure, explicit migration away from `crossword_clues.definition`, and confirmation that the existing ~13k legacy clue texts would be handled as migration input rather than ignored.
+**Happened:** Reworked the canonical clue contract around one DB read surface: added final bootstrap DDL in `schema.sql`, a phase-1 migration `migrations/20260402_add_canonical_clue_schema.sql`, and a phase-2 finalize migration `migrations/20260402_finalize_canonical_clue_cutover.sql`. The new schema adds `canonical_clue_definitions`, `canonical_clue_aliases`, `crossword_clue_effective`, `crossword_clues.word_type`, and `crossword_clues.canonical_definition_id`; fresh installs are now canonical-only, while existing installs keep a compatibility view until backfill/finalize. Refactored `generator/core/clue_canon_store.py` to read clue rows from the SQL view instead of hydrating canonicals in Python, removed legacy-definition write branching, extended canonical identity with `word_type` + `usage_label`, and filtered malformed UUID ids before batched canonical lookups to avoid the PostgREST `Bad Request` crash seen in `run_clue_canon_backfill.sh`. Refactored `generator/core/clue_canon.py` so “promote new” creates a new immutable canonical row instead of overwriting an old one, and restricted near-match competition to matching `word_type` / `usage_label`. Updated upload/redefine/repair write paths to persist canonical ids only; updated `repair_puzzles` to persist from working-clue versions instead of rendered markdown entries so `word_type` survives. Simplified the worker clue fetch path to read `definition` directly from `crossword_clue_effective`. Tightened `generator/clue_canon.py` backfill to seed canonicals only from verified legacy clues and emit quarantine JSONL for rejected seed rows plus non-merged verified rows. Refreshed README cutover docs and updated tests for the new view/canonical-id contract.
+**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py`; `python3 -m pytest tests/test_upload_phase.py`. Also checked `worker/package.json`; there is no `build` script, so no worker build command was available to run locally.
+**Outcome:** success
+**Insight:** when a phased DB migration leaves mixed legacy/canonical rows in place, move fallback logic into a SQL view early and make app code consume only that view; it removes duplicated compatibility branches and avoids fragile follow-up UUID fetches against partially migrated ids.
+**Promoted:** yes — see LESSONS_LEARNED entry on UUID sanitization for PostgREST `.in_()` calls
+
+---
+
+### [2026-04-04] — Salvage stale `clue_canon` resume state without dropping in-flight active words
+**Context:** after the backfill performance refactor, resumed runs crashed with `KeyError: 'ZGRIBURI'` during queue refill. Fresh eligible workset was much smaller than the serialized checkpoint queue, but active in-flight words still had full merge state and should not be discarded.
+**Happened:** Updated `generator/clue_canon.py` so resume now reconciles checkpoint state against the fresh eligible workset: stale pending words are dropped, active words are preserved if their serialized merge state is structurally valid, and queue refill defensively skips any unexpected no-bucket words instead of crashing. Added new resume counters to `BackfillStats`, summary/state serialization, and summary JSON (`resume_pending_words_dropped`, `resume_active_words_dropped`, `resume_words_deduped`). Also added explicit checkpoint version validation so unknown future versions fail clearly instead of being guessed at. Expanded `tests/test_clue_canon.py` with stale-pending, preserved-active, malformed-active, dedupe, and unsupported-version regressions.
+**Verification:** `.venv/bin/python -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py` (`61 passed`).
+**Outcome:** success
+**Insight:** resumable pipelines should treat serialized active work as authoritative but serialized pending queues as advisory; active state is expensive in-flight work, while pending queues must be revalidated against the current source-of-truth workset on every resume.
+**Promoted:** yes — see LESSONS_LEARNED entry on authoritative active state vs advisory pending queues for resumable jobs.
+
+---
+
+### [2026-04-04] — Remap Gemma reasoning controls to LM Studio chat endpoint semantics
+**Context:** after switching primary model to Gemma 4, live LM Studio `/v1/chat/completions` checks showed a mismatch: repo config sent `reasoning_effort` as `on/off`, but the OpenAI-compatible endpoint rejected those values even though `/api/v1/models` advertised Gemma reasoning as `off/on`.
+**Happened:** Updated `generator/core/model_manager.py` so Gemma uses endpoint-safe reasoning values centrally: `none` for default/light calls and `medium` for heavier generate/rewrite/rate/compare calls. Added normalization of legacy aliases (`off -> none`, `on -> medium`) plus validation for unsupported values, and refreshed tests in `tests/test_model_manager.py` and `tests/test_ai_clues.py` to assert the new Gemma behavior while keeping GPT-OSS and EuroLLM behavior unchanged.
+**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_ai_clues.py` (`91 passed`). Also ran live LM Studio checks against loaded `google/gemma-4-26b-a4b`: `reasoning_effort=none` returned `OK`; `reasoning_effort=medium` was accepted by the endpoint with no invalid-request error, though it spent the small token budget on reasoning content.
+**Outcome:** success
+**Insight:** LM Studio model capability metadata can diverge from the OpenAI-compatible chat endpoint contract; central reasoning policy must follow the wire behavior actually accepted by `/v1/chat/completions`, not the metadata labels.
+**Promoted:** yes — see LESSONS_LEARNED entry on endpoint-contract-over-metadata for reasoning controls.
+
+---
+
+### [2026-04-04] — Backfill perf: DB-filter eligible clue rows, batch store writes, throttle checkpoints
+**Context:** user wanted `./run_clue_canon_backfill.sh --apply --word-queue-size 50 --referee-batch-size 50` made faster without adding LM parallelism. Main pain: half-migrated reruns still loaded the full clue corpus, queue fill did per-word canonical queries, apply path did one clue update / alias insert at a time, and resumable state rewrote too often.
+**Happened:** Added DB-side backfill source filtering in `generator/core/clue_canon_store.py` (`verified=true`, `canonical_definition_id is null`, optional `word_normalized`), plus count helpers, bulk canonical prefetch, batched clue attachment, and batched alias insertion with one existence fetch. Refactored `generator/clue_canon.py` to source only eligible rows, carry new counters (`eligible_rows`, skipped already-canonicalized rows, batch counts, candidate/request counters), prefetch canonicals once per queue refill wave, exact-merge identical existing canonicals before LLM requests, and throttle checkpoint rewrites to forced checkpoints plus a 10s cadence during referee churn. Expanded tests to cover filtered fetches, bulk prefetch, batched cluster apply, exact-merge request pruning, queue-wave prefetching, word-filtered backfill fetches, and checkpoint throttling.
+**Verification:** `.venv/bin/python -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py` (`57 passed`).
+**Outcome:** success
+**Insight:** resumable backfills stay tractable only if “eligible workset” is filtered in the DB and hot-path persistence is batched per committed word; otherwise queue/batch flags only hide full-corpus and per-row round-trip costs.
+**Promoted:** yes — see LESSONS_LEARNED entry on DB-filtered backfill worksets and per-word batching.
+
+---
+
+### [2026-04-05] — Fix resume deadlock from stale in-flight referee requests
+**Context:** user reran clue-canon backfill and logging appeared frozen immediately after resume. Inspection of `build/clue_canon/backfill_state.json` showed all active words persisted with `waiting=true`, `current` clusters present, and stale `pending_request_id`s, while `pending_words=0`. Main loop skipped waiting items but had no live pending-request map to satisfy them, causing a silent no-op spin.
+**Happened:** Added stale-wait detection to resume normalization in `generator/clue_canon.py`. Active words restored with `waiting=true` plus current/candidate state are now logged as `[resume-stale-wait]`, converted into deferred unresolved standalone canonicals with `defer_reason="resume_stale_wait"`, and committed through the normal quarantine path instead of spinning. Added summary counters `resume_stale_wait_words` and `deferred_due_to_resume_stale_wait`, preserved stale `pending_request_id` / `candidate_indexes` in quarantine output, and added a main-loop deadlock guard so “active words + no requests + no progress” either repairs stale waiting items or raises a loud stall error instead of freezing silently.
+**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`121 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/clue_canon_types.py tests/test_clue_canon.py`.
+**Outcome:** success
+**Insight:** resumable pipelines cannot persist `waiting=true` without either durable in-flight request reconstruction or explicit downgrade on resume; otherwise checkpointed transient state becomes a silent deadlock.
+**Promoted:** no
+
+---
+
+### [2026-04-05] — Fix backfill referee throughput by batching around immediate local outcomes
+**Context:** after the monotonic reducer landed, unattended backfill still spent most wall-clock time unloading/loading Gemma and EuroLLM for tiny referee batches, often `batch_requests=1`, even with many active words left. User wanted strict two-model semantics preserved but throughput improved.
+**Happened:** Added a batched referee collector in `generator/clue_canon.py` that applies immediate local outcomes (`exact_merge` / `keep_separate`) and still keeps already-collected compare requests in the same cycle instead of short-circuiting the loop. The new collector can refill compare work after local resolutions unlock a next cluster and waits for a small minimum batch (`4`) when extra compare-ready work becomes available, reducing tiny switch-heavy launches. Extended adaptive referee reporting in `generator/core/ai_clues.py` with per-step metrics (`requests_started/completed/remaining`) and added summary counters for `referee_batches_launched`, `avg_requests_per_referee_batch`, `avg_votes_per_model_activation`, and `switches_per_committed_word`. Updated tests to cover the `resolved + requests` bug, refill-after-resolution behavior, and adaptive step metrics.
+**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`120 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/ai_clues.py generator/core/clue_canon_types.py tests/test_clue_canon.py tests/test_ai_clues.py`.
+**Outcome:** success
+**Insight:** in a monotonic reducer, local terminal outcomes and remote compare launches cannot be treated as separate outer-loop phases; if immediate resolutions are applied in a throwaway cycle, the queue collapses to tiny referee launches and model-switch overhead dominates.
+**Promoted:** no
+
+---
+
+### [2026-04-05] — Monotonic backfill reducer, explicit referee diagnostics, exact state migration
+**Context:** user wanted canonical clue backfill to always advance when both models produced usable votes, with only explicit missing-model contribution treated as non-progress. Requirement: clean up architecture, preserve exact resume behavior for existing checkpoint state, and stop the old churn pattern where one hard current cluster could be re-compared indefinitely.
+**Happened:** Refactored backfill state around shared reducer/runtime types in `generator/core/clue_canon_types.py`, adding `WorkingCluster`, `WordReducerState`, `QueuedWordState`, `ComparisonOutcome`, and detailed referee diagnostics/attempt metadata. Reworked `generator/core/ai_clues.py` so compare/referee execution records per-attempt model-role contribution and attaches diagnostics to batch/adaptive referee results. Reworked `generator/clue_canon.py` into a monotonic reducer flow: each current cluster now resolves terminally as `merge_into_existing`, `promote_new_canonical`, `keep_separate`, or `error_missing_model_votes`; one shortlisted candidate per decision; visible `[referee-error]` logging and checkpoint preservation for missing-model cases; v2→v3 checkpoint migration that converts old `compare_index` state into retryable `candidate_indexes`/`pending_request_id`; summary/quarantine counters for `keep_separate`, merges/promotions, and missing-model referee errors. Updated tests to target the new attempt-level referee API and new reducer semantics.
+**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`118 passed`); `python3 -m py_compile generator/clue_canon.py tests/test_clue_canon.py tests/test_ai_clues.py generator/core/ai_clues.py generator/core/clue_canon_types.py generator/core/model_manager.py`.
+**Outcome:** success
+**Insight:** when referee logic needs provenance, tests and runtime both must operate at the attempt/diagnostic layer, not the old bare-vote layer; otherwise model-contribution failures disappear into ordinary disagreement paths.
+**Promoted:** no
+
+---
+
+### [2026-04-05] — Add bulk puzzle-definition audit wrapper for UI clue integrity
+**Context:** user wanted a reusable `.sh` check that scans all puzzles for UI-breaking missing definitions or clue-slot mismatches, with minimal Supabase traffic and future operator reuse.
+**Happened:** Added `generator/puzzle_definition_audit.py` as a standalone audit command and `run_puzzle_definition_audit.sh` as the root wrapper. The audit now bulk-fetches puzzle metadata from `crossword_puzzles`, bulk-fetches clue rows from `crossword_clue_effective` by chunked puzzle-id batches, derives expected slots from `grid_template` via `slot_extractor`, and flags missing slot rows, blank definitions, duplicate rows, orphan rows, and clue-count mismatches. Added small store helpers for paged puzzle fetches and bulk clue fetches, stable ordering for paginated reads, JSON/JSONL report output, and tests for integrity cases plus wrapper argument forwarding.
+**Verification:** `python3 -m pytest tests/test_puzzle_definition_audit.py tests/test_clue_canon_store.py` (`18 passed`); `python3 -m py_compile generator/puzzle_definition_audit.py generator/core/clue_canon_store.py tests/test_puzzle_definition_audit.py`; `./run_puzzle_definition_audit.sh --help`.
+**Outcome:** success
+**Insight:** puzzle-integrity audits should treat `grid_template` as the source of truth for expected clues and compare in memory after bulk reads; per-puzzle fetch loops waste Supabase calls and hide slot-row mismatches that blank-definition-only checks miss.
+**Promoted:** yes — see LESSONS_LEARNED entry on bulk integrity audits using structural truth.
+
+---
+
+### [2026-04-05] — Reorder finalize cutover migration to replace dependent view before dropping legacy column
+**Context:** user hit the final clue-cutover migration failure `cannot drop column definition ... because view crossword_clue_effective depends on it` and asked whether `DROP COLUMN ... CASCADE` was safe.
+**Happened:** Inspected the add-schema migration, finalize migration, and canonical-only schema. Found finalize order was wrong: it tried to drop `crossword_clues.definition` before replacing the compatibility view that still referenced `cc.definition`. Updated `migrations/20260402_finalize_canonical_clue_cutover.sql` to keep the null-pointer guard and `SET NOT NULL`, then `CREATE OR REPLACE VIEW crossword_clue_effective` in canonical-only form, and only then `DROP COLUMN IF EXISTS definition`. Also added dependency-preflight SQL snippets and an explicit warning against blind `CASCADE`.
+**Verification:** static inspection of `migrations/20260402_add_canonical_clue_schema.sql`, `migrations/20260402_finalize_canonical_clue_cutover.sql`, and `schema.sql`; no runtime DB execution in-session.
+**Outcome:** success
+**Insight:** final storage cutovers fail less from missing DDL than from wrong dependency order; if a compatibility view still references a legacy column, replace the view first and avoid `CASCADE` unless you have enumerated and planned all downstream recreations.
+**Promoted:** yes — see LESSONS_LEARNED entry on dependency-safe storage cutovers.
+
+---
+
+### [2026-04-04] — Centralize LM Studio model registry and swap primary to Gemma 4
+**Context:** user wanted `gpt-oss-20b` replaced with Gemma 4 everywhere relevant to live code, but also wanted future swaps to become one central change instead of another repo-wide sweep. Constraint: keep `gpt-oss` available for future pairings, preserve EuroLLM's “omit reasoning params entirely” behavior, and avoid rewriting historical logs/docs that described real GPT-OSS runs.
+**Happened:** Refactored `generator/core/model_manager.py` into a central registry keyed by stable internal names, added one active-pair selector (`gemma4_26b_a4b` primary, `eurollm_22b` secondary), and kept compatibility `PRIMARY_MODEL` / `SECONDARY_MODEL` aliases derived from that selector. Expanded `ModelConfig` with `registry_key` plus per-purpose `reasoning_by_purpose`, so Gemma now uses task-tuned `on/off`, EuroLLM omits reasoning entirely, and GPT-OSS remains available with `low/medium` profiles for future reactivation. Routed current label lists and title-flow model ordering through central accessors, updated current docs (`AGENTS.md`, `README.md`, `GENERATOR_ARCH.md`) to describe the new default pair and single-source-of-truth config location, and refreshed affected tests/mocks to assert registry-driven behavior instead of hardcoded GPT-OSS assumptions.
+**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_model_session.py tests/test_ai_clues.py tests/test_theme.py tests/test_verify.py tests/test_metrics.py tests/test_batch_publish.py tests/test_rewrite_engine.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_run_assessment.py` (`223 passed`).
+**Outcome:** success
+**Insight:** model replacement stays cheap only if both transport ids and reasoning capabilities live in one registry; otherwise the real coupling leaks into metrics labels, title routing, and “helpful” reasoning defaults long after the primary model changed.
+**Promoted:** yes — see LESSONS_LEARNED entry on per-model, per-purpose reasoning with explicit omission support.
+
+<!-- new entries above this line, most recent first -->
+
+---
+
 ### [2026-04-05] — Bound `clue_compare`, defer stagnant backfill words, and suppress boilerplate pair churn
 **Context:** user reported `run_clue_canon_backfill` appearing stuck for hours with constant Gemma/EuroLLM switching and almost no visible commits. Live state showed queue already drained, only a handful of giant unresolved words left, and Gemma compare calls sometimes spending ~1000 generated tokens “thinking” on a tiny JSON compare task.
 **Happened:** Changed Gemma `clue_compare` reasoning to `none` in the central model registry, reduced compare completion budget from `2000` to `120`, and added logging for truncated compare outputs, invalid compare JSON, and slow compare calls. Tightened `_likely_cluster_match()` to ignore per-word boilerplate tokens that appear in at least `40%` of definitions and to require either `>=2` informative shared tokens or lexical similarity `>=0.90`. Added resumable stagnation tracking for active backfill words (`consecutive_non_merge_comparisons`, `last_merge_comparison`, `deferred`, `defer_reason`, `defer_remaining_clusters`) plus a new `--max-stagnant-comparisons` budget that defers hard words by committing their remaining clusters as standalone canonicals instead of grinding indefinitely. Extended progress, summary, quarantine, and state serialization to expose deferred-word behavior and real remaining-work signals.
@@ -785,29 +956,7 @@
 **Insight:** canonical backfill stalls can be “alive but effectively done” when the outer queue is empty and only giant formulaic words remain; in that phase, better compare budgets and earlier defer/quarantine logic matter more than raw queue size.
 **Promoted:** yes — compare/referee calls should use bounded classifier-style budgets; see LESSONS_LEARNED entry dated 2026-04-05.
 
-### [2026-03-28] — Keep exact-size mobile scroller position and add explicit left/right affordances
-**Context:** after the emoji-tab refactor, user reported the `Toate 7..15` size row was horizontally clipped on mobile with no obvious hint that more options existed, and selecting an off-screen size snapped the control back to the far left on rerender.
-**Happened:** Updated `frontend/src/components/puzzle-selector.ts` so the exact-size filter stores horizontal scroll state across rerenders, restores the previous visible zone, and scrolls the active chip back into view with `nearest` alignment. Added explicit left/right scroller buttons plus overflow-aware enable/disable behavior, and styled the new mobile affordances in `frontend/src/styles/gamification.css` and `frontend/src/styles/responsive.css`.
-**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
-**Outcome:** success
-**Insight:** horizontally scrollable mobile filters need both discoverability and position persistence; otherwise state changes feel like navigation jumps even when the selection itself is correct.
-**Promoted:** no
-
-### [2026-03-28] — Refactor frontend to emoji-first status tabs with exact-size filtering and organic unlock gating
-**Context:** user wanted the frontend discovery flow rebuilt around compact top-level status tabs and less chrome before real puzzles: `🧩` available as default, conditional `⏳` / `✅` / `📊`, always-visible `🏆`, exact-size filter row only in `🧩`, no duplicate “in curs/nou/rezolvat” framing, plus organic per-size reveal based on highest `pass_rate`.
-**Happened:** Added a pure derived-state layer in `frontend/src/gamification/puzzle-status.ts` to centralize meaningful progress detection, puzzle status buckets, conditional tab visibility, solved-count-per-size, and organic `🧩` candidate selection (`3 * (1 + solvedCountForSize)` with `pass_rate` ranking and null-rate fallback by recency). Replaced the old selector chrome in `frontend/src/main.ts` + `frontend/src/components/puzzle-selector.ts` with a dynamic emoji nav, exact-size scroller (`Toate 7..15`), and three lean puzzle list modes (`available`, `in_progress`, `solved`). Split the old mixed progress screen into `frontend/src/components/statistics-panel.ts` and `frontend/src/components/rewards-panel.ts`, moved challenges/badges under `🏆`, and kept metrics/history under `📊`. Extended milestone badges to `100/200/500/1000` solves, updated tutorial/challenge copy to match the new IA, tightened mobile/list styling, and exposed `pass_rate` from the worker `/puzzles` response plus frontend summary typing.
-**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass). Tried browser verification via Playwright bridge, but this workspace lacks a usable browser install through that path, so no automated visual/mobile browser check was completed in-session.
-**Outcome:** success
-**Insight:** status tabs stay maintainable only if status derivation, tab visibility, and unlock policy live in one pure helper; once that model exists, the UI shell can stay thin and swap list/rewards/statistics surfaces without reintroducing duplicated progress logic.
-**Promoted:** no
-
-### [2026-03-23] — Unify remaining Python LM Studio orchestration under one runtime and remove implicit model routing
-**Context:** user reported intermittent LM Studio load failures during generation/regeneration, especially when one model stayed loaded while another flow tried to load its own expected model. Goal: root-cause fix, plus refactor for maintainability/extensibility after part of the pipeline had already moved to Rust.
-**Happened:** Audited the surviving Python orchestration and confirmed three interacting issues: cached model ownership in `ModelSession`, ad-hoc switching in `theme`/`retitle`, and lingering `model=\"default\"` / label-vs-id confusion in API calls. Added `generator/core/lm_runtime.py` as the single high-level runtime; kept `model_manager.py` as low-level LM Studio transport only, hardened loaded-instance discovery to skip entries without real `instance_id`, and made runtime activation reconcile against live `/api/v1/models` state before every switch. Migrated define/rewrite/repair/retitle/theme/verify/assessment/batch flows to runtime-based activation and explicit `model_id` calls. Removed hidden title switching, pushed title generation/rating onto explicit primary/secondary roles, and updated clue/puzzle tie-breakers plus standalone verify helpers to stop depending on LM Studio `default`. Refreshed tests around runtime reconciliation, title orchestration, batch publish tiebreaks, retitle flow, and assessment wiring.
-**Verification:** `python3 -m unittest tests.test_model_manager tests.test_model_session tests.test_theme tests.test_ai_clues tests.test_rewrite_engine tests.test_retitle tests.test_run_assessment tests.test_batch_publish`; `python3 -m unittest tests.test_verify tests.test_redefine tests.test_repair_puzzles`; `python3 -m py_compile generator/core/model_manager.py generator/core/lm_runtime.py generator/core/model_session.py generator/core/ai_clues.py generator/core/rewrite_engine.py generator/core/puzzle_metrics.py generator/core/score_helpers.py generator/phases/define.py generator/phases/theme.py generator/phases/verify.py generator/batch_publish.py generator/redefine.py generator/repair_puzzles.py generator/retitle.py generator/assessment/run_assessment.py tests/test_model_manager.py tests/test_model_session.py tests/test_theme.py tests/test_ai_clues.py tests/test_rewrite_engine.py tests/test_retitle.py tests/test_run_assessment.py tests/test_batch_publish.py tests/test_verify.py tests/test_redefine.py tests/test_repair_puzzles.py`.
-**Outcome:** success
-**Insight:** a local-model runtime is only predictable if every API call uses an explicit downloaded `model_id` and every switch re-discovers live loaded instances; cached ownership plus `"default"` creates state drift that looks like random LM Studio load failures.
-**Promoted:** yes — see LESSONS_LEARNED entry on separating transport ids from audit labels and banning implicit model routing.
+---
 
 ### [2026-04-05] — Simplify clue-canon referee to 2 phases and harden canonical insert conflicts
 **Context:** user reported clue-canon backfill wasting most wall time on Gemma/EuroLLM load-unload churn and then crashing on duplicate canonical inserts for `LA`.
@@ -817,6 +966,8 @@
 **Insight:** with single-active-model local inference, referee strictness must come from cross-model unanimity, not from extra alternating phases; otherwise model residency cost dominates actual compare work.
 **Promoted:** yes — see LESSONS_LEARNED entries on LM Studio phase design and conflict-safe canonical writes.
 
+---
+
 ### [2026-04-05] — Expand clue-canon backfill from verified-only nulls to all null pointers
 **Context:** user checked `select count(*) from crossword_clues where canonical_definition_id is null;` and found `4181`, while backfill reported `eligible_rows=0`. Investigation showed verified-null rows were already `0`; all remaining null pointers were unverified rows excluded by the current source filter.
 **Happened:** Updated `generator/core/clue_canon_store.py` so backfill source rows now include all `canonical_definition_id IS NULL` clues, not just verified ones. Updated `generator/clue_canon.py` to treat unverified rows conservatively: exact canonical reuse allowed, otherwise singleton canonical creation, with no referee/near-merge path for unverified currents. Added summary/state counters for `verified_null_rows`, `unverified_null_rows`, `eligible_rows_all`, `verified_attached_rows`, `unverified_attached_rows`, `unverified_singleton_canonicals_created`, and `unverified_exact_reuses`. Updated README backfill docs to explain the new policy: verified rows may merge/referee; unverified rows are attached conservatively to drive null pointers to zero.
@@ -824,6 +975,8 @@
 **Outcome:** success
 **Insight:** if the operational goal is pointer completeness, source filtering and progress counters must reflect all pointerless rows even when only a subset of rows is trusted to influence semantic dedup.
 **Promoted:** yes — see LESSONS_LEARNED entry on matching backfill eligibility to cutover invariants.
+
+---
 
 ### [2026-04-05] — Add continuous canonical-fanout simplifier with fail-closed invalid-answer guards
 **Context:** user wanted an overnight maintenance worker that keeps simplifying canonical definitions globally, batches model work to amortize Gemma/EuroLLM swaps, and never lets malformed compare/rewrite outputs corrupt canonical rows.
@@ -833,6 +986,8 @@
 **Insight:** overnight semantic simplifiers need explicit in-flight batch state plus fail-closed rewrite fallback; otherwise the first interrupt or malformed JSON turns a maintenance worker into a source of canonical corruption.
 **Promoted:** no
 
+---
+
 ### [2026-04-05] — Fix batch publish crash after Gemma swap; lower Gemma reasoning; add overthinking warnings
 **Context:** user ran `run_batch_loop.sh` on April 5 and saw no new puzzle created after replacing `gpt-oss-20b` with `gemma-4`. Logs suggested Gemma “thinking” might be involved and user wanted root cause plus a direct warning next time reasoning budget goes bad.
 **Happened:** Audited `generator/output/loop_runner.log` plus April 5 batch run logs. Confirmed the actual publish blocker was not Gemma itself but a late upload crash after a valid puzzle had already reached `Puzzle publicabil la tentativa 1/5`: `AttributeError: 'ClueEntry' object has no attribute 'word_type'` in `generator/phases/upload.py`. Fixed the adapter path by adding `word_type` to `ClueEntry`, preserving it in `generator/core/pipeline_state.py`, and hardening upload with `getattr(..., "")` fallback plus an early `Preparing upload payload` log. Then lowered Gemma reasoning from `medium`/`none` mixes to `low` for all Gemma purposes in `generator/core/model_manager.py`, and moved reasoning-budget detection into central `_chat_completion_create()` logging in `generator/core/ai_clues.py`, emitting `[warn reasoning_budget ...]` when reasoning dominates the token budget before or alongside truncation. Added regression coverage in `tests/test_pipeline_state.py`, `tests/test_upload_phase.py`, `tests/test_model_manager.py`, `tests/test_ai_clues.py`, and updated `tests/test_theme.py` for the new Gemma default.
@@ -840,6 +995,8 @@
 **Outcome:** success
 **Insight:** long-running publish loops need compatibility defaults at the final upload boundary and centralized reasoning-budget warnings; otherwise one late serializer mismatch or silent “thinking” blowup can waste an otherwise successful multi-hour batch.
 **Promoted:** yes — see LESSONS_LEARNED entry on preserving clue metadata across serialization boundaries.
+
+---
 
 ### [2026-04-05] — Add central `--debug` LM streaming logs across LLM entrypoints
 **Context:** user wanted `--debug` on batch/redefine/retitle/canonical wrappers so live LM Studio thinking and outputs show up while the job is still running, especially inside batch `run.log`.
@@ -849,6 +1006,8 @@
 **Insight:** live LM debugging depends as much on the logger as on the client API; adding `stream=True` alone is useless if the timestamped tee waits for a trailing newline before writing to `run.log`.
 **Promoted:** yes — see LESSONS_LEARNED entry on fragment-safe timestamped teeing.
 
+---
+
 ### [2026-04-06] — Fix false `english markers` rejects; add severity tags; remove timezone from human logs
 **Context:** user saw Gemma definitions in `./run_batch_loop.sh` fail repeatedly with `English markers detected` and wanted clearer `[DEBUG]/[INFO]/[WARN]/[ERROR]` log tags; follow-up preference: drop timezone suffix from human log timestamps.
 **Happened:** Traced the main reject bug to ASCII tokenization in `generator/core/ai_clues.py`: Romanian diacritic words like `forța` were split into false English tokens (`for` + `a`). Switched English-marker detection to normalized Unicode-safe tokenization, extended shared LLM cleanup in `generator/core/llm_text.py` to strip English residue labels (`Definition:`, `Final choice:`), trailing English translation/meta parentheses, and pick the first line that looks like an actual definition, and made reject logs include the triggering token plus cleaned definition excerpt. Updated `generator/core/runtime_logging.py` so human timestamps are local but timezone-free, severity is auto-prefixed centrally as `[INFO]` unless a line already carries `[DEBUG]/[INFO]/[WARN]/[ERROR]`, and added `format_human_log_line(...)` so `generator/loop_controller.py` manual file writes match the same format. Tagged streamed/fallback LLM debug and warning paths explicitly in `generator/core/ai_clues.py`. Added targeted regressions in `tests/test_ai_clues.py` and `tests/test_runtime_logging.py`.
@@ -856,6 +1015,8 @@
 **Outcome:** success
 **Insight:** language-guard filters on Romanian text must run after diacritic normalization, and human log formatting is safer when timestamp/severity policy lives in one central writer instead of ad-hoc callsite strings.
 **Promoted:** yes — see LESSONS_LEARNED entry on normalized English-marker tokenization.
+
+---
 
 ### [2026-04-06] — Centralize LM completion budgets per model across clue + title flows
 **Context:** user inspected April 6 logs and saw Gemma repeatedly hit `finish_reason=length` at `max_tokens=2000`, then asked for one strict global per-model budget policy: Gemma `4000`, GPT-OSS `2000`, EuroLLM `200`, applied everywhere.
@@ -865,6 +1026,8 @@
 **Insight:** when reasoning policy is already registry-driven, completion budget should live in the same model registry; otherwise log-driven budget changes become a brittle hunt through per-purpose literals.
 **Promoted:** no
 
+---
+
 ### [2026-04-06] — Reformat human logs to `timestamp LEVEL message` with post-level indentation
 **Context:** user wanted human logs to place severity immediately after the timestamp, remove square brackets from both timestamp and severity, and keep any indentation after the severity token instead of before it.
 **Happened:** Updated `generator/core/runtime_logging.py` so `TimestampedWriter` and `format_human_log_line(...)` now emit `YYYY-MM-DDTHH:MM:SS LEVEL ...` lines, normalize legacy `[WARN]`/`[DEBUG]` style prefixes into plain `WARN`/`DEBUG`, preserve old already-timestamped lines without double-prefixing, and move leading spaces to after the severity token (`INFO   message`). Added/updated coverage in `tests/test_runtime_logging.py` for plain lines, existing severity normalization, indentation placement, and formatted loop-log lines. Verified debug-stream and loop-controller paths still behave with `tests/test_llm_debug.py` and `tests/test_loop_controller.py`.
@@ -872,6 +1035,8 @@
 **Outcome:** success
 **Insight:** severity normalization should happen before indentation is rendered; otherwise streamed debug channels and manual log-file writes drift into different visual layouts.
 **Promoted:** no
+
+---
 
 ### [2026-04-06] — Add central no-thinking retry after completion budget is consumed by reasoning
 **Context:** user wanted a generic fallback for all thinking-capable models: if a call burns essentially the whole completion budget on thinking and returns no visible answer, retry once with thinking disabled instead of duplicating logic per feature branch.
@@ -881,6 +1046,8 @@
 **Insight:** local reasoning-model rescue logic should key off completion-budget exhaustion, not model name, and should live in the one shared completion helper so every current and future flow inherits the same bounded fallback.
 **Promoted:** yes — see LESSONS_LEARNED entry on central overthinking fallbacks.
 
+---
+
 ### [2026-04-06] — Disable Gemma reasoning only for verify
 **Context:** user reviewed April 6 batch logs, found Gemma `definition_verify` dominating the `max_tokens=4000` truncations, and asked for the narrowest possible change: disable reasoning only on verify while leaving generate/rewrite/rate/compare behavior unchanged.
 **Happened:** Added `reasoning_by_purpose["definition_verify"] = None` for Gemma in `generator/core/model_manager.py`, so `chat_reasoning_options(..., purpose="definition_verify")` now omits `reasoning_effort` for Gemma while preserving the existing low-reasoning defaults for other Gemma purposes. Updated `tests/test_model_manager.py` to assert empty reasoning options for Gemma verify and unchanged low reasoning for generate/compare, and updated `tests/test_ai_clues.py` so the primary-model verify call now asserts omission of `reasoning_effort` while keeping the model-derived `max_tokens` budget.
@@ -888,6 +1055,8 @@
 **Outcome:** success
 **Insight:** no new reusable insight beyond the existing per-purpose reasoning-controls lesson; this was a narrow application of that pattern to the noisiest verify path.
 **Promoted:** no
+
+---
 
 ### [2026-04-07] — Make hidden-reasoning retry key off response, not request params
 **Context:** user running `./run_definition_improve.sh` caught Gemma `definition_verify` spending `3997/4000` completion tokens on hidden reasoning, truncating twice, and never triggering the intended non-thinking retry because verify now omits `reasoning_effort` after recent refactors.
@@ -897,6 +1066,8 @@
 **Insight:** omitted `reasoning_effort` is not evidence that the model will not think; with LM Studio/OpenAI-compatible servers, the reliable source of truth is the response payload, not the request shape.
 **Promoted:** yes — folded into the shared overthinking-fallback lesson in `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-07] — Remove canonical migration/backfill runtime after final cutover
 **Context:** user wanted the canonical clue system treated as permanently post-cutover: no mixed legacy states, no backfill command surface, no alias-history writes, and no runtime branching kept alive purely for the migration.
 **Happened:** Removed the transitional CLI and resume machinery by replacing `generator/clue_canon.py` with a steady-state module that only exposes `audit` and `simplify-fanout`, and deleted `generator/clue_canon_state.py` plus `run_clue_canon_backfill.sh`. Simplified `generator/core/clue_canon_store.py` to fail fast on client construction, dropped `is_enabled`, schema-availability fallback logic, alias insert/cache methods, legacy `definition_source` reads, and backfill-source helpers, while adding small raw-table helpers needed by the new health audit. Updated `generator/core/clue_canon.py` to stop writing canonical alias history during near-match reuse. Updated `generator/core/clue_canon_simplify.py` so same-sense merges now keep the best existing survivor by default and only call rewrite/validate when both inputs are weak; merge apply now only creates survivor, repoints clue rows, and supersedes losers. Reworked canonical `audit` to check null/bad pointers, dangling/superseded canonical links, duplicate active canonical identities, oversized fanout buckets, and missing `crossword_clue_effective` rows. Removed cutover/backfill docs from `README.md`, updated `generator/puzzle_definition_audit.py` to rely on constructor fail-fast instead of `is_enabled`, and rewrote the clue-canon test suite around the reduced API.
@@ -904,6 +1075,8 @@
 **Outcome:** success
 **Insight:** once a storage cutover is truly final, transition code becomes a drift vector; keep migration history in SQL/history docs, but collapse runtime onto the new invariant and enforce it with one health audit.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-09] — Repo reshape into apps/engines/packages + eval subsystem; compatibility repaired
 **Context:** user asked to implement the planned repo reorganization for clarity: root reshape, Python split into workflows/domain/platform/evaluation/prompts, Rust split by capability, frontend/worker moved under `apps/`, assessment/evals elevated to a first-class subsystem, and public command surfaces kept usable.
@@ -913,6 +1086,8 @@
 **Insight:** structural refactors with compatibility layers fail first on patch surfaces, not imports. Lazy/eager alias choice, underscore helper exports, and module identity matter as much as path moves when old tests/scripts patch legacy names.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-07] — Add blind Gemma+EuroLLM consensus scoring for verify/rate/title
 **Context:** user wanted all persisted scoring decisions recomputed from a blind Gemma 4 + EuroLLM pair so one optimistic model could not dominate clue/title scores after the DB reset. Special requirement: Gemma's built-in no-thinking 200-token retry still counts as Gemma's single official vote, not a second vote or a failure.
 **Happened:** Kept low-level prompt helpers single-model and layered pair logic above them. In `generator/core/llm_client.py`, tagged responses with `reasoning` vs `no_thinking_retry` so downstream code can treat Gemma retry results as a valid official vote. In `generator/core/ai_clues.py`, added shared consensus helpers (`round_half_up`, `consensus_score`, `combine_definition_ratings`) and reused them for rebus computation. In `generator/phases/verify.py`, kept `_verify_clues()` / `_rate_clues()` as one-model workers, added per-model vote capture on `ClueAssessment`, and made `verify_working_puzzle()` / `rate_working_puzzle()` run both active models blind, require complete pairs, and write only combined scores/verdicts back to the working clue. In `generator/core/puzzle_metrics.py`, added `scores_complete`; incomplete pair evaluation now yields null puzzle metadata payloads while keeping conservative in-memory zeros for comparisons/logging. In `generator/phases/theme.py` and `generator/retitle.py`, title creativity rating now uses the same blind pair consensus formula, rejects incomplete title votes, and only persists `title_score` when the pair completed. In `generator/core/rewrite_engine.py`, removed single-evaluator overrides from rewrite verification/rating so rewrite-loop scoring also goes through the new pair orchestration.
@@ -920,6 +1095,8 @@
 **Outcome:** success
 **Insight:** pair-scoring migrations are safest when single-model prompt helpers remain intact and consensus completeness/aggregation move up to the orchestration layer; that avoids prompt drift while still enforcing blind two-model votes everywhere scores are persisted.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-07] — Add loaded-model-aware scheduler; remove duplicate outer retries on short tasks
 **Context:** user saw title generation still pay a full 4000-token Gemma attempt after the shared no-thinking retry had already fired, then asked for the same cleanup in other short-task paths plus a smarter scheduler that keeps the currently loaded LM Studio model active until its runnable queue drains.
@@ -929,6 +1106,8 @@
 **Insight:** loaded-model schedulers need to treat “current loaded model” as first-class state and also respect the codebase’s existing activation seams; otherwise the optimization works in production but silently bypasses mocks/tests and leaks real runtime calls into unit coverage.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-07] — Make dispatch mandatory for all production generator pipelines
 **Context:** user asked whether the loaded-model-aware scheduling was used across all LLM calls and wanted it extended so every production generator pipeline, not just verify/rate/title-rating, used one mandatory dispatch layer above the shared chat helper.
 **Happened:** Added `generator/core/llm_dispatch.py` as the required production entrypoint over `ModelAwareScheduler`, with `run_llm_workload(...)`, `run_single_model_workload(...)`, `run_single_model_call(...)`, and simple generation-model selectors. Switched existing scheduler users in `generator/phases/verify.py` and `generator/phases/theme.py` to go through the dispatch API instead of instantiating `ModelAwareScheduler` directly. Moved one-model generation flows onto dispatch too: `generator/phases/define.py` now batches missing clue generation through a single-model workload, `generator/phases/theme.py` title generation now routes through dispatch instead of directly activating models, and `generator/retitle.py` batch title generation plus single-model old-title scoring now both go through dispatch. In `generator/core/rewrite_engine.py`, removed direct runtime activation/or alternation from rewrite orchestration; model choice is now a local config selection, while actual generate/rewrite/tiebreak LLM work runs through `run_single_model_call(...)`. Also patched `generator/core/score_helpers.py` so best-version tie-breaks can accept a dispatch-backed tiebreaker, and removed warm-up `activate_primary()` calls from `generator/batch_publish.py`, `generator/redefine.py`, `generator/repair_puzzles.py`, and `generator/retitle.py`. Added enforcement tests in `tests/test_llm_dispatch_enforcement.py` to assert no direct production `chat.completions.create(...)` calls outside `llm_client.py` and no direct runtime activation calls outside runtime/dispatch/allowed offline modules.
@@ -936,6 +1115,8 @@
 **Outcome:** success
 **Insight:** a shared request helper removes transport drift, but only a shared dispatch layer removes runtime-switch drift; both layers are needed when model residency cost is a real part of correctness and performance.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-07] — Add unified `run_all` supervisor with queue telemetry and shell wrapper aliases
 **Context:** user wanted one `./run_all.sh --debug` daemon covering generation, redefine, retitle, and clue simplification “at the same time”, but still respecting LM Studio’s one-loaded-model constraint and exposing queue evolution when model switches happen.
@@ -945,6 +1126,8 @@
 **Insight:** strict empty-only queue draining is only safe when the supervisor also stops admitting fresh same-model work after the opposite model has backlog; otherwise “never switch until empty” becomes a starvation bug.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-07] — Document `run_all` as local-claim supervisor, not event bus
 **Context:** user asked whether `simplify` and `redefine` could still steal each other’s work and wanted the current concurrency boundary documented plus protected by regression tests, without changing runtime behavior.
 **Happened:** Updated `README.md` with a dedicated `run_all` section describing supported topics, queue telemetry, single-process limitation, local `puzzle_id` / word-claim protection, and the explicit note that the current system is not a durable event bus. Expanded the `generator/run_all.py` module docstring with the same contract: local claims only, simplify excluded by word, admission freeze under dual-model backlog, and no cross-process safety guarantee. Extended `tests/test_run_all.py` to assert redefine skips words claimed by simplify, simplify skips words owned by active puzzle jobs, retitle skips puzzles claimed elsewhere, claim release clears later reuse, admission freeze blocks new polling when both model queues are non-empty, and README wording keeps the local-claim / non-event-bus position explicit.
@@ -952,6 +1135,8 @@
 **Outcome:** success
 **Insight:** once a supervisor starts resembling a workflow engine, docs need to freeze the safety boundary as aggressively as tests do; otherwise people infer cross-process/event-bus guarantees the code never made.
 **Promoted:** no — covered by existing supervisor/claim lessons.
+
+---
 
 ### [2026-04-07] — Convert `run_all` to one-active-job-per-topic slots with step scheduling
 **Context:** user inspected `./run_all.sh` logs and correctly noticed that model switches were happening inside one active `redefine` job while `generate`, `retitle`, and `simplify` were only queued. Requirement tightened to: one active job of each topic at a time, immediate refill of a topic slot after completion, and visible concurrent progress across topics under the one-loaded-model LM Studio constraint.
@@ -961,6 +1146,8 @@
 **Insight:** multi-topic “parallel” work under one loaded model needs per-topic active slots plus resumable stages; otherwise telemetry can show healthy model activity while the actual throughput pattern is still serial at the job layer.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-07] — Remove legacy unattended wrappers; make `run_all` supervisor-native
 **Context:** user hit a hard stop in `./run_all.sh`: simplify still called `run_simplify_fanout(...)`, which loaded the shared `build/clue_canon/simplify_state.json`, saw a different `--word`, raised `SystemExit`, and killed the whole orchestrator. Requirement expanded: `run_all` becomes the only unattended production path; old wrapper scripts removed; add regression coverage for supervisor safety and legacy-removal.
 **Happened:** Refactored `generator/run_all.py` so production `simplify` no longer calls the CLI-era fanout runner. Added supervisor-safe simplify primitives in `generator/core/clue_canon_simplify.py` (`load_simplify_bucket`, `compare_simplify_pairs`, `find_simplify_pair_rows`, `apply_simplify_merge`, etc.) and turned simplify jobs into staged bucket work (`fetch_bucket`, `compare_gemma`, `compare_eurollm`, `rewrite_or_choose_survivor`, `apply_merge`). Hardened `_run_step(...)` to convert escaped `SystemExit` into topic failure while still letting `KeyboardInterrupt` propagate. Reworked `generate` in `run_all` into staged supervisor steps (`select_size`, `fill_grid`, `define_initial`, `rewrite_evaluate`, `title`, `publish`) instead of one blocking `run_batch(...)` call, and extracted `publish_prepared_puzzle(...)` in `generator/batch_publish.py` so batch and supervisor publish paths share the same final upload/write logic. Removed `run_batch_loop.sh`, `run_definition_improve.sh`, `run_title_improve.sh`, and `run_clue_canon_simplify.sh`; updated `README.md`, `GENERATOR_ARCH.md`, `generator/rust_bridge.py`, and regression tests to point unattended work only at `./run_all.sh`.
@@ -968,6 +1155,8 @@
 **Outcome:** success
 **Insight:** once a supervisor owns production, “thin wrapper reuse” is still too much if the reused path owns process exit or resume state. Supervisor paths need their own pure/staged primitives.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-07] — Tighten mobile clue bar and move touch keyboard above action buttons
 **Context:** user reported two mobile UI issues in the crossword view: the clue bar wasted space with the clue number beside `Vert./Oriz.` and a 3-line text box, and the touch keyboard appeared below the four action buttons instead of directly under the grid.
@@ -977,6 +1166,8 @@
 **Insight:** for tight mobile crossword headers, reclaiming width beats shrinking type: stack clue metadata vertically in a narrow badge column, then fit the clue text to a strict 2-line box.
 **Promoted:** no — UI-specific, not yet a repeated pattern.
 
+---
+
 ### [2026-04-07] — Add worker lane to `run_all`; split baseline + retitle rounds into resumable phases
 **Context:** user reviewed live `./run_all.sh` logs and saw slot admission without real concurrent progress: `generate fill_grid` retries, `redefine baseline`, and `retitle` multi-round generation still monopolized the single supervisor thread. Requirement tightened to: one serialized LM lane plus one conservative background non-LLM worker; no timeout/preemption rule; keep `generate` pinned to the selected size; preserve `retitle` quality-bar semantics.
 **Happened:** Updated `generator/run_all.py` to add explicit step `execution_mode` (`inline_non_llm`, `background_non_llm`, `llm`), job-level `running_step_id`, a single background `ThreadPoolExecutor` worker lane, worker polling, lane-aware step logs, worker state in queue snapshots/heartbeats, and `close()` shutdown wiring from `main()`. `GenerateJobState.fill_grid` now runs on the worker lane, so long Rust fill attempts can continue while LLM work proceeds. `RedefineJobState` baseline was split into `baseline_verify`, `baseline_rate`, and `baseline_finalize` using the pair-verify / pair-rate helper seams from `generator/phases/verify.py`. `RetitleJobState` was split into per-round phases (`generate_primary`, `rate_primary`, `generate_secondary`, `rate_secondary`, `round_finalize`, `persist`) using `_RetitleBatchState`, `_generate_batch_candidates(...)`, `_rate_batch_candidates(...)`, and `_finalize_title_result(...)`. Added focused regression tests in `tests/test_run_all.py` for worker/LLM overlap, background fill mode, redefine baseline phase splitting, and retitle phase yielding.
@@ -984,6 +1175,8 @@
 **Outcome:** success
 **Insight:** slot-based scheduling alone is not enough when one topic still owns long local prep. A separate worker lane is the minimal way to recover real overlap without concurrent model calls.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-07] — Extract `run_all` supervisor package; split redefine rewrite/persist and retitle persist for lane purity
 **Context:** user wanted the remaining starvation source removed from `run_all`, plus the god-file broken apart for maintainability. Requirements: keep `python -m generator.run_all` stable; move orchestration into a supervisor package; finish splitting `redefine` rewrite/persist path; remove hidden LLM work from non-LLM persistence stages.
@@ -993,6 +1186,8 @@
 **Insight:** once a single-lane/worker-lane contract exists, hidden LLM work inside “apply/persist” helpers is the next form of starvation and purity drift. Split every mixed helper into `prepare` (LLM) and `apply` (pure persistence), and keep `run_all.py` as assembly only.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-09] — Add run-local LLM policy, real preflight, stall detection, fairness, and stop artifacts to `run_all`
 **Context:** user asked to implement the remaining unattended reliability plan after the deterministic-failure quarantine fix: task-specific gemma reasoning policy, startup smoke checks, throughput-stall stop conditions, softer fairness for repeated live items, and operator-facing summary artifacts. Constraint: keep the two-model workflow; no DB changes; exclude auto-size changes from this cut.
 **Happened:** Extended `generator/run_all.py` with unattended-only CLI knobs for gemma reasoning, truncation threshold, stall window, and `--llm-preflight`; wired run-local LLM policy into `generator/core/llm_client.py` via explicit `configure_run_llm_policy(...)` / `reset_run_llm_state()` so short-form gemma tasks can use lower reasoning and bounded first-pass token caps only during `run_all`. Added per-purpose LLM counters, adaptive downgrade after repeated truncations, and slow-call telemetry for `clue_compare`. Upgraded `_preflight(...)` to load each configured model, issue a tiny smoke request, write `preflight.json`, and fail fast on LM Studio resource/load/malformed-response signatures. Extended `generator/core/lm_runtime.py` with activation/unload timing counters. Extended `generator/supervisor/scheduler.py` with stable-item progress memory, redefine/simplify fairness deprioritization, throughput-stall detection, and `run_summary.json` emission on close/fail-fast. Updated `generator/supervisor/pollers.py` to prefer fresh redefine/simplify work when a repeated item shows no stage progress. Added regression coverage in `tests/test_ai_clues.py` and `tests/test_run_all.py` for adaptive downgrade, bounded title budgets, parser knobs, preflight failure artifacts, stall stop, fairness, and run summary output.
@@ -1001,12 +1196,16 @@
 **Insight:** run-local LLM policy should be opt-in state. If task-specific caps/downgrades become silent process-wide defaults, standalone scripts and tests inherit unattended assumptions and drift from their contracts.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-09] — Audit Cloudflare changes after repo reorg + compactions
 **Context:** user asked what still needs changing in Cloudflare after the repo moved to `apps/frontend` and `apps/worker`, with additional compactions during refactor.
 **Happened:** Re-read `LESSONS_LEARNED.md`; inspected `apps/worker/wrangler.toml`, worker env/router code, frontend API-base wiring, README, and GitHub workflows. Confirmed the Worker runtime entry is already correct in the new layout (`main = "src/index.ts"` under `apps/worker`). Identified the real follow-ups instead: any Cloudflare dashboard git/deploy root must now be `apps/worker`; the Worker needs current secrets/vars (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, optional `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`); `ALLOWED_ORIGINS` likely needs localhost/dev entries; frontend `VITE_API_BASE` must still point at the deployed Worker URL; and repo docs/Pages workflow still contain stale `worker/` and `frontend/` paths.
 **Outcome:** success
 **Insight:** after root moves, infra drift usually lives in deploy roots, CORS allowlists, and CI working directories, not in the runtime entry module itself.
 **Promoted:** no
+
+---
 
 ### [2026-04-09] — Complete repo migration; remove legacy Python namespace + source-artifact tree
 **Context:** user asked to finish the migration completely so the app still works but the old code is removed, not just bypassed.
@@ -1016,6 +1215,8 @@
 **Insight:** removing a compatibility tree cleanly requires two passes: first repoint every internal import to the real owner modules, then delete the wrappers and immediately run whole-suite verification. If you delete the wrappers first, latent relative imports surface one by one and slow the migration.
 **Promoted:** yes — added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-10] — Restore `generate.service` compat export for `run_all` metadata injection
 **Context:** user reported latest `./run_all.sh` stop on `generate:size:13` with deterministic quarantine after `define_initial` raised `AttributeError: module 'rebus_generator.workflows.generate.service' has no attribute '_inject_word_metadata'`.
 **Happened:** Traced the crash from `workflows/run_all/jobs/generate.py` into the `generate` refactor split. `_inject_word_metadata` still existed in `workflows/generate/prepare.py`, but `workflows/generate/service.py` no longer re-exported it while still acting as the compatibility facade for other underscore helpers. Restored that import, added a module-surface regression in `tests/generator/workflows/test_batch_publish.py`, and added a `GenerateJobState._define_initial()` regression in `tests/generator/cli/test_run_all.py` to verify metadata injection, `generated_by` backfill, and stage advance to `rewrite_evaluate`.
@@ -1023,6 +1224,8 @@
 **Outcome:** success
 **Insight:** compat facades must re-export every private helper that live orchestrators still call, not just the helpers covered by legacy unit imports.
 **Promoted:** no — existing compatibility-wrapper lesson already covers the broader pattern.
+
+---
 
 ### [2026-04-10] — Keep `run_all` alive when one generate size is deterministically unsatisfiable
 **Context:** unattended `run_all` advanced past the earlier `generate.service` compat crash, then later died on `generate:size:14` after Rust phase-1 failed three times at `fill_grid` with no solved candidates for any black-density step. The supervisor already had generate-size cooldowns/penalties, but deterministic quarantine still escalated the bad size into a whole-run stop.
@@ -1032,6 +1235,8 @@
 **Insight:** deterministic-failure quarantine needs topic-aware severity. A broken code path should stop the unattended run; a single unsatisfiable generate size should be penalized and skipped, not promoted into a global halt when the scheduler already knows how to exclude that size.
 **Promoted:** yes — good reusable unattended-run rule.
 
+---
+
 ### [2026-04-10] — Sweep stale Python imports after repo refactor
 **Context:** user asked for a repo-wide search for Python imports still pointing at pre-refactor locations.
 **Happened:** Ran a static AST-based import-resolution scan across repo Python files against the current `packages/rebus-generator/src` + repo-root module tree, then verified with targeted grep. The only stale imports found were in four report scripts under `build/experiment_reports/`, all still importing deleted `generator.config` / `generator.core.dex_cache` paths. Updated them to `rebus_generator.platform.config` and `rebus_generator.platform.io.dex_cache`.
@@ -1039,6 +1244,8 @@
 **Outcome:** success
 **Insight:** repo-wide import sweeps are safest with AST resolution against the live module tree; raw grep alone misses namespace-package realities and overflags relative imports.
 **Promoted:** no — compatibility/import-surface lesson already covers the reusable pattern.
+
+---
 
 ### [2026-04-10] — Repo-wide Python architecture pattern analysis
 **Context:** user asked for a full-current-tree architecture review focused on pattern recognition, reuse candidates, module extraction opportunities, and cross-file concept pairing across all Python code.
@@ -1048,6 +1255,8 @@
 **Insight:** the repo’s main duplication is structural, not algorithmic: orchestration loops, staged workflow shells, and compatibility facades repeat more than scoring math does. Extract engine/scaffold primitives first; do not start with universal scorers or mega base classes.
 **Promoted:** yes — added architecture-facade guidance to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-10] — Unified runtime-core refactor: orchestration core + staged jobs + guard ownership + facade removal
 **Context:** user asked to implement the large refactor plan in one wave: unify orchestration primitives, unify staged workflow contracts, fix guardrail layer direction, and shrink/delete compatibility facades.
 **Happened:** Added shared runtime scaffolding under `platform/orchestration/` (`WorkItem`, `WorkStage`, `StageExecutionMode`, `RunLedger`) and `workflows/shared/staged_job.py`, then rebased `workflows/run_all` types/base state/scheduler/state wrappers onto those owners. Moved definition/title/rating validation ownership into `domain/guards/`, repointed prompt builders and AI clue rating logic there, and normalized `retitle` title validation to use `domain.guards.title_guards` as the single owner. Split importable workflow cores out of service modules via `workflows/generate/runtime.py`, `redefine/runtime.py`, `retitle/runtime.py`, and `canonicals/audit.py`/`canonicals/runtime.py`; kept `service.py` files as parser/main roots. Repointed `run_all`, repair, pipeline CLI, tests, and helper scripts to real owner modules. Removed dead mirror/facade modules: `domain/prompt_builders.py`, `domain/validation_guards.py`, `platform/llm/validation_guards.py`, and `workflows/retitle/titleing.py`. During cleanup, fixed one constructor-order bug where the new scheduler ledger-backed helper was called before `self.ledger` existed.
@@ -1055,6 +1264,8 @@
 **Outcome:** success
 **Insight:** runtime-core extractions land cleanly when done owner-first: create the shared primitive, rebase one dense orchestrator onto it, then delete facade surfaces only after a repo-wide import sweep and contract-focused tests.
 **Promoted:** yes — constructor-order lesson added to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-10] — Retune unattended `run_all` short-form LLM policy and bound redefine rewrite rounds
 **Context:** user asked to implement the April 10 `run_all` stability/throughput plan after logs showed one startup crash plus long-running truncation/slow-progress behavior under unattended load.
@@ -1064,6 +1275,8 @@
 **Insight:** unattended short-form LLM tasks fail more often on truncated malformed visible payloads than on fully blank outputs; retry policy and tests need to model parser-invalid partial responses, not just empty completions.
 **Promoted:** yes — added the malformed short-form truncation lesson to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-10] — Timed Rust phase-1 search + edge-single template policy + stable tie RNG + rewrite-guard owner fix
 **Context:** user asked to implement the phase-1 search redesign after logs showed large sizes failing in a couple seconds, asked why second/penultimate rows never receive blacks, requested random tie handling for equal-ranked choices, and reported a fresh rewrite crash: `rewrite_engine has no attribute _validate_definition`.
 **Happened:** Reworked Rust phase-1 from fixed-count search to per-`black_step` wall-clock budgets. Added `step_time_budget_ms` to size settings (`5s` for `7..10`, `10s` for `11..12`, `15s` for `13..15`), threaded the override through the Rust CLI and Python bridge, and taught the pipeline to keep inward search running until the step deadline, then run an outward black-removal pass once a solvable candidate appears. Expanded engine stats with inward/outward counters plus rejection buckets and edge-single counts. Relaxed template spacing to “no orthogonally adjacent blacks” and replaced blanket singleton rejection with “interior singletons forbidden, edge singletons allowed only when the cell is still covered by a 2+ slot in the orthogonal direction”; this removes the old hidden ban on second/penultimate rows/cols. Added deterministic seeded tie randomness in Python selectors via `stable_tie_rng(...)` and wired it into accidental equal-rank choice sites (`selection_engine`, score-helper best-version updates, hybrid rewrite selection, assessment best-pick). Fixed the rewrite bug by making `rewrite_rounds` call `domain.guards.definition_guards.validate_definition_text` directly instead of a stale `rewrite_engine._validate_definition` facade. Added Rust template-policy tests, Python selector seed tests, and a targeted rewrite pending-candidate regression.
@@ -1071,6 +1284,8 @@
 **Outcome:** success
 **Insight:** “random tie-break” in unattended flows must still be seed-owned. Bare `random.choice(...)` removes first-item bias but also destroys reproducibility; the right seam is a stable RNG derived from the item/run identity and threaded only through accidental equal-rank fallbacks.
 **Promoted:** yes — tie-randomization reproducibility lesson added to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-10] — Align generator-time singleton guard with final validator; benchmark now records failures
 **Context:** user ran the new phase-1 benchmark across sizes `7..15` and it still hard-aborted at `14x14`, even though final validation had already been relaxed to allow edge singles. Investigation showed both template generators were still using the old blanket `creates_single_letter(...)` precheck, so the expanded search space never reached the validator. The benchmark script also still failed fast on the first unsolved pair.
@@ -1080,6 +1295,8 @@
 **Insight:** when validator policy changes but generator-time pruning does not, benchmarks can misdiagnose “search unsat” as a tuning problem. First align the generator guard with the validator, then retune budgets/nodes only if the size still fails.
 **Promoted:** yes — generator-pruning/validator-alignment lesson added to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-10] — Lowered initial black targets, split inward/outward budgets, beam outward optimization, multiline grid logs, progress-aware stall detection
 **Context:** user asked to lower initial black counts, give outward optimization its own `5s/10s/15s` budget, log actual inward/outward grids in the console with `+` for blacks, and stop `run_all` from false-stalling during long healthy generate work.
 **Happened:** Reduced Rust base `target_blacks` by a small size-tier discount while preserving the upward black-step ladder. Added `outward_time_budget_ms` and `outward_beam_width` to size settings; `run_engine(...)` now gives inward and outward separate deadlines. Replaced single-incumbent outward removal with a beam frontier over one-black removals, ranking descendants by fewer blacks first, then fewer edge singletons, then the existing structural quality order with stable seeded tie breaks. Stopped aggregating `edge_singletons` across attempts; final stats now report the chosen candidate’s count while search totals stay cumulative. Added multiline inward/outward filled-grid stderr logs from Rust showing letters plus `+` for black squares. Updated CLI tests to assert the grid blocks are logged. On the Python side, stall detection now keys off `last_progress_at`; scheduler progress updates fire on step completion, worker completion, stage transition, and handled step errors. Added a progress-aware stall regression plus adjusted the old churn-only stall test to age `last_progress_at`, not just `last_completion_at`.
@@ -1087,6 +1304,8 @@
 **Outcome:** success
 **Insight:** benchmark/search telemetry must keep cumulative search counters separate from chosen-grid quality fields; once `edge_singletons` was treated as a chosen-candidate metric and outward got its own clock, the large-grid picture became interpretable again.
 **Promoted:** yes — added search-stats separation lesson to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-10] — Exact low-start retune, zero-black outward skip, 15s benchmark default
 **Context:** user asked to implement the next retune: exact lower base starts (`7->0, 8->3, 9->5, 10->8, 11->12, 12->17, 13->22, 14->30, 15->38`), treat `15s inward + 15s outward` as the tuned mode, avoid outward work when inward already solves at zero blacks, and clean up unneeded code.
@@ -1096,6 +1315,8 @@
 **Insight:** the new base targets landed, but effective live starts on larger sizes still rose above them because dictionary tuning adds black bonuses (`14x14` ran at `33`, `15x15` at `42`). That means future “lower the starts” work must either retune dictionary bonuses too or report both base and tuned starts explicitly.
 **Promoted:** yes — added base-vs-tuned target lesson to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-11] — Replaced runtime dictionary black inflation with precomputed sidecar scarcity profile
 **Context:** user asked to remove the contradictory runtime dictionary tuning path, keep black-count ownership in the size table only, precompute scarcity/positional rarity beside `build/words.json`, rebuild it from `run_all.sh` and the benchmark entrypoint, and use it for effort planning plus MRV-first solver tie-breaks.
 **Happened:** Added crate-level `dictionary_profile` module plus new Rust binary `crossword_dictionary_profile`. The profile builder now reuses Rust `filter_word_records(...)` semantics, emits per-size (`7..15`) counts-by-length, medium/long density summaries, and per `(length, position, letter)` counts/probabilities/surprisal into `words.profile.json`. Removed `tune_settings_for_dictionary(...)`; `settings_for_size()` remains sole owner of `target_blacks` and `max_extra_blacks`, while `plan_search_effort(...)` now only scales `max_nodes`, `template_attempts`, and `min_candidates_per_slot`. Wired optional profile loading into `run_engine(...)`, added explicit base/effective/profile fields to `SearchStats`, and logged profile usage before search so `black_step 0 target_blacks` stays equal to the base table. Extended solver state with optional positional scarcity; MRV slot selection now breaks equal-count/equal-degree ties by anchored rarity, and candidate ordering uses open-position rarity after the existing impact score. Added Python helper `rebuild_dictionary_profile(...)`, exposed a manual `python -m rebus_generator profile build/words.json -` phase, made `run_all.sh` compile then rebuild the sidecar before launching Python, and made the benchmark script rebuild the sidecar before running phase-1. Added Rust unit/integration tests for the profile builder, effort planner, and positional rarity tie-break, plus Python regressions for the benchmark/profile rebuild path and the updated `run_all.sh`.
@@ -1103,6 +1324,8 @@
 **Outcome:** success
 **Insight:** static dictionary scarcity should be a sidecar artifact built from the same normalized/deduplicated filter path as phase-1 itself. Recomputing it ad hoc inside runtime search or in a separate Python filter invites another split-brain bug where structural settings, effort knobs, and solver heuristics disagree about what the dictionary actually contains.
 **Promoted:** yes — added sidecar-artifact ownership lesson to `LESSONS_LEARNED.md`.
+
+---
 
 ### [2026-04-11] — Reset-safe puzzle scoring and canonical ranking after DB quality resets
 **Context:** user traced a generate quarantine to `pass_rate=0` after a DB reset had manually cleared persisted `verified` and score fields. Requirement: runtime must still work after future resets, across generate/redefine/simplify, without DB repair.
@@ -1112,6 +1335,8 @@
 **Insight:** resettable DB quality fields must be cache/history only. If publishability, prompt-example ranking, or simplify survivor choice depends directly on persisted `verified`/scores, a legitimate reset silently changes runtime semantics and can fake zero-pass failures.
 **Promoted:** yes — added reset-safe-quality lesson to `LESSONS_LEARNED.md`.
 
+---
+
 ### [2026-04-11] — Fixed CI regressions in preflight artifact persistence, rewrite verify compatibility, and Dependabot security resolution
 **Context:** user reported two GitHub failures: `python-tests` had two regressions (`test_preflight_writes_artifact_and_aborts_on_secondary_load_failure`, `test_unresolved_short_definition_emits_terminal_audit`), and Dependabot could not remediate `serialize-javascript` because the frontend lockfile still resolved `6.0.2` through `vite-plugin-pwa -> workbox-build -> @rollup/plugin-terser`.
 **Happened:** Changed `run_all._preflight(...)` to create and persist `preflight.json` even when bootstrap checks fail before model smoke tests, while still unloading models only when a runtime was actually created. Relaxed `rewrite_session_initial_verify(...)` so it accepts the normal `(passed, total)` tuple but falls back to deriving counts from puzzle state when patched compatibility surfaces return no tuple, matching older test assumptions. In `apps/frontend/package.json`, added an npm `overrides` entry for `serialize-javascript@^7.0.5`, regenerated the frontend lockfile, and refreshed local install state so the resolved tree now places `serialize-javascript@7.0.5` under `@rollup/plugin-terser`.
@@ -1119,6 +1344,8 @@
 **Outcome:** success
 **Insight:** security-update failures on transitive npm deps can sometimes be cleared safely with a repo-local override plus lock refresh when the upstream package range is stale but the consuming build still works against the newer leaf version. Separately, preflight/reporting code should emit artifacts even for early bootstrap failures so CI has a durable failure record.
 **Promoted:** no
+
+---
 
 ### [2026-04-11] — Canonical conflict recovery + publish gate swap + run_all drain metrics
 **Context:** user asked to implement the morning `run_all.sh` fix plan after a deterministic publish crash on canonical insert conflict, bad cross-topic model churn, and the old `pass_rate >= 0.1` publish gate.
@@ -1128,6 +1355,8 @@
 **Insight:** none beyond existing lessons; this session mostly applied the already-known “supervisor owns model switching” and “DB quality fields are cache/history, not runtime truth” patterns.
 **Promoted:** no
 
+---
+
 ### [2026-04-11] — Hybrid run_all work units, compat shims, drain-loop dedupe
 **Context:** user asked to finish the inner-loop breakdown for `run_all` using hybrid work units instead of hidden nested schedulers, while keeping the code maintainable and debuggable.
 **Happened:** Added unit-facing metadata to shared staged-job primitives (`phase`, `coalesce_key`, `unit_id`, `execute`) plus `UnitResult` / `TraceEvent` and JSONL per-unit traces in `run_all`. Refactored the supervisor to operate on `plan_ready_units()` / `apply_unit_result()` and keep one global loaded-model drain, with unit-purpose/topic drain counters in summary output. Added `RunAllRewriteSession` for atomic generate/redefine rewrite work: per-clue initial verify/rate units, per-candidate generation units, per-candidate verify/rate units, plus non-LLM prepare/select/finalize transitions. Reworked run_all `generate`, `redefine`, `retitle`, and `simplify` jobs around unit planning/application instead of inner schedulers or direct runtime activation. Restored a small set of legacy direct-helper/patch surfaces as temporary compat shims so existing tests can still patch coarse helpers while the supervisor uses the new unit planner. Fixed a new supervisor bug where the same unchanged ready unit could be rerun forever inside one drain cycle by deduping `(job_id, step_id, phase)` within each `_run_ready_steps()` pass, then added a regression test for it.
@@ -1135,3 +1364,21 @@
 **Outcome:** success
 **Insight:** the new reusable lesson was the drain-loop dedupe guard; compatibility shims are temporary and intentionally isolated away from the real `plan_ready_units()` supervisor path.
 **Promoted:** yes — added ready-unit drain-loop dedupe lesson to `LESSONS_LEARNED.md`.
+
+---
+
+### [2026-04-11] — Migrated Python dependency management and execution from pip/venv to uv
+**Context:** user asked to migrate the project from standard `pip` and `venv` to `uv` for Python build and tests, including thorough documentation updates.
+**Happened:** Created a root `pyproject.toml` with `hatchling` build backend, defining the `rebus-generator` project with its core dependencies (`supabase`, `openai`, `python-dotenv`) and `dev` group (`pytest`). Configured `tool.hatch.build.targets.wheel` to point to `packages/rebus-generator/src`, enabling `uv sync` to install the project in editable mode automatically. Removed the legacy `packages/rebus-generator/requirements.txt` and `sitecustomize.py` (which was previously used to manually inject `src` into `sys.path`). Updated `run_all.sh`, `batch_redefine.sh`, and `run_puzzle_definition_audit.sh` to use `uv run python` for execution. Updated `tests/generator/workflows/test_batch_publish.py` to assert the new `uv run` command in `run_all.sh`. Migrated `.github/workflows/python-tests.yml` to `astral-sh/setup-uv@v5` and `uv run pytest`. Updated `README.md`, `SETUP_AI_AGENT_CONFIG.md`, and `prompt_research.md` to reflect the new `uv`-based workflow.
+**Verification:** `uv sync --all-groups` succeeded (created `.venv`, installed dependencies, and built `rebus-generator` in editable mode); `uv run pytest tests/ -v` (600 passed, confirming that `rebus_generator` is correctly resolvable without the old `sitecustomize.py`).
+**Outcome:** success
+**Insight:** a root `pyproject.toml` combined with `uv` provides a much cleaner and more robust environment setup than manual `venv` and `pip` orchestration, especially for multi-package repositories where local source paths need to be manageable across CI and local dev without `PYTHONPATH` hacks or `sitecustomize.py`.
+**Promoted:** yes — added uv-migration-benefits lesson to `LESSONS_LEARNED.md`.
+
+---
+
+---
+
+---
+
+---

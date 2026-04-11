@@ -36,7 +36,8 @@ engines/crossword-engine + Supabase + LM Studio + apps/worker + apps/frontend
 
 ## Prerequisites
 
-- **Python 3.10+** (uses `str | None` union syntax)
+- **Python 3.11+**
+- **uv** (for Python dependency management)
 - **Node.js 22+** (for frontend dev)
 - **Supabase** account with the `words` table populated (same instance as propozitii-nostime)
 - **LM Studio** running locally (for `theme`, `define`, `verify` phases)
@@ -46,13 +47,8 @@ engines/crossword-engine + Supabase + LM Studio + apps/worker + apps/frontend
 All generator commands run from the repo root.
 
 ```bash
-# Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate   # Windows
-
-# Install Python dependencies
-pip install -r packages/rebus-generator/requirements.txt
+# Install Python dependencies and create .venv
+uv sync
 
 # Copy and fill in your credentials
 cp .env.example .env
@@ -79,7 +75,7 @@ Existing install: apply migrations in `db/migrations/` first.
 ## Generator CLI
 
 ```bash
-python -m rebus_generator <phase> <input_file> <output_file> [options]
+uv run python -m rebus_generator <phase> <input_file> <output_file> [options]
 ```
 
 Supported CLI phases:
@@ -94,12 +90,12 @@ Supported CLI phases:
 Typical manual flow:
 
 ```bash
-python -m rebus_generator download - build/words.json
-python -m rebus_generator theme build/filled.md build/themed.md
-python -m rebus_generator define build/themed.md build/defs.md
-python -m rebus_generator verify build/defs.md build/verified.md
-python -m rebus_generator upload build/verified.md -
-python -m rebus_generator activate <puzzle-id>
+uv run python -m rebus_generator download - build/words.json
+uv run python -m rebus_generator theme build/filled.md build/themed.md
+uv run python -m rebus_generator define build/themed.md build/defs.md
+uv run python -m rebus_generator verify build/defs.md build/verified.md
+uv run python -m rebus_generator upload build/verified.md -
+uv run python -m rebus_generator activate <puzzle-id>
 ```
 
 For unattended generation + improvement, use:
@@ -127,11 +123,11 @@ Canonical clue cleanup now has two surfaces:
 
 ```bash
 # Audit canonical library health
-python -m rebus_generator.workflows.canonicals.service audit
+uv run python -m rebus_generator.workflows.canonicals.service audit
 
 # One-off simplify maintenance
-python -m rebus_generator.workflows.canonicals.service simplify-fanout --dry-run
-python -m rebus_generator.workflows.canonicals.service simplify-fanout --apply
+uv run python -m rebus_generator.workflows.canonicals.service simplify-fanout --dry-run
+uv run python -m rebus_generator.workflows.canonicals.service simplify-fanout --apply
 ```
 
 Notes:

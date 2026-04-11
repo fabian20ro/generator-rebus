@@ -24,7 +24,9 @@ fi
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
-  if [[ -x ".venv/bin/python" ]]; then
+  if command -v uv &> /dev/null; then
+    PYTHON_BIN="uv run python"
+  elif [[ -x ".venv/bin/python" ]]; then
     PYTHON_BIN=".venv/bin/python"
   else
     PYTHON_BIN="python3"
