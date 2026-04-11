@@ -6,9 +6,6 @@ from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.platform.io.runtime_logging import log
-from rebus_generator.workflows.redefine.rewrite_engine import (
-    finish_rewrite_session,
-)
 from rebus_generator.workflows.generate.verify import (
     _finalize_pair_rating,
     _finalize_pair_verification,
@@ -313,7 +310,8 @@ class RedefineJobState(JobState):
         return None
 
     def _persist_prepare(self, ctx):
-        finish_rewrite_session(self.rewrite_session)
+        assert self.rewrite_session is not None
+        self.rewrite_session.finish()
         self.persistence_plan = plan_redefined_puzzle_persistence(
             ctx.supabase,
             self.puzzle_row,

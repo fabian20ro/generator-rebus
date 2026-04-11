@@ -204,6 +204,8 @@
 
 **[2026-04-11]** Ready-unit drain loops need per-cycle dedupe on unchanged unit identity — once a supervisor replans after every unit, a job that forgets to advance state can present the exact same `(job_id, step_id, phase)` forever and hang the run inside one “drain current model” cycle. Keep the global model-drain behavior, but suppress rerunning the same unchanged ready unit within the same scheduler pass; only re-run after state/phase/step identity changes or on a later retry cycle.
 
+**[2026-04-11]** Run-specific session wrappers must either honor the shared session finish contract or avoid shared finalizers entirely — `run_all` used `RunAllRewriteSession` during bounded rewrite rounds, then later called `finish_rewrite_session(...)`, which expects a different session type with `.final_result`. That mismatch surfaced only in late-stage persist prep and retried into deterministic quarantine. If a workflow introduces a wrapper session class, give it an idempotent cached `.finish()` result and keep later stages on that native interface instead of mixing helper APIs across session types.
+
 ---
 
 ## Archive

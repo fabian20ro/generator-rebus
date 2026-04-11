@@ -112,6 +112,7 @@ class RunAllRewriteSession:
         self.current_round: RunAllRewriteRound | None = None
         self.initial_passed = 0
         self.generation_model_switches = 0
+        self.final_result: RewriteLoopResult | None = None
 
     @property
     def model_order(self) -> list[str]:
@@ -596,6 +597,8 @@ class RunAllRewriteSession:
                     break
 
     def finish(self) -> RewriteLoopResult:
+        if self.final_result is not None:
+            return self.final_result
         _restore_best_versions(self.puzzle)
         final_passed = sum(1 for clue in self.clues() if clue.current.assessment.verified)
         improved_versions: dict[str, ClueCandidateVersion] = {}
@@ -623,7 +626,7 @@ class RunAllRewriteSession:
                 component="rewrite_engine",
                 payload={"word": clue.word_normalized, "definition": unresolved_definition, "reason": reason},
             )
-        return RewriteLoopResult(
+        self.final_result = RewriteLoopResult(
             initial_passed=self.initial_passed,
             final_passed=final_passed,
             total=len(self.clues()),
@@ -631,3 +634,4 @@ class RunAllRewriteSession:
             outcomes=self.outcomes,
             improved_versions=improved_versions,
         )
+        return self.final_result

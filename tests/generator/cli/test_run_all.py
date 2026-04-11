@@ -20,6 +20,7 @@ from rebus_generator.workflows.run_all import (
 )
 from rebus_generator.workflows.run_all.jobs.base import JobState
 from rebus_generator.workflows.run_all.jobs.generate import GenerateJobState
+from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
 from rebus_generator.workflows.run_all.types import RunAllStallDetected, StableItemProgress, UnitResult
 
 
@@ -985,6 +986,97 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertIs(job.rewrite_session, rewrite_session)
         self.assertEqual(2, job.rewrite_session.round_index)
         self.assertEqual("rewrite_prepare_round", job.stage)
+
+    def test_redefine_persist_prepare_uses_run_all_rewrite_session_finish(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["redefine"],
+            topic_caps={"redefine": 1},
+        )
+        item = _item("redefine", "redefine:puzzle:p1", puzzle_id="p1")
+        item.payload = {"puzzle_row": {"id": "p1", "title": "Titlu"}}
+        job = supervisor._build_job(item)
+        ctx = _context(runtime)
+        finish_calls: list[str] = []
+        persistence_plan = SimpleNamespace(clue_updates=[{"id": "c1"}])
+
+        class _FakeRewriteSession:
+            round_index = 2
+
+            def finish(self):
+                finish_calls.append("finish")
+                return SimpleNamespace(initial_passed=1, final_passed=1, total=1)
+
+        job.rewrite_session = _FakeRewriteSession()
+        job.puzzle_row = {"id": "p1", "title": "Titlu"}
+        job.clue_rows = [{"id": "c1"}]
+        job.baseline_puzzle = SimpleNamespace()
+        job.candidate_puzzle = SimpleNamespace()
+        job.stage = "persist_prepare"
+
+        with patch(
+            "rebus_generator.workflows.run_all.jobs.redefine.plan_redefined_puzzle_persistence",
+            return_value=persistence_plan,
+        ) as plan_mock:
+            unit = job.plan_ready_units(ctx)[0]
+            self.assertEqual("redefine_persist_prepare", unit.purpose)
+            result = _run_planned_unit(job, unit, ctx)
+
+        self.assertEqual(["finish"], finish_calls)
+        plan_mock.assert_called_once()
+        self.assertIs(result.value, persistence_plan)
+        self.assertIs(job.persistence_plan, persistence_plan)
+        self.assertEqual("persist_apply", job.stage)
+
+    def test_run_all_rewrite_session_finish_is_idempotent(self):
+        session = RunAllRewriteSession.__new__(RunAllRewriteSession)
+        clue = SimpleNamespace(
+            word_normalized="APA",
+            current=SimpleNamespace(
+                assessment=SimpleNamespace(verified=False),
+            ),
+            active_version=lambda: SimpleNamespace(definition="Definiție curentă"),
+        )
+        dex_calls: list[str] = []
+        audit_calls: list[tuple] = []
+        session.puzzle = object()
+        session.initial_passed = 1
+        session.generation_model_switches = 3
+        session.outcomes = {
+            "APA": SimpleNamespace(
+                word="APA",
+                initial_semantic=1,
+                initial_rebus=1,
+                final_semantic=0,
+                final_rebus=0,
+                was_candidate=True,
+                had_error=False,
+                terminal_reason="",
+                selected_strategy="",
+            )
+        }
+        session.dex = SimpleNamespace(
+            uncertain_short_definitions=lambda: dex_calls.append("dex") or [{"word": "APA", "definition": "DEX scurt"}]
+        )
+        session.final_result = None
+        session.clues = lambda: [clue]
+
+        with (
+            patch("rebus_generator.workflows.run_all.rewrite_units._restore_best_versions") as restore_mock,
+            patch("rebus_generator.workflows.run_all.rewrite_units._extract_semantic_score", return_value=1),
+            patch("rebus_generator.workflows.run_all.rewrite_units._extract_rebus_score", return_value=1),
+            patch("rebus_generator.workflows.run_all.rewrite_units.audit", side_effect=lambda *args, **kwargs: audit_calls.append((args, kwargs))),
+        ):
+            first = RunAllRewriteSession.finish(session)
+            second = RunAllRewriteSession.finish(session)
+
+        self.assertIs(first, second)
+        self.assertIs(session.final_result, first)
+        self.assertEqual(["dex"], dex_calls)
+        self.assertEqual(1, restore_mock.call_count)
+        self.assertEqual(1, len(audit_calls))
+        self.assertEqual("rewrite_no_change", session.outcomes["APA"].terminal_reason)
 
     def test_retitle_job_yields_across_round_phases(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)

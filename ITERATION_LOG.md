@@ -1382,3 +1382,13 @@
 ---
 
 ---
+
+---
+
+### [2026-04-11] — Fix `run_all` redefine persist crash from mixed rewrite-session contracts
+**Context:** user reported `./run_all.sh` failure and suspected `uv`/venv migration; traceback showed redefine `persist_prepare` crashing late in the unattended supervisor after a healthy run.
+**Happened:** Investigated `build/run_all_runs/20260411_152041/run.log` and confirmed the failure was not bootstrap/import related. Root cause: `RedefineJobState._persist_prepare()` called `finish_rewrite_session(self.rewrite_session)` even though `run_all` uses `RunAllRewriteSession`, not `RewriteSession`. The shared helper expected `.final_result`, so retries hit the same `AttributeError` three times and triggered deterministic quarantine. Fixed the redefine job to call `self.rewrite_session.finish()` directly, added cached `final_result` state plus memoized/idempotent `.finish()` behavior to `RunAllRewriteSession`, and added regression tests for redefine persist prep and repeated finish calls.
+**Verification:** `pytest tests/generator/cli/test_run_all.py -k redefine` (`5 passed`); `pytest tests/generator/cli/test_run_all.py` (`38 passed`).
+**Outcome:** success
+**Insight:** wrapper session classes in unattended flows need a stable finish contract or must never be passed to helpers written for another session type; late-stage persist code is where these interface mismatches surface.
+**Promoted:** yes — see LESSONS_LEARNED entry on session-wrapper finish contracts.
