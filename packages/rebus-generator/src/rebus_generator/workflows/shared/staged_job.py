@@ -43,6 +43,12 @@ class StagedJobState(Generic[ContextT]):
     def next_steps(self, ctx: ContextT) -> list[StageSpec]:
         raise NotImplementedError
 
+    def plan_ready_units(self, ctx: ContextT) -> list[StageSpec]:
+        return self.next_steps(ctx)
+
+    def apply_unit_result(self, unit: StageSpec, result: object, ctx: ContextT) -> None:
+        return None
+
     def _stage_spec(
         self,
         step_id: str,
@@ -52,6 +58,8 @@ class StagedJobState(Generic[ContextT]):
         execution_mode: StageExecutionMode,
         model_id: str | None,
         kind: str,
+        phase: str | None = None,
+        coalesce_key: str | None = None,
     ) -> StageSpec:
         return StageSpec(
             step_id=step_id,
@@ -62,9 +70,19 @@ class StagedJobState(Generic[ContextT]):
             model_id=model_id,
             runner=runner,
             execution_mode=execution_mode,
+            phase=phase or self.stage,
+            coalesce_key=coalesce_key,
         )
 
-    def non_llm_stage(self, step_id: str, purpose: str, runner, *, execution_mode: StageExecutionMode = "inline_non_llm") -> StageSpec:
+    def non_llm_stage(
+        self,
+        step_id: str,
+        purpose: str,
+        runner,
+        *,
+        execution_mode: StageExecutionMode = "inline_non_llm",
+        phase: str | None = None,
+    ) -> StageSpec:
         return self._stage_spec(
             step_id,
             purpose,
@@ -72,12 +90,22 @@ class StagedJobState(Generic[ContextT]):
             execution_mode=execution_mode,
             model_id=None,
             kind="non_llm",
+            phase=phase,
         )
 
     def background_stage(self, step_id: str, purpose: str, runner) -> StageSpec:
         return self.non_llm_stage(step_id, purpose, runner, execution_mode="background_non_llm")
 
-    def llm_stage(self, step_id: str, purpose: str, model_id: str, runner) -> StageSpec:
+    def llm_stage(
+        self,
+        step_id: str,
+        purpose: str,
+        model_id: str,
+        runner,
+        *,
+        phase: str | None = None,
+        coalesce_key: str | None = None,
+    ) -> StageSpec:
         kind = "gemma" if model_id == PRIMARY_MODEL.model_id else "eurollm"
         return self._stage_spec(
             step_id,
@@ -86,6 +114,8 @@ class StagedJobState(Generic[ContextT]):
             execution_mode="llm",
             model_id=model_id,
             kind=kind,
+            phase=phase,
+            coalesce_key=coalesce_key,
         )
 
     def progress(self, stage: str, detail: str = "") -> StageTransition:
@@ -114,4 +144,3 @@ class StagedJobState(Generic[ContextT]):
         if detail:
             self.progress_detail = detail
         return exc
-

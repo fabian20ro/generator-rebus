@@ -47,4 +47,12 @@ class WorkStage:
     model_id: str | None
     runner: Callable[[Any], object] = field(repr=False)
     execution_mode: StageExecutionMode = "inline_non_llm"
+    phase: str = ""
+    coalesce_key: str | None = None
 
+    @property
+    def unit_id(self) -> str:
+        return self.step_id
+
+    def execute(self, ctx: Any) -> object:
+        return self.runner(ctx)

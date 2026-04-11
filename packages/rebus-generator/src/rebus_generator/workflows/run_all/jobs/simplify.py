@@ -37,20 +37,96 @@ class SimplifyJobState(JobState):
         self.skipped_path: Path | None = None
 
     def next_steps(self, ctx):
+        return self.plan_ready_units(ctx)
+
+    def plan_ready_units(self, ctx):
         if self.status != "active":
             return []
         if self.stage == "fetch_bucket":
             return [self._non_llm_step("fetch_bucket", "simplify_fetch_bucket", self._fetch_bucket)]
         if self.stage == "compare_gemma":
-            return [self._llm_step("compare_gemma", "simplify_compare_gemma", PRIMARY_MODEL.model_id, self._compare_gemma)]
+            pending = [pair for pair in self.batch_pairs if pair.key not in self.primary_votes]
+            return [
+                self._llm_step(
+                    f"compare_gemma:{pair.key}",
+                    "simplify_compare_gemma",
+                    PRIMARY_MODEL.model_id,
+                    lambda _ctx, pair=pair: compare_definition_variants_attempt(
+                        _ctx.ai_client,
+                        pair.word,
+                        len(pair.word),
+                        pair.left_definition,
+                        pair.right_definition,
+                        model=PRIMARY_MODEL.model_id,
+                    ),
+                )
+                for pair in pending
+            ] or [self._non_llm_step("compare_gemma_finalize", "simplify_compare_gemma_finalize", self._compare_gemma_finalize)]
         if self.stage == "compare_eurollm":
-            return [self._llm_step("compare_eurollm", "simplify_compare_eurollm", SECONDARY_MODEL.model_id, self._compare_eurollm)]
+            pending = [pair for pair in self.batch_pairs if pair.key not in self.secondary_votes]
+            return [
+                self._llm_step(
+                    f"compare_eurollm:{pair.key}",
+                    "simplify_compare_eurollm",
+                    SECONDARY_MODEL.model_id,
+                    lambda _ctx, pair=pair: compare_definition_variants_attempt(
+                        _ctx.ai_client,
+                        pair.word,
+                        len(pair.word),
+                        pair.left_definition,
+                        pair.right_definition,
+                        model=SECONDARY_MODEL.model_id,
+                    ),
+                )
+                for pair in pending
+            ] or [self._non_llm_step("compare_eurollm_finalize", "simplify_compare_eurollm_finalize", self._compare_eurollm_finalize)]
         if self.stage == "plan_survivors":
             return [self._non_llm_step("plan_survivors", "simplify_plan_survivors", self._plan_survivors)]
         if self.stage == "rewrite_secondary":
-            return [self._llm_step("rewrite_secondary", "simplify_rewrite_secondary", SECONDARY_MODEL.model_id, self._rewrite_secondary)]
+            pending = [triple for triple in self.pending_rewrite_pairs if triple[0].key not in self.rewritten_definitions]
+            return [
+                self._llm_step(
+                    f"rewrite_secondary:{pair.key}",
+                    "simplify_rewrite_secondary",
+                    SECONDARY_MODEL.model_id,
+                    lambda _ctx, pair=pair, left=left, right=right: rewrite_merged_canonical_definition(
+                        _ctx.ai_client,
+                        word=pair.word,
+                        definition_a=left.definition,
+                        definition_b=right.definition,
+                        model=SECONDARY_MODEL.model_id,
+                    ).definition,
+                )
+                for pair, left, right in pending
+            ] or [self._non_llm_step("rewrite_secondary_finalize", "simplify_rewrite_secondary_finalize", self._rewrite_secondary_finalize)]
         if self.stage == "validate_primary":
-            return [self._llm_step("validate_primary", "simplify_validate_primary", PRIMARY_MODEL.model_id, self._validate_primary)]
+            validated_keys = {
+                pair.key
+                for pair, _left, _right, _definition, rewrite_attempted in self.approved_pairs
+                if rewrite_attempted
+            }
+            pending = [
+                triple
+                for triple in self.pending_rewrite_pairs
+                if triple[0].key not in validated_keys
+            ]
+            return [
+                self._llm_step(
+                    f"validate_primary:{pair.key}",
+                    "simplify_validate_primary",
+                    PRIMARY_MODEL.model_id,
+                    lambda _ctx, pair=pair, left=left, right=right: validate_merged_canonical_definition(
+                        _ctx.ai_client,
+                        word=pair.word,
+                        answer_length=len(pair.word),
+                        definition_a=left.definition,
+                        definition_b=right.definition,
+                        candidate_definition=self.rewritten_definitions.get(pair.key, ""),
+                        model=PRIMARY_MODEL.model_id,
+                    ),
+                )
+                for pair, left, right in pending
+            ] or [self._non_llm_step("validate_primary_finalize", "simplify_validate_primary_finalize", self._validate_primary_finalize)]
         if self.stage == "apply_merge":
             return [self._non_llm_step("apply_merge", "simplify_apply_merge", self._apply_merge)]
         return []
@@ -71,33 +147,37 @@ class SimplifyJobState(JobState):
         self._progress("compare_gemma", detail=f"pairs={len(self.batch_pairs)}")
         return None
 
-    def _compare_gemma(self, ctx):
-        self.primary_votes = {
-            pair.key: compare_definition_variants_attempt(
-                ctx.ai_client,
-                pair.word,
-                len(pair.word),
-                pair.left_definition,
-                pair.right_definition,
-                model=PRIMARY_MODEL.model_id,
-            )
-            for pair in self.batch_pairs
-        }
+    def apply_unit_result(self, unit, result, ctx) -> None:
+        if unit.purpose == "simplify_compare_gemma":
+            self.primary_votes[unit.step_id.split(":", 1)[1]] = result.value
+            return
+        if unit.purpose == "simplify_compare_eurollm":
+            self.secondary_votes[unit.step_id.split(":", 1)[1]] = result.value
+            return
+        if unit.purpose == "simplify_rewrite_secondary":
+            self.rewritten_definitions[unit.step_id.split(":", 1)[1]] = str(result.value or "")
+            return
+        if unit.purpose == "simplify_validate_primary":
+            key = unit.step_id.split(":", 1)[1]
+            for pair, left, right in self.pending_rewrite_pairs:
+                if pair.key != key:
+                    continue
+                if any(approved_pair.key == key for approved_pair, *_rest in self.approved_pairs):
+                    break
+                rewritten_definition = self.rewritten_definitions.get(pair.key, "")
+                validation = result.value
+                if not validation.accepted:
+                    self.stats.rewrite_invalid += 1
+                    self.stats.rewrite_fallback_existing += 1
+                    rewritten_definition = choose_existing_survivor(left, right).definition
+                self.approved_pairs.append((pair, left, right, rewritten_definition, True))
+                break
+
+    def _compare_gemma_finalize(self, ctx):
         self._progress("compare_eurollm", detail=f"pairs={len(self.batch_pairs)}")
         return self.primary_votes
 
-    def _compare_eurollm(self, ctx):
-        self.secondary_votes = {
-            pair.key: compare_definition_variants_attempt(
-                ctx.ai_client,
-                pair.word,
-                len(pair.word),
-                pair.left_definition,
-                pair.right_definition,
-                model=SECONDARY_MODEL.model_id,
-            )
-            for pair in self.batch_pairs
-        }
+    def _compare_eurollm_finalize(self, ctx):
         self.stats.pairs_compared += len(self.batch_pairs) * 2
         self._progress("plan_survivors", detail=f"pairs={len(self.batch_pairs)}")
         return self.secondary_votes
@@ -153,36 +233,11 @@ class SimplifyJobState(JobState):
         self._progress("apply_merge", detail=f"approved={len(self.approved_pairs)}")
         return self.approved_pairs
 
-    def _rewrite_secondary(self, ctx):
-        for pair, left, right in self.pending_rewrite_pairs:
-            rewrite = rewrite_merged_canonical_definition(
-                ctx.ai_client,
-                word=pair.word,
-                definition_a=left.definition,
-                definition_b=right.definition,
-                model=SECONDARY_MODEL.model_id,
-            )
-            self.rewritten_definitions[pair.key] = rewrite.definition
+    def _rewrite_secondary_finalize(self, ctx):
         self._progress("validate_primary", detail=f"rewrites={len(self.pending_rewrite_pairs)}")
         return self.rewritten_definitions
 
-    def _validate_primary(self, ctx):
-        for pair, left, right in self.pending_rewrite_pairs:
-            rewritten_definition = self.rewritten_definitions.get(pair.key, "")
-            validation = validate_merged_canonical_definition(
-                ctx.ai_client,
-                word=pair.word,
-                answer_length=len(pair.word),
-                definition_a=left.definition,
-                definition_b=right.definition,
-                candidate_definition=rewritten_definition,
-                model=PRIMARY_MODEL.model_id,
-            )
-            if not validation.accepted:
-                self.stats.rewrite_invalid += 1
-                self.stats.rewrite_fallback_existing += 1
-                rewritten_definition = choose_existing_survivor(left, right).definition
-            self.approved_pairs.append((pair, left, right, rewritten_definition, True))
+    def _validate_primary_finalize(self, ctx):
         self._progress("apply_merge", detail=f"approved={len(self.approved_pairs)}")
         return self.approved_pairs
 

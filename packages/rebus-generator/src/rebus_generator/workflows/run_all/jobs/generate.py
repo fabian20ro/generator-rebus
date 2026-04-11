@@ -15,7 +15,10 @@ from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.domain.score_helpers import _restore_best_versions
 from rebus_generator.platform.io.runtime_logging import path_timestamp, utc_timestamp, log
 from rebus_generator.platform.io.markdown_io import parse_markdown
-from rebus_generator.workflows.generate.define import generate_definitions_for_state_direct
+from rebus_generator.workflows.generate.define import (
+    generate_definition_for_working_clue,
+    generate_definitions_for_state_direct,
+)
 from rebus_generator.workflows.generate.models import PreparedPuzzle
 from rebus_generator.workflows.generate.prepare import (
     _backfill_generated_model,
@@ -23,7 +26,6 @@ from rebus_generator.workflows.generate.prepare import (
     _choose_metadata_variants_for_puzzle,
     _inject_word_metadata,
     _preparation_attempts_for_size,
-    _rewrite_failed_clues,
 )
 from rebus_generator.workflows.generate.publish import publish_prepared_puzzle
 from rebus_generator.workflows.generate.quality_gate import (
@@ -32,6 +34,7 @@ from rebus_generator.workflows.generate.quality_gate import (
     _is_publishable,
 )
 from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
+from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
 from .base import JobState
 
 
@@ -51,12 +54,17 @@ class GenerateJobState(JobState):
         self.candidate = None
         self.resolved_metadata: dict[str, dict[str, object]] = {}
         self.working_puzzle = None
+        self.define_done_words: set[str] = set()
         self.first_passed = 0
         self.final_passed = 0
         self.total = 0
         self.best_prepared: PreparedPuzzle | None = None
+        self.rewrite_session: RunAllRewriteSession | None = None
 
     def next_steps(self, ctx):
+        return self.plan_ready_units(ctx)
+
+    def plan_ready_units(self, ctx):
         if self.status != "active":
             return []
         if self.stage == "select_size":
@@ -64,9 +72,31 @@ class GenerateJobState(JobState):
         if self.stage == "fill_grid":
             return [self._background_step("fill_grid", "generate_fill_grid", self._fill_grid)]
         if self.stage == "define_initial":
-            return [self._llm_step("define_initial", "generate_define_initial", PRIMARY_MODEL.model_id, self._define_initial)]
-        if self.stage == "rewrite_evaluate":
-            return [self._llm_step("rewrite_evaluate", "generate_rewrite_evaluate", PRIMARY_MODEL.model_id, self._rewrite_evaluate)]
+            state = self._ensure_define_state()
+            pending = [
+                clue
+                for clue in state.horizontal_clues + state.vertical_clues
+                if not clue.current.definition and clue.word_normalized not in self.define_done_words
+            ]
+            if pending:
+                return [
+                    self._llm_step(
+                        f"define_initial:{clue.word_normalized}",
+                        "generate_define_initial",
+                        PRIMARY_MODEL.model_id,
+                        lambda _ctx, clue=clue: generate_definition_for_working_clue(
+                            clue,
+                            _ctx.ai_client,
+                            theme=self._ensure_define_state().title or "Rebus Românesc",
+                            dex=DexProvider.for_puzzle(self._ensure_define_state()),
+                            model_config=PRIMARY_MODEL,
+                        ),
+                    )
+                    for clue in pending
+                ]
+            return [self._non_llm_step("define_finalize", "generate_define_finalize", self._finalize_define_initial)]
+        if self.stage in {"rewrite_initial_verify", "rewrite_initial_rate", "rewrite_prepare_round", "generate_candidates", "evaluate_verify", "evaluate_rate", "select_candidates", "finalize_round"}:
+            return self._rewrite_units()
         if self.stage == "title":
             return [self._llm_step("title", "generate_title", PRIMARY_MODEL.model_id, self._title)]
         if self.stage == "publish":
@@ -103,15 +133,24 @@ class GenerateJobState(JobState):
             self.candidate.metadata,
         )
         self.working_puzzle = puzzle
+        self.define_done_words = set()
+        self.rewrite_session = None
         self._progress("define_initial", detail=f"attempt={self.attempt_index}/{self.effective_attempts}")
         return None
 
-    def _define_initial(self, ctx):
+    def _ensure_define_state(self):
         assert self.working_puzzle is not None
+        if hasattr(self.working_puzzle, "horizontal_clues") and self.working_puzzle.horizontal_clues and hasattr(self.working_puzzle.horizontal_clues[0], "current"):
+            return self.working_puzzle
         state = working_puzzle_from_puzzle(self.working_puzzle, split_compound=True)
         for clue in state.horizontal_clues + state.vertical_clues:
             word_meta = self.resolved_metadata.get(clue.word_normalized, {})
             clue.word_type = word_meta.get("word_type", "")
+        self.working_puzzle = state
+        return state
+
+    def _define_initial(self, ctx):
+        state = self._ensure_define_state()
         generate_definitions_for_state_direct(
             state,
             ctx.ai_client,
@@ -124,22 +163,173 @@ class GenerateJobState(JobState):
         self._progress("rewrite_evaluate", detail=f"attempt={self.attempt_index}/{self.effective_attempts}")
         return None
 
-    def _rewrite_evaluate(self, ctx):
-        assert self.working_puzzle is not None
-        dex = DexProvider.for_puzzle(self.working_puzzle)
-        self.first_passed, self.final_passed, self.total = _rewrite_failed_clues(
-            self.working_puzzle,
-            ctx.ai_client,
-            ctx.generate_rewrite_rounds,
+    def apply_unit_result(self, unit, result, ctx) -> None:
+        if unit.purpose == "generate_define_initial":
+            word = unit.step_id.split(":", 1)[1]
+            state = self._ensure_define_state()
+            for clue in state.horizontal_clues + state.vertical_clues:
+                if clue.word_normalized != word:
+                    continue
+                clue.current.definition = str(result.value or "")
+                clue.current.source = "generate"
+                clue.current.generated_by = PRIMARY_MODEL.display_name
+                if clue.best is None:
+                    clue.best = copy.deepcopy(clue.current)
+                self.define_done_words.add(word)
+                break
+            return
+        if self.rewrite_session is not None:
+            self._apply_rewrite_result(unit, result)
+
+    def _finalize_define_initial(self, ctx):
+        state = self._ensure_define_state()
+        _backfill_generated_model(state, PRIMARY_MODEL.display_name)
+        _inject_word_metadata(state, self.resolved_metadata)
+        self.working_puzzle = state
+        self.rewrite_session = RunAllRewriteSession(
+            puzzle=self.working_puzzle,
+            client=ctx.ai_client,
+            rounds=ctx.generate_rewrite_rounds,
+            theme=self.working_puzzle.title or "Puzzle intern",
             multi_model=ctx.multi_model,
-            dex=dex,
+            dex=DexProvider.for_puzzle(self.working_puzzle),
             verify_candidates=ctx.verify_candidates,
+            hybrid_deanchor=False,
             runtime=ctx.runtime,
         )
-        _restore_best_versions(self.working_puzzle)
-        self.working_puzzle.assessment = score_puzzle_state(self.working_puzzle, self.candidate.report)
-        self._progress("title", detail=f"verified={self.final_passed}/{self.total}")
-        return self.working_puzzle.assessment
+        self._progress("rewrite_initial_verify", detail=f"attempt={self.attempt_index}/{self.effective_attempts}")
+        return None
+
+    def _rewrite_units(self):
+        assert self.rewrite_session is not None
+        if self.stage == "rewrite_initial_verify":
+            units = self.rewrite_session.initial_verify_units(
+                lambda step_id, purpose, model_id, phase, runner, coalesce_key=None: self._llm_step(
+                    step_id,
+                    purpose,
+                    model_id,
+                    runner,
+                    phase=phase,
+                    coalesce_key=coalesce_key,
+                )
+            )
+            return units or [self._non_llm_step("rewrite_initial_verify_finalize", "rewrite_initial_verify_finalize", self._rewrite_finalize_initial_verify)]
+        if self.stage == "rewrite_initial_rate":
+            units = self.rewrite_session.initial_rate_units(
+                lambda step_id, purpose, model_id, phase, runner, coalesce_key=None: self._llm_step(
+                    step_id,
+                    purpose,
+                    model_id,
+                    runner,
+                    phase=phase,
+                    coalesce_key=coalesce_key,
+                )
+            )
+            return units or [self._non_llm_step("rewrite_initial_rate_finalize", "rewrite_initial_rate_finalize", self._rewrite_finalize_initial_rate)]
+        if self.stage == "rewrite_prepare_round":
+            return [self._non_llm_step("rewrite_prepare_round", "rewrite_prepare_round", self._rewrite_prepare_round)]
+        if self.stage == "generate_candidates":
+            units = self.rewrite_session.generation_units(
+                lambda step_id, purpose, model_id, phase, runner, coalesce_key=None: self._llm_step(
+                    step_id,
+                    purpose,
+                    model_id,
+                    runner,
+                    phase=phase,
+                    coalesce_key=coalesce_key,
+                )
+            )
+            return units or [self._non_llm_step("rewrite_generation_finalize", "rewrite_generation_finalize", self._rewrite_finalize_generation)]
+        if self.stage == "evaluate_verify":
+            units = self.rewrite_session.evaluation_verify_units(
+                lambda step_id, purpose, model_id, phase, runner, coalesce_key=None: self._llm_step(
+                    step_id,
+                    purpose,
+                    model_id,
+                    runner,
+                    phase=phase,
+                    coalesce_key=coalesce_key,
+                )
+            )
+            return units or [self._non_llm_step("rewrite_eval_verify_finalize", "rewrite_eval_verify_finalize", self._rewrite_start_rate)]
+        if self.stage == "evaluate_rate":
+            units = self.rewrite_session.evaluation_rate_units(
+                lambda step_id, purpose, model_id, phase, runner, coalesce_key=None: self._llm_step(
+                    step_id,
+                    purpose,
+                    model_id,
+                    runner,
+                    phase=phase,
+                    coalesce_key=coalesce_key,
+                )
+            )
+            return units or [self._non_llm_step("rewrite_select_candidates", "rewrite_select_candidates", self._rewrite_select_candidates)]
+        if self.stage == "select_candidates":
+            return [self._non_llm_step("rewrite_select_candidates", "rewrite_select_candidates", self._rewrite_select_candidates)]
+        if self.stage == "finalize_round":
+            return [self._non_llm_step("rewrite_finalize_round", "rewrite_finalize_round", self._rewrite_finalize_round)]
+        return []
+
+    def _apply_rewrite_result(self, unit, result) -> None:
+        assert self.rewrite_session is not None
+        parts = unit.step_id.split(":")
+        if unit.purpose == "rewrite_initial_verify":
+            self.rewrite_session.note_initial_verify_done(parts[1], parts[2])
+        elif unit.purpose == "rewrite_initial_rate":
+            self.rewrite_session.note_initial_rate_done(parts[1], parts[2])
+        elif unit.purpose == "rewrite_generate_candidate":
+            self.rewrite_session.apply_generation_result(result.value or {})
+        elif unit.purpose == "rewrite_evaluate_candidate_verify":
+            self.rewrite_session.apply_candidate_verify_result(result.value or {})
+        elif unit.purpose == "rewrite_evaluate_candidate_rate":
+            self.rewrite_session.apply_candidate_rate_result(result.value or {})
+
+    def _rewrite_finalize_initial_verify(self, ctx):
+        assert self.rewrite_session is not None
+        self.rewrite_session.finalize_initial_verify()
+        self._progress("rewrite_initial_rate", detail=f"round={self.rewrite_session.round_index}")
+        return None
+
+    def _rewrite_finalize_initial_rate(self, ctx):
+        assert self.rewrite_session is not None
+        self.rewrite_session.finalize_initial_rate()
+        self._progress("rewrite_prepare_round", detail=f"round={self.rewrite_session.round_index}")
+        return None
+
+    def _rewrite_prepare_round(self, ctx):
+        assert self.rewrite_session is not None
+        self.rewrite_session.prepare_round()
+        if self.rewrite_session.phase == "done":
+            result = self.rewrite_session.finish()
+            self.first_passed, self.final_passed, self.total = result.initial_passed, result.final_passed, result.total
+            _restore_best_versions(self.working_puzzle)
+            self.working_puzzle.assessment = score_puzzle_state(self.working_puzzle, self.candidate.report)
+            self._progress("title", detail=f"verified={self.final_passed}/{self.total}")
+            return result
+        self._progress(self.rewrite_session.phase, detail=f"round={self.rewrite_session.round_index}")
+        return None
+
+    def _rewrite_finalize_generation(self, ctx):
+        assert self.rewrite_session is not None
+        self.rewrite_session.finalize_generation()
+        self._progress(self.rewrite_session.phase, detail=f"round={self.rewrite_session.round_index}")
+        return None
+
+    def _rewrite_start_rate(self, ctx):
+        self._progress("evaluate_rate", detail=f"round={self.rewrite_session.round_index}")
+        return None
+
+    def _rewrite_select_candidates(self, ctx):
+        assert self.rewrite_session is not None
+        self.rewrite_session.select_candidates()
+        self._progress("finalize_round", detail=f"round={self.rewrite_session.round_index}")
+        return None
+
+    def _rewrite_finalize_round(self, ctx):
+        assert self.rewrite_session is not None
+        self.rewrite_session.finalize_round()
+        self._progress("rewrite_prepare_round", detail=f"round={self.rewrite_session.round_index}")
+        return None
 
     def _title(self, ctx):
         assert self.working_puzzle is not None

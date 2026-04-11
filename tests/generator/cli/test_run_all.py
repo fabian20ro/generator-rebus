@@ -618,6 +618,31 @@ class RunAllSupervisorTests(unittest.TestCase):
             release.set()
             supervisor._poll_worker_task()
 
+    def test_drain_does_not_rerun_same_unchanged_unit_forever(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["retitle"],
+            topic_caps={"retitle": 1},
+        )
+        calls: list[str] = []
+        step = StepState(
+            step_id="generate_primary",
+            job_id="retitle:1",
+            topic="retitle",
+            kind="gemma",
+            purpose="retitle_generate_primary",
+            model_id=PRIMARY_MODEL.model_id,
+            runner=lambda _ctx: calls.append("once"),
+            execution_mode="llm",
+        )
+        supervisor.slots["retitle"].active_job = _StaticJob(_item("retitle", "retitle:1"), steps=[step])
+
+        ran = supervisor._run_ready_steps()
+
+        self.assertTrue(ran)
+        self.assertEqual(["once"], calls)
+
     def test_run_ready_steps_drains_loaded_model_before_switching(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(

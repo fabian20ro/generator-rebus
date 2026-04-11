@@ -202,6 +202,8 @@
 
 **[2026-04-11]** Resettable DB quality fields must be treated as cache/history, never as runtime truth — if a migration or ops reset clears `crossword_clues.verified`, puzzle pass metadata, or canonical quality scores, live publishability and rewrite decisions must still come from fresh in-memory verify/rate results. Whole-puzzle pass rate must not collapse to `0` just because one pair evaluation is incomplete, and canonical ranking must fall back to deterministic neutral ordering when quality evidence is blank instead of treating reset rows as “bad”.
 
+**[2026-04-11]** Ready-unit drain loops need per-cycle dedupe on unchanged unit identity — once a supervisor replans after every unit, a job that forgets to advance state can present the exact same `(job_id, step_id, phase)` forever and hang the run inside one “drain current model” cycle. Keep the global model-drain behavior, but suppress rerunning the same unchanged ready unit within the same scheduler pass; only re-run after state/phase/step identity changes or on a later retry cycle.
+
 ---
 
 ## Archive

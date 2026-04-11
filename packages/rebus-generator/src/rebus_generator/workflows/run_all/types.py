@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import concurrent.futures
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from rebus_generator.platform.orchestration import StableItemProgress, WorkItem, WorkStage
+from rebus_generator.platform.io.runtime_logging import utc_timestamp
 
 
 class DeterministicFailureQuarantine(RuntimeError):
@@ -79,6 +80,36 @@ class ClaimState:
 
 
 StepState = WorkStage
+
+
+@dataclass
+class UnitResult:
+    value: object = None
+    detail: str = ""
+    summary: str = ""
+    warnings: list[str] = field(default_factory=list)
+    retry_count: int = 0
+
+
+@dataclass
+class TraceEvent:
+    topic: str
+    job_id: str
+    unit_id: str
+    phase: str
+    purpose: str
+    model_id: str | None
+    status: str
+    latency_ms: int
+    retry_count: int
+    result_summary: str
+    warning_flags: list[str] = field(default_factory=list)
+    coalesce_group_id: str | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        payload = asdict(self)
+        payload["ts"] = utc_timestamp()
+        return payload
 
 
 @dataclass
