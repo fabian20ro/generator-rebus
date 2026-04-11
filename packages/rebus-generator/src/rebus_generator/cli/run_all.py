@@ -164,11 +164,6 @@ def _reasoning_overrides(args: argparse.Namespace) -> dict[tuple[str, str], str 
 
 
 def _preflight(*, topics: list[str], artifact_path: Path, multi_model: bool) -> None:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        raise SystemExit("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
-    create_service_role_client()
-    runtime = LmRuntime(multi_model=multi_model)
-    runtime.sync()
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     report: dict[str, object] = {
         "created_at": time.time(),
@@ -177,11 +172,26 @@ def _preflight(*, topics: list[str], artifact_path: Path, multi_model: bool) -> 
         "models": [],
         "blocking_error": None,
     }
-    if "generate" in topics:
-        _rust_binary_path()
-    smoke_client = create_ai_client()
-    models = [PRIMARY_MODEL] + ([SECONDARY_MODEL] if multi_model else [])
+    runtime = None
+    smoke_client = None
+    models: list[object] = []
     try:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            message = "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env"
+            report["blocking_error"] = {
+                "model_id": None,
+                "purpose": "bootstrap",
+                "signature": _preflight_signature(RuntimeError(message)),
+                "error": message,
+            }
+            raise SystemExit(message)
+        create_service_role_client()
+        runtime = LmRuntime(multi_model=multi_model)
+        runtime.sync()
+        if "generate" in topics:
+            _rust_binary_path()
+        smoke_client = create_ai_client()
+        models = [PRIMARY_MODEL] + ([SECONDARY_MODEL] if multi_model else [])
         for model in models:
             purpose = "definition_verify" if model.model_id == PRIMARY_MODEL.model_id else "title_generate"
             started_at = time.monotonic()
@@ -229,7 +239,8 @@ def _preflight(*, topics: list[str], artifact_path: Path, multi_model: bool) -> 
                 if result not in report["models"]:
                     report["models"].append(result)
     finally:
-        _preflight_unload_all()
+        if runtime is not None:
+            _preflight_unload_all()
         artifact_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 

@@ -151,13 +151,19 @@ def start_rewrite_session(
 def rewrite_session_initial_verify(session: RewriteSession) -> tuple[int, int]:
     from . import rewrite_engine as facade
 
-    passed, total = facade.verify_working_puzzle(
+    result = facade.verify_working_puzzle(
         session.puzzle,
         session.client,
         skip_words=session.preset_skip,
         runtime=session.scoring_runtime,
         max_guesses=session.verify_candidates,
     )
+    if isinstance(result, tuple) and len(result) == 2:
+        passed, total = result
+    else:
+        clues = list(all_working_clues(session.puzzle))
+        passed = sum(1 for clue in clues if clue.current.assessment.verified)
+        total = len(clues)
     session.initial_passed = passed
     return passed, total
 
