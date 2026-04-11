@@ -33,4 +33,8 @@ if [[ -z "$PYTHON_BIN" ]]; then
   fi
 fi
 
-exec "$PYTHON_BIN" -m rebus_generator.workflows.canonicals.puzzle_definition_audit "$@"
+if [[ "$PYTHON_BIN" == "uv run python" ]]; then
+  uv sync
+fi
+
+exec $PYTHON_BIN -m rebus_generator.workflows.canonicals.puzzle_definition_audit "$@"

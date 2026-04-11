@@ -40,6 +40,7 @@ EOF
 fi
 
 cargo build --release --manifest-path "$ROOT_DIR/engines/crossword-engine/Cargo.toml"
+uv sync
 uv run python -m rebus_generator profile "$WORDS_PATH" -
 
 exec uv run python -m rebus_generator.cli.run_all "$@"
