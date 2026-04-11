@@ -131,6 +131,7 @@ def _quality_report_from_payload(payload: dict) -> QualityReport:
         score=float(payload.get("score", 0.0)),
         word_count=int(payload.get("word_count", 0)),
         average_length=float(payload.get("average_length", 0.0)),
+        middle_window_average_length=float(payload.get("middle_window_average_length", 0.0)),
         average_rarity=float(payload.get("average_rarity", 0.0)),
         two_letter_words=int(payload.get("two_letter_words", 0)),
         three_letter_words=int(payload.get("three_letter_words", 0)),

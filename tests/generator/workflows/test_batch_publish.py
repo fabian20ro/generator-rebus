@@ -396,6 +396,7 @@ class BatchPublishTests(unittest.TestCase):
                 '{"slot_id":3,"normalized":"BD"}'
                 '],'
                 '"quality":{"score":321.0,"word_count":4,"average_length":2.0,'
+                '"middle_window_average_length":2.0,'
                 '"average_rarity":0.0,"two_letter_words":4,"three_letter_words":0,'
                 '"high_rarity_words":0,"uncommon_letter_words":0,"friendly_words":0,'
                 '"max_rarity":0,"average_definability":5.0},'

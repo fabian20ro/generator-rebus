@@ -15,10 +15,7 @@ from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.domain.score_helpers import _restore_best_versions
 from rebus_generator.platform.io.runtime_logging import path_timestamp, utc_timestamp, log
 from rebus_generator.platform.io.markdown_io import parse_markdown
-from rebus_generator.workflows.generate.define import (
-    generate_definition_for_working_clue,
-    generate_definitions_for_state_direct,
-)
+from rebus_generator.workflows.generate.define import generate_definition_for_working_clue
 from rebus_generator.workflows.generate.models import PreparedPuzzle
 from rebus_generator.workflows.generate.prepare import (
     _backfill_generated_model,
@@ -148,20 +145,6 @@ class GenerateJobState(JobState):
             clue.word_type = word_meta.get("word_type", "")
         self.working_puzzle = state
         return state
-
-    def _define_initial(self, ctx):
-        state = self._ensure_define_state()
-        generate_definitions_for_state_direct(
-            state,
-            ctx.ai_client,
-            dex=DexProvider.for_puzzle(state),
-            model_config=PRIMARY_MODEL,
-        )
-        _backfill_generated_model(state, PRIMARY_MODEL.display_name)
-        _inject_word_metadata(state, self.resolved_metadata)
-        self.working_puzzle = state
-        self._progress("rewrite_evaluate", detail=f"attempt={self.attempt_index}/{self.effective_attempts}")
-        return None
 
     def apply_unit_result(self, unit, result, ctx) -> None:
         if unit.purpose == "generate_define_initial":

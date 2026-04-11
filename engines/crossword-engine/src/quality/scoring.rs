@@ -20,6 +20,7 @@ pub struct WordQualityProfile {
 pub struct QualityReport {
     pub score: f64,
     pub word_count: usize,
+    pub middle_window_average_length: f64,
     pub average_length: f64,
     pub average_rarity: f64,
     pub two_letter_words: usize,
@@ -90,6 +91,7 @@ pub fn assess_word_quality(normalized: &str, min_rarity: i32) -> WordQualityProf
 
 pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
     let lengths: Vec<usize> = words.iter().map(|word| word.len()).collect();
+    let middle_window_average_length = central_longness(&lengths);
     let avg_length = if lengths.is_empty() {
         0.0
     } else {
@@ -152,6 +154,7 @@ pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
     QualityReport {
         score,
         word_count: words.len(),
+        middle_window_average_length,
         average_length: avg_length,
         average_rarity: avg_rarity,
         two_letter_words: two_letter,
@@ -164,6 +167,24 @@ pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
     }
 }
 
+fn central_longness(lengths: &[usize]) -> f64 {
+    if lengths.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = lengths.to_vec();
+    sorted.sort_unstable();
+    let count = sorted.len();
+    let window = if count >= 4 && count % 2 == 0 {
+        4
+    } else if count >= 3 {
+        3
+    } else {
+        count
+    };
+    let start = (count - window) / 2;
+    sorted[start..start + window].iter().sum::<usize>() as f64 / window as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +194,22 @@ mod tests {
         let low = assess_word_quality("AER", 1);
         let high = assess_word_quality("AER", 5);
         assert!(low.definability_score > high.definability_score);
+    }
+
+    #[test]
+    fn central_longness_uses_three_middle_lengths_for_odd_counts() {
+        assert_eq!(5.0, central_longness(&[2, 4, 5, 6, 9]));
+    }
+
+    #[test]
+    fn central_longness_uses_four_middle_lengths_for_even_counts() {
+        assert_eq!(5.5, central_longness(&[2, 4, 5, 6, 7, 9]));
+    }
+
+    #[test]
+    fn central_longness_falls_back_to_all_lengths_for_small_counts() {
+        assert_eq!(0.0, central_longness(&[]));
+        assert_eq!(3.0, central_longness(&[3]));
+        assert_eq!(4.0, central_longness(&[3, 5]));
     }
 }

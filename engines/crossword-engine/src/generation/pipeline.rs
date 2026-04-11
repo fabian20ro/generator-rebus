@@ -132,6 +132,7 @@ fn render_words(
 fn candidate_quality_order(candidate: &CandidateResult, current: &CandidateResult) -> Ordering {
     let candidate_key = (
         ReverseOrd(candidate.stats.edge_singletons as f64),
+        candidate.report.middle_window_average_length,
         candidate.report.average_length,
         ReverseOrd(candidate.report.two_letter_words as f64),
         ReverseOrd(candidate.report.three_letter_words as f64),
@@ -140,6 +141,7 @@ fn candidate_quality_order(candidate: &CandidateResult, current: &CandidateResul
     );
     let current_key = (
         ReverseOrd(current.stats.edge_singletons as f64),
+        current.report.middle_window_average_length,
         current.report.average_length,
         ReverseOrd(current.report.two_letter_words as f64),
         ReverseOrd(current.report.three_letter_words as f64),
@@ -157,15 +159,16 @@ fn compare_f64(left: f64, right: f64) -> Ordering {
 }
 
 fn compare_rank(
-    left: (ReverseOrd, f64, ReverseOrd, ReverseOrd, f64, ReverseOrd),
-    right: (ReverseOrd, f64, ReverseOrd, ReverseOrd, f64, ReverseOrd),
+    left: (ReverseOrd, f64, f64, ReverseOrd, ReverseOrd, f64, ReverseOrd),
+    right: (ReverseOrd, f64, f64, ReverseOrd, ReverseOrd, f64, ReverseOrd),
 ) -> Ordering {
     compare_f64(right.0.0, left.0.0)
         .then_with(|| compare_f64(left.1, right.1))
-        .then_with(|| compare_f64(right.2.0, left.2.0))
+        .then_with(|| compare_f64(left.2, right.2))
         .then_with(|| compare_f64(right.3.0, left.3.0))
-        .then_with(|| compare_f64(left.4, right.4))
-        .then_with(|| compare_f64(right.5.0, left.5.0))
+        .then_with(|| compare_f64(right.4.0, left.4.0))
+        .then_with(|| compare_f64(left.5, right.5))
+        .then_with(|| compare_f64(right.6.0, left.6.0))
 }
 
 fn record_rejection(stats: &mut SearchStats, bucket: &str) {
@@ -795,6 +798,7 @@ mod tests {
 
     fn fake_candidate(
         template: Vec<Vec<bool>>,
+        middle_window_average_length: f64,
         average_length: f64,
         edge_singletons: usize,
     ) -> CandidateResult {
@@ -802,6 +806,7 @@ mod tests {
             report: QualityReport {
                 score: 1000.0,
                 word_count: 0,
+                middle_window_average_length,
                 average_length,
                 average_rarity: 0.0,
                 two_letter_words: 0,
@@ -920,6 +925,7 @@ mod tests {
                 vec![false, true, true],
             ],
             4.0,
+            4.0,
             1,
         );
         let noisier = fake_candidate(
@@ -928,6 +934,7 @@ mod tests {
                 vec![true, true, true],
                 vec![true, false, true],
             ],
+            6.0,
             6.0,
             3,
         );
@@ -945,6 +952,7 @@ mod tests {
                 vec![true, false, true],
             ],
             5.0,
+            5.0,
             1,
         );
         let child = fake_candidate(
@@ -953,6 +961,7 @@ mod tests {
                 vec![true, true, true],
                 vec![true, false, true],
             ],
+            5.0,
             5.0,
             2,
         );
@@ -964,7 +973,7 @@ mod tests {
     #[test]
     fn outward_skips_zero_black_candidate() {
         let settings = settings_for_size(7).expect("supported size");
-        let candidate = fake_candidate(vec![vec![true, true], vec![true, true]], 7.0, 0);
+        let candidate = fake_candidate(vec![vec![true, true], vec![true, true]], 7.0, 7.0, 0);
         let index = WordIndex::new(&[]);
         let mut stats = SearchStats::default();
 
@@ -984,5 +993,23 @@ mod tests {
         assert!(stats.outward_skipped_zero_black);
         assert_eq!(0, stats.outward_removal_attempts);
         assert_eq!(0, stats.outward_rounds);
+    }
+
+    #[test]
+    fn higher_central_longness_beats_higher_average_length() {
+        let central = fake_candidate(vec![vec![true, true]], 6.0, 5.0, 1);
+        let average = fake_candidate(vec![vec![true, true]], 5.0, 7.0, 1);
+
+        assert!(prefer_candidate(&central, &average, 42));
+        assert!(!prefer_candidate(&average, &central, 42));
+    }
+
+    #[test]
+    fn equal_central_longness_uses_average_length_as_tiebreak() {
+        let longer = fake_candidate(vec![vec![true, true]], 5.5, 6.0, 1);
+        let shorter = fake_candidate(vec![vec![true, true]], 5.5, 4.0, 1);
+
+        assert!(prefer_candidate(&longer, &shorter, 42));
+        assert!(!prefer_candidate(&shorter, &longer, 42));
     }
 }

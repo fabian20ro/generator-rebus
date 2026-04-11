@@ -10,8 +10,6 @@ from rebus_generator.workflows.redefine.rewrite_engine import (
     finish_rewrite_session,
 )
 from rebus_generator.workflows.generate.verify import (
-    _run_pair_rate,
-    _run_pair_verify,
     _finalize_pair_rating,
     _finalize_pair_verification,
     rate_clue_with_model,
@@ -21,11 +19,6 @@ from rebus_generator.workflows.redefine.load import build_working_puzzle, fetch_
 from rebus_generator.workflows.redefine.persist import (
     apply_redefined_puzzle_persistence,
     plan_redefined_puzzle_persistence,
-)
-from rebus_generator.workflows.redefine.rewrite_rounds import (
-    rewrite_session_finalize_round,
-    rewrite_session_prepare_round,
-    rewrite_session_score_round,
 )
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
 from .base import JobState
@@ -56,16 +49,6 @@ class RedefineJobState(JobState):
         self.persistence_plan = None
 
     def next_steps(self, ctx):
-        if self.status != "active":
-            return []
-        if self.stage == "fetch":
-            return [self._non_llm_step("fetch", "redefine_fetch", self._fetch)]
-        if self.stage == "baseline_verify":
-            return [self._non_llm_step("baseline_verify", "redefine_baseline_verify_compat", self._baseline_verify)]
-        if self.stage == "baseline_rate":
-            return [self._non_llm_step("baseline_rate", "redefine_baseline_rate_compat", self._baseline_rate)]
-        if self.stage == "baseline_finalize":
-            return [self._non_llm_step("baseline_finalize", "redefine_baseline_finalize", self._baseline_finalize)]
         return self.plan_ready_units(ctx)
 
     def plan_ready_units(self, ctx):
@@ -174,7 +157,7 @@ class RedefineJobState(JobState):
         split = len(self.baseline_puzzle.horizontal_clues)
         self.baseline_puzzle.horizontal_clues = clues[:split]
         self.baseline_puzzle.vertical_clues = clues[split:]
-        self._progress("baseline_finalize", detail=f"clues={len(self.clue_rows)}")
+        self._progress("baseline_rate", detail=f"clues={len(self.clue_rows)}")
         return None
 
     def _baseline_rate_finalize(self, ctx):
@@ -198,41 +181,6 @@ class RedefineJobState(JobState):
         )
         self._progress("rewrite_initial_verify", detail="baseline_done")
         return self.baseline_puzzle.assessment
-
-    def _baseline_verify(self, ctx):
-        model_order, label = _run_pair_verify(
-            self.baseline_puzzle,
-            ctx.ai_client,
-            runtime=ctx.runtime,
-            skip_words=None,
-            max_guesses=ctx.verify_candidates,
-        )
-        clues = _finalize_pair_verification(
-            self._baseline_clues(),
-            model_order=model_order,
-            model_label=label,
-        )
-        split = len(self.baseline_puzzle.horizontal_clues)
-        self.baseline_puzzle.horizontal_clues = clues[:split]
-        self.baseline_puzzle.vertical_clues = clues[split:]
-        self._progress("baseline_rate", detail=f"clues={len(self.clue_rows)}")
-        return clues
-
-    def _baseline_rate(self, ctx):
-        model_order, label = _run_pair_rate(
-            self.baseline_puzzle,
-            ctx.ai_client,
-            runtime=ctx.runtime,
-            skip_words=None,
-            dex=DexProvider.for_puzzle(self.baseline_puzzle),
-        )
-        _finalize_pair_rating(
-            self._baseline_clues(),
-            model_order=model_order,
-            model_label=label,
-        )
-        self._progress("baseline_finalize", detail=f"clues={len(self.clue_rows)}")
-        return None
 
     def _rewrite_units(self):
         assert self.rewrite_session is not None
@@ -329,22 +277,6 @@ class RedefineJobState(JobState):
         return None
 
     def _rewrite_prepare_round(self, ctx):
-        if not hasattr(self.rewrite_session, "prepare_round"):
-            round_state = rewrite_session_prepare_round(self.rewrite_session)
-            if round_state is None:
-                finish_rewrite_session(self.rewrite_session)
-                self.candidate_puzzle.assessment = score_puzzle_state(self.candidate_puzzle)
-                assessment = self.candidate_puzzle.assessment
-                puzzle_id = str(self.puzzle_row["id"])
-                log(
-                    f"  [{puzzle_id}] candidate min={assessment.min_rebus}/10 "
-                    f"avg={assessment.avg_rebus:.1f}/10 "
-                    f"verified={assessment.verified_count}/{assessment.total_clues}"
-                )
-                self._progress("persist_prepare", detail=f"rewrite_min={assessment.min_rebus}")
-                return self.rewrite_session.final_result
-            self._progress("rewrite_score_round", detail=f"round={round_state.round_index}")
-            return round_state
         self.rewrite_session.prepare_round()
         if self.rewrite_session.phase == "done":
             result = self.rewrite_session.finish()
@@ -359,11 +291,6 @@ class RedefineJobState(JobState):
             self._progress("persist_prepare", detail=f"rewrite_min={assessment.min_rebus}")
             return result
         self._progress(self.rewrite_session.phase, detail=f"round={self.rewrite_session.round_index}")
-        return None
-
-    def _rewrite_score_round(self, ctx):
-        rewrite_session_score_round(self.rewrite_session)
-        self._progress("rewrite_finalize_round", detail=f"round={self.rewrite_session.round_index}")
         return None
 
     def _rewrite_finalize_generation(self, ctx):
@@ -381,10 +308,7 @@ class RedefineJobState(JobState):
         return None
 
     def _rewrite_finalize_round(self, ctx):
-        if hasattr(self.rewrite_session, "finalize_round"):
-            self.rewrite_session.finalize_round()
-        else:
-            rewrite_session_finalize_round(self.rewrite_session)
+        self.rewrite_session.finalize_round()
         self._progress("rewrite_prepare_round", detail=f"round={self.rewrite_session.round_index}")
         return None
 

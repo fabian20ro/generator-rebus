@@ -20,7 +20,7 @@ from rebus_generator.workflows.run_all import (
 )
 from rebus_generator.workflows.run_all.jobs.base import JobState
 from rebus_generator.workflows.run_all.jobs.generate import GenerateJobState
-from rebus_generator.workflows.run_all.types import RunAllStallDetected, StableItemProgress
+from rebus_generator.workflows.run_all.types import RunAllStallDetected, StableItemProgress, UnitResult
 
 
 class _FakeRuntime:
@@ -117,6 +117,13 @@ def _model_step(item_id: str, topic: str, model_id: str) -> StepState:
         runner=lambda ctx: None,
         execution_mode="llm",
     )
+
+
+def _run_planned_unit(job, unit, ctx) -> UnitResult:
+    result = unit.execute(ctx)
+    normalized = result if isinstance(result, UnitResult) else UnitResult(value=result)
+    job.apply_unit_result(unit, normalized, ctx)
+    return normalized
 
 
 class RunAllSupervisorTests(unittest.TestCase):
@@ -742,11 +749,14 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual("background_non_llm", step.execution_mode)
         self.assertEqual("fill_grid", step.step_id)
 
-    @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definitions_for_state_direct")
-    def test_generate_define_initial_injects_metadata_into_working_state(self, mock_generate_definitions):
+    @patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", return_value=SimpleNamespace())
+    @patch("rebus_generator.workflows.run_all.jobs.generate.DexProvider.for_puzzle", return_value=SimpleNamespace())
+    @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definition_for_working_clue", return_value="Gaz din atmosferă")
+    def test_generate_define_initial_injects_metadata_into_working_state(self, _mock_define, _mock_dex, _mock_session):
         item = _item("generate", "generate:size:13:1", preferred_model_id=SECONDARY_MODEL.model_id)
         item.payload = {"size": 13, "index": 1}
         job = GenerateJobState(item)
+        job.stage = "define_initial"
         job.attempt_index = 1
         job.effective_attempts = 3
         job.working_puzzle = PuzzleData(
@@ -759,15 +769,21 @@ class RunAllSupervisorTests(unittest.TestCase):
         job.resolved_metadata = {
             "AER": {"normalized": "AER", "original": "aer", "word_type": "N"}
         }
+        ctx = _context(_FakeRuntime(current_model=PRIMARY_MODEL))
 
-        def _fill_defs(state, client, dex=None, model_config=None):
-            state.horizontal_clues[0].current.definition = "Gaz din atmosferă"
+        define_units = job.plan_ready_units(ctx)
+        self.assertEqual(1, len(define_units))
+        self.assertEqual("generate_define_initial", define_units[0].purpose)
+        self.assertEqual(PRIMARY_MODEL.model_id, define_units[0].model_id)
+        self.assertEqual("define_initial", define_units[0].phase)
+        _run_planned_unit(job, define_units[0], ctx)
 
-        mock_generate_definitions.side_effect = _fill_defs
+        finalize_units = job.plan_ready_units(ctx)
+        self.assertEqual(1, len(finalize_units))
+        self.assertEqual("generate_define_finalize", finalize_units[0].purpose)
+        _run_planned_unit(job, finalize_units[0], ctx)
 
-        job._define_initial(_context(_FakeRuntime(current_model=PRIMARY_MODEL)))
-
-        self.assertEqual("rewrite_evaluate", job.stage)
+        self.assertEqual("rewrite_initial_verify", job.stage)
         self.assertEqual("N", job.working_puzzle.horizontal_clues[0].word_type)
         self.assertEqual("aer", job.working_puzzle.horizontal_clues[0].word_original)
         self.assertEqual(PRIMARY_MODEL.display_name, job.working_puzzle.horizontal_clues[0].current.generated_by)
@@ -786,31 +802,52 @@ class RunAllSupervisorTests(unittest.TestCase):
         item = _item("redefine", "redefine:puzzle:p1", puzzle_id="p1")
         item.payload = {"puzzle_row": {"id": "p1", "title": "Titlu"}}
         job = supervisor._build_job(item)
+        baseline_clue = SimpleNamespace(word_normalized="APA")
         baseline_puzzle = SimpleNamespace(
             title="Titlu",
-            horizontal_clues=[SimpleNamespace(active_version=lambda: SimpleNamespace(assessment=SimpleNamespace(verified=True)))],
+            horizontal_clues=[baseline_clue],
             vertical_clues=[],
             assessment=None,
         )
-        candidate_puzzle = SimpleNamespace(assessment=SimpleNamespace(min_rebus=0, avg_rebus=0.0, verified_count=0, total_clues=0))
+        candidate_puzzle = SimpleNamespace(
+            title="Titlu",
+            horizontal_clues=[],
+            vertical_clues=[],
+            assessment=SimpleNamespace(min_rebus=0, avg_rebus=0.0, verified_count=0, total_clues=0),
+        )
         with (
             patch("rebus_generator.workflows.run_all.jobs.redefine.fetch_redefine_clues", return_value=[{"id": "c1"}]),
             patch("rebus_generator.workflows.run_all.jobs.redefine.build_working_puzzle", side_effect=[baseline_puzzle, candidate_puzzle]),
-            patch("rebus_generator.workflows.run_all.jobs.redefine._run_pair_verify", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
-            patch("rebus_generator.workflows.run_all.jobs.redefine._run_pair_rate", return_value=([PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id], "gemma + eurollm")),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.verify_clue_with_model", return_value=["APA"]),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.rate_clue_with_model", return_value=SimpleNamespace(score=8)),
             patch("rebus_generator.workflows.run_all.jobs.redefine.DexProvider.for_puzzle", return_value=SimpleNamespace()),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.RunAllRewriteSession", return_value=SimpleNamespace()),
             patch("rebus_generator.workflows.run_all.jobs.redefine._finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
             patch("rebus_generator.workflows.run_all.jobs.redefine._finalize_pair_rating"),
             patch("rebus_generator.workflows.run_all.jobs.redefine.score_puzzle_state", return_value=SimpleNamespace(min_rebus=1, avg_rebus=2.0, verified_count=1, total_clues=1)),
         ):
-            job._fetch(_context(runtime))
+            ctx = _context(runtime)
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
             self.assertEqual("baseline_verify", job.stage)
-            self.assertEqual("baseline_verify", job.next_steps(_context(runtime))[0].step_id)
-            job._baseline_verify(_context(runtime))
+            first_verify = job.plan_ready_units(ctx)
+            self.assertEqual("redefine_baseline_verify", first_verify[0].purpose)
+            self.assertEqual(PRIMARY_MODEL.model_id, first_verify[0].model_id)
+            _run_planned_unit(job, first_verify[0], ctx)
+            second_verify = job.plan_ready_units(ctx)
+            self.assertEqual(SECONDARY_MODEL.model_id, second_verify[0].model_id)
+            _run_planned_unit(job, second_verify[0], ctx)
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
             self.assertEqual("baseline_rate", job.stage)
-            job._baseline_rate(_context(runtime))
+            first_rate = job.plan_ready_units(ctx)
+            self.assertEqual("redefine_baseline_rate", first_rate[0].purpose)
+            self.assertEqual(PRIMARY_MODEL.model_id, first_rate[0].model_id)
+            _run_planned_unit(job, first_rate[0], ctx)
+            second_rate = job.plan_ready_units(ctx)
+            self.assertEqual(SECONDARY_MODEL.model_id, second_rate[0].model_id)
+            _run_planned_unit(job, second_rate[0], ctx)
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
             self.assertEqual("baseline_finalize", job.stage)
-            job._baseline_finalize(_context(runtime))
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
             self.assertEqual("rewrite_initial_verify", job.stage)
 
     def test_redefine_job_yields_after_bounded_rewrite_round_and_resumes_same_session(self):
@@ -824,22 +861,126 @@ class RunAllSupervisorTests(unittest.TestCase):
         item.payload = {"puzzle_row": {"id": "p1", "title": "Titlu"}}
         job = supervisor._build_job(item)
         ctx = _context(runtime)
-        rewrite_session = SimpleNamespace(final_result=None, round_index=1)
+
+        class _FakeRewriteSession:
+            def __init__(self):
+                self.round_index = 1
+                self.phase = "prepare_round"
+                self.generated = []
+                self.verified = []
+                self.rated = []
+
+            def prepare_round(self):
+                self.phase = "generate_candidates"
+
+            def generation_units(self, factory):
+                if self.generated:
+                    return []
+                return [
+                    factory(
+                        "rewrite_generate:gemma:APA:rewrite",
+                        "rewrite_generate_candidate",
+                        PRIMARY_MODEL.model_id,
+                        "generate_candidates",
+                        lambda _ctx: {
+                            "word": "APA",
+                            "strategy": "rewrite",
+                            "source": "rewrite",
+                            "definition": "Definiție nouă",
+                        },
+                        coalesce_key="rewrite_generate_candidate:gemma",
+                    )
+                ]
+
+            def apply_generation_result(self, payload):
+                self.generated.append(payload)
+
+            def finalize_generation(self):
+                self.phase = "evaluate_verify"
+
+            def evaluation_verify_units(self, factory):
+                if self.verified:
+                    return []
+                return [
+                    factory(
+                        "rewrite_eval_verify:gemma:APA:1",
+                        "rewrite_evaluate_candidate_verify",
+                        PRIMARY_MODEL.model_id,
+                        "evaluate_verify",
+                        lambda _ctx: {
+                            "word": "APA",
+                            "definition": "Definiție nouă",
+                            "model_id": PRIMARY_MODEL.model_id,
+                            "verify_votes": ["APA"],
+                            "verify_vote_source": "ok",
+                        },
+                        coalesce_key="rewrite_evaluate_candidate_verify:gemma",
+                    )
+                ]
+
+            def apply_candidate_verify_result(self, payload):
+                self.verified.append(payload)
+
+            def evaluation_rate_units(self, factory):
+                if self.rated:
+                    return []
+                return [
+                    factory(
+                        "rewrite_eval_rate:gemma:APA:1",
+                        "rewrite_evaluate_candidate_rate",
+                        PRIMARY_MODEL.model_id,
+                        "evaluate_rate",
+                        lambda _ctx: {
+                            "word": "APA",
+                            "definition": "Definiție nouă",
+                            "model_id": PRIMARY_MODEL.model_id,
+                            "rating": SimpleNamespace(score=8),
+                            "rating_vote_source": "ok",
+                        },
+                        coalesce_key="rewrite_evaluate_candidate_rate:gemma",
+                    )
+                ]
+
+            def apply_candidate_rate_result(self, payload):
+                self.rated.append(payload)
+
+            def select_candidates(self):
+                self.phase = "finalize_round"
+
+            def finalize_round(self):
+                self.round_index = 2
+                self.phase = "prepare_round"
+
+        rewrite_session = _FakeRewriteSession()
         job.rewrite_session = rewrite_session
         job.candidate_puzzle = SimpleNamespace(assessment=None)
         job.stage = "rewrite_prepare_round"
-        round_state = SimpleNamespace(round_index=1, changed_words={"APA"})
 
-        with (
-            patch("rebus_generator.workflows.run_all.jobs.redefine.rewrite_session_prepare_round", return_value=round_state),
-            patch("rebus_generator.workflows.run_all.jobs.redefine.rewrite_session_score_round"),
-            patch("rebus_generator.workflows.run_all.jobs.redefine.rewrite_session_finalize_round", side_effect=lambda session: setattr(session, "round_index", 2)),
-        ):
-            job._rewrite_prepare_round(ctx)
-            self.assertEqual("rewrite_score_round", job.stage)
-            job._rewrite_score_round(ctx)
-            self.assertEqual("rewrite_finalize_round", job.stage)
-            job._rewrite_finalize_round(ctx)
+        prepare_unit = job.plan_ready_units(ctx)[0]
+        self.assertEqual("rewrite_prepare_round", prepare_unit.purpose)
+        _run_planned_unit(job, prepare_unit, ctx)
+        self.assertEqual("generate_candidates", job.stage)
+
+        generation_unit = job.plan_ready_units(ctx)[0]
+        self.assertEqual("rewrite_generate_candidate", generation_unit.purpose)
+        self.assertEqual("rewrite_generate_candidate:gemma", generation_unit.coalesce_key)
+        _run_planned_unit(job, generation_unit, ctx)
+        _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+        self.assertEqual("evaluate_verify", job.stage)
+
+        verify_unit = job.plan_ready_units(ctx)[0]
+        self.assertEqual("rewrite_evaluate_candidate_verify", verify_unit.purpose)
+        _run_planned_unit(job, verify_unit, ctx)
+        _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+        self.assertEqual("evaluate_rate", job.stage)
+
+        rate_unit = job.plan_ready_units(ctx)[0]
+        self.assertEqual("rewrite_evaluate_candidate_rate", rate_unit.purpose)
+        _run_planned_unit(job, rate_unit, ctx)
+        _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+        self.assertEqual("finalize_round", job.stage)
+
+        _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
 
         self.assertIs(job.rewrite_session, rewrite_session)
         self.assertEqual(2, job.rewrite_session.round_index)
@@ -859,19 +1000,39 @@ class RunAllSupervisorTests(unittest.TestCase):
         with (
             patch("rebus_generator.workflows.run_all.jobs.retitle.fetch_retitle_clues", return_value=[{"word_normalized": "APA", "definition": "Apa"}]),
             patch("rebus_generator.workflows.run_all.jobs.retitle.fetch_retitle_puzzles", return_value=[]),
-            patch("rebus_generator.workflows.run_all.jobs.retitle._generate_candidate_with_active_model", return_value="Titlu Nou"),
-            patch("rebus_generator.workflows.run_all.jobs.retitle._rate_batch_candidates"),
-            patch("rebus_generator.workflows.run_all.jobs.retitle._finalize_title_result", return_value=SimpleNamespace(title="Titlu Nou", used_fallback=False, score=8, score_complete=True)),
-            patch("rebus_generator.workflows.run_all.jobs.retitle.apply_title_update", return_value=True),
+            patch("rebus_generator.workflows.run_all.jobs.retitle._generate_candidate_with_active_model", side_effect=["Titlu Nou", None]),
+            patch("rebus_generator.workflows.run_all.jobs.retitle.rate_title_creativity", side_effect=[(7, "ok-a"), (7, "ok-b")]),
         ):
-            job._fetch(ctx)
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
             self.assertEqual("generate_primary", job.stage)
-            job._generate_primary(ctx)
+
+            generate_primary = job.plan_ready_units(ctx)[0]
+            self.assertEqual("retitle_generate_primary", generate_primary.purpose)
+            self.assertEqual(PRIMARY_MODEL.model_id, generate_primary.model_id)
+            _run_planned_unit(job, generate_primary, ctx)
             self.assertEqual("rate_primary", job.stage)
-            job._rate_primary(ctx)
+
+            first_rate = job.plan_ready_units(ctx)[0]
+            self.assertEqual("retitle_rate_primary", first_rate.purpose)
+            self.assertEqual(PRIMARY_MODEL.model_id, first_rate.model_id)
+            _run_planned_unit(job, first_rate, ctx)
+
+            second_rate = job.plan_ready_units(ctx)[0]
+            self.assertEqual("retitle_rate_primary", second_rate.purpose)
+            self.assertEqual(SECONDARY_MODEL.model_id, second_rate.model_id)
+            _run_planned_unit(job, second_rate, ctx)
+
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
             self.assertEqual("generate_secondary", job.stage)
-            job._round_finalize(ctx)
+
+            generate_secondary = job.plan_ready_units(ctx)[0]
+            self.assertEqual("retitle_generate_secondary", generate_secondary.purpose)
+            _run_planned_unit(job, generate_secondary, ctx)
+            self.assertEqual("round_finalize", job.stage)
+
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
             self.assertEqual("generate_primary", job.stage)
+            self.assertEqual(2, job.round_idx)
 
     def test_close_writes_run_summary_with_llm_stats(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)

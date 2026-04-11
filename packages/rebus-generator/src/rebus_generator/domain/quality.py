@@ -31,6 +31,7 @@ class QualityReport:
     friendly_words: int
     max_rarity: int = 1
     average_definability: float = 0.0
+    middle_window_average_length: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -9,7 +9,6 @@ from rebus_generator.workflows.retitle.generate import _generate_candidate_with_
 from rebus_generator.workflows.retitle.batch import (
     _RetitleBatchState,
     _finalize_title_result,
-    _rate_batch_candidates,
     _update_best_result,
 )
 from rebus_generator.workflows.retitle.load import (
@@ -199,18 +198,6 @@ class RetitleJobState(JobState):
 
     def _needs_old_score_resolution(self) -> bool:
         return _stored_title_score(self.puzzle_row) is None and self.puzzle_row.get("title", "") not in FALLBACK_TITLES
-
-    def _rate_primary(self, ctx):
-        if self.pending_title is not None and not self.pending_rating_votes:
-            self._progress("generate_secondary" if ctx.multi_model else "round_finalize", detail=f"round={self.round_idx}")
-            return None
-        return self._rate_current(ctx)
-
-    def _rate_secondary(self, ctx):
-        if self.pending_title is not None and not self.pending_rating_votes:
-            self._progress("round_finalize", detail=f"round={self.round_idx}")
-            return None
-        return self._rate_current(ctx)
 
     def _rate_finalize(self, ctx):
         return self._rate_current(ctx)
