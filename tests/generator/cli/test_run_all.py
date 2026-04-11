@@ -1198,6 +1198,8 @@ class RunAllPreflightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "preflight.json"
             with (
+                patch("rebus_generator.cli.run_all.SUPABASE_URL", "https://test.supabase.co"),
+                patch("rebus_generator.cli.run_all.SUPABASE_SERVICE_ROLE_KEY", "test-key"),
                 patch("rebus_generator.cli.run_all.create_service_role_client"),
                 patch("rebus_generator.cli.run_all._rust_binary_path"),
                 patch("rebus_generator.cli.run_all.LmRuntime", _PreflightRuntime),
