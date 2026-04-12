@@ -13,6 +13,7 @@ target/
 # Environment
 .env
 logs/
+context/
 
 # Node
 node_modules/

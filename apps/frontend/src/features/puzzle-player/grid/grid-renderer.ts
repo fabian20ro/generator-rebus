@@ -287,6 +287,23 @@ export function updateGrid(
       // Update input value only when it differs (avoids cursor jump)
       if (input.value !== displayVal) {
         input.value = displayVal;
+        
+        // Trigger ink animation if a character was entered
+        if (displayVal && !isRevealed) {
+          input.classList.remove("animate-ink");
+          // Trigger reflow
+          void input.offsetWidth;
+          input.classList.add("animate-ink");
+        }
+      }
+
+      // Procedural Smudges (1.5% chance, deterministic based on r/c)
+      const smudgeSeed = (r * 13 + c * 31) % 100;
+      const hasSmudge = smudgeSeed < 2;
+      cell.classList.toggle("cell--smudge", hasSmudge);
+      if (hasSmudge) {
+        cell.classList.toggle("cell--smudge-tr", smudgeSeed === 0);
+        cell.classList.toggle("cell--smudge-bl", smudgeSeed === 1);
       }
     }
   }

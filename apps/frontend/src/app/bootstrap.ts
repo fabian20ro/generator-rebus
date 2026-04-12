@@ -694,6 +694,14 @@ function handleCompletion(): void {
   const badgesAfter = evaluateBadges(loadPlayerData());
   const newBadges = badgesAfter.filter((b) => !badgesBefore.has(b.id));
 
+  // Trigger REZOLVAT stamp
+  const stampContainer = document.getElementById("stamp-container");
+  if (stampContainer) {
+    stampContainer.classList.remove("hidden");
+    stampContainer.classList.add("animate-stamp");
+    console.log("PUZZLE SOLVED: REZOLVAT!");
+  }
+
   // Build completion modal content
   const timeStr = formatTime(timeSeconds);
   let html = `
