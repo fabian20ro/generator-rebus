@@ -1,367 +1,370 @@
-@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Handlee&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Handlee&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap");
 
 :root {
-  --paper-bg: #fdfbf7;
-  --text: #1a1a1a;
-  --ink-black: #1a1a1a;
-  --ink-pencil: #64748b;
-  --academic-slate: #1e293b;
-  --academic-accent: #334155;
-  --success: #16a34a;
-  --danger: #dc2626;
-  --highlight-word: rgba(254, 240, 138, 0.22);
-  --highlight-cell: rgba(254, 240, 138, 0.8);
-  --success-stamp: #16a34a;
-  --ink-bleed: rgba(0, 0, 0, 0.05);
-  --black-cell: #1a1a1a;
-  --cell-border: #1a1a1a;
-  --cell-active: var(--academic-slate);
-  --cell-highlight: var(--highlight-word);
-  --card-bg: #fff;
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    --paper-bg: #fdfbf7;
+    --text: #1a1a1a;
+    --ink-black: #1a1a1a;
+    --ink-pencil: #64748b;
+    --academic-slate: #1e293b;
+    --academic-accent: #334155;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --highlight-word: rgba(254, 240, 138, 0.9);
+    --highlight-cell: rgba(254, 240, 138, 0.75);
+    --success-stamp: #16a34a;
+    --ink-bleed: rgba(0, 0, 0, 0.05);
+    --black-cell: #1a1a1a;
+    --cell-border: #1a1a1a;
+    --cell-active: var(--academic-slate);
+    --cell-highlight: var(--highlight-word);
+    --card-bg: #fff;
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 body {
-  font-family: "EB Garamond", serif;
-  background-color: var(--paper-bg);
-  background-image: 
-    linear-gradient(rgba(0,0,0,0.01) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0,0,0,0.01) 1px, transparent 1px);
-  background-size: 20px 20px;
-  color: var(--text);
-  min-height: 100vh;
-  filter: contrast(96%) brightness(102%);
+    font-family: "EB Garamond", serif;
+    background-color: var(--paper-bg);
+    background-image:
+        linear-gradient(rgba(0, 0, 0, 0.01) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 0, 0, 0.01) 1px, transparent 1px);
+    background-size: 20px 20px;
+    color: var(--text);
+    min-height: 100vh;
+    filter: contrast(96%) brightness(102%);
 }
 
 #app {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 0.75rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0.75rem;
 }
 
 header {
-  text-align: center;
-  margin-bottom: 1.25rem;
+    text-align: center;
+    margin-bottom: 1.25rem;
 }
 
 header h1 {
-  font-family: "Playfair Display", serif;
-  font-size: 2.2rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--academic-slate);
-  border-bottom: 4px double var(--academic-slate);
-  padding-bottom: 0.2rem;
-  display: inline-block;
+    font-family: "Playfair Display", serif;
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--academic-slate);
+    border-bottom: 4px double var(--academic-slate);
+    padding-bottom: 0.2rem;
+    display: inline-block;
 }
 
 .subtitle {
-  font-family: "EB Garamond", serif;
-  font-size: 1.1rem;
-  color: var(--academic-accent);
-  margin-top: 0.3rem;
-  font-style: italic;
-  font-weight: 500;
+    font-family: "EB Garamond", serif;
+    font-size: 1.1rem;
+    color: var(--academic-accent);
+    margin-top: 0.3rem;
+    font-style: italic;
+    font-weight: 500;
 }
 
 .puzzle-meta {
-  font-size: 0.85rem;
-  color: var(--academic-accent);
-  margin-top: 0.25rem;
-  line-height: 1.3;
+    font-size: 0.85rem;
+    color: var(--academic-accent);
+    margin-top: 0.25rem;
+    line-height: 1.3;
 }
 
 /* REZOLVAT Stamp */
 .stamp-container {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) rotate(-15deg);
-  pointer-events: none;
-  z-index: 50;
-  opacity: 0;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-15deg);
+    pointer-events: none;
+    z-index: 50;
+    opacity: 0;
 }
 
 .stamp-container.animate-stamp {
-  animation: stamp-thud 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    animation: stamp-thud 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
 @keyframes stamp-thud {
-  0% {
-    transform: translate(-50%, -50%) scale(3) rotate(-35deg);
-    opacity: 0;
-  }
-  70% {
-    transform: translate(-50%, -50%) scale(1) rotate(-15deg);
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1) rotate(-15deg);
-    opacity: 0.8;
-  }
+    0% {
+        transform: translate(-50%, -50%) scale(3) rotate(-35deg);
+        opacity: 0;
+    }
+    70% {
+        transform: translate(-50%, -50%) scale(1) rotate(-15deg);
+        opacity: 0.9;
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1) rotate(-15deg);
+        opacity: 0.8;
+    }
 }
 
 .stamp {
-  width: 280px;
-  height: auto;
-  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.2));
+    width: 280px;
+    height: auto;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
 }
 
 .hidden {
-  display: none !important;
+    display: none !important;
 }
 
 .btn {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  background: var(--accent);
-  color: #fff;
-  transition: background 0.15s;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    background: var(--accent);
+    color: #fff;
+    transition: background 0.15s;
 }
 
 .btn:hover {
-  background: #1d4ed8;
+    background: #1d4ed8;
 }
 
 .btn-secondary {
-  background: #6b7280;
+    background: #6b7280;
 }
 
 .btn-secondary:hover {
-  background: #4b5563;
+    background: #4b5563;
 }
 
 /* Puzzle list */
 .selector-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
 }
 
 .selector-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
 }
 
 .selector-section__title {
-  font-size: 1.1rem;
-  font-family: "Georgia", "Times New Roman", serif;
+    font-size: 1.1rem;
+    font-family: "Georgia", "Times New Roman", serif;
 }
 
 .selector-section__subtitle {
-  color: #666;
-  font-size: 0.9rem;
+    color: #666;
+    font-size: 0.9rem;
 }
 
 .puzzle-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 0.85rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 0.85rem;
 }
 
 .puzzle-card {
-  background: var(--card-bg);
-  border-radius: 14px;
-  padding: 0.95rem;
-  box-shadow: var(--shadow);
-  cursor: pointer;
-  border: 1px solid rgba(26, 26, 26, 0.08);
-  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 0.95rem;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    border: 1px solid rgba(26, 26, 26, 0.08);
+    transition:
+        transform 0.15s,
+        box-shadow 0.15s,
+        border-color 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 
 .puzzle-card__top {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
 }
 
 .puzzle-card__size {
-  font-size: 0.76rem;
-  color: #475569;
-  font-family: monospace;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+    font-size: 0.76rem;
+    color: #475569;
+    font-family: monospace;
+    font-weight: 700;
+    letter-spacing: 0.04em;
 }
 
 .puzzle-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  border-color: rgba(37, 99, 235, 0.22);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    border-color: rgba(37, 99, 235, 0.22);
 }
 
 .puzzle-card h3 {
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 1.08rem;
-  line-height: 1.25;
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 1.08rem;
+    line-height: 1.25;
 }
 
 .puzzle-card__theme {
-  font-size: 0.86rem;
-  color: #666;
-  line-height: 1.45;
+    font-size: 0.86rem;
+    color: #666;
+    line-height: 1.45;
 }
 
 .puzzle-card--solved {
-  border-left: 4px solid var(--success);
+    border-left: 4px solid var(--success);
 }
 
 .puzzle-card--in_progress {
-  border-left: 4px solid #f59e0b;
+    border-left: 4px solid #f59e0b;
 }
 
 .puzzle-card--available {
-  border-left: 4px solid transparent;
+    border-left: 4px solid transparent;
 }
 
 .puzzle-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.75rem;
-  font-size: 0.78rem;
-  color: #64748b;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.75rem;
+    font-size: 0.78rem;
+    color: #64748b;
 }
 
 .empty-state {
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px dashed rgba(26, 26, 26, 0.18);
-  border-radius: 14px;
-  padding: 1.25rem;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px dashed rgba(26, 26, 26, 0.18);
+    border-radius: 14px;
+    padding: 1.25rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
 }
 
 .empty-state h3 {
-  font-size: 1.05rem;
+    font-size: 1.05rem;
 }
 
 .empty-state p {
-  color: #666;
-  line-height: 1.45;
+    color: #666;
+    line-height: 1.45;
 }
 
 .loading {
-  text-align: center;
-  color: #999;
-  padding: 2rem;
+    text-align: center;
+    color: #999;
+    padding: 2rem;
 }
 
 /* Modal */
 .modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
 }
 
 .modal-content {
-  background: var(--card-bg);
-  border-radius: 12px;
-  padding: 2rem;
-  text-align: center;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 
 .modal-content h2 {
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 1.5rem;
-  margin-bottom: 0.5rem;
-  color: var(--success);
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--success);
 }
 
 /* --- Tutorial overlay --- */
 .tutorial-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .tutorial-card {
-  background: #fff;
-  max-width: 400px;
-  width: 90%;
-  border-radius: 12px;
-  padding: 2rem;
-  text-align: center;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    background: #fff;
+    max-width: 400px;
+    width: 90%;
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .tutorial-step {
-  font-size: 0.75rem;
-  color: #999;
-  margin-bottom: 0.5rem;
-  letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    color: #999;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
 }
 
 .tutorial-title {
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 1.3rem;
-  margin-bottom: 0.75rem;
-  color: var(--text);
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 1.3rem;
+    margin-bottom: 0.75rem;
+    color: var(--text);
 }
 
 .tutorial-description {
-  font-size: 0.95rem;
-  color: #555;
-  line-height: 1.5;
-  margin-bottom: 1.5rem;
+    font-size: 0.95rem;
+    color: #555;
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
 }
 
 .tutorial-actions {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: center;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
 }
 
 .tutorial-btn {
-  min-width: 100px;
+    min-width: 100px;
 }
 
 .pencil-help {
-  max-width: 430px;
-  width: min(92vw, 430px);
-  text-align: left;
+    max-width: 430px;
+    width: min(92vw, 430px);
+    text-align: left;
 }
 
 .pencil-help__title {
-  color: var(--accent);
+    color: var(--accent);
 }
 
 .pencil-help__description {
-  margin-bottom: 0.9rem;
-  color: #555;
-  line-height: 1.5;
+    margin-bottom: 0.9rem;
+    color: #555;
+    line-height: 1.5;
 }
 
 .pencil-help__list {
-  margin: 0 0 1.25rem 1.2rem;
-  color: #444;
-  line-height: 1.5;
+    margin: 0 0 1.25rem 1.2rem;
+    color: #444;
+    line-height: 1.5;
 }
 
 .pencil-help__actions {
-  justify-content: flex-end;
+    justify-content: flex-end;
 }
