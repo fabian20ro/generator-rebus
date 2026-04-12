@@ -7,7 +7,7 @@ import type { Clue } from "../../../shared/types/puzzle";
 import type { GridState } from "../grid/grid-renderer";
 import { findActiveClue } from "../grid/grid-renderer";
 
-const MAX_FONT_SIZE_REM = 1.08;
+const MAX_FONT_SIZE_REM = 1.25;
 const MIN_FONT_SIZE_REM = 0.72;
 const FONT_STEP_REM = 0.02;
 

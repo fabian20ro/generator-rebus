@@ -91,8 +91,8 @@
 .definition-bar {
   width: 100%;
   max-width: min(90vw, 500px);
-  min-height: 4.35rem;
-  padding: 0.45rem 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.2rem 0.75rem;
   background: var(--card-bg);
   border: 2px solid var(--black-cell);
   border-bottom: none;
@@ -118,8 +118,8 @@
   color: #fff;
   font-weight: 700;
   width: 100%;
-  min-height: 3rem;
-  padding: 0.3rem 0.35rem;
+  min-height: 2.8rem;
+  padding: 0.2rem 0.35rem;
   border-radius: 3px;
   letter-spacing: 0.03em;
   text-align: center;
@@ -140,7 +140,7 @@
   place-items: center;
   font-style: italic;
   color: var(--text);
-  font-size: var(--definition-font-size, 1.08rem);
+  font-size: var(--definition-font-size, 1.25rem);
   line-height: 1.15;
   min-height: calc(1em * 2 * 1.15);
   max-height: calc(1em * 2 * 1.15);
