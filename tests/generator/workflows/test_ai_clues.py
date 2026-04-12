@@ -181,10 +181,10 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(rating)
-        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual(RATE_MAX_TOKENS, client.calls[0]["max_tokens"])
 
-    def test_verify_definition_candidates_omits_reasoning_effort_for_primary_model(self):
+    def test_verify_definition_candidates_sends_none_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["CASA"])
 
         verify_definition_candidates(
@@ -194,7 +194,7 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual(VERIFY_MAX_TOKENS, client.calls[0]["max_tokens"])
 
     def test_rate_definition_omits_reasoning_effort_for_secondary_model(self):
@@ -384,7 +384,7 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual(
             short_form_max_tokens(
                 model=PRIMARY_MODEL.model_id,
@@ -491,7 +491,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(2, len(client.calls))
-        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual(4000, client.calls[0]["max_tokens"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual(200, client.calls[1]["max_tokens"])
@@ -631,7 +631,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(1, len(client.calls))
-        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual("plan", response.choices[0].message.reasoning_content)
 
     def test_chat_completion_does_not_retry_when_visible_content_exists(self):
@@ -678,7 +678,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(1, len(client.calls))
-        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual("GUAS", response.choices[0].message.content)
 
     def test_chat_completion_does_not_retry_when_reasoning_is_already_disabled(self):
@@ -732,14 +732,14 @@ class AiCluesTests(unittest.TestCase):
     def test_run_policy_truncation_threshold_triggers_adaptive_downgrade(self):
         configure_run_llm_policy(
             reasoning_overrides={
-                (PRIMARY_MODEL.model_id, "definition_rate"): "minimal",
+                (PRIMARY_MODEL.model_id, "definition_generate"): "minimal",
             },
             truncation_threshold=2,
         )
         client = _QueuedResponseClient([
-            _chat_response(reasoning_content="plan", finish_reason="length", completion_tokens=240, reasoning_tokens=239),
+            _chat_response(reasoning_content="plan", finish_reason="length", completion_tokens=2048, reasoning_tokens=2040),
             _chat_response(content="{}"),
-            _chat_response(reasoning_content="plan", finish_reason="length", completion_tokens=240, reasoning_tokens=239),
+            _chat_response(reasoning_content="plan", finish_reason="length", completion_tokens=2048, reasoning_tokens=2040),
             _chat_response(content="{}"),
             _chat_response(content='{"semantic_score": 8, "guessability_score": 6, "creativity_score": 5, "feedback": "ok"}'),
         ])
@@ -749,32 +749,32 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
             messages=[{"role": "user", "content": "test"}],
             temperature=0.0,
-            max_tokens=300,
-            purpose="definition_rate",
+            max_tokens=2048,
+            purpose="definition_generate",
         )
         _chat_completion_create(
             client,
             model=PRIMARY_MODEL.model_id,
             messages=[{"role": "user", "content": "test"}],
             temperature=0.0,
-            max_tokens=300,
-            purpose="definition_rate",
+            max_tokens=2048,
+            purpose="definition_generate",
         )
         _chat_completion_create(
             client,
             model=PRIMARY_MODEL.model_id,
             messages=[{"role": "user", "content": "test"}],
             temperature=0.0,
-            max_tokens=300,
-            purpose="definition_rate",
+            max_tokens=2048,
+            purpose="definition_generate",
         )
 
         self.assertEqual("minimal", client.calls[0]["reasoning_effort"])
-        self.assertEqual(240, client.calls[0]["max_tokens"])
+        self.assertEqual(2048, client.calls[0]["max_tokens"])
         self.assertEqual("minimal", client.calls[2]["reasoning_effort"])
         self.assertEqual("none", client.calls[4]["reasoning_effort"])
         snapshot = llm_run_stats_snapshot()
-        self.assertIn(f"{PRIMARY_MODEL.model_id}|definition_rate", snapshot["adaptive_downgrades"])
+        self.assertIn(f"{PRIMARY_MODEL.model_id}|definition_generate", snapshot["adaptive_downgrades"])
 
     def test_run_policy_bounds_short_form_tokens_and_reasoning(self):
         configure_run_llm_policy(

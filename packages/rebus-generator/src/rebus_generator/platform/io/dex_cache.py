@@ -31,6 +31,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -279,6 +280,21 @@ def _extract_base_lookup(definition: str) -> tuple[str, str] | None:
     return None
 
 
+def _is_expired(fetched_at: str | None) -> bool:
+    """True if fetched_at is missing, invalid, or older than 1 day."""
+    if not fetched_at:
+        return True
+    try:
+        dt = datetime.fromisoformat(fetched_at)
+        # Ensure it's offset-aware for comparison with now(UTC)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        elapsed = datetime.now(timezone.utc) - dt
+        return elapsed > timedelta(days=1)
+    except (ValueError, TypeError):
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Fetch from dexonline.ro — with exponential backoff
 # ---------------------------------------------------------------------------
@@ -327,7 +343,7 @@ def _sb_lookup_single(client, normalized: str) -> tuple[str | None, bool]:
     """Query Supabase for one word. Returns (html_or_None, was_found_in_db)."""
     try:
         resp = (client.table("dex_definitions")
-                .select("html, status")
+                .select("html, status, fetched_at")
                 .eq("word", normalized)
                 .limit(1)
                 .execute())
@@ -337,6 +353,8 @@ def _sb_lookup_single(client, normalized: str) -> tuple[str | None, bool]:
         return None, False
     row = resp.data[0]
     if row["status"] != "ok" or not row.get("html"):
+        if _is_expired(row.get("fetched_at")):
+            return None, False
         return None, True  # in DB but no usable content
     return row["html"], True
 
@@ -348,7 +366,7 @@ def _sb_lookup_batch(client, words: list[str]) -> dict[str, str | None]:
         chunk = words[i:i + _SB_BATCH_CHUNK_SIZE]
         try:
             resp = (client.table("dex_definitions")
-                    .select("word, html, status")
+                    .select("word, html, status, fetched_at")
                     .in_("word", chunk)
                     .execute())
         except Exception:
@@ -357,7 +375,8 @@ def _sb_lookup_batch(client, words: list[str]) -> dict[str, str | None]:
             if row["status"] == "ok" and row.get("html"):
                 result[row["word"]] = row["html"]
             else:
-                result[row["word"]] = None  # present but unusable
+                if not _is_expired(row.get("fetched_at")):
+                    result[row["word"]] = None  # present but unusable
     return result
 
 
@@ -391,6 +410,8 @@ def _local_lookup_single(cache_dir: Path | None, normalized: str) -> tuple[str |
     except Exception:
         return None, False
     if data.get("status") != "ok" or not data.get("html"):
+        if _is_expired(data.get("fetched_at")):
+            return None, False
         return None, True
     return data["html"], True
 

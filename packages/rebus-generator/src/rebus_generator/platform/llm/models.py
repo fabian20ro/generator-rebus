@@ -26,9 +26,11 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
             "default": "low",
             "definition_generate": "low",
             "definition_rewrite": "low",
-            "definition_verify": None,
+            "definition_verify": "none",
             "definition_rate": "low",
             "clue_compare": "low",
+            "title_generate": "low",
+            "title_rate": "none",
         },
     ),
     "gpt_oss_20b": ModelConfig(
@@ -101,13 +103,20 @@ def resolve_reasoning_effort(
     purpose: str = "default",
     reasoning_effort_override: str | None | object = _USE_MODEL_REASONING,
 ) -> str | None:
+    config = model if isinstance(model, ModelConfig) else get_model_config(str(model or ""))
+    if not config:
+        return None
+
+    # If the model does not support reasoning at all (default is None), always omit.
+    # This prevents crashing legacy models like EuroLLM even if an override says "none".
+    if config.reasoning_by_purpose.get("default") is None:
+        return None
+
     if reasoning_effort_override is not _USE_MODEL_REASONING:
         if reasoning_effort_override is None:
             return None
         return _normalize_reasoning_effort(str(reasoning_effort_override))
-    config = model if isinstance(model, ModelConfig) else get_model_config(str(model or ""))
-    if not config:
-        return None
+
     effort = config.reasoning_by_purpose.get(
         purpose,
         config.reasoning_by_purpose.get("default"),

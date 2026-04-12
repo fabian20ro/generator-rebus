@@ -15,7 +15,7 @@ from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import ModelConfig, chat_max_tokens, get_active_models
 from rebus_generator.prompts.loader import load_system_prompt, load_user_template
 
-from .rate import rate_title_creativity_pair
+from .rate import rate_title_creativity_pair, rate_title_creativity_batch
 from .sanitize import (
     FALLBACK_TITLES,
     MAX_TITLE_ROUNDS,

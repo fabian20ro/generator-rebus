@@ -139,7 +139,7 @@ class GenerateSingleTitleTests(unittest.TestCase):
         self.assertEqual("  Metale și Ecouri  ", result)
         self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
         self.assertEqual(TITLE_GENERATE_MAX_TOKENS, client.calls[0]["max_tokens"])
-        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
 
     def test_returns_empty_on_failure(self):
         result = _generate_single_title(
@@ -296,10 +296,10 @@ class CreativeTitleTests(unittest.TestCase):
             ["Gaz din atmosferă", "Formă de relief"],
             client=_SequentialClient(["Orizont Cald", "Umbre Fine"]),
             rate_client=_SequentialClient([
-                json.dumps({"creativity_score": 7, "feedback": "aproape"}),
-                json.dumps({"creativity_score": 7, "feedback": "aproape"}),
-                json.dumps({"creativity_score": 8, "feedback": "acceptat"}),
-                json.dumps({"creativity_score": 8, "feedback": "acceptat"}),
+                json.dumps({"creativity_score": 7, "feedback": "aproape"}),  # (C1, M1)
+                json.dumps({"creativity_score": 8, "feedback": "acceptat"}), # (C2, M1)
+                json.dumps({"creativity_score": 7, "feedback": "aproape"}),  # (C1, M2)
+                json.dumps({"creativity_score": 8, "feedback": "acceptat"}), # (C2, M2)
             ]),
             runtime=runtime,
             multi_model=True,
@@ -446,8 +446,12 @@ class CreativeTitleTests(unittest.TestCase):
         )
         self.assertEqual(PRIMARY_MODEL.model_id, gen_client.calls[0]["model"])
         self.assertEqual(
-            [PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
+            [PRIMARY_MODEL.model_id, PRIMARY_MODEL.model_id],
             [call["model"] for call in rate_client.calls[:2]],
+        )
+        self.assertEqual(
+            [SECONDARY_MODEL.model_id, SECONDARY_MODEL.model_id],
+            [call["model"] for call in rate_client.calls[2:4]],
         )
 
     def test_no_secondary_activation_before_first_generation_call(self):

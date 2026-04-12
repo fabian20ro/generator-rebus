@@ -3,6 +3,7 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, call
@@ -10,6 +11,7 @@ from unittest.mock import MagicMock, patch, call
 from rebus_generator.platform.io.dex_cache import (
     DexProvider,
     _format_definitions,
+    _is_expired,
     _sb_lookup_batch,
     _sb_lookup_single,
     _sb_store,
@@ -113,6 +115,32 @@ class FormatDefinitionsTests(unittest.TestCase):
 
     def test_empty(self):
         self.assertEqual(_format_definitions([]), "")
+
+
+# ---------------------------------------------------------------------------
+# Cache expiration logic
+# ---------------------------------------------------------------------------
+
+class IsExpiredTests(unittest.TestCase):
+    def test_missing_is_expired(self):
+        self.assertTrue(_is_expired(None))
+        self.assertTrue(_is_expired(""))
+
+    def test_invalid_is_expired(self):
+        self.assertTrue(_is_expired("not-a-date"))
+
+    def test_recent_is_not_expired(self):
+        now_str = datetime.now(timezone.utc).isoformat()
+        self.assertFalse(_is_expired(now_str))
+
+    def test_old_is_expired(self):
+        old_dt = datetime.now(timezone.utc) - timedelta(hours=25)
+        self.assertTrue(_is_expired(old_dt.isoformat()))
+
+    def test_offset_naive_parsed_as_utc(self):
+        # Even if stored as naive (unlikely), it should be compared as UTC
+        naive_str = "2026-01-01T00:00:00"
+        self.assertTrue(_is_expired(naive_str))
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +462,7 @@ class DexProviderLocalDiskCacheTests(unittest.TestCase):
                 "original": "casă",
                 "status": "not_found",
                 "html": "",
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
             }, ensure_ascii=False), encoding="utf-8")
             sb = MagicMock()
             dex = DexProvider(sb, local_cache_dir=temp_dir)
@@ -442,6 +471,24 @@ class DexProviderLocalDiskCacheTests(unittest.TestCase):
         self.assertIsNone(result)
         sb.table.assert_not_called()
         mock_fetch.assert_not_called()
+
+    def test_lookup_local_negative_cache_expired_triggers_refetch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "CASA.json").write_text(json.dumps({
+                "word": "CASA",
+                "original": "casă",
+                "status": "not_found",
+                "html": "",
+                "fetched_at": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
+            }, ensure_ascii=False), encoding="utf-8")
+            sb = MagicMock()
+            dex = DexProvider(sb, local_cache_dir=temp_dir)
+            with patch("rebus_generator.platform.io.dex_cache.fetch_from_dexonline") as mock_fetch:
+                mock_fetch.return_value = ("", "not_found")
+                result = dex.get("CASĂ", "casă")
+        self.assertIsNone(result)
+        # Should have called fetch because local was expired
+        mock_fetch.assert_called_once()
 
     def test_prefetch_uses_local_disk_before_supabase(self):
         html = '<span class="tree-def">Local batch.</span>'
@@ -593,10 +640,18 @@ class SbLookupSingleTests(unittest.TestCase):
         self.assertFalse(found)
 
     def test_in_db_but_not_ok(self):
-        sb = _mock_supabase_with_rows([{"html": "", "status": "not_found"}])
+        recent = datetime.now(timezone.utc).isoformat()
+        sb = _mock_supabase_with_rows([{"html": "", "status": "not_found", "fetched_at": recent}])
         html, found = _sb_lookup_single(sb, "WORD")
         self.assertIsNone(html)
         self.assertTrue(found)  # found in DB, just no usable content
+
+    def test_in_db_but_expired_returns_not_found(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        sb = _mock_supabase_with_rows([{"html": "", "status": "not_found", "fetched_at": old}])
+        html, found = _sb_lookup_single(sb, "WORD")
+        self.assertIsNone(html)
+        self.assertFalse(found)  # expired entries count as not found in DB
 
     def test_exception_returns_none_not_found(self):
         sb = MagicMock()
@@ -608,14 +663,29 @@ class SbLookupSingleTests(unittest.TestCase):
 
 class SbLookupBatchTests(unittest.TestCase):
     def test_batch_returns_ok_words(self):
+        recent = datetime.now(timezone.utc).isoformat()
         rows = [
-            {"word": "CASA", "html": "<h>casa html</h>", "status": "ok"},
-            {"word": "MARE", "html": "", "status": "not_found"},
+            {"word": "CASA", "html": "<h>casa html</h>", "status": "ok", "fetched_at": recent},
+            {"word": "MARE", "html": "", "status": "not_found", "fetched_at": recent},
         ]
         sb = _mock_supabase_with_rows(rows)
         result = _sb_lookup_batch(sb, ["CASA", "MARE"])
         self.assertEqual(result["CASA"], "<h>casa html</h>")
+        self.assertIn("MARE", result)
         self.assertIsNone(result["MARE"])
+
+    def test_batch_skips_expired_negative_entries(self):
+        recent = datetime.now(timezone.utc).isoformat()
+        old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        rows = [
+            {"word": "RECENT", "html": "", "status": "not_found", "fetched_at": recent},
+            {"word": "OLD", "html": "", "status": "not_found", "fetched_at": old},
+        ]
+        sb = _mock_supabase_with_rows(rows)
+        result = _sb_lookup_batch(sb, ["RECENT", "OLD"])
+        self.assertIn("RECENT", result)
+        self.assertIsNone(result["RECENT"])
+        self.assertNotIn("OLD", result)
 
     def test_empty_input(self):
         sb = MagicMock()

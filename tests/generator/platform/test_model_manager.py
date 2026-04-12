@@ -95,7 +95,7 @@ class ModelManagerTests(unittest.TestCase):
 
     def test_chat_reasoning_options_empty_for_primary_verify(self):
         self.assertEqual(
-            {},
+            {"reasoning_effort": "none"},
             chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_verify"),
         )
 
