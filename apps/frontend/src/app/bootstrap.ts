@@ -121,6 +121,7 @@ let currentGridSize = 10;
 let puzzleStartTime = 0;
 let hintsUsedCount = 0;
 let checksUsedCount = 0;
+let backspacesUsedCount = 0;
 let pencilMode = false;
 let puzzleListScrollY = 0;
 let activeTab: AppTab = "available";
@@ -410,6 +411,7 @@ function saveCurrentProgress(): void {
     pencilCells: gridState.pencilCells,
     hintsUsed: hintsUsedCount,
     checksUsed: checksUsedCount,
+    backspacesUsed: backspacesUsedCount,
     elapsedSeconds: elapsed,
     savedAt: new Date().toISOString(),
   };
@@ -514,6 +516,7 @@ function performVirtualDelete(): void {
 
   cellHistory.push(deepCopyCells(gridState.cells));
   backspaceActiveCell(gridState);
+  backspacesUsedCount++;
   refresh();
   focusActiveCell();
   debouncedSaveProgress();
@@ -580,6 +583,10 @@ function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
     (e.key.length === 1 && /^[A-Za-z]$/.test(e.key));
   if (isMutating && gridState) {
     cellHistory.push(deepCopyCells(gridState.cells));
+  }
+
+  if ((e.key === "Backspace" || e.key === "Delete") && gridState) {
+    backspacesUsedCount++;
   }
 
   const handled = handleKeyDown(gridState!, row, col, e);
@@ -682,6 +689,7 @@ function handleCompletion(): void {
     gridSize: currentGridSize,
     hintsUsed: hintsUsedCount,
     checksUsed: checksUsedCount,
+    backspacesUsed: backspacesUsedCount,
     pointsEarned: score.total,
     pointsSpent: 0,
   };
@@ -757,12 +765,14 @@ async function loadPuzzle(id: string): Promise<void> {
     gridState.touchRemoteEnabled = touchRemoteEnabled;
     gridInitialised = false; // force createGrid on next refresh
     cellHistory.clear();
-    currentPuzzleId = id;
-    currentDifficulty = data.puzzle.difficulty;
-    currentGridSize = data.puzzle.grid_size;
+    currentPuzzleId = puzzle.id;
+    currentDifficulty = puzzle.difficulty;
+    currentGridSize = puzzle.grid_size;
     puzzleStartTime = Date.now();
     hintsUsedCount = 0;
     checksUsedCount = 0;
+    backspacesUsedCount = 0;
+
 
     // Attach solution if available (hints require it)
     if (solutionResult.status === "fulfilled") {
@@ -794,6 +804,7 @@ async function loadPuzzle(id: string): Promise<void> {
       }
       hintsUsedCount = saved.hintsUsed;
       checksUsedCount = saved.checksUsed ?? 0;
+      backspacesUsedCount = saved.backspacesUsed ?? 0;
       puzzleStartTime = Date.now() - saved.elapsedSeconds * 1000;
     }
 

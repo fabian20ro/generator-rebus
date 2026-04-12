@@ -1,4 +1,3 @@
-import { deriveChallenges } from "./challenges";
 import {
   BADGE_DEFINITIONS,
   evaluateBadges,
@@ -10,25 +9,6 @@ import { loadPlayerData } from "./storage";
 
 export interface RewardsPanelContext {
   inProgressCount: number;
-}
-
-function createChallengeCard(challenge: ReturnType<typeof deriveChallenges>[number]): HTMLElement {
-  const card = document.createElement("article");
-  card.className = "challenge-card";
-  if (challenge.done) {
-    card.classList.add("challenge-card--done");
-  }
-
-  card.innerHTML = `
-    <div class="challenge-card__top">
-      <span class="challenge-card__status">${challenge.done ? "Gata" : "În lucru"}</span>
-      <span class="challenge-card__progress">${challenge.progressLabel}</span>
-    </div>
-    <div class="challenge-card__title">${challenge.title}</div>
-    <div class="challenge-card__desc">${challenge.description}</div>
-  `;
-
-  return card;
 }
 
 function createBadgeCard(badge: Badge | EarnedBadge, unlocked: boolean): HTMLElement {
@@ -44,26 +24,13 @@ function createBadgeCard(badge: Badge | EarnedBadge, unlocked: boolean): HTMLEle
 
 export function renderRewardsPanel(
   container: HTMLElement,
-  context: RewardsPanelContext,
+  _context: RewardsPanelContext,
 ): void {
   const data = loadPlayerData();
   const earned = evaluateBadges(data);
   const locked = getLockedBadges(data);
-  const challenges = deriveChallenges(data, context.inProgressCount);
 
   container.innerHTML = "";
-
-  const challengeSection = document.createElement("section");
-  challengeSection.className = "stats-section";
-  challengeSection.innerHTML = `<h2 class="panel-title">Provocări</h2>`;
-
-  const challengeGrid = document.createElement("div");
-  challengeGrid.className = "challenge-grid";
-  for (const challenge of challenges) {
-    challengeGrid.appendChild(createChallengeCard(challenge));
-  }
-  challengeSection.appendChild(challengeGrid);
-  container.appendChild(challengeSection);
 
   const badgeSection = document.createElement("section");
   badgeSection.className = "stats-section";

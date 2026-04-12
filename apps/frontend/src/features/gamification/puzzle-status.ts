@@ -219,7 +219,7 @@ export function buildTabConfig(state: DerivedPuzzleState): TabConfig[] {
     {
       id: "rewards",
       icon: "🏆",
-      label: "Provocări și insigne",
+      label: "Insigne",
       visible: true,
     },
   ];

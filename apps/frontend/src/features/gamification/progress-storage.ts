@@ -6,10 +6,12 @@
 export interface PuzzleProgress {
   cells: (string | null)[][];
   revealed?: boolean[][];
-  pencilCells?: boolean[][];
+  pencilCells: boolean[][];
   hintsUsed: number;
   checksUsed?: number;
+  backspacesUsed?: number;
   elapsedSeconds: number;
+
   savedAt: string;
 }
 

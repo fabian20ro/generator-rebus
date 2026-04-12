@@ -16,6 +16,7 @@ export interface PuzzleRecord {
   gridSize: number;
   hintsUsed: number;
   checksUsed?: number;
+  backspacesUsed?: number;
   pointsEarned: number;
   pointsSpent: number; // on hints
 }
@@ -46,6 +47,9 @@ export function loadPlayerData(): PlayerData {
     for (const record of data.puzzlesSolved) {
       if (typeof record.checksUsed !== "number") {
         record.checksUsed = -1;
+      }
+      if (typeof record.backspacesUsed !== "number") {
+        record.backspacesUsed = -1;
       }
     }
     return data;
