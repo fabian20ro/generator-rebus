@@ -13,10 +13,11 @@ from types import SimpleNamespace
 
 from openai import OpenAI
 
+from rebus_generator.platform.io.runtime_logging import llm_debug_enabled, log
+
 from ..config import LMSTUDIO_BASE_URL
 from .llm_text import clean_llm_text_response
 from .models import PRIMARY_MODEL, chat_reasoning_options
-from rebus_generator.platform.io.runtime_logging import llm_debug_enabled, log
 
 RETRY_WITHOUT_THINKING_MAX_TOKENS = 200
 RETRY_WITHOUT_THINKING_MARGIN = 10
@@ -57,6 +58,7 @@ _RUN_SLOW_CALL_SECONDS = DEFAULT_SLOW_CALL_SECONDS
 _ADAPTIVE_DOWNGRADES: set[tuple[str, str]] = set()
 _ADAPTIVE_DOWNGRADE_LOGGED: set[tuple[str, str]] = set()
 _LLM_STATS: dict[tuple[str, str], _LlmPurposeStats] = defaultdict(_LlmPurposeStats)
+
 
 def create_client() -> OpenAI:
     return OpenAI(
@@ -358,7 +360,9 @@ def llm_run_stats_snapshot() -> dict[str, object]:
         if model not in models:
             models.append(model)
     return {
-        "adaptive_downgrades": sorted(f"{model}|{purpose}" for model, purpose in _ADAPTIVE_DOWNGRADES),
+        "adaptive_downgrades": sorted(
+            f"{model}|{purpose}" for model, purpose in _ADAPTIVE_DOWNGRADES
+        ),
         "per_model_purpose": per_model_purpose,
         "per_purpose": per_purpose,
         "retry_count": llm_run_retry_count(),
@@ -398,7 +402,9 @@ def _adaptive_downgrade_active(model: str, purpose: str) -> bool:
     return _run_policy_enabled() and (model, purpose) in _ADAPTIVE_DOWNGRADES
 
 
-def _effective_max_tokens(*, model: str, purpose: str, requested_max_tokens: int) -> int:
+def _effective_max_tokens(
+    *, model: str, purpose: str, requested_max_tokens: int
+) -> int:
     if not _run_policy_enabled():
         return requested_max_tokens
     return short_form_max_tokens(
@@ -408,29 +414,45 @@ def _effective_max_tokens(*, model: str, purpose: str, requested_max_tokens: int
     )
 
 
-def short_form_max_tokens(*, model: str, purpose: str, requested_max_tokens: int) -> int:
+def short_form_max_tokens(
+    *, model: str, purpose: str, requested_max_tokens: int
+) -> int:
     cap = _SHORT_FORM_MAX_TOKENS.get((model, purpose))
     if cap is None:
         return requested_max_tokens
     return min(requested_max_tokens, cap)
 
 
-def _effective_reasoning_options(*, model: str, purpose: str) -> dict[str, str]:
+def _effective_reasoning_options(
+    *, model: str, purpose: str, max_tokens: int
+) -> dict[str, str]:
+    if max_tokens < 2000:
+        return chat_reasoning_options(
+            model, purpose=purpose, reasoning_effort_override="none"
+        )
     if _adaptive_downgrade_active(model, purpose):
-        return chat_reasoning_options(model, purpose=purpose, reasoning_effort_override="none")
+        return chat_reasoning_options(
+            model, purpose=purpose, reasoning_effort_override="none"
+        )
     if not _run_policy_enabled():
         return chat_reasoning_options(model, purpose=purpose)
     override = _configured_reasoning_override(model, purpose)
     if override is _DEFAULT_REASONING_SENTINEL:
         return chat_reasoning_options(model, purpose=purpose)
-    return chat_reasoning_options(model, purpose=purpose, reasoning_effort_override=override)
+    return chat_reasoning_options(
+        model, purpose=purpose, reasoning_effort_override=override
+    )
 
 
-def _record_call_stats(*, model: str, purpose: str, max_tokens: int, response, elapsed_seconds: float) -> None:
+def _record_call_stats(
+    *, model: str, purpose: str, max_tokens: int, response, elapsed_seconds: float
+) -> None:
     stats = _purpose_stats(model, purpose)
     stats.calls += 1
     stats.latency_seconds_total += elapsed_seconds
-    stats.max_observed_latency_seconds = max(stats.max_observed_latency_seconds, elapsed_seconds)
+    stats.max_observed_latency_seconds = max(
+        stats.max_observed_latency_seconds, elapsed_seconds
+    )
     completion_tokens = _response_completion_tokens(response)
     reasoning_tokens = _response_reasoning_tokens(response)
     if completion_tokens is not None:
@@ -453,7 +475,10 @@ def _record_call_stats(*, model: str, purpose: str, max_tokens: int, response, e
                     "reasoning=none]",
                     level="WARN",
                 )
-    if purpose in {"clue_compare", "clue_tiebreaker"} and elapsed_seconds >= _RUN_SLOW_CALL_SECONDS:
+    if (
+        purpose in {"clue_compare", "clue_tiebreaker"}
+        and elapsed_seconds >= _RUN_SLOW_CALL_SECONDS
+    ):
         stats.slow_calls += 1
         log(
             "  [slow llm_call "
@@ -617,7 +642,11 @@ def _chat_completion_create(
         purpose=purpose,
         requested_max_tokens=max_tokens,
     )
-    reasoning_options = _effective_reasoning_options(model=model, purpose=purpose)
+    reasoning_options = _effective_reasoning_options(
+        model=model,
+        purpose=purpose,
+        max_tokens=max_tokens,
+    )
     response = _create_chat_completion_once(
         client,
         model=model,
@@ -673,13 +702,9 @@ def _log_if_reasoning_budget_high(
         return
     budget_ratio = reasoning_tokens / max_tokens
     completion_ratio = (
-        reasoning_tokens / completion_tokens
-        if completion_tokens
-        else None
+        reasoning_tokens / completion_tokens if completion_tokens else None
     )
-    if budget_ratio < 0.75 and (
-        completion_ratio is None or completion_ratio < 0.85
-    ):
+    if budget_ratio < 0.75 and (completion_ratio is None or completion_ratio < 0.85):
         return
     parts = [
         "warn reasoning_budget",

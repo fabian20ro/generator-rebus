@@ -7,8 +7,8 @@ from rebus_generator.domain.diacritics import normalize
 
 ENGLISH_MARKERS = {
     "accurate", "accurately", "actually", "answer", "attached", "big", "by", "common", "correct",
-    "definition", "english", "fantasy", "feedback", "file", "fluid", "for", "get", "guess",
-    "guessability", "law", "length", "numerical", "precise", "precisely", "pressure", "powered",
+    "definition", "english", "fantasy", "feedback", "file", "for", "get", "guess",
+    "guessability", "law", "length", "numerical", "precisely", "pressure", "powered",
     "response", "semantic", "system", "technical", "the", "very", "with", "without", "word",
 }
 _ENGLISH_MEANING_PATTERNS: dict[str, list[str]] = {

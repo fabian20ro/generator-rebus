@@ -229,6 +229,7 @@ def generate_creative_title_result(
     rejected_by_model = {model.model_id: [] for model in get_active_models(multi_model=True)}
     forbidden_keys = {key for key in (forbidden_title_keys or []) if key}
     for round_idx in range(1, MAX_TITLE_ROUNDS + 1):
+        round_candidates: list[tuple[str, ModelConfig, TitleCandidateReview]] = []
         for generator_model in get_active_models(multi_model=multi_model):
             model_rejected = rejected_by_model.setdefault(generator_model.model_id, [])
             raw_title = _generate_candidate_for_model(
@@ -265,12 +266,24 @@ def generate_creative_title_result(
                 rejected.append((reviewed.title, "titlu deja folosit"))
                 model_rejected.append((reviewed.title, "titlu deja folosit"))
                 continue
-            rating = rate_title_creativity_pair(reviewed.title, words, rate_client, runtime=runtime)
-            log(f'  Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{reviewed.title}" -> creativity={rating.score}/10 ({rating.feedback})')
-            if not rating.complete:
-                rejected.append((reviewed.title, "evaluare incompletă"))
-                model_rejected.append((reviewed.title, "evaluare incompletă"))
+            round_candidates.append((reviewed.title, generator_model, reviewed))
+
+        if not round_candidates:
+            continue
+
+        # Batch rate all candidates from this round
+        batch_input = [(f"r{round_idx}_{i}", title, words) for i, (title, _, _) in enumerate(round_candidates)]
+        ratings = rate_title_creativity_batch(batch_input, rate_client, runtime=runtime)
+
+        for i, (title, generator_model, reviewed) in enumerate(round_candidates):
+            rating = ratings.get(f"r{round_idx}_{i}")
+            if not rating or not rating.complete:
+                log(f'  Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> evaluation failed')
+                rejected.append((title, "evaluare incompletă"))
+                model_rejected.append((title, "evaluare incompletă"))
                 continue
+
+            log(f'  Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity={rating.score}/10 ({rating.feedback})')
             result = TitleGenerationResult(reviewed.title, rating.score, rating.feedback, score_complete=True)
             if (
                 best_result is None
@@ -282,6 +295,7 @@ def generate_creative_title_result(
                 return result
             rejected.append((reviewed.title, rating.feedback))
             model_rejected.append((reviewed.title, rating.feedback))
+
     if best_result is not None and best_result.score > 0:
         return best_result
     return TitleGenerationResult(NO_TITLE_LABEL, 0, "niciun titlu valid", used_fallback=True, score_complete=False)

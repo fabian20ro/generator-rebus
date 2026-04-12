@@ -113,6 +113,14 @@ V6_EXPERIMENT_PRESETS = {
     "rate": (5, 6),
     "definition": (7, 8),
 }
+V7_EXPERIMENT_PRESETS = {
+    "full": (1, 8),
+    "anti-english-markers": (1, 2),
+    "family-word-exclusion": (3, 4),
+    "residue": (5, 5),
+    "word-parts": (6, 6),
+    "verify-isolation": (7, 8),
+}
 EXPERIMENT_PRESETS_BY_SET = {
     "v1": EXPERIMENT_PRESETS,
     "v2": V2_EXPERIMENT_PRESETS,
@@ -120,6 +128,7 @@ EXPERIMENT_PRESETS_BY_SET = {
     "v4": V4_EXPERIMENT_PRESETS,
     "v5": V5_EXPERIMENT_PRESETS,
     "v6": V6_EXPERIMENT_PRESETS,
+    "v7": V7_EXPERIMENT_PRESETS,
 }
 TARGET_DIRECTION_BLOCKS = {
     "verify-examples": "verify",
@@ -1593,6 +1602,110 @@ V6_EXPERIMENTS = [
 _validate_experiment_list(V6_EXPERIMENTS)
 assert len(V6_EXPERIMENTS) == 8, len(V6_EXPERIMENTS)
 
+
+V7_EXPERIMENTS = [
+    Experiment(
+        "v7exp001",
+        "definition add explicit 'no English markers like literal or translation' rule",
+        [_edit_after(
+            SYS_DEFINITION,
+            "- Tot textul este exclusiv în română. Nu folosești engleză.",
+            "- Nu adăuga marcaje de tip 'literal meaning', 'traducere' sau 'sens' în engleză.",
+        )],
+        family="anti_english_markers",
+        priority=_family_priority("anti_english_markers", "v7"),
+        tags=("anti_english_markers",),
+    ),
+    Experiment(
+        "v7exp002",
+        "definition add explicit rejection of 'literal meaning' example",
+        [_edit_after(
+            SYS_DEFINITION,
+            "AT -> Prepoziție de loc [GREȘIT]",
+            "AGIL -> Literal meaning [GREȘIT - marcaj englezesc]",
+        )],
+        family="anti_english_markers",
+        priority=_family_priority("anti_english_markers", "v7"),
+        tags=("anti_english_markers",),
+    ),
+    Experiment(
+        "v7exp003",
+        "definition strengthen family word exclusion rule with 'any form' mention",
+        [_edit(
+            SYS_DEFINITION,
+            "- Sunt interzise forme din aceeași familie lexicală cu răspunsul.",
+            "- Este strict interzisă orice formă a cuvântului definit (rădăcină, derivat, flexionare).",
+        )],
+        family="family_word_exclusion",
+        priority=_family_priority("family_word_exclusion", "v7"),
+        tags=("family_word_exclusion",),
+    ),
+    Experiment(
+        "v7exp004",
+        "definition add negative examples for family word leakage (ACETIFICA vs acid acetic)",
+        [_edit_before(
+            SYS_DEFINITION,
+            "ARDE -> Ceva care se întâmplă [GREȘIT - prea vag]\n",
+            "ACETIFICA -> Proces de obținere a acidului acetic [GREȘIT - familie lexicală]\n",
+        )],
+        family="family_word_exclusion",
+        priority=_family_priority("family_word_exclusion", "v7"),
+        tags=("family_word_exclusion",),
+    ),
+    Experiment(
+        "v7exp005",
+        "rewrite add explicit rule to strip prompt residue (Definition: prefix)",
+        [_edit_after(
+            SYS_REWRITE,
+            "- Tot textul este exclusiv în română. Nu folosești engleză.",
+            "- Nu începe definiția cu prefixe de tip 'Definiția:', 'Răspuns:' sau similar.",
+        )],
+        family="residue_elimination",
+        priority=_family_priority("residue_elimination", "v7"),
+        tags=("residue_elimination",),
+    ),
+    Experiment(
+        "v7exp006",
+        "rewrite strengthen non-naming of word parts for long words",
+        [_edit_after(
+            SYS_REWRITE,
+            "- Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.",
+            "- Pentru cuvinte lungi, nu descrie părți componente ale cuvântului (e.g. 'prefixul plus rădăcina').",
+        )],
+        family="family_word_exclusion",
+        priority=_family_priority("family_word_exclusion", "v7"),
+        tags=("family_word_exclusion",),
+    ),
+    Experiment(
+        "v7exp007",
+        "verify add explicit rule to ignore thinking traces if leaking",
+        [_edit_after(
+            SYS_VERIFY,
+            "- Lucrezi cap-coadă în română.\n",
+            "- Dacă modelul de bază emite un 'thinking trace' în engleză, ignoră-l complet și verifică doar definiția românească finală.\n",
+        )],
+        family="verify_thinking_isolation",
+        priority=_family_priority("verify_thinking_isolation", "v7"),
+        tags=("verify_thinking_isolation",),
+    ),
+    Experiment(
+        "v7exp008",
+        "verify examples use new gemma-4 style rejection samples",
+        [_edit_after(
+            SYS_VERIFY,
+            "Definiție: Formă a verbului a avea\nRăspuns: AI\n",
+            "Definiție: Capabil de mișcări rapide și precise.\nRăspuns: AGIL\n",
+        )],
+        family="verify_targeted_examples",
+        priority=_family_priority("verify_targeted_examples", "v7"),
+        tags=("verify_targeted_examples",),
+    ),
+]
+
+_validate_experiment_list(V7_EXPERIMENTS)
+assert len(V7_EXPERIMENTS) == 8, len(V7_EXPERIMENTS)
+
+
 EXPERIMENT_SETS = {
     "v1": V1_EXPERIMENTS,
     "v2": V2_EXPERIMENTS,
@@ -1600,6 +1713,7 @@ EXPERIMENT_SETS = {
     "v4": V4_EXPERIMENTS,
     "v5": V5_EXPERIMENTS,
     "v6": V6_EXPERIMENTS,
+    "v7": V7_EXPERIMENTS,
 }
 EXPERIMENTS = V1_EXPERIMENTS
 
