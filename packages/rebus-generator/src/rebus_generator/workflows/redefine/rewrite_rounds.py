@@ -276,22 +276,33 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
     current_scores = [_extract_rebus_score(c) or 0 for c in all_working_clues(session.puzzle)]
     current_min = min(current_scores) if current_scores else 0
     session.min_rebus_history.append(current_min)
-    if has_plateaued(session.min_rebus_history, PLATEAU_LOOKBACK):
+
+    # Only exit early due to plateau if the floor is already decent (>= 6)
+    if current_min >= 6 and has_plateaued(session.min_rebus_history, PLATEAU_LOOKBACK):
         log(f"  Plateau after {session.round_index} rounds (min_rebus={current_min})")
         finish_rewrite_session(session)
         return None
 
-    round_min_rebus = current_min + 1
+    # 3-Stage Target Logic
+    if current_min < 6:
+        round_min_rebus = 6
+    elif current_min == 6:
+        round_min_rebus = 7
+    else:
+        round_min_rebus = 8
+
     all_candidates = [
         clue
         for clue in all_working_clues(session.puzzle)
         if _needs_rewrite(clue, min_rebus=round_min_rebus)
-        and clue.word_normalized not in session.stuck_words
+        # Remove stuck_words check to keep trying for full duration
     ]
     if not all_candidates:
         finish_rewrite_session(session)
         return None
-    candidates = sorted(all_candidates, key=_rewrite_priority)[:MAX_REWRITE_CANDIDATES_PER_ROUND]
+
+    # Remove candidate count limit (MAX_REWRITE_CANDIDATES_PER_ROUND)
+    candidates = sorted(all_candidates, key=_rewrite_priority)
 
     if session.multi_model:
         log(f"  Model activ (rescriere): {session.current_model.display_name}")
@@ -370,9 +381,7 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
             if rewrite_rejection_reason:
                 clue.current.assessment.rewrite_rejection_reason = rewrite_rejection_reason
             session.consecutive_failures[clue.word_normalized] = session.consecutive_failures.get(clue.word_normalized, 0) + 1
-            if session.consecutive_failures[clue.word_normalized] >= MAX_CONSECUTIVE_FAILURES:
-                session.stuck_words.add(clue.word_normalized)
-                log(f"  {clue_ref}: marcată ca blocată după {session.consecutive_failures[clue.word_normalized]} încercări eșuate consecutive")
+            # Quarantine disabled: keep trying for the full duration of the available rounds
 
     session.current_model = next_generation_model(session.runtime, session.current_model)
     if session.multi_model:

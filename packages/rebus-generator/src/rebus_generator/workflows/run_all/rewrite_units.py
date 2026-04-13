@@ -216,21 +216,33 @@ class RunAllRewriteSession:
         current_scores = [_extract_rebus_score(c) or 0 for c in self.clues()]
         current_min = min(current_scores) if current_scores else 0
         self.min_rebus_history.append(current_min)
-        if has_plateaued(self.min_rebus_history, PLATEAU_LOOKBACK):
+
+        # Only exit early due to plateau if the floor is already decent (>= 6)
+        if current_min >= 6 and has_plateaued(self.min_rebus_history, PLATEAU_LOOKBACK):
             log(f"  Plateau after {self.round_index} rounds (min_rebus={current_min})")
             self.phase = "done"
             return
-        round_min_rebus = current_min + 1
+
+        # 3-Stage Target Logic
+        if current_min < 6:
+            round_min_rebus = 6
+        elif current_min == 6:
+            round_min_rebus = 7
+        else:
+            round_min_rebus = 8
+
         candidate_clues = [
             clue
             for clue in self.clues()
             if _needs_rewrite(clue, min_rebus=round_min_rebus)
-            and clue.word_normalized not in self.stuck_words
+            # Remove stuck_words check to keep trying for full duration
         ]
         if not candidate_clues:
             self.phase = "done"
             return
-        selected = sorted(candidate_clues, key=_rewrite_priority)[:MAX_REWRITE_CANDIDATES_PER_ROUND]
+
+        # Remove candidate count limit (MAX_REWRITE_CANDIDATES_PER_ROUND)
+        selected = sorted(candidate_clues, key=_rewrite_priority)
         round_state = RunAllRewriteRound(
             round_index=self.round_index,
             round_min_rebus=round_min_rebus,
@@ -588,8 +600,7 @@ class RunAllRewriteSession:
     def _note_generation_failure(self, word: str, *, had_error: bool, rejection_reason: str) -> None:
         self.outcomes[word].had_error = self.outcomes[word].had_error or had_error
         self.consecutive_failures[word] = self.consecutive_failures.get(word, 0) + 1
-        if self.consecutive_failures[word] >= MAX_CONSECUTIVE_FAILURES:
-            self.stuck_words.add(word)
+        # Quarantine disabled: keep trying for the full duration of the available rounds
         if rejection_reason:
             for clue in self.clues():
                 if clue.word_normalized == word:
