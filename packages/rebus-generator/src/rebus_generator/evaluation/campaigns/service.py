@@ -1520,8 +1520,8 @@ V6_EXPERIMENTS = [
         "verify user makes exact-length and exact-form filtering explicit",
         [_edit(
             USR_VERIFY,
-            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nExcluzi orice variantă care nu are exact {answer_length} litere.\nScrie fiecare variantă pe rând separat, fără explicații.\n",
-            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nVerifici mai întâi lungimea exactă, apoi sensul.\nElimini din start orice formă cu altă lungime, alt gen, alt număr sau altă flexiune.\nScrie fiecare variantă pe rând separat, fără explicații.\n",
+            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nExcluzi orice variantă care nu are exact {answer_length} litere.\nScrie fiecare variantă pe un rând separat, fără explicații sau confirmări. Maxim 3 rânduri în total.\n",
+            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nVerifici mai întâi lungimea exactă, apoi sensul.\nElimini din start orice formă cu altă lungime, alt gen, alt număr sau altă flexiune.\nScrie fiecare variantă pe un rând separat, fără explicații sau confirmări. Maxim 3 rânduri în total.\n",
         )],
         family="verify_user_exactness",
         priority=_family_priority("verify_user_exactness", "v6"),

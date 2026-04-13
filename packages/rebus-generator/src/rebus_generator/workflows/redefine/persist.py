@@ -81,6 +81,7 @@ def resolve_redefined_puzzle_canonicals(
     client,
     *,
     runtime: LmRuntime | None = None,
+    multi_model: bool = True,
 ) -> dict[tuple[str, int, int], CanonicalDecision]:
     desired_payloads = desired_clue_payloads(candidate_puzzle)
     candidate_clues = working_clue_map(candidate_puzzle)
@@ -88,6 +89,7 @@ def resolve_redefined_puzzle_canonicals(
         store=ClueCanonStore(client=supabase),
         client=client,
         runtime=runtime,
+        multi_model=multi_model,
     )
     decisions: dict[tuple[str, int, int], CanonicalDecision] = {}
     for row in clue_rows:
@@ -149,6 +151,7 @@ def plan_redefined_puzzle_persistence(
             candidate_puzzle,
             client,
             runtime=runtime,
+            multi_model=multi_model,
         )
 
     for row in clue_rows:

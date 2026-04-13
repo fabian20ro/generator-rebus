@@ -246,22 +246,26 @@ def run_definition_referee_batch(
     client: OpenAI,
     runtime,
     requests: list[DefinitionRefereeInput],
+    multi_model: bool = True,
 ) -> dict[str, DefinitionRefereeResult]:
-    return run_definition_referee_adaptive_batch(client, runtime, requests).results
+    return run_definition_referee_adaptive_batch(client, runtime, requests, multi_model=multi_model).results
 
 
 def run_definition_referee_adaptive_batch(
     client: OpenAI,
     runtime,
     requests: list[DefinitionRefereeInput],
+    multi_model: bool = True,
 ) -> AdaptiveRefereeBatchResult:
     if not requests:
         return AdaptiveRefereeBatchResult(results={}, total_votes=0)
 
-    vote_steps = (
+    vote_steps = [
         (PRIMARY_MODEL, False, "primary"),
-        (SECONDARY_MODEL, True, "secondary"),
-    )
+    ]
+    if multi_model:
+        vote_steps.append((SECONDARY_MODEL, True, "secondary"))
+    
     active_request_ids = [request.request_id for request in requests]
     request_by_id = {request.request_id: request for request in requests}
     votes_by_request_id: dict[str, list[DefinitionComparisonVote]] = {
@@ -369,19 +373,19 @@ def run_definition_referee(
     answer_length: int,
     definition_a: str,
     definition_b: str,
+    multi_model: bool = True,
 ) -> DefinitionRefereeResult:
     return run_definition_referee_batch(
         client,
         runtime,
-        [
-            DefinitionRefereeInput(
-                request_id="single",
-                word=word,
-                answer_length=answer_length,
-                definition_a=definition_a,
-                definition_b=definition_b,
-            )
-        ],
+        [DefinitionRefereeInput(
+            request_id="single",
+            word=word,
+            answer_length=answer_length,
+            definition_a=definition_a,
+            definition_b=definition_b,
+        )],
+        multi_model=multi_model,
     )["single"]
 
 

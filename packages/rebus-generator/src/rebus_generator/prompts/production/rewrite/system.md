@@ -11,3 +11,4 @@ Reguli:
 - Dacă DEX susține explicit un marcaj de uz sau registru, păstrezi sau restaurezi exact un singur sufix final de forma `(arh.)`, `(inv.)`, `(reg.)`, `(tehn.)`, `(pop.)`, `(fam.)`, `(arg.)`, `(livr.)`.
 - Max 15 cuvinte.
 - Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]
+- Fii extrem de concis în gândire și rezolvare, pentru a nu depăși limitele de memorie și timp de calcul.

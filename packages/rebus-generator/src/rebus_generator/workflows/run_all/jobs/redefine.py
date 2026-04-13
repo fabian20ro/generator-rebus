@@ -321,6 +321,7 @@ class RedefineJobState(JobState):
             self.candidate_puzzle,
             ctx.ai_client,
             runtime=ctx.runtime,
+            multi_model=False,
         )
         self._progress("persist_prepare", detail=f"resolved={len(self.canonical_decisions)}")
         return self.canonical_decisions

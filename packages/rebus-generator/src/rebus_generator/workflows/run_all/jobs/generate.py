@@ -322,7 +322,7 @@ class GenerateJobState(JobState):
             client=ctx.ai_client,
             rate_client=ctx.ai_client,
             runtime=ctx.runtime,
-            multi_model=ctx.multi_model,
+            multi_model=False,
         )
         self.working_puzzle.title = title_result.title
         prepared = PreparedPuzzle(

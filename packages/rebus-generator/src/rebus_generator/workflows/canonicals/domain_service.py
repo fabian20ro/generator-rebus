@@ -183,10 +183,11 @@ def _to_int(value) -> int | None:
 
 
 class ClueCanonService:
-    def __init__(self, *, store: ClueCanonStore | None = None, client=None, runtime=None):
+    def __init__(self, *, store: ClueCanonStore | None = None, client=None, runtime=None, multi_model: bool = True):
         self.store = store or ClueCanonStore()
         self.client = client
         self.runtime = runtime
+        self.multi_model = multi_model
 
     def fetch_prompt_examples(self, word_normalized: str, *, limit: int = 3) -> list[str]:
         rows = self.store.fetch_canonical_variants(word_normalized, limit=limit)
@@ -321,6 +322,7 @@ class ClueCanonService:
             len(record.word_normalized),
             record.definition,
             canonical.definition,
+            multi_model=self.multi_model,
         )
 
     def _run_referee_batch(
@@ -338,6 +340,7 @@ class ClueCanonService:
             self.client,
             self.runtime,
             requests,
+            multi_model=self.multi_model,
         )
 
     def _run_referee_adaptive_batch(
@@ -355,6 +358,7 @@ class ClueCanonService:
             self.client,
             self.runtime,
             requests,
+            multi_model=self.multi_model,
         )
 
     def _attach_if_possible(
