@@ -759,9 +759,10 @@ async function loadPuzzle(id: string): Promise<void> {
       throw puzzleResult.reason;
     }
     const data: PuzzleDetail = puzzleResult.value;
-    const template: boolean[][] = JSON.parse(data.puzzle.grid_template);
+    const { puzzle, clues } = data;
+    const template: boolean[][] = JSON.parse(puzzle.grid_template);
 
-    gridState = createGridState(data.puzzle.grid_size, template, data.clues);
+    gridState = createGridState(puzzle.grid_size, template, clues);
     gridState.touchRemoteEnabled = touchRemoteEnabled;
     gridInitialised = false; // force createGrid on next refresh
     cellHistory.clear();
@@ -814,18 +815,18 @@ async function loadPuzzle(id: string): Promise<void> {
         ? "În curs"
         : "Disponibil";
     const extraMeta = [
-      `${data.puzzle.grid_size}x${data.puzzle.grid_size}`,
+      `${puzzle.grid_size}x${puzzle.grid_size}`,
       puzzleStatus,
     ];
     if (saved) {
       extraMeta.push("Continuare salvată");
     }
 
-    puzzleTitle.textContent = data.puzzle.title || "Rebus";
+    puzzleTitle.textContent = puzzle.title || "Rebus";
     setPuzzleMeta(
-      data.puzzle.description || data.puzzle.theme || "",
-      data.puzzle.created_at,
-      data.puzzle.repaired_at,
+      puzzle.description || puzzle.theme || "",
+      puzzle.created_at,
+      puzzle.repaired_at,
       extraMeta,
     );
     puzzleSelector.classList.add("hidden");
