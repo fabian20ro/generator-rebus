@@ -17,6 +17,16 @@
 
 ---
 
+### [2026-04-13] Fix LLM client streaming suppression and mock robustness
+
+**Context:** user requested implementation of Logging & Scheduling Optimization plan + tests green.
+**Happened:** Audited `llm_client.py` and test failures. Found `test_llm_debug.py` failing because `_create_chat_completion_once` bypassed streaming when debug was off, while the test's fake client demanded it. Fixed by always trying streaming for consistency and reasoning capture. To prevent breaking 17 other tests (whose mocks missed `delta`), hardened `_chat_completion_create_streaming` to handle both `delta` (real) and `message` (mock) choice fields. Internalized debug suppression in `_DebugStreamChannel`. Verified heartbeat, `failures.log`, and `resolve_canonicals` were already active.
+**Outcome:** success
+**Insight:** Forcing consistent streaming logic helps capture reasoning but requires chunk-parser robustness for legacy mocks that don't emit 'delta' fields.
+**Promoted:** yes
+
+---
+
 ### [2026-04-09] Stabilize `run_all` deterministic stalls and fail fast
 
 **Context:** user asked why `run_all.sh` had burned ~2 days without a new puzzle and wanted root cause plus implementation to prevent repeats.

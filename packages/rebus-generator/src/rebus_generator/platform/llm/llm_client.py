@@ -215,16 +215,18 @@ def _chat_completion_create_streaming(
             if choice is None:
                 continue
             delta = getattr(choice, "delta", None)
-            if delta is None:
+            # Support both 'delta' (streaming) and 'message' (non-streaming mocks)
+            source = delta if delta is not None else getattr(choice, "message", None)
+            if source is None:
                 finish_reason = getattr(choice, "finish_reason", finish_reason)
                 continue
-            reasoning_piece = _debug_message_text(delta, "reasoning_content")
+            reasoning_piece = _debug_message_text(source, "reasoning_content")
             if reasoning_piece:
                 if output_channel.started:
                     output_channel.finish()
                 reasoning_parts.append(reasoning_piece)
                 reasoning_channel.write(reasoning_piece)
-            content_piece = _debug_message_text(delta, "content")
+            content_piece = _debug_message_text(source, "content")
             if content_piece:
                 if reasoning_channel.started:
                     reasoning_channel.finish()
@@ -566,29 +568,24 @@ def _create_chat_completion_once(
             reasoning_options=reasoning_options,
             stream=True,
         )
-        try:
-            response = _chat_completion_create_streaming(
-                client,
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                reasoning_options=reasoning_options,
-            )
-        except Exception as exc:
+
+    try:
+        # Always attempt streaming to capture reasoning/output consistently.
+        # _DebugStreamChannel internalizes debug suppression via llm_debug_enabled().
+        response = _chat_completion_create_streaming(
+            client,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_options=reasoning_options,
+        )
+    except Exception as exc:
+        if debug:
             log(
                 f"  [LLM debug stream fallback purpose={purpose} model={model} error={exc}]",
                 level="WARN",
             )
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                **reasoning_options,
-            )
-            _log_debug_response(response)
-    else:
         response = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -596,6 +593,9 @@ def _create_chat_completion_once(
             max_tokens=max_tokens,
             **reasoning_options,
         )
+        if debug:
+            _log_debug_response(response)
+
     _record_call_stats(
         model=model,
         purpose=purpose,
