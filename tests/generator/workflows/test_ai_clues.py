@@ -930,7 +930,7 @@ class AiCluesTests(unittest.TestCase):
             def __init__(self):
                 self.activated = []
 
-            def activate(self, model):
+            def activate(self, model, **kwargs):
                 self.activated.append(model.model_id)
                 return model
 
@@ -960,7 +960,7 @@ class AiCluesTests(unittest.TestCase):
             def __init__(self):
                 self.activated = []
 
-            def activate(self, model):
+            def activate(self, model, **kwargs):
                 self.activated.append(model.model_id)
                 return model
 
@@ -1006,7 +1006,7 @@ class AiCluesTests(unittest.TestCase):
             def __init__(self):
                 self.activated = []
 
-            def activate(self, model):
+            def activate(self, model, **kwargs):
                 self.activated.append(model.model_id)
                 return model
 

@@ -47,7 +47,7 @@ class _FakeRuntime:
     def sync(self):
         return {}
 
-    def activate(self, model):
+    def activate(self, model, *, reason=""):
         previous = self.current_model.model_id if self.current_model else ""
         if not self.current_model or self.current_model.model_id != model.model_id:
             if self.current_model:
@@ -55,14 +55,14 @@ class _FakeRuntime:
             self.activation_count += 1
             self.current_model = model
             if previous and self.switch_callback is not None:
-                self.switch_callback(previous, model.model_id, self)
+                self.switch_callback(previous, model.model_id, self, reason)
         return model
 
-    def activate_primary(self):
-        return self.activate(PRIMARY_MODEL)
+    def activate_primary(self, *, reason=""):
+        return self.activate(PRIMARY_MODEL, reason=reason)
 
-    def activate_secondary(self):
-        return self.activate(SECONDARY_MODEL)
+    def activate_secondary(self, *, reason=""):
+        return self.activate(SECONDARY_MODEL, reason=reason)
 
 
 def _context(runtime):
@@ -284,7 +284,7 @@ class RunAllSupervisorTests(unittest.TestCase):
             steps=[_model_step("retitle:1", "retitle", SECONDARY_MODEL.model_id)],
         )
 
-        supervisor._on_model_switch(PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id, runtime)
+        supervisor._on_model_switch(PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id, runtime, "test")
 
         message = log_mock.call_args.args[0]
         self.assertIn("[run_all switch]", message)
@@ -734,6 +734,39 @@ class RunAllSupervisorTests(unittest.TestCase):
 
         self.assertEqual(1, runtime.switch_count)
         self.assertEqual(1, supervisor.loaded_model_drain_switches)
+
+    def test_choose_model_prefers_current_if_it_has_work(self):
+        runtime = _FakeRuntime(current_model=SECONDARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["generate", "simplify"],
+            topic_caps={"generate": 1, "simplify": 1},
+        )
+        units = [
+            StepState(step_id="s1", job_id="j1", topic="simplify", kind="k", purpose="p", model_id=SECONDARY_MODEL.model_id, runner=lambda x: x),
+            StepState(step_id="g1", job_id="j2", topic="generate", kind="k", purpose="p", model_id=PRIMARY_MODEL.model_id, runner=lambda x: x),
+        ]
+        
+        chosen = supervisor._choose_model_for_units(units)
+        
+        # Should stay on SECONDARY because it has a ready unit
+        self.assertEqual(SECONDARY_MODEL.model_id, chosen)
+
+    def test_choose_model_prefers_primary_if_current_has_no_work(self):
+        runtime = _FakeRuntime(current_model=SECONDARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["generate"],
+            topic_caps={"generate": 1},
+        )
+        units = [
+            StepState(step_id="g1", job_id="j1", topic="generate", kind="k", purpose="p", model_id=PRIMARY_MODEL.model_id, runner=lambda x: x),
+        ]
+        
+        chosen = supervisor._choose_model_for_units(units)
+        
+        # Should switch to PRIMARY because SECONDARY has no ready units
+        self.assertEqual(PRIMARY_MODEL.model_id, chosen)
 
     def test_generate_fill_grid_runs_on_worker_lane(self):
         item = _item("generate", "generate:1", preferred_model_id=SECONDARY_MODEL.model_id)
@@ -1187,7 +1220,7 @@ class RunAllPreflightTests(unittest.TestCase):
             def sync(self):
                 return {}
 
-            def activate(self, model):
+            def activate(self, model, **kwargs):
                 if model.model_id == SECONDARY_MODEL.model_id:
                     raise RuntimeError(
                         "Failed to load model eurollm-22b-instruct-2512-mlx-nvfp4: insufficient system resources"

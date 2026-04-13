@@ -203,7 +203,7 @@ def _preflight(*, topics: list[str], artifact_path: Path, multi_model: bool) -> 
                 "signature": "",
             }
             try:
-                runtime.activate(model)
+                runtime.activate(model, reason="preflight_smoke_test")
                 response = _chat_completion_create(
                     smoke_client,
                     model=model.model_id,

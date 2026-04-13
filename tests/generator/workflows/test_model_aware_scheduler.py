@@ -31,7 +31,7 @@ class _FakeRuntime:
     def sync(self):
         return {}
 
-    def ensure_active(self, model):
+    def ensure_active(self, model, **kwargs):
         if self.current_model and self.current_model.model_id != model.model_id:
             self.switch_count += 1
         if not self.current_model or self.current_model.model_id != model.model_id:

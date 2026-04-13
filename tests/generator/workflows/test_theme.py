@@ -75,12 +75,12 @@ class _FakeRuntime:
         self.secondary_calls = 0
         self.trace = []
 
-    def activate_primary(self):
+    def activate_primary(self, **kwargs):
         self.primary_calls += 1
         self.trace.append("primary")
         return PRIMARY_MODEL
 
-    def activate_secondary(self):
+    def activate_secondary(self, **kwargs):
         self.secondary_calls += 1
         self.trace.append("secondary")
         return SECONDARY_MODEL

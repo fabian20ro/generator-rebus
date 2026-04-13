@@ -128,11 +128,12 @@ class RetitleJobState(JobState):
     def _rate_units(self, ctx):
         if self.pending_title is None:
             return [self._non_llm_step("rate_finalize", "retitle_rate_finalize", self._rate_finalize)]
+        units = []
         for model in self._rating_models(ctx):
             if model.model_id in self.pending_rating_votes:
                 continue
             purpose = "retitle_rate_primary" if self.stage == "rate_primary" else "retitle_rate_secondary"
-            return [
+            units.append(
                 self._llm_step(
                     f"{self.stage}:{model.model_id}",
                     purpose,
@@ -144,7 +145,9 @@ class RetitleJobState(JobState):
                         model_config=model,
                     ),
                 )
-            ]
+            )
+        if units:
+            return units
         return [self._non_llm_step("rate_finalize", "retitle_rate_finalize", self._rate_finalize)]
 
     def _rating_models(self, ctx):
@@ -240,11 +243,12 @@ class RetitleJobState(JobState):
         return self.prepared_update
 
     def _resolve_old_score_units(self, ctx):
+        units = []
         for model in self._rating_models(ctx):
             if model.model_id in self.old_title_rating_votes:
                 continue
             old_title = str(self.puzzle_row.get("title") or "")
-            return [
+            units.append(
                 self._llm_step(
                     f"resolve_old_score:{model.model_id}",
                     "retitle_resolve_old_score",
@@ -256,7 +260,9 @@ class RetitleJobState(JobState):
                         model_config=model,
                     ),
                 )
-            ]
+            )
+        if units:
+            return units
         return [self._non_llm_step("resolve_old_score_finalize", "retitle_resolve_old_score_finalize", self._resolve_old_score_finalize)]
 
     def _resolve_old_score_finalize(self, ctx):

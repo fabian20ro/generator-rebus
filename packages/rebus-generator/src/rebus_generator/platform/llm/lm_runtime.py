@@ -23,7 +23,7 @@ class LmRuntime:
     unload_count: int = 0
     activation_seconds_total: float = 0.0
     unload_seconds_total: float = 0.0
-    switch_callback: Callable[[str, str, "LmRuntime"], None] | None = None
+    switch_callback: Callable[[str, str, "LmRuntime", str], None] | None = None
     nested_activation_callback: Callable[[str, str, dict[str, str]], None] | None = None
 
     @property
@@ -70,7 +70,7 @@ class LmRuntime:
             self.unload_seconds_total += time.monotonic() - started_at
             time.sleep(2)
 
-    def activate(self, model: ModelConfig) -> ModelConfig:
+    def activate(self, model: ModelConfig, *, reason: str = "") -> ModelConfig:
         target = self.primary if (not self.multi_model and model.model_id == self.secondary.model_id) else model
 
         instances = self._sync_current_model()
@@ -124,7 +124,7 @@ class LmRuntime:
                 if prior_model_id and prior_model_id != target.model_id:
                     self.switch_count += 1
                     if self.switch_callback is not None:
-                        self.switch_callback(prior_model_id, target.model_id, self)
+                        self.switch_callback(prior_model_id, target.model_id, self, reason)
                 self.activation_count += 1
                 self.activation_seconds_total += time.monotonic() - started_at
                 return target
@@ -141,29 +141,29 @@ class LmRuntime:
             f"Could not activate LM Studio model {target.display_name}"
         ) from last_error
 
-    def activate_primary(self) -> ModelConfig:
-        return self.activate(self.primary)
+    def activate_primary(self, *, reason: str = "") -> ModelConfig:
+        return self.activate(self.primary, reason=reason)
 
-    def ensure_active(self, model: ModelConfig) -> ModelConfig:
-        return self.activate(model)
+    def ensure_active(self, model: ModelConfig, *, reason: str = "") -> ModelConfig:
+        return self.activate(model, reason=reason)
 
-    def activate_secondary(self) -> ModelConfig:
+    def activate_secondary(self, *, reason: str = "") -> ModelConfig:
         if not self.multi_model:
-            return self.activate_primary()
-        return self.activate(self.secondary)
+            return self.activate_primary(reason=reason)
+        return self.activate(self.secondary, reason=reason)
 
-    def activate_initial_evaluator(self) -> ModelConfig:
+    def activate_initial_evaluator(self, *, reason: str = "") -> ModelConfig:
         if not self.multi_model:
-            return self.activate_primary()
-        self.activate_primary()
-        return self.activate_secondary()
+            return self.activate_primary(reason=reason)
+        self.activate_primary(reason=f"{reason}:initial_eval_p1")
+        return self.activate_secondary(reason=f"{reason}:initial_eval_p2")
 
-    def alternate(self) -> ModelConfig:
+    def alternate(self, *, reason: str = "") -> ModelConfig:
         if not self.multi_model:
-            return self.activate_primary()
+            return self.activate_primary(reason=reason)
         if self.current_model and self.current_model.model_id == self.secondary.model_id:
-            return self.activate_primary()
-        return self.activate_secondary()
+            return self.activate_primary(reason=reason)
+        return self.activate_secondary(reason=reason)
 
 
 ModelSession = LmRuntime

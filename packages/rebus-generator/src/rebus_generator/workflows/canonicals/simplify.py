@@ -457,7 +457,7 @@ def find_simplify_pair_rows(
 
 def _run_compare_phase(client, runtime, pairs: list[SimplifyCandidatePair], *, model_id: str) -> dict[str, object]:
     if runtime is not None:
-        runtime.activate(PRIMARY_MODEL if model_id == PRIMARY_MODEL.model_id else SECONDARY_MODEL)
+        runtime.activate(PRIMARY_MODEL if model_id == PRIMARY_MODEL.model_id else SECONDARY_MODEL, reason="simplify_compare")
     results: dict[str, object] = {}
     for pair in pairs:
         results[pair.key] = compare_definition_variants_attempt(
@@ -752,7 +752,7 @@ def run_simplify_fanout(
                     approved_pairs.append((pair, left, right, survivor_source.definition, False))
             if approved_pairs:
                 if runtime is not None:
-                    runtime.activate(PRIMARY_MODEL)
+                    runtime.activate(PRIMARY_MODEL, reason="simplify_rebalance")
             touched_words: set[str] = set()
             for pair, left, right, rewritten_definition, rewrite_attempted in approved_pairs:
                 survivor_source = choose_existing_survivor(left, right)

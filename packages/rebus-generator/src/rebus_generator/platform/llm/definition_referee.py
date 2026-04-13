@@ -287,7 +287,7 @@ def run_definition_referee_adaptive_batch(
         else:
             phase2_requests += requests_started
         if runtime is not None:
-            runtime.activate(model_config)
+            runtime.activate(model_config, reason="definition_referee")
         completed_ids: list[str] = []
         for request_id in list(active_request_ids):
             request = request_by_id[request_id]

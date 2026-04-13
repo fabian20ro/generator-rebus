@@ -161,22 +161,23 @@ class ModelAwareScheduler(Generic[PayloadT, ValueT]):
         return self.models[0].model_id
 
     def _ensure_active(self, model: ModelConfig) -> ModelConfig:
+        reason = f"model_aware_scheduler:{self.task_label}"
         primary = getattr(self.runtime, "primary", PRIMARY_MODEL)
         if model.model_id == getattr(primary, "model_id", "") and hasattr(self.runtime, "activate_primary"):
-            active = self.runtime.activate_primary()
+            active = self.runtime.activate_primary(reason=reason)
             if self._is_model_like(active, model.model_id):
                 return active
         secondary = getattr(self.runtime, "secondary", SECONDARY_MODEL)
         if model.model_id == getattr(secondary, "model_id", "") and hasattr(self.runtime, "activate_secondary"):
-            active = self.runtime.activate_secondary()
+            active = self.runtime.activate_secondary(reason=reason)
             if self._is_model_like(active, model.model_id):
                 return active
         if hasattr(self.runtime, "ensure_active"):
-            active = self.runtime.ensure_active(model)
+            active = self.runtime.ensure_active(model, reason=reason)
             if self._is_model_like(active, model.model_id):
                 return active
         if hasattr(self.runtime, "activate"):
-            active = self.runtime.activate(model)
+            active = self.runtime.activate(model, reason=reason)
             if self._is_model_like(active, model.model_id):
                 return active
         return model

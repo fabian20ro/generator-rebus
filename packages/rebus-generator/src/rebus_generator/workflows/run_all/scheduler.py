@@ -235,28 +235,39 @@ class RunAllSupervisor:
         self.ctx.runtime.sync()
         current_model_id = self.ctx.runtime.current_model_id
         ready_by_model = Counter(unit.model_id for unit in units if unit.model_id)
+
+        # 0-work guard: if the current model can do ANY work, stay on it.
         if current_model_id and ready_by_model.get(current_model_id, 0) > 0:
             return current_model_id
-        for model_id in (PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id):
-            if ready_by_model.get(model_id, 0) > 0:
-                return model_id
-        return PRIMARY_MODEL.model_id
+
+        # Prefer PRIMARY if it has work.
+        if ready_by_model.get(PRIMARY_MODEL.model_id, 0) > 0:
+            return PRIMARY_MODEL.model_id
+
+        # Otherwise, if SECONDARY has work, switch.
+        if ready_by_model.get(SECONDARY_MODEL.model_id, 0) > 0:
+            return SECONDARY_MODEL.model_id
+
+        # If no model has work (e.g. non-LLM steps only), stay on current or PRIMARY.
+        return current_model_id or PRIMARY_MODEL.model_id
 
     def _ensure_model_active(self, model_id: str) -> None:
         previous_model_id = self.ctx.runtime.current_model_id
+        reason = "already_loaded"
         if previous_model_id and previous_model_id != model_id:
-            self._next_switch_reason = "loaded_model_drained"
+            reason = "loaded_model_drained"
+            self._next_switch_reason = reason
         elif not previous_model_id:
-            self._next_switch_reason = "initial_load"
-        else:
-            self._next_switch_reason = "already_loaded"
+            reason = "initial_load"
+            self._next_switch_reason = reason
+
         if model_id == PRIMARY_MODEL.model_id:
-            self.ctx.runtime.activate_primary()
+            self.ctx.runtime.activate_primary(reason=reason)
             return
         if model_id == SECONDARY_MODEL.model_id:
-            self.ctx.runtime.activate_secondary()
+            self.ctx.runtime.activate_secondary(reason=reason)
             return
-        self.ctx.runtime.activate(PRIMARY_MODEL)
+        self.ctx.runtime.activate(PRIMARY_MODEL, reason=reason)
 
     def _run_unit(self, unit: StepState, *, lane: str) -> None:
         job = self._job_by_id(unit.job_id)
@@ -611,13 +622,15 @@ class RunAllSupervisor:
     def _queue_snapshot_text(self) -> str:
         return queue_snapshot_text(self)
 
-    def _on_model_switch(self, previous_model_id: str, next_model_id: str, runtime: LmRuntime) -> None:
-        reason = self._next_switch_reason or "unknown"
+    def _on_model_switch(self, previous_model_id: str, next_model_id: str, runtime: LmRuntime, reason: str) -> None:
+        reason = reason or self._next_switch_reason or "unknown"
         if reason == "loaded_model_drained":
             self.loaded_model_drain_switches += 1
+        ready_counts = self._runnable_counts_by_model()
         log(
             f"[run_all switch] from={previous_model_id or '-'} to={next_model_id} "
             f"reason={reason} switch_count={runtime.switch_count} "
+            f"ready_by_model={ready_counts} "
             f"{self._queue_snapshot_text()}"
         )
         self._next_switch_reason = ""
