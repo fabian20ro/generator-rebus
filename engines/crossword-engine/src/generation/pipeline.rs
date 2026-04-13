@@ -98,6 +98,11 @@ fn template_ok(
     Ok(count_edge_singletons(template))
 }
 
+const SALT_PROCEDURAL_TEMPLATE: u64 = 0x000A_11CE;
+const SALT_EVALUATE_TEMPLATE: u64 = 0x0A57_DA12;
+const SALT_INCREMENTAL_BASE: u64 = 0x1CE0_0001;
+const SALT_SOLVE_GRID_PROBE: u64 = 0x0BEE_F123;
+
 fn template_seed(base_seed: u64, black_step: usize, attempt_idx: usize, salt: u64) -> u64 {
     base_seed
         ^ ((black_step as u64 + 1) << 48)
@@ -347,7 +352,12 @@ fn run_single_candidate(
         return AttemptOutcome::default();
     }
 
-    let mut rng = StdRng::seed_from_u64(template_seed(base_seed, black_step, attempt_idx, 0xA11CE));
+    let mut rng = StdRng::seed_from_u64(template_seed(
+        base_seed,
+        black_step,
+        attempt_idx,
+        SALT_PROCEDURAL_TEMPLATE,
+    ));
     let template = if let Some(template) = incremental_template {
         template.to_vec()
     } else {
@@ -479,7 +489,7 @@ fn run_outward_phase(
                     seed,
                     black_step,
                     outward_round * 100_000 + idx,
-                    0x0A57_DA12,
+                    SALT_EVALUATE_TEMPLATE,
                 ));
                 let mut outcome = evaluate_template(
                     template,
@@ -626,7 +636,7 @@ pub fn run_engine(
         let step_deadline = Instant::now()
             + std::time::Duration::from_millis(current_settings.step_time_budget_ms.max(1));
 
-        let incremental_seed = template_seed(seed, black_step, 0, 0x1CE0_0001);
+        let incremental_seed = template_seed(seed, black_step, 0, SALT_INCREMENTAL_BASE);
         let mut incremental_rng = StdRng::seed_from_u64(incremental_seed);
         let probe_nodes = (current_settings.max_nodes / 3).max(25_000);
         let min_solver_step = current_settings.target_blacks;
@@ -641,7 +651,7 @@ pub fn run_engine(
                     return false;
                 }
                 let mut probe_rng =
-                    StdRng::seed_from_u64(template_seed(seed, black_step, 0, 0x0BEE_F123));
+                    StdRng::seed_from_u64(template_seed(seed, black_step, 0, SALT_SOLVE_GRID_PROBE));
                 solve_grid(
                     template,
                     &slots,
