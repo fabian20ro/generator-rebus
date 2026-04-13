@@ -73,36 +73,28 @@ def desired_clue_payloads(puzzle: WorkingPuzzle) -> dict[tuple[str, int, int], d
     return payloads
 
 
-def plan_redefined_puzzle_persistence(
+def resolve_redefined_puzzle_canonicals(
     supabase,
     puzzle_row: dict,
     clue_rows: list[dict],
-    baseline_puzzle: WorkingPuzzle,
     candidate_puzzle: WorkingPuzzle,
     client,
     *,
-    dry_run: bool = False,
-    multi_model: bool = True,
     runtime: LmRuntime | None = None,
-) -> RedefinePersistencePlan:
-    puzzle_id = puzzle_row["id"]
+) -> dict[tuple[str, int, int], CanonicalDecision]:
     desired_payloads = desired_clue_payloads(candidate_puzzle)
     candidate_clues = working_clue_map(candidate_puzzle)
-    persistence_puzzle = copy.deepcopy(baseline_puzzle)
-    persistence_clues = working_clue_map(persistence_puzzle)
     clue_canon = ClueCanonService(
         store=ClueCanonStore(client=supabase),
         client=client,
         runtime=runtime,
     )
-    clue_store = clue_canon.store
-    clue_updates: list[PlannedClueUpdate] = []
+    decisions: dict[tuple[str, int, int], CanonicalDecision] = {}
     for row in clue_rows:
         key = clue_key(row.get("direction"), row.get("start_row"), row.get("start_col"))
         desired = desired_payloads.get(key)
-        target_clue = persistence_clues.get(key)
         source_clue = candidate_clues.get(key)
-        if not desired or not target_clue or not source_clue:
+        if not desired or not source_clue:
             continue
         final_version = source_clue.active_version()
         decision = clue_canon.resolve_definition(
@@ -119,6 +111,58 @@ def plan_redefined_puzzle_persistence(
             raise RuntimeError(
                 f"Canonical clue resolution produced no canonical_definition_id for {source_clue.word_normalized}"
             )
+        decisions[key] = decision
+    return decisions
+
+
+def plan_redefined_puzzle_persistence(
+    supabase,
+    puzzle_row: dict,
+    clue_rows: list[dict],
+    baseline_puzzle: WorkingPuzzle,
+    candidate_puzzle: WorkingPuzzle,
+    client,
+    *,
+    decisions: dict[tuple[str, int, int], CanonicalDecision] | None = None,
+    dry_run: bool = False,
+    multi_model: bool = True,
+    runtime: LmRuntime | None = None,
+) -> RedefinePersistencePlan:
+    puzzle_id = puzzle_row["id"]
+    desired_payloads = desired_clue_payloads(candidate_puzzle)
+    candidate_clues = working_clue_map(candidate_puzzle)
+    persistence_puzzle = copy.deepcopy(baseline_puzzle)
+    persistence_clues = working_clue_map(persistence_puzzle)
+    clue_canon = ClueCanonService(
+        store=ClueCanonStore(client=supabase),
+        client=client,
+        runtime=runtime,
+    )
+    clue_store = clue_canon.store
+    clue_updates: list[PlannedClueUpdate] = []
+
+    if decisions is None:
+        decisions = resolve_redefined_puzzle_canonicals(
+            supabase,
+            puzzle_row,
+            clue_rows,
+            candidate_puzzle,
+            client,
+            runtime=runtime,
+        )
+
+    for row in clue_rows:
+        key = clue_key(row.get("direction"), row.get("start_row"), row.get("start_col"))
+        desired = desired_payloads.get(key)
+        target_clue = persistence_clues.get(key)
+        source_clue = candidate_clues.get(key)
+        if not desired or not target_clue or not source_clue:
+            continue
+
+        decision = decisions.get(key)
+        if decision is None:
+            continue
+
         desired = dict(desired)
         desired["definition"] = decision.canonical_definition
         desired["canonical_definition_id"] = decision.canonical_definition_id

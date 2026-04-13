@@ -25,16 +25,23 @@ def queue_counts_by_topic(supervisor) -> dict[str, int]:
 
 
 def active_slot_text(supervisor) -> str:
-    return " ".join(
-        f"{topic}={(supervisor.slots[topic].active_job.item_id if supervisor.slots[topic].active_job is not None else '-')}"
-        for topic in supervisor.topics
-    )
+    parts = []
+    now = time.monotonic()
+    for topic in supervisor.topics:
+        job = supervisor.slots[topic].active_job
+        if job is None:
+            parts.append(f"{topic}=-")
+        else:
+            duration = int(now - job.started_at)
+            parts.append(f"{topic}={job.item_id}[{duration}s]")
+    return " ".join(parts)
 
 
 def worker_slot_text(supervisor) -> str:
     if supervisor.worker_task is None:
         return "-"
-    return f"{supervisor.worker_task.step.topic}:{supervisor.worker_task.step.step_id}"
+    duration = int(time.monotonic() - supervisor.worker_task.started_at)
+    return f"{supervisor.worker_task.step.topic}:{supervisor.worker_task.step.step_id}[{duration}s]"
 
 
 def queue_snapshot_text(supervisor) -> str:
@@ -65,14 +72,30 @@ def dominant_failure_text(supervisor, topic: str) -> str:
 
 def maybe_heartbeat(supervisor, *, force: bool) -> None:
     now = time.monotonic()
-    if not force and (now - supervisor.last_heartbeat_at) < supervisor.heartbeat_seconds:
-        return
-    supervisor.last_heartbeat_at = now
     supervisor.ctx.runtime.sync()
+    current_model = supervisor.ctx.runtime.current_model_label or "-"
+    
+    # Calculate state signature to detect meaningful changes
+    active_jobs = [
+        (topic, slot.active_job.item_id if slot.active_job else None)
+        for topic, slot in sorted(supervisor.slots.items())
+    ]
+    worker_job = supervisor.worker_task.step.step_id if supervisor.worker_task else None
+    state_signature = (current_model, tuple(active_jobs), worker_job, supervisor.completed, supervisor.failed)
+    
+    last_sig = getattr(supervisor, "_last_heartbeat_signature", None)
+    elapsed = now - supervisor.last_heartbeat_at
+    
+    if not force and state_signature == last_sig and elapsed < supervisor.heartbeat_seconds:
+        return
+        
+    supervisor.last_heartbeat_at = now
+    supervisor._last_heartbeat_signature = state_signature
+    
     blocked = sum(
         1
         for slot in supervisor.slots.values()
-        if slot.active_job is not None and slot.active_job.available_after > time.monotonic()
+        if slot.active_job is not None and slot.active_job.available_after > now
     )
     success_text = " ".join(
         f"{topic}={format_age_seconds(supervisor, supervisor.topic_last_success_at.get(topic, 0.0))}"
@@ -83,7 +106,7 @@ def maybe_heartbeat(supervisor, *, force: bool) -> None:
         for topic in supervisor.topics
     )
     log(
-        f"[run_all heartbeat] loaded={supervisor.ctx.runtime.current_model_label or '-'} "
+        f"[run_all heartbeat] loaded={current_model} "
         f"blocked={blocked} worker={worker_slot_text(supervisor)} "
         f"last_success=({success_text}) dominant_failures=({failure_text}) "
         f"{queue_snapshot_text(supervisor)}"

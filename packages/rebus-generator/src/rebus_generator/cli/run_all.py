@@ -255,17 +255,20 @@ def main(argv: list[str] | None = None) -> int:
     run_dir = run_root / path_timestamp()
     log_path = run_dir / "run.log"
     audit_path = run_dir / "audit.jsonl"
+    failure_path = run_dir / "failures.log"
     handle = install_process_logging(
         run_id=run_dir.name,
         component="run_all",
         log_path=log_path,
         audit_path=audit_path,
+        failure_path=failure_path,
         tee_console=True,
     )
     try:
         set_llm_debug_enabled(bool(args.debug))
         log(f"Run log: {log_path}")
         log(f"Audit log: {audit_path}")
+        log(f"Failure log: {failure_path}")
         log(f"Topics: {','.join(topics)}")
         with _singleton_lock(LOCK_PATH):
             reset_run_llm_state()

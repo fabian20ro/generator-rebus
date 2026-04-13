@@ -112,6 +112,44 @@ class LlmDebugTests(unittest.TestCase):
         self.assertEqual("gand pas", response.choices[0].message.reasoning_content)
         self.assertEqual("raspuns", response.choices[0].message.content)
 
+    def test_streaming_suppression_when_debug_disabled(self):
+        chunks = [
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(reasoning_content="gandit ", content=None),
+                        finish_reason=None,
+                    )
+                ]
+            ),
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(reasoning_content=None, content="raspuns"),
+                        finish_reason="stop",
+                    )
+                ]
+            ),
+        ]
+        client = _FakeStreamingClient(chunks)
+        set_llm_debug_enabled(False)
+
+        with patch("sys.stdout", new=StringIO()) as captured:
+            _chat_completion_create(
+                client,
+                model="google/gemma-4-26b-a4b",
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=32,
+                purpose="definition_generate",
+            )
+
+        output = captured.getvalue()
+        self.assertNotIn("[LLM thinking]", output)
+        self.assertNotIn("[LLM output]", output)
+        self.assertNotIn("gandit", output)
+        self.assertNotIn("raspuns", output)
+
     def test_debug_falls_back_to_non_stream_and_logs_final_message(self):
         response = SimpleNamespace(
             choices=[

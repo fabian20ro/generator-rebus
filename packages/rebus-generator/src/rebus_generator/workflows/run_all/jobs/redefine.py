@@ -16,6 +16,7 @@ from rebus_generator.workflows.redefine.load import build_working_puzzle, fetch_
 from rebus_generator.workflows.redefine.persist import (
     apply_redefined_puzzle_persistence,
     plan_redefined_puzzle_persistence,
+    resolve_redefined_puzzle_canonicals,
 )
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
 from .base import JobState
@@ -43,6 +44,7 @@ class RedefineJobState(JobState):
         self.baseline_verify_done: dict[str, set[str]] = {}
         self.baseline_rate_done: dict[str, set[str]] = {}
         self.rewrite_session: RunAllRewriteSession | None = None
+        self.canonical_decisions = None
         self.persistence_plan = None
 
     def next_steps(self, ctx):
@@ -95,8 +97,10 @@ class RedefineJobState(JobState):
             return [self._non_llm_step("baseline_finalize", "redefine_baseline_finalize", self._baseline_finalize)]
         if self.stage in {"rewrite_initial_verify", "rewrite_initial_rate", "rewrite_prepare_round", "generate_candidates", "evaluate_verify", "evaluate_rate", "select_candidates", "finalize_round"}:
             return self._rewrite_units()
+        if self.stage == "resolve_canonicals":
+            return [self._llm_step("resolve_canonicals", "redefine_resolve_canonicals", PRIMARY_MODEL.model_id, self._resolve_canonicals)]
         if self.stage == "persist_prepare":
-            return [self._llm_step("persist_prepare", "redefine_persist_prepare", PRIMARY_MODEL.model_id, self._persist_prepare)]
+            return [self._non_llm_step("persist_prepare", "redefine_persist_prepare", self._persist_prepare)]
         if self.stage == "persist_apply":
             return [self._non_llm_step("persist_apply", "redefine_persist_apply", self._persist_apply)]
         return []
@@ -285,7 +289,7 @@ class RedefineJobState(JobState):
                 f"avg={assessment.avg_rebus:.1f}/10 "
                 f"verified={assessment.verified_count}/{assessment.total_clues}"
             )
-            self._progress("persist_prepare", detail=f"rewrite_min={assessment.min_rebus}")
+            self._progress("resolve_canonicals", detail=f"rewrite_min={assessment.min_rebus}")
             return result
         self._progress(self.rewrite_session.phase, detail=f"round={self.rewrite_session.round_index}")
         return None
@@ -309,6 +313,18 @@ class RedefineJobState(JobState):
         self._progress("rewrite_prepare_round", detail=f"round={self.rewrite_session.round_index}")
         return None
 
+    def _resolve_canonicals(self, ctx):
+        self.canonical_decisions = resolve_redefined_puzzle_canonicals(
+            ctx.supabase,
+            self.puzzle_row,
+            self.clue_rows,
+            self.candidate_puzzle,
+            ctx.ai_client,
+            runtime=ctx.runtime,
+        )
+        self._progress("persist_prepare", detail=f"resolved={len(self.canonical_decisions)}")
+        return self.canonical_decisions
+
     def _persist_prepare(self, ctx):
         assert self.rewrite_session is not None
         self.rewrite_session.finish()
@@ -319,6 +335,7 @@ class RedefineJobState(JobState):
             self.baseline_puzzle,
             self.candidate_puzzle,
             ctx.ai_client,
+            decisions=self.canonical_decisions,
             dry_run=ctx.dry_run,
             multi_model=ctx.multi_model,
             runtime=ctx.runtime,

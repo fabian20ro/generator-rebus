@@ -84,9 +84,8 @@ class _DebugStreamChannel:
         self.label = label
         self.started = False
         self.ends_with_newline = False
-
     def write(self, text: str | None) -> None:
-        if not text:
+        if not text or not llm_debug_enabled():
             return
         if not self.started:
             sys.stdout.write(f"  [DEBUG] [{self.label}] ")
@@ -96,13 +95,12 @@ class _DebugStreamChannel:
         self.ends_with_newline = text.endswith("\n")
 
     def finish(self) -> None:
-        if not self.started:
+        if not self.started or not llm_debug_enabled():
             return
         if not self.ends_with_newline:
             sys.stdout.write("\n")
-        sys.stdout.flush()
         self.started = False
-        self.ends_with_newline = True
+        sys.stdout.flush()
 
 
 def _finish_debug_channels(*channels: _DebugStreamChannel) -> None:

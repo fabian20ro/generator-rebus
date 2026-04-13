@@ -49,8 +49,9 @@ _LLM_DEBUG_ENABLED = False
 class TimestampedWriter:
     """Immediate tee writer that prefixes human timestamps once per line."""
 
-    def __init__(self, *streams: TextIO):
-        self._streams = streams
+    def __init__(self, *streams: TextIO, failure_stream: TextIO | None = None):
+        self._streams = list(streams)
+        self._failure_stream = failure_stream
         self._at_line_start = True
 
     def write(self, data: str) -> int:
@@ -69,6 +70,8 @@ class TimestampedWriter:
     def flush(self) -> None:
         for stream in self._streams:
             stream.flush()
+        if self._failure_stream is not None:
+            self._failure_stream.flush()
 
     def isatty(self) -> bool:
         return any(getattr(stream, "isatty", lambda: False)() for stream in self._streams)
@@ -81,9 +84,15 @@ class TimestampedWriter:
             rendered = _ensure_level_prefix(text)
             if text != "\n" and not _TIMESTAMP_PREFIX_RE.match(text):
                 rendered = f"{human_timestamp()} {rendered}"
+        
         for stream in self._streams:
             stream.write(rendered)
             stream.flush()
+            
+        if self._failure_stream is not None and ("WARN" in rendered or "ERROR" in rendered or "CRITICAL" in rendered):
+            self._failure_stream.write(rendered)
+            self._failure_stream.flush()
+            
         self._at_line_start = text.endswith("\n")
 
 
@@ -95,6 +104,7 @@ class LoggingHandle:
     stderr_wrapper: TimestampedWriter
     log_file: TextIO | None = None
     audit_file: TextIO | None = None
+    failure_file: TextIO | None = None
 
     def restore(self) -> None:
         sys.stdout = self.stdout
@@ -105,6 +115,9 @@ class LoggingHandle:
         if self.audit_file is not None:
             self.audit_file.flush()
             self.audit_file.close()
+        if self.failure_file is not None:
+            self.failure_file.flush()
+            self.failure_file.close()
 
 
 def install_process_logging(
@@ -113,6 +126,7 @@ def install_process_logging(
     component: str,
     log_path: Path | None = None,
     audit_path: Path | None = None,
+    failure_path: Path | None = None,
     tee_console: bool = True,
 ) -> LoggingHandle:
     """Install timestamped stdout/stderr wrappers for the current process."""
@@ -130,6 +144,11 @@ def install_process_logging(
     if audit_path is not None:
         audit_path.parent.mkdir(parents=True, exist_ok=True)
         audit_file = audit_path.open("a", encoding="utf-8")
+        
+    failure_file = None
+    if failure_path is not None:
+        failure_path.parent.mkdir(parents=True, exist_ok=True)
+        failure_file = failure_path.open("a", encoding="utf-8")
 
     stdout_streams: list[TextIO] = []
     stderr_streams: list[TextIO] = []
@@ -144,8 +163,8 @@ def install_process_logging(
     if not stderr_streams:
         stderr_streams.append(original_stderr)
 
-    stdout_wrapper = TimestampedWriter(*stdout_streams)
-    stderr_wrapper = TimestampedWriter(*stderr_streams)
+    stdout_wrapper = TimestampedWriter(*stdout_streams, failure_stream=failure_file)
+    stderr_wrapper = TimestampedWriter(*stderr_streams, failure_stream=failure_file)
     sys.stdout = stdout_wrapper
     sys.stderr = stderr_wrapper
 
@@ -163,6 +182,7 @@ def install_process_logging(
         stderr_wrapper=stderr_wrapper,
         log_file=log_file,
         audit_file=audit_file,
+        failure_file=failure_file,
     )
     return handle
 

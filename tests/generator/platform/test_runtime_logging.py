@@ -76,6 +76,24 @@ class TimestampedWriterTests(unittest.TestCase):
         stamp = human_timestamp()
         self.assertRegex(stamp, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
 
+    def test_tees_warnings_to_failure_stream(self):
+        target = StringIO()
+        failure = StringIO()
+        writer = TimestampedWriter(target, failure_stream=failure)
+
+        writer.write("info msg\n")
+        writer.write("[WARN] warn msg\n")
+        writer.write("ERROR error msg\n")
+        writer.flush()
+
+        self.assertIn("info msg", target.getvalue())
+        self.assertIn("warn msg", target.getvalue())
+        self.assertIn("error msg", target.getvalue())
+        
+        self.assertNotIn("info msg", failure.getvalue())
+        self.assertIn("warn msg", failure.getvalue())
+        self.assertIn("error msg", failure.getvalue())
+
     def test_format_human_log_line_adds_timestamp_and_info(self):
         rendered = format_human_log_line("loop started")
         self.assertRegex(rendered, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} INFO loop started$")
@@ -99,6 +117,35 @@ class AuditTests(unittest.TestCase):
             output = log_path.read_text(encoding="utf-8")
             self.assertIn("hello log", output)
             self.assertRegex(output, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} INFO hello log\n$")
+
+    def test_install_process_logging_writes_failure_file(self):
+        with TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "run.log"
+            failure_path = Path(tmpdir) / "failures.log"
+            handle = install_process_logging(
+                run_id="test-run",
+                component="test_component",
+                log_path=log_path,
+                failure_path=failure_path,
+                tee_console=False,
+            )
+            try:
+                log("info msg")
+                log("warn msg", level="WARN")
+                log("error msg", level="ERROR")
+            finally:
+                handle.restore()
+
+            log_output = log_path.read_text(encoding="utf-8")
+            fail_output = failure_path.read_text(encoding="utf-8")
+            
+            self.assertIn("info msg", log_output)
+            self.assertIn("warn msg", log_output)
+            self.assertIn("error msg", log_output)
+            
+            self.assertNotIn("info msg", fail_output)
+            self.assertIn("warn msg", fail_output)
+            self.assertIn("error msg", fail_output)
 
     def test_audit_writes_jsonl_record(self):
         with TemporaryDirectory() as tmpdir:
