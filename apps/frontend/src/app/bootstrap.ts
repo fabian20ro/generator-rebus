@@ -968,6 +968,7 @@ btnBack.addEventListener("click", () => {
 
 btnCloseModal.addEventListener("click", () => {
   completionModal.classList.add("hidden");
+  showTab(activeTab);
 });
 
 btnPencil.addEventListener("click", async () => {
