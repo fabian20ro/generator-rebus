@@ -29,14 +29,23 @@
 
 body {
     font-family: "EB Garamond", serif;
+    color: var(--text);
+    min-height: 100vh;
+    position: relative;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
     background-color: var(--paper-bg);
     background-image:
         linear-gradient(rgba(0, 0, 0, 0.01) 1px, transparent 1px),
         linear-gradient(90deg, rgba(0, 0, 0, 0.01) 1px, transparent 1px);
     background-size: 20px 20px;
-    color: var(--text);
-    min-height: 100vh;
     filter: contrast(96%) brightness(102%);
+    pointer-events: none;
 }
 
 #app {

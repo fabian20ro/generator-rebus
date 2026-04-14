@@ -79,6 +79,10 @@
     display: none;
   }
 
+  .definition-bar__text {
+    font-weight: 600;
+  }
+
   .touch-remote {
     padding: 0.55rem;
   }
