@@ -70,6 +70,22 @@ def _rewrite_priority(clue: WorkingClue) -> tuple[object, ...]:
     )
 
 
+from dataclasses import dataclass, field
+
+@dataclass
+class _GenerationRequest:
+    clue: WorkingClue
+    theme: str
+    dex_defs: str
+    failure_history: list[tuple[str, list[str]]]
+    existing_canonical_definitions: list[str]
+    use_hybrid: bool
+    wrong_guess: str = ""
+    wrong_guesses: list[str] = field(default_factory=list)
+    rating_feedback: str = ""
+    bad_example_definition: str = ""
+    bad_example_reason: str = ""
+
 def _build_pending_candidates(
     clue: WorkingClue,
     *,
@@ -87,115 +103,97 @@ def _build_pending_candidates(
     failure_history: list[tuple[str, list[str]]],
     use_hybrid: bool,
 ) -> tuple[list[PendingCandidate], bool, str]:
-    from . import rewrite_engine as facade
+    from rebus_generator.platform.llm.llm_dispatch import run_single_model_call
+    
+    req = _GenerationRequest(
+        clue=clue,
+        theme=theme,
+        dex_defs=dex_defs,
+        failure_history=failure_history,
+        existing_canonical_definitions=clue_canon.fetch_prompt_examples(clue.word_normalized) if clue_canon is not None else [],
+        use_hybrid=use_hybrid,
+        wrong_guess=wrong_guess,
+        wrong_guesses=wrong_guesses,
+        rating_feedback=rating_feedback,
+        bad_example_definition=bad_example_definition,
+        bad_example_reason=bad_example_reason,
+    )
+    
+    def _callback(model: ModelConfig):
+        # We need to simulate the batch runner but for a single call
+        # This is primarily for backward compatibility in tests
+        from . import rewrite_engine as facade
+        pending: list[PendingCandidate] = []
+        seen: set[str] = set()
+        had_error = False
+        rewrite_rejection_reason = ""
 
-    pending: list[PendingCandidate] = []
-    seen: set[str] = set()
-    rewrite_rejection_reason = ""
+        def _maybe_add(definition: str, *, source: str, strategy_label: str) -> None:
+            nonlocal rewrite_rejection_reason
+            cleaned = (definition or "").strip()
+            if not cleaned or cleaned == clue.current.definition:
+                return
+            rejection = validate_definition_text(clue.word_normalized, cleaned)
+            if rejection:
+                if not rewrite_rejection_reason:
+                    rewrite_rejection_reason = rejection
+                return
+            key = _definition_key(cleaned)
+            if key in seen:
+                return
+            seen.add(key)
+            pending.append(PendingCandidate(source=source, definition=cleaned, generated_by=model.display_name, strategy_label=strategy_label))
 
-    def _maybe_add(definition: str, *, source: str, strategy_label: str) -> None:
-        nonlocal rewrite_rejection_reason
-        cleaned = (definition or "").strip()
-        if not cleaned or cleaned == clue.current.definition:
-            return
-        rejection = validate_definition_text(clue.word_normalized, cleaned)
-        if rejection:
-            if not rewrite_rejection_reason:
-                rewrite_rejection_reason = rejection
-            log(
-                f"    [rewrite rejected {clue.word_normalized}: {rejection}; definition={cleaned[:120]}]",
-                level="WARN",
-            )
-            return
-        key = _definition_key(cleaned)
-        if key in seen:
-            return
-        seen.add(key)
-        pending.append(PendingCandidate(source=source, definition=cleaned, generated_by=current_model.display_name, strategy_label=strategy_label))
+        if clue.current.definition.startswith("["):
+            try:
+                generated = facade.generate_definition(
+                    client, clue.word_normalized, clue.word_original, req.theme,
+                    retries=3, word_type=clue.word_type, dex_definitions=req.dex_defs,
+                    existing_canonical_definitions=req.existing_canonical_definitions,
+                    model=model.model_id
+                )
+                _maybe_add(generated or "", source="generate", strategy_label="fresh_only")
+            except Exception:
+                had_error = True
+        else:
+            try:
+                rewrite_result = facade.rewrite_definition(
+                    client, clue.word_normalized, clue.word_original, req.theme,
+                    clue.current.definition, req.wrong_guess, wrong_guesses=req.wrong_guesses or None,
+                    rating_feedback=req.rating_feedback, bad_example_definition=req.bad_example_definition,
+                    bad_example_reason=req.bad_example_reason, word_type=clue.word_type, dex_definitions=req.dex_defs,
+                    existing_canonical_definitions=req.existing_canonical_definitions,
+                    failure_history=req.failure_history or None, model=model.model_id, return_diagnostics=True
+                )
+                if isinstance(rewrite_result, RewriteAttemptResult):
+                    _maybe_add(rewrite_result.definition, source="rewrite", strategy_label="rewrite")
+                    rewrite_rejection_reason = rewrite_result.last_rejection
+                else:
+                    _maybe_add(str(rewrite_result or ""), source="rewrite", strategy_label="rewrite")
+            except Exception:
+                had_error = True
 
-    had_error = False
-    existing_canonical_definitions = clue_canon.fetch_prompt_examples(clue.word_normalized) if clue_canon is not None else []
-    if clue.current.definition.startswith("["):
-        generated = run_single_model_call(
-            runtime=generation_runtime,
-            model=current_model,
-            purpose="definition_generate",
-            task_label="rewrite_generate",
-            callback=lambda model: facade.generate_definition(
-                client,
-                clue.word_normalized,
-                clue.word_original,
-                theme,
-                retries=3,
-                word_type=clue.word_type,
-                dex_definitions=dex_defs,
-                existing_canonical_definitions=existing_canonical_definitions,
-                model=model.model_id,
-            ),
-        )
-        _maybe_add(generated or "", source="generate", strategy_label="fresh_only")
+            if req.use_hybrid:
+                try:
+                    fresh = facade.generate_definition(
+                        client, clue.word_normalized, clue.word_original, req.theme,
+                        retries=3, word_type=clue.word_type, dex_definitions=req.dex_defs,
+                        existing_canonical_definitions=req.existing_canonical_definitions,
+                        model=model.model_id
+                    )
+                    _maybe_add(str(fresh or ""), source="generate", strategy_label="fresh_generate")
+                except Exception:
+                    had_error = True
         return pending, had_error, rewrite_rejection_reason
 
-    try:
-        rewrite_result = run_single_model_call(
-            runtime=generation_runtime,
-            model=current_model,
-            purpose="definition_rewrite",
-            task_label="rewrite_definition",
-            callback=lambda model: facade.rewrite_definition(
-                client,
-                clue.word_normalized,
-                clue.word_original,
-                theme,
-                clue.current.definition,
-                wrong_guess,
-                wrong_guesses=wrong_guesses or None,
-                rating_feedback=rating_feedback,
-                bad_example_definition=bad_example_definition,
-                bad_example_reason=bad_example_reason,
-                word_type=clue.word_type,
-                dex_definitions=dex_defs,
-                existing_canonical_definitions=existing_canonical_definitions,
-                failure_history=failure_history or None,
-                model=model.model_id,
-                return_diagnostics=True,
-            ),
-        )
-        if isinstance(rewrite_result, RewriteAttemptResult):
-            rewrite_candidate = rewrite_result.definition
-            rewrite_rejection_reason = rewrite_result.last_rejection
-        else:
-            rewrite_candidate = str(rewrite_result or "")
-        _maybe_add(rewrite_candidate, source="rewrite", strategy_label="rewrite")
-    except Exception as exc:
-        had_error = True
-        log(f"  Rewrite failed for {clue.word_normalized}: {exc}")
+    return run_single_model_call(
+        runtime=generation_runtime,
+        model=current_model,
+        purpose="rewrite_generate",
+        task_label="rewrite_generate",
+        callback=_callback
+    )
 
-    if use_hybrid:
-        try:
-            fresh_candidate = run_single_model_call(
-                runtime=generation_runtime,
-                model=current_model,
-                purpose="definition_generate",
-                task_label="rewrite_fresh_generate",
-                callback=lambda model: facade.generate_definition(
-                    client,
-                    clue.word_normalized,
-                    clue.word_original,
-                    theme,
-                    retries=3,
-                    word_type=clue.word_type,
-                    dex_definitions=dex_defs,
-                    existing_canonical_definitions=existing_canonical_definitions,
-                    model=model.model_id,
-                ),
-            )
-            _maybe_add(str(fresh_candidate or ""), source="generate", strategy_label="fresh_generate")
-        except Exception as exc:
-            had_error = True
-            log(f"  Fresh generate failed for {clue.word_normalized}: {exc}")
-
-    return pending, had_error, rewrite_rejection_reason
 
 
 def _evaluate_single_candidate(
@@ -321,13 +319,8 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
     )
 
     round_state = RewriteRoundState(round_index=session.round_index, round_min_rebus=round_min_rebus, candidates=candidates)
+    generation_requests: dict[str, _GenerationRequest] = {}
     for clue in candidates:
-        outcome = session.outcomes[clue.word_normalized]
-        outcome.was_candidate = True
-        clue_ref = clue_label_from_working_clue(clue)
-        if _is_locked_clue(clue):
-            log(f"  {clue_ref}: blocată la {LOCKED_SEMANTIC}/{LOCKED_REBUS}")
-            continue
         failure_history = [
             (
                 version.definition,
@@ -345,43 +338,145 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
         )
         if use_hybrid:
             session.hybrid_attempted_words.add(clue.word_normalized)
-        pending_candidates, had_error, rewrite_rejection_reason = _build_pending_candidates(
-            clue,
-            client=session.client,
+        
+        generation_requests[clue.word_normalized] = _GenerationRequest(
+            clue=clue,
             theme=session.theme,
-            current_model=session.current_model,
-            generation_runtime=session.runtime,
-            clue_canon=session.clue_canon,
+            dex_defs=session.dex.get(clue.word_normalized, clue.word_original) or "",
+            failure_history=failure_history,
+            existing_canonical_definitions=session.clue_canon.fetch_prompt_examples(clue.word_normalized) if session.clue_canon is not None else [],
+            use_hybrid=use_hybrid,
             wrong_guess=clue.current.assessment.wrong_guess,
             wrong_guesses=list(clue.current.assessment.verify_candidates),
             rating_feedback=clue.current.assessment.feedback,
             bad_example_definition=clue.current.definition if session.round_index >= 2 else "",
             bad_example_reason=_synthesize_failure_reason(clue) if session.round_index >= 2 else "",
-            dex_defs=session.dex.get(clue.word_normalized, clue.word_original) or "",
-            failure_history=failure_history,
-            use_hybrid=use_hybrid,
         )
-        outcome.had_error = outcome.had_error or had_error
-        if pending_candidates:
-            clue.current.assessment.rewrite_rejection_reason = ""
-            outcome.changed_definition = True
-            round_state.changed_words.add(clue.word_normalized)
-            session.consecutive_failures[clue.word_normalized] = 0
-            round_state.pending_candidates_by_word[clue.word_normalized] = pending_candidates
-            if len(pending_candidates) == 1:
-                only = pending_candidates[0]
-                log_definition_event("rewrite-candidate", clue_ref=clue_ref, before=clue.current.definition, after=only.definition, detail=only.strategy_label if use_hybrid else only.source)
+
+    # Batch dispatch for all candidates
+    if generation_requests:
+        from . import rewrite_engine as facade
+        from rebus_generator.platform.llm.llm_dispatch import WorkItem, WorkVote, run_llm_workload, WorkStep
+        
+        items: list[WorkItem[_GenerationRequest, list[PendingCandidate]]] = []
+        for word, req in generation_requests.items():
+            items.append(WorkItem(
+                item_id=word,
+                task_kind="rewrite_generate",
+                payload=req,
+                pending_models={session.current_model.model_id},
+            ))
+
+        def _runner(item: WorkItem[_GenerationRequest, list[PendingCandidate]], model: ModelConfig) -> WorkVote[list[PendingCandidate]]:
+            req = item.payload
+            clue = req.clue
+            pending: list[PendingCandidate] = []
+            seen: set[str] = set()
+            had_error = False
+            rewrite_rejection_reason = ""
+
+            def _maybe_add(definition: str, *, source: str, strategy_label: str) -> None:
+                nonlocal rewrite_rejection_reason
+                cleaned = (definition or "").strip()
+                if not cleaned or cleaned == clue.current.definition:
+                    return
+                rejection = validate_definition_text(clue.word_normalized, cleaned)
+                if rejection:
+                    if not rewrite_rejection_reason:
+                        rewrite_rejection_reason = rejection
+                    log(f"    [rewrite rejected {clue.word_normalized}: {rejection}; definition={cleaned[:120]}]", level="WARN")
+                    return
+                key = _definition_key(cleaned)
+                if key in seen:
+                    return
+                seen.add(key)
+                pending.append(PendingCandidate(source=source, definition=cleaned, generated_by=model.display_name, strategy_label=strategy_label))
+
+            if clue.current.definition.startswith("["):
+                try:
+                    generated = facade.generate_definition(
+                        session.client, clue.word_normalized, clue.word_original, req.theme,
+                        retries=3, word_type=clue.word_type, dex_definitions=req.dex_defs,
+                        existing_canonical_definitions=req.existing_canonical_definitions,
+                        model=model.model_id
+                    )
+                    _maybe_add(generated or "", source="generate", strategy_label="fresh_only")
+                except Exception as e:
+                    had_error = True
+                    log(f"  Generate failed for {clue.word_normalized}: {e}")
             else:
-                log(
-                    f"  {clue_ref}: hybrid "
-                    f"rewrite='{_compact_log_text(pending_candidates[0].definition)}' | "
-                    f"fresh='{_compact_log_text(pending_candidates[1].definition)}'"
-                )
-        else:
-            if rewrite_rejection_reason:
-                clue.current.assessment.rewrite_rejection_reason = rewrite_rejection_reason
-            session.consecutive_failures[clue.word_normalized] = session.consecutive_failures.get(clue.word_normalized, 0) + 1
-            # Quarantine disabled: keep trying for the full duration of the available rounds
+                try:
+                    rewrite_result = facade.rewrite_definition(
+                        session.client, clue.word_normalized, clue.word_original, req.theme,
+                        clue.current.definition, req.wrong_guess, wrong_guesses=req.wrong_guesses or None,
+                        rating_feedback=req.rating_feedback, bad_example_definition=req.bad_example_definition,
+                        bad_example_reason=req.bad_example_reason, word_type=clue.word_type, dex_definitions=req.dex_defs,
+                        existing_canonical_definitions=req.existing_canonical_definitions,
+                        failure_history=req.failure_history or None, model=model.model_id, return_diagnostics=True
+                    )
+                    if isinstance(rewrite_result, RewriteAttemptResult):
+                        _maybe_add(rewrite_result.definition, source="rewrite", strategy_label="rewrite")
+                        rewrite_rejection_reason = rewrite_result.last_rejection
+                    else:
+                        _maybe_add(str(rewrite_result or ""), source="rewrite", strategy_label="rewrite")
+                except Exception as e:
+                    had_error = True
+                    log(f"  Rewrite failed for {clue.word_normalized}: {e}")
+
+                if req.use_hybrid:
+                    try:
+                        fresh = facade.generate_definition(
+                            session.client, clue.word_normalized, clue.word_original, req.theme,
+                            retries=3, word_type=clue.word_type, dex_definitions=req.dex_defs,
+                            existing_canonical_definitions=req.existing_canonical_definitions,
+                            model=model.model_id
+                        )
+                        _maybe_add(str(fresh or ""), source="generate", strategy_label="fresh_generate")
+                    except Exception as e:
+                        had_error = True
+                        log(f"  Fresh generate failed for {clue.word_normalized}: {e}")
+
+            # Store rejection reason in a way we can retrieve it
+            vote = WorkVote(model_id=model.model_id, value=pending, source="ok")
+            vote._had_error = had_error
+            vote._rejection = rewrite_rejection_reason
+            return vote
+
+        run_llm_workload(
+            runtime=session.runtime,
+            models=[session.current_model],
+            items=items,
+            steps=[WorkStep(model_id=session.current_model.model_id, purpose="rewrite_generate", runner=_runner)],
+            task_label="rewrite_generate"
+        )
+
+        for item in items:
+            clue = generation_requests[item.item_id].clue
+            vote = item.votes.get(session.current_model.model_id)
+            pending_candidates = vote.value if vote else []
+            had_error = getattr(vote, "_had_error", False)
+            rewrite_rejection_reason = getattr(vote, "_rejection", "")
+            
+            outcome = session.outcomes[clue.word_normalized]
+            outcome.was_candidate = True
+            outcome.had_error = outcome.had_error or had_error
+            clue_ref = clue_label_from_working_clue(clue)
+            
+            if pending_candidates:
+                clue.current.assessment.rewrite_rejection_reason = ""
+                outcome.changed_definition = True
+                round_state.changed_words.add(clue.word_normalized)
+                session.consecutive_failures[clue.word_normalized] = 0
+                round_state.pending_candidates_by_word[clue.word_normalized] = pending_candidates
+                if len(pending_candidates) == 1:
+                    only = pending_candidates[0]
+                    log_definition_event("rewrite-candidate", clue_ref=clue_ref, before=clue.current.definition, after=only.definition, detail=only.strategy_label if generation_requests[clue.word_normalized].use_hybrid else only.source)
+                else:
+                    log(f"  {clue_ref}: hybrid rewrite='{_compact_log_text(pending_candidates[0].definition)}' | fresh='{_compact_log_text(pending_candidates[1].definition)}'")
+            else:
+                if rewrite_rejection_reason:
+                    clue.current.assessment.rewrite_rejection_reason = rewrite_rejection_reason
+                session.consecutive_failures[clue.word_normalized] = session.consecutive_failures.get(clue.word_normalized, 0) + 1
 
     session.current_model = next_generation_model(session.runtime, session.current_model)
     if session.multi_model:

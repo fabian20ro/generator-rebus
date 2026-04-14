@@ -230,48 +230,110 @@ def generate_creative_title_result(
     forbidden_keys = {key for key in (forbidden_title_keys or []) if key}
     for round_idx in range(1, MAX_TITLE_ROUNDS + 1):
         round_candidates: list[tuple[str, ModelConfig, TitleCandidateReview]] = []
-        for generator_model in get_active_models(multi_model=multi_model):
-            model_rejected = rejected_by_model.setdefault(generator_model.model_id, [])
-            raw_title = _generate_candidate_for_model(
-                definitions,
-                words,
-                client,
-                runtime=runtime,
-                generator_model=generator_model,
-                rejected_context=_build_rejected_context(model_rejected),
-                empty_retry_instruction="Răspunde obligatoriu cu un singur titlu concret de 2-5 cuvinte, exclusiv în limba română.",
+        
+        # Phase 1: Batch Generation
+        active_models = list(get_active_models(multi_model=multi_model))
+        items = [
+            WorkItem[dict[str, object], str](
+                item_id=f"gen_{model.model_id}",
+                task_kind="title_generate",
+                payload={
+                    "definitions": list(definitions),
+                    "words": list(words),
+                    "rejected_context": _build_rejected_context(rejected_by_model[model.model_id]),
+                    "empty_retry_instruction": "Răspunde obligatoriu cu un singur titlu concret de 2-5 cuvinte, exclusiv în limba română.",
+                },
+                pending_models={model.model_id},
             )
+            for model in active_models
+        ]
+
+        def _generate_runner(item: WorkItem[dict[str, object], str], model: ModelConfig) -> WorkVote[str]:
+            first_attempt = _generate_single_title_attempt(
+                item.payload["definitions"],
+                client,
+                model_config=model,
+                rejected_context=str(item.payload["rejected_context"]),
+                words=item.payload["words"],
+            )
+            if first_attempt.title.strip():
+                return WorkVote(model_id=model.model_id, value=first_attempt.title, source=first_attempt.response_source)
+            if first_attempt.response_source == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                return WorkVote(
+                    model_id=model.model_id,
+                    value=first_attempt.title,
+                    source=first_attempt.response_source,
+                    terminal=True,
+                    terminal_reason="title_empty_after_retry",
+                )
+            return WorkVote(
+                model_id=model.model_id,
+                value=_generate_single_title(
+                    item.payload["definitions"],
+                    client,
+                    model_config=model,
+                    rejected_context=str(item.payload["empty_retry_instruction"]),
+                    words=item.payload["words"],
+                ),
+                source=RESPONSE_SOURCE_REASONING,
+            )
+
+        from rebus_generator.platform.llm.llm_dispatch import WorkStep, run_llm_workload
+        run_llm_workload(
+            runtime=runtime,
+            models=active_models,
+            items=items,
+            steps=[
+                WorkStep(model_id=model.model_id, purpose="title_generate", runner=_generate_runner)
+                for model in active_models
+            ],
+            task_label="title_generate",
+        )
+
+        # Phase 2: Process candidates
+        for item, generator_model in zip(items, active_models):
+            vote = item.votes.get(generator_model.model_id)
+            raw_title = str(vote.value or "") if vote is not None else ""
+            model_rejected = rejected_by_model[generator_model.model_id]
+            
             if not raw_title.strip():
                 log(f'  Title round {round_idx} [{generator_model.display_name}]: "(gol)" -> creativity=0/10 (titlu gol)')
                 continue
+                
             reviewed = _review_title_candidate(raw_title, input_words=words)
             display_title = reviewed.title or _clean_title(raw_title) or "(gol)"
+            
             if not reviewed.valid:
                 log(f'  Title round {round_idx} [{generator_model.display_name}]: "{display_title}" -> creativity=0/10 ({reviewed.feedback})')
                 rejected.append((display_title, reviewed.feedback))
                 model_rejected.append((display_title, reviewed.feedback))
                 continue
+                
             title_key = normalize_title_key(reviewed.title)
             rejected_keys = {normalize_title_key(title) for title, _ in rejected}
+            
             if reviewed.title in FALLBACK_TITLES:
                 rejected.append((reviewed.title, "fallback generic"))
                 model_rejected.append((reviewed.title, "fallback generic"))
                 continue
+                
             if title_key in rejected_keys:
                 rejected.append((reviewed.title, "titlu deja respins"))
                 model_rejected.append((reviewed.title, "titlu deja respins"))
                 continue
+                
             if title_key and title_key in forbidden_keys:
                 log(f'  Title round {round_idx} [{generator_model.display_name}]: "{reviewed.title}" -> creativity=0/10 (titlu deja folosit)')
                 rejected.append((reviewed.title, "titlu deja folosit"))
                 model_rejected.append((reviewed.title, "titlu deja folosit"))
                 continue
+                
             round_candidates.append((reviewed.title, generator_model, reviewed))
 
         if not round_candidates:
             continue
 
-        # Batch rate all candidates from this round
+        # Phase 3: Batch Rating
         batch_input = [(f"r{round_idx}_{i}", title, words) for i, (title, _, _) in enumerate(round_candidates)]
         ratings = rate_title_creativity_batch(batch_input, rate_client, runtime=runtime)
 
@@ -280,21 +342,24 @@ def generate_creative_title_result(
             if not rating or not rating.complete:
                 log(f'  Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> evaluation failed')
                 rejected.append((title, "evaluare incompletă"))
-                model_rejected.append((title, "evaluare incompletă"))
+                rejected_by_model[generator_model.model_id].append((title, "evaluare incompletă"))
                 continue
 
             log(f'  Title round {round_idx} [{generator_model.display_name} -> pair rated]: "{title}" -> creativity={rating.score}/10 ({rating.feedback})')
             result = TitleGenerationResult(reviewed.title, rating.score, rating.feedback, score_complete=True)
+            
             if (
                 best_result is None
                 or result.score > best_result.score
                 or (result.score == best_result.score and len(reviewed.title.split()) < len(best_result.title.split()))
             ):
                 best_result = result
+                
             if result.score >= TITLE_MIN_CREATIVITY:
                 return result
+                
             rejected.append((reviewed.title, rating.feedback))
-            model_rejected.append((reviewed.title, rating.feedback))
+            rejected_by_model[generator_model.model_id].append((reviewed.title, rating.feedback))
 
     if best_result is not None and best_result.score > 0:
         return best_result
