@@ -45,7 +45,7 @@ class ModelManagerTests(unittest.TestCase):
     def test_primary_model_config(self):
         self.assertEqual("gemma4_26b_a4b", PRIMARY_MODEL.registry_key)
         self.assertIn("gemma", PRIMARY_MODEL.model_id)
-        self.assertEqual(4000, PRIMARY_MODEL.max_completion_tokens)
+        self.assertEqual(6000, PRIMARY_MODEL.max_completion_tokens)
         self.assertEqual(PRIMARY_MODEL.context_length, 8192)
         self.assertEqual("low", PRIMARY_MODEL.reasoning_by_purpose["default"])
 
@@ -103,7 +103,7 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual({}, chat_reasoning_options(SECONDARY_MODEL.model_id))
 
     def test_chat_max_tokens_return_model_budget(self):
-        self.assertEqual(4000, chat_max_tokens(PRIMARY_MODEL))
+        self.assertEqual(6000, chat_max_tokens(PRIMARY_MODEL))
         self.assertEqual(200, chat_max_tokens(SECONDARY_MODEL.model_id))
 
     def test_chat_reasoning_options_support_gpt_oss_profiles(self):

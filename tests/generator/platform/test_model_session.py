@@ -45,7 +45,7 @@ class LmRuntimeTests(unittest.TestCase):
         mock_unload.assert_not_called()
         mock_load.assert_not_called()
 
-    @patch("rebus_generator.platform.llm.lm_runtime.time.sleep")
+    @patch("rebus_generator.platform.llm.lm_runtime._wait_for_unload_model")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
     @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
     @patch("rebus_generator.platform.llm.lm_runtime.load_model")
@@ -54,7 +54,7 @@ class LmRuntimeTests(unittest.TestCase):
         mock_load,
         mock_instances,
         mock_unload,
-        _mock_sleep,
+        _mock_wait_unload,
     ):
         mock_instances.side_effect = [
             {SECONDARY_MODEL.model_id: "inst-secondary"},
@@ -71,7 +71,7 @@ class LmRuntimeTests(unittest.TestCase):
         mock_unload.assert_called_once_with("inst-secondary", model_id=SECONDARY_MODEL.model_id)
         mock_load.assert_called_once_with(PRIMARY_MODEL)
 
-    @patch("rebus_generator.platform.llm.lm_runtime.time.sleep")
+    @patch("rebus_generator.platform.llm.lm_runtime._wait_for_unload_model")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
     @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
     @patch("rebus_generator.platform.llm.lm_runtime.load_model")
@@ -80,7 +80,7 @@ class LmRuntimeTests(unittest.TestCase):
         mock_load,
         mock_instances,
         mock_unload,
-        _mock_sleep,
+        _mock_wait_unload,
     ):
         mock_instances.side_effect = [
             {},

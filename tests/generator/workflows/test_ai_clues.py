@@ -571,8 +571,8 @@ class AiCluesTests(unittest.TestCase):
             _chat_response(
                 reasoning_content="plan",
                 finish_reason="length",
-                completion_tokens=4000,
-                reasoning_tokens=3997,
+                completion_tokens=6000,
+                reasoning_tokens=5997,
             ),
             _chat_response(content="casa"),
         ])
@@ -732,7 +732,7 @@ class AiCluesTests(unittest.TestCase):
     def test_run_policy_truncation_threshold_triggers_adaptive_downgrade(self):
         configure_run_llm_policy(
             reasoning_overrides={
-                (PRIMARY_MODEL.model_id, "definition_generate"): "minimal",
+                (PRIMARY_MODEL.model_id, "default"): "minimal",
             },
             truncation_threshold=2,
         )
@@ -750,7 +750,7 @@ class AiCluesTests(unittest.TestCase):
             messages=[{"role": "user", "content": "test"}],
             temperature=0.0,
             max_tokens=2048,
-            purpose="definition_generate",
+            purpose="default",
         )
         _chat_completion_create(
             client,
@@ -758,7 +758,7 @@ class AiCluesTests(unittest.TestCase):
             messages=[{"role": "user", "content": "test"}],
             temperature=0.0,
             max_tokens=2048,
-            purpose="definition_generate",
+            purpose="default",
         )
         _chat_completion_create(
             client,
@@ -766,15 +766,14 @@ class AiCluesTests(unittest.TestCase):
             messages=[{"role": "user", "content": "test"}],
             temperature=0.0,
             max_tokens=2048,
-            purpose="definition_generate",
+            purpose="default",
         )
-
         self.assertEqual("minimal", client.calls[0]["reasoning_effort"])
         self.assertEqual(2048, client.calls[0]["max_tokens"])
         self.assertEqual("minimal", client.calls[2]["reasoning_effort"])
         self.assertEqual("none", client.calls[4]["reasoning_effort"])
         snapshot = llm_run_stats_snapshot()
-        self.assertIn(f"{PRIMARY_MODEL.model_id}|definition_generate", snapshot["adaptive_downgrades"])
+        self.assertIn(f"{PRIMARY_MODEL.model_id}|default", snapshot["adaptive_downgrades"])
 
     def test_run_policy_bounds_short_form_tokens_and_reasoning(self):
         configure_run_llm_policy(

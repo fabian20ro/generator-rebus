@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .models import ModelConfig, PRIMARY_MODEL, SECONDARY_MODEL
-from .lm_studio_api import get_loaded_model_instances, load_model, unload_instance
+from .lm_studio_api import (
+    _wait_for_unload_model,
+    get_loaded_model_instances,
+    load_model,
+    unload_instance,
+)
 from rebus_generator.platform.io.runtime_logging import log
 
 
@@ -58,6 +63,7 @@ class LmRuntime:
             started_at = time.monotonic()
             try:
                 unload_instance(instance_id, model_id=model_id)
+                _wait_for_unload_model(model_id)
             except urllib.error.HTTPError as exc:
                 refreshed = get_loaded_model_instances()
                 if model_id not in refreshed:
@@ -68,7 +74,6 @@ class LmRuntime:
                 ) from exc
             self.unload_count += 1
             self.unload_seconds_total += time.monotonic() - started_at
-            time.sleep(2)
 
     def activate(self, model: ModelConfig, *, reason: str = "") -> ModelConfig:
         target = self.primary if (not self.multi_model and model.model_id == self.secondary.model_id) else model

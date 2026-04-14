@@ -128,10 +128,23 @@ def switch_model(from_model: ModelConfig, to_model: ModelConfig) -> None:
     load_model(to_model)
 
 
-def _wait_for_model(model_id: str, timeout: float = 120.0, poll_interval: float = 3.0) -> None:
+def _wait_for_model(
+    model_id: str, timeout: float = 60.0, poll_interval: float = 3.0
+) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if model_id in get_loaded_models():
             return
         time.sleep(poll_interval)
     raise TimeoutError(f"Model {model_id} did not load within {timeout}s")
+
+
+def _wait_for_unload_model(
+    model_id: str, timeout: float = 60.0, poll_interval: float = 2.0
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if model_id not in get_loaded_models():
+            return
+        time.sleep(poll_interval)
+    log(f"  [unload timeout] model={model_id} seconds={timeout:.1f}", level="WARN")

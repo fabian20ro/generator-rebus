@@ -21,7 +21,7 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
         registry_key="gemma4_26b_a4b",
         model_id="google/gemma-4-26b-a4b",
         display_name="gemma-4",
-        max_completion_tokens=4000,
+        max_completion_tokens=6000,
         reasoning_by_purpose={
             "default": "low",
             "definition_generate": "low",

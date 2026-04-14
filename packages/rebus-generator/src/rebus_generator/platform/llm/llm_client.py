@@ -465,7 +465,12 @@ def _record_call_stats(
     if _response_finish_reason(response) == "length":
         stats.truncations += 1
         key = (model, purpose)
-        if _run_policy_enabled() and stats.truncations >= _RUN_TRUNCATION_THRESHOLD:
+        threshold = (
+            1
+            if purpose in {"definition_generate", "definition_rewrite"}
+            else _RUN_TRUNCATION_THRESHOLD
+        )
+        if _run_policy_enabled() and stats.truncations >= threshold:
             _ADAPTIVE_DOWNGRADES.add(key)
             if key not in _ADAPTIVE_DOWNGRADE_LOGGED:
                 _ADAPTIVE_DOWNGRADE_LOGGED.add(key)

@@ -110,12 +110,14 @@ class AggressiveRewriteRegressionTests(unittest.TestCase):
         session.hybrid_deanchor = False
         session.hybrid_attempted_words = set()
         
-        # CRITICAL: Patch _build_pending_candidates to avoid real LLM calls/hangs
+        # CRITICAL: Patch _build_pending_candidates and run_llm_workload to avoid real LLM calls/hangs
         with patch("rebus_generator.workflows.redefine.rewrite_rounds.log"), \
              patch("rebus_generator.workflows.redefine.rewrite_rounds.finish_rewrite_session"), \
+             patch("rebus_generator.platform.llm.llm_dispatch.run_llm_workload") as mock_workload, \
              patch("rebus_generator.workflows.redefine.rewrite_rounds._build_pending_candidates") as mock_build:
             
             mock_build.return_value = ([], False, "") # No candidates, no error
+            mock_workload.return_value = MagicMock()
             
             round_state = rewrite_session_prepare_round(session)
             
