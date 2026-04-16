@@ -50,6 +50,7 @@ _REDIRECT_TARGET_DEFS = 2
 _SHORT_DEF_WORD_LIMIT = 10
 _DEF_CONTAINER_TAGS = {"span", "div", "p", "b", "i", "a", "em", "strong", "sup", "sub"}
 _DEFAULT_LOCAL_CACHE_DIR = Path(".cache/dex_definitions")
+_COMPOUND_SEPARATOR = " - "
 
 _REDIRECT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("diminutiv", re.compile(r"^diminutiv al lui\s+(.+?)(?:[.;:,)]|$)", re.IGNORECASE)),
@@ -195,6 +196,22 @@ def _is_usage_category(category: str) -> bool:
         return False
     normalized_category = normalize(category)
     return any(marker in normalized_category for marker in _USAGE_CATEGORY_MARKERS)
+
+
+def _split_compound_word(word: str, original: str = "") -> list[tuple[str, str]]:
+    """Split a rebus compound word into normalized/original pairs."""
+    parts = [part.strip() for part in word.split(_COMPOUND_SEPARATOR) if part.strip()]
+    if len(parts) <= 1:
+        clean_word = word.strip()
+        if not clean_word:
+            return []
+        clean_original = original.strip()
+        return [(clean_word, clean_original or clean_word)]
+
+    originals = [part.strip() for part in original.split(_COMPOUND_SEPARATOR)] if original else []
+    while len(originals) < len(parts):
+        originals.append("")
+    return [(part, originals[index] or part) for index, part in enumerate(parts)]
 
 
 def parse_definitions_from_html(html: str) -> list[str]:
@@ -467,6 +484,18 @@ class DexProvider:
         if norm in self._memory:
             return self._memory[norm]
 
+        compound_parts = _split_compound_word(word, original)
+        if len(compound_parts) > 1:
+            resolved_parts: list[str] = []
+            for part_word, part_original in compound_parts:
+                part_defs = self.get(part_word, part_original)
+                if part_defs:
+                    resolved_parts.append(part_defs)
+            if resolved_parts:
+                combined = "\n".join(resolved_parts)
+                self._memory[norm] = combined
+                return combined
+
         # L2: local disk cache
         html, found = _local_lookup_single(self._local_cache_dir, norm)
         if found:
@@ -489,6 +518,16 @@ class DexProvider:
 
         if norm in self._memory:
             return self._memory[norm]
+
+        compound_parts = _split_compound_word(word)
+        if len(compound_parts) > 1:
+            resolved_parts: list[str] = []
+            for part_word, _part_original in compound_parts:
+                part_defs = self.lookup(part_word)
+                if part_defs:
+                    resolved_parts.append(part_defs)
+            if resolved_parts:
+                return "\n".join(resolved_parts)
 
         html, found = _local_lookup_single(self._local_cache_dir, norm)
         if found:
@@ -598,9 +637,16 @@ class DexProvider:
         dex = create_provider()
         clues = list(all_working_clues(puzzle))
         if clues:
+            words: list[str] = []
+            originals: dict[str, str] = {}
+            for clue in clues:
+                for part_word, part_original in _split_compound_word(clue.word_normalized, clue.word_original):
+                    if part_word not in originals:
+                        words.append(part_word)
+                        originals[part_word] = part_original
             dex.prefetch(
-                [c.word_normalized for c in clues],
-                originals={c.word_normalized: c.word_original for c in clues if c.word_original},
+                words,
+                originals=originals,
             )
         return dex
 

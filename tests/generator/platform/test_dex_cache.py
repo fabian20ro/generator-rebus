@@ -19,6 +19,7 @@ from rebus_generator.platform.io.dex_cache import (
     lookup_batch,
     parse_definitions_from_html,
 )
+from rebus_generator.domain.pipeline_state import WorkingClue, WorkingPuzzle
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +225,44 @@ class DexProviderMemoryOnlyTests(unittest.TestCase):
             fetch_missing=True,
         )
         mock_fetch.assert_called_once_with("casă")
+
+    @patch("rebus_generator.platform.io.dex_cache.time.sleep")
+    @patch("rebus_generator.platform.io.dex_cache.fetch_from_dexonline")
+    def test_get_compound_uses_component_lookups(self, mock_fetch, mock_sleep):
+        mock_fetch.side_effect = [
+            ('<span class="tree-def">Definiție A.</span>', "ok"),
+            ('<span class="tree-def">Definiție B.</span>', "ok"),
+        ]
+
+        result = self.dex.get("AURI - AMUS", "auri - amus")
+
+        self.assertIn("Definiție A.", result)
+        self.assertIn("Definiție B.", result)
+        self.assertEqual([call("auri"), call("amus")], mock_fetch.call_args_list)
+        mock_sleep.assert_called_once()
+
+    @patch("rebus_generator.platform.io.dex_cache.create_provider")
+    def test_for_puzzle_prefetches_split_compounds(self, mock_create_provider):
+        dex = MagicMock()
+        mock_create_provider.return_value = dex
+        puzzle = WorkingPuzzle(
+            title="",
+            size=11,
+            grid=[],
+            horizontal_clues=[
+                WorkingClue(row_number=1, word_normalized="AURI - AMUS", word_original="auri - amus"),
+                WorkingClue(row_number=2, word_normalized="MANGO", word_original="mango"),
+            ],
+            vertical_clues=[],
+        )
+
+        result = DexProvider.for_puzzle(puzzle)
+
+        self.assertIs(result, dex)
+        dex.prefetch.assert_called_once_with(
+            ["AURI", "AMUS", "MANGO"],
+            originals={"AURI": "auri", "AMUS": "amus", "MANGO": "mango"},
+        )
 
 
 # ---------------------------------------------------------------------------

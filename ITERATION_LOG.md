@@ -1408,3 +1408,9 @@
 **Happened:** Hoisted puzzle-scoped DEX providers into `GenerateJobState` and `RedefineJobState` so clue-level generation/rating helpers reuse one provider per job. Made title rating respect `multi_model=False` instead of silently switching to pair mode on the shared runtime, and updated title generation tests to cover the single-model path. Gated full prompt-body logging in `ai_clues.py` behind `--debug`, changed failure logging to preserve newline-separated warning/error entries, and added periodic summary snapshot writes during `run_all` heartbeats. Added retry/backoff for redefine persistence updates on retryable Supabase 500-style failures. Reintroduced bounded rewrite candidate fan-out in `RunAllRewriteSession`, skipped rating for candidates whose primary verify does not contain the answer, and quarantined words after repeated unchanged rounds. Added tests for prompt logging, title single-model behavior, DEX audit dedupe, summary snapshots, and persistence retries.
 **Verification:** not run yet in this pass; next step is targeted unit tests around touched modules.
 **Outcome:** in progress
+
+### [2026-04-17] — DEX compound clue handling
+**Context:** user reported `[DEX] not found` lines in the 2026-04-17 `run_all.sh` log and asked whether they were normal.
+**Happened:** Confirmed the misses came from compound rebus clues being sent to DEX as whole strings like `AURI - AMUS`. Updated `DexProvider.for_puzzle()` to expand compound clues into atom prefetches before any cache write, and taught `DexProvider.get()` / `lookup()` to resolve compound clues through their components instead of fetching the whole compound. Added regression tests for compound `get()` and `for_puzzle()` expansion.
+**Verification:** `python3 -m pytest -q tests/generator/platform/test_dex_cache.py` (`75 passed`); `python3 -m pytest -q tests/generator/workflows/test_verify.py` (`15 passed`).
+**Outcome:** success

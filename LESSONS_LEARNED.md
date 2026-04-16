@@ -22,6 +22,8 @@
 
 **[2026-04-13]** LLM client streaming robustness for mocks — `_chat_completion_create_streaming` should handle both `delta` (real streaming) and `message` (non-streaming mock) choice fields. Forcing streaming logic process-wide for consistency/reasoning capture can break existing test suites if their mocks return message-style objects. Support both in the internal chunk parser to keep tests green without massive mock churn.
 
+**[2026-04-17]** Compound rebus clues must split before DEX caching or lookup, not after a `not_found` write — if a compound like `AURI - AMUS` is cached as a whole and marked missing, later `get()` calls on that same clue will short-circuit on the poisoned `None` entry. Expand compound clues into atom lookups before `prefetch`, and make direct `get()`/`lookup()` combine atom results so the whole clue never becomes a fake DEX miss.
+
 **[2026-03-14]** Short words (OU, AT, OF) need special handling — for 2-letter words, any definition almost inevitably contains the answer. English homograph hints inject correct Romanian meaning. Preset definitions (AT, OF) bypass LLM entirely. `_definition_describes_english_meaning()` guard rejects English-meaning definitions.
 
 **[2026-04-06]** English-marker guards must tokenize normalized Romanian text, not raw ASCII spans — scanning `[A-Za-z]+` on live clue text turns diacritic words into false English tokens (`forța` → `for` + `a`) and silently rejects valid Romanian definitions. Normalize diacritics first, then tokenize lowercase Latin words; keep cleanup separate for reasoning residue and inline English translations.
