@@ -146,6 +146,7 @@ class AuditTests(unittest.TestCase):
             self.assertNotIn("info msg", fail_output)
             self.assertIn("warn msg", fail_output)
             self.assertIn("error msg", fail_output)
+            self.assertEqual(2, len(fail_output.strip().splitlines()))
 
     def test_audit_writes_jsonl_record(self):
         with TemporaryDirectory() as tmpdir:

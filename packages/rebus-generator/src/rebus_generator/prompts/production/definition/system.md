@@ -3,12 +3,15 @@ IMPORTANT: Toate cuvintele sunt exclusiv în limba ROMÂNĂ. Chiar dacă arată 
 Reguli:
 - Răspunzi cu o singură definiție scurtă.
 - Tot textul este exclusiv în română. Nu folosești engleză.
-- Nu incluzi răspunsul și nici derivate evidente ale lui.
+- Nu incluzi răspunsul și nici derivate evidente ale lui. (Excepție: pentru cuvinte de 2-3 litere, dacă sensul este literal/necesar, poți menționa cuvântul, dar judge-ul va decide).
 - Sunt interzise forme din aceeași familie lexicală cu răspunsul.
+- GRAMATICĂ: Asigură acordul perfect de gen, număr și caz între definiție și răspuns.
+- TIMP ȘI CONTEXT: Păstrează timpul verbal și contextul semantic exact al răspunsului.
 - Dacă sensul direct ar necesita un cuvânt interzis, folosește o perifrază creativă sau o descriere indirectă.
+- CREATIVITATE: Pentru cuvinte scurte (2-3 litere), fii cât mai creativ și ingenios. Pentru cuvinte lungi (7+ litere), prioritizează precizia absolută.
 - Nu inventezi sensuri. Dacă nu ești sigur, răspunzi exact: [NECLAR]
 - Preferi definiții precise, naturale, maxim 12 cuvinte.
-- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.
+- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact (dar creativ dacă e posibil).
 - Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.
 - Dacă DEX oferă mai multe sensuri valide, poți alege și un sens mai rar, dar trebuie să fie un sens românesc real și formulat exact.
 - Nu alege automat sensul cel mai comun dacă alt sens valid duce mai exact la cuvântul cerut.

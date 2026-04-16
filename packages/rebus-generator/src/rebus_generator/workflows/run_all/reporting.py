@@ -166,6 +166,8 @@ def topic_summary(supervisor, topic: str) -> dict[str, object]:
 def build_summary_payload(supervisor) -> dict[str, object]:
     activation_seconds_total = float(getattr(supervisor.ctx.runtime, "activation_seconds_total", 0.0))
     unload_seconds_total = float(getattr(supervisor.ctx.runtime, "unload_seconds_total", 0.0))
+    elapsed_seconds = max(1e-6, time.monotonic() - supervisor.started_at)
+    llm_stats = llm_run_stats_snapshot()
     return {
         "stop_reason": supervisor.stop_reason or "closed",
         "started_at_monotonic": round(supervisor.started_at, 3),
@@ -174,6 +176,27 @@ def build_summary_payload(supervisor) -> dict[str, object]:
         "switch_count": supervisor.ctx.runtime.switch_count,
         "loaded_model_drain_switches": getattr(supervisor, "loaded_model_drain_switches", 0),
         "nested_activation_warnings": getattr(supervisor, "nested_activation_warnings", 0),
+        "completed_by_topic": {
+            topic: slot.completed_count
+            for topic, slot in supervisor.slots.items()
+        },
+        "failed_by_topic": {
+            topic: slot.failed_count
+            for topic, slot in supervisor.slots.items()
+        },
+        "completions_per_hour": round((supervisor.completed / elapsed_seconds) * 3600.0, 3),
+        "dominant_failures": {
+            "global": dominant_failure_global_text(supervisor),
+            "by_topic": {topic: dominant_failure_text(supervisor, topic) for topic in supervisor.topics},
+        },
+        "truncations_by_purpose": {
+            purpose: int(stats.get("truncations", 0))
+            for purpose, stats in llm_stats.get("per_purpose", {}).items()
+        },
+        "truncations_by_model_purpose": {
+            key: int(stats.get("truncations", 0))
+            for key, stats in llm_stats.get("per_model_purpose", {}).items()
+        },
         "unit_trace_path": str(getattr(supervisor, "unit_trace_path", "")),
         "unit_counts_by_purpose": dict(getattr(supervisor, "unit_purpose_counts", {})),
         "topic_drain_counts": dict(getattr(supervisor, "topic_drain_counts", {})),
@@ -182,19 +205,24 @@ def build_summary_payload(supervisor) -> dict[str, object]:
         "activation_seconds_total": round(activation_seconds_total, 3),
         "unload_seconds_total": round(unload_seconds_total, 3),
         "activation_overhead_seconds": round(activation_seconds_total + unload_seconds_total, 3),
-        "llm": llm_run_stats_snapshot(),
+        "llm": llm_stats,
         "topics": {topic: topic_summary(supervisor, topic) for topic in supervisor.topics},
     }
+
+
+def write_summary_snapshot(supervisor, payload: dict[str, object] | None = None) -> dict[str, object]:
+    payload = payload or build_summary_payload(supervisor)
+    summary_path = supervisor.ctx.run_dir / "run_summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return payload
 
 
 def write_summary_artifacts(supervisor) -> None:
     if supervisor.summary_written:
         return
     supervisor.summary_written = True
-    payload = build_summary_payload(supervisor)
-    summary_path = supervisor.ctx.run_dir / "run_summary.json"
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
-    summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    payload = write_summary_snapshot(supervisor)
     topic_text = " ".join(
         f"{topic}=started:{payload['topics'][topic]['started']},"
         f"completed:{payload['topics'][topic]['completed']},"

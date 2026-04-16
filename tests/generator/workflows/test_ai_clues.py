@@ -11,6 +11,7 @@ from rebus_generator.platform.llm.llm_client import (
     reset_run_llm_state,
     short_form_max_tokens,
 )
+from rebus_generator.platform.io.runtime_logging import set_llm_debug_enabled
 from rebus_generator.platform.llm.ai_clues import (
     DefinitionRating,
     RATE_MAX_TOKENS,
@@ -143,9 +144,11 @@ def _attempt(
 class AiCluesTests(unittest.TestCase):
     def setUp(self):
         reset_run_llm_state()
+        set_llm_debug_enabled(False)
 
     def tearDown(self):
         reset_run_llm_state()
+        set_llm_debug_enabled(False)
 
     def test_generate_definition_sends_medium_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["Locuință pentru oameni."])
@@ -261,6 +264,31 @@ class AiCluesTests(unittest.TestCase):
         prompt = client.prompts[0]
         self.assertIn("Exemplu de definiție rea de evitat", prompt)
         self.assertIn("Duce la alt răspuns: ALTUL.", prompt)
+
+    def test_generate_definition_hides_prompt_body_without_debug(self):
+        client = _RecordingClient(["Locuință pentru oameni."])
+        with mock.patch("rebus_generator.platform.llm.ai_clues.log") as mock_log:
+            generate_definition(
+                client,
+                word="CASA",
+                original="casa",
+                theme="",
+                model=PRIMARY_MODEL.model_id,
+            )
+        mock_log.assert_not_called()
+
+    def test_generate_definition_logs_prompt_body_with_debug(self):
+        client = _RecordingClient(["Locuință pentru oameni."])
+        set_llm_debug_enabled(True)
+        with mock.patch("rebus_generator.platform.llm.ai_clues.log") as mock_log:
+            generate_definition(
+                client,
+                word="CASA",
+                original="casa",
+                theme="",
+                model=PRIMARY_MODEL.model_id,
+            )
+        self.assertTrue(any("[LLM prompt]" in call.args[0] for call in mock_log.call_args_list))
 
     def test_rate_definition_does_not_penalize_rarity_only_feedback(self):
         client = _RecordingClient([

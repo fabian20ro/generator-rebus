@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
+import time
 
 from rebus_generator.domain.puzzle_metrics import build_puzzle_description, puzzle_metadata_payload, score_puzzle_state
 from rebus_generator.platform.io.clue_logging import clue_label_from_row, log_canonical_event, log_definition_event
+from rebus_generator.platform.io.runtime_logging import log
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import get_active_model_labels
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
@@ -35,13 +37,13 @@ def persist_puzzle_metadata(
     *,
     dry_run: bool,
 ) -> None:
-    if dry_run:
-        return
-    execute_logged_update(
+    _execute_logged_update_with_retry(
         supabase,
         "crossword_puzzles",
         payload,
         eq_filters={"id": puzzle_id},
+        puzzle_id=puzzle_id,
+        dry_run=dry_run,
     )
 
 
@@ -58,6 +60,46 @@ def clue_update_payload(store: ClueCanonStore, row: dict, desired: dict[str, obj
         verify_note=str(desired["verify_note"]),
         verified=bool(desired["verified"]),
     )
+
+
+def _is_retryable_persist_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        "500" in text and "json could not be generated" in text
+    ) or (
+        "500" in text and "postgrest" in text
+    ) or (
+        "could not be generated" in text
+    )
+
+
+def _execute_logged_update_with_retry(
+    supabase,
+    table: str,
+    payload: dict[str, object],
+    *,
+    eq_filters: dict[str, object],
+    puzzle_id: str,
+    dry_run: bool,
+) -> None:
+    if dry_run:
+        return
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            execute_logged_update(
+                supabase,
+                table,
+                payload,
+                eq_filters=eq_filters,
+            )
+            return
+        except Exception as exc:
+            if not _is_retryable_persist_error(exc) or attempt >= attempts:
+                raise RuntimeError(f"redefine_persist_apply failed for puzzle {puzzle_id}: {exc}") from exc
+            delay = min(8.0, 1.5 * (2 ** (attempt - 1)))
+            log(f"  [{puzzle_id}] persist retry {attempt}/{attempts} after retryable error: {exc}")
+            time.sleep(delay)
 
 
 def desired_clue_payloads(puzzle: WorkingPuzzle) -> dict[tuple[str, int, int], dict[str, object]]:
@@ -233,11 +275,13 @@ def apply_redefined_puzzle_persistence(
             detail=f"verified={bool(update.update_payload.get('verified'))}",
         )
         if not dry_run:
-            execute_logged_update(
+            _execute_logged_update_with_retry(
                 supabase,
                 "crossword_clues",
                 update.update_payload,
                 eq_filters={"id": row["id"], "puzzle_id": puzzle_id},
+                puzzle_id=puzzle_id,
+                dry_run=dry_run,
             )
         row.update(update.update_payload)
         row["definition"] = update.canonical_definition

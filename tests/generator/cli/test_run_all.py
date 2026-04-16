@@ -1201,8 +1201,27 @@ class RunAllSupervisorTests(unittest.TestCase):
             self.assertEqual("test_stop", summary["stop_reason"])
             self.assertIn("activation_overhead_seconds", summary)
             self.assertIn("loaded_model_drain_switches", summary)
+            self.assertIn("completed_by_topic", summary)
+            self.assertIn("completions_per_hour", summary)
+            self.assertIn("dominant_failures", summary)
+            self.assertIn("truncations_by_purpose", summary)
+            self.assertIn("truncations_by_model_purpose", summary)
             self.assertIn("definition_rate", summary["llm"]["per_purpose"])
             self.assertIn("retitle", summary["topics"])
+
+    @patch("rebus_generator.workflows.run_all.scheduler.write_summary_snapshot")
+    def test_heartbeat_refreshes_summary_snapshot_periodically(self, mock_snapshot):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["retitle"],
+            topic_caps={"retitle": 1},
+        )
+        supervisor.last_summary_snapshot_at = supervisor.started_at - supervisor.summary_snapshot_seconds - 1
+
+        supervisor._maybe_heartbeat(force=False)
+
+        mock_snapshot.assert_called_once_with(supervisor)
 
 
 class RunAllPreflightTests(unittest.TestCase):

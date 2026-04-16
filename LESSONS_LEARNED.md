@@ -122,6 +122,10 @@
 **[2026-04-05]** Local LLM compare/referee calls must be treated as bounded classification, not open-ended reasoning — for tiny JSON decisions like `clue_compare`, letting Gemma run with reasoning enabled and `max_tokens` in the thousands turns simple pair judgments into long “thinking” traces that dominate end-to-end backfill time. Keep compare prompts on the strictest possible JSON contract, disable reasoning for that purpose, and cap completion budgets to a low triple- or double-digit token range.
 
 ## Process & Workflow
+**[2026-04-17]** Run-local audit dedupe should key off the run id, not just the provider instance — provider-scoped suppression still repeats the same `dex_short_definition_detected` burst across recreated caches. Keep a run-id aware dedupe set, but fall back to per-instance behavior when no run context is active so tests and ad-hoc helpers do not leak state across calls.
+
+**[2026-04-17]** Heartbeat summaries need a snapshot writer separate from the final log line — periodic machine-readable state files are useful during long unattended runs, but the final human summary should stay a one-off. Build one payload helper, write snapshots on a timer, and reserve the closing log for the final status line.
+
 **[2026-04-03]** Final storage cutovers need an explicit audit gate, not just a migration script — before dropping a compatibility column, require one automated check that proves coverage (`NULL` pointer count = 0, effective-view legacy fallbacks = 0, production code has no direct legacy-column reads/writes). Without that gate, “one last migration” turns into follow-up cleanup migrations after the supposedly final cutover.
 
 **[2026-04-05]** Compatibility views must be replaced before dropping the legacy columns they still reference — in a staged schema cutover, the “finalize” migration can fail even after audit passes if it drops a column before `CREATE OR REPLACE VIEW` removes that dependency. Prefer dependency-preserving reorder (`replace view` → `drop column`) over `DROP COLUMN ... CASCADE`, and only consider `CASCADE` after enumerating downstream dependents you are prepared to recreate.

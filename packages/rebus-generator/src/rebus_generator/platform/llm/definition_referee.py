@@ -411,7 +411,7 @@ def choose_better_clue_variant(
             client,
             model=resolved_model,
             messages=[
-                {"role": "system", "content": load_system_prompt("clue_tiebreaker")},
+                {"role": "system", "content": load_system_prompt("clue_tiebreaker", model_id=resolved_model)},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
@@ -437,7 +437,7 @@ def choose_better_puzzle_variant(
             client,
             model=resolved_model,
             messages=[
-                {"role": "system", "content": load_system_prompt("puzzle_tiebreaker")},
+                {"role": "system", "content": load_system_prompt("puzzle_tiebreaker", model_id=resolved_model)},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,

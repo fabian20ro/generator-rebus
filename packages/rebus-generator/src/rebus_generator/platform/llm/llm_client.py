@@ -17,7 +17,11 @@ from rebus_generator.platform.io.runtime_logging import llm_debug_enabled, log
 
 from ..config import LMSTUDIO_BASE_URL
 from .llm_text import clean_llm_text_response
-from .models import PRIMARY_MODEL, chat_reasoning_options
+from .models import (
+    PRIMARY_MODEL,
+    chat_reasoning_options,
+    resolve_reasoning_effort,
+)
 
 RETRY_WITHOUT_THINKING_MAX_TOKENS = 200
 RETRY_WITHOUT_THINKING_MARGIN = 10
@@ -405,6 +409,15 @@ def _adaptive_downgrade_active(model: str, purpose: str) -> bool:
 def _effective_max_tokens(
     *, model: str, purpose: str, requested_max_tokens: int
 ) -> int:
+    # If reasoning is active for this purpose, we MUST NOT cap at short-form tokens.
+    # Reasoning requires a large budget (e.g., 6000) or it will truncate.
+    # We check if reasoning is NOT disabled by the model config or policy.
+    reasoning_options = _effective_reasoning_options(
+        model=model, purpose=purpose, max_tokens=requested_max_tokens
+    )
+    if reasoning_options.get("reasoning_effort") not in (None, "none"):
+        return requested_max_tokens
+
     if not _run_policy_enabled():
         return requested_max_tokens
     return short_form_max_tokens(

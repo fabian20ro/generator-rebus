@@ -36,7 +36,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from rebus_generator.domain.diacritics import normalize
-from .runtime_logging import audit, log, utc_timestamp
+from .runtime_logging import audit, current_run_id, log, utc_timestamp
 
 _USER_AGENT = (
     "Mozilla/5.0 (compatible; generator-rebus/1.0; "
@@ -445,6 +445,7 @@ class DexProvider:
     """
 
     _last_fetch_time: float = 0.0  # class-level: shared across instances
+    _short_definition_audit_keys: set[tuple[str, str]] = set()
 
     def __init__(self, supabase_client=None, local_cache_dir: Path | str | None = _DEFAULT_LOCAL_CACHE_DIR):
         self._sb = supabase_client
@@ -692,6 +693,18 @@ class DexProvider:
             return
         self._uncertain_short_definitions[norm] = entry
         log(f"    [DEX short/uncertain] {norm}: {definition}")
+        run_id = current_run_id()
+        if run_id is None:
+            audit(
+                "dex_short_definition_detected",
+                component="dex_cache",
+                payload={"word": norm, "definition": definition},
+            )
+            return
+        audit_key = (run_id, norm)
+        if audit_key in DexProvider._short_definition_audit_keys:
+            return
+        DexProvider._short_definition_audit_keys.add(audit_key)
         audit(
             "dex_short_definition_detected",
             component="dex_cache",

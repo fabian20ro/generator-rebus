@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from rebus_generator.domain.pipeline_state import ClueCandidateVersion, WorkingClue, all_working_clues, set_current_definition
 from rebus_generator.domain.plateau import has_plateaued
+from rebus_generator.domain.diacritics import normalize
 from rebus_generator.domain.score_helpers import (
     LOCKED_REBUS,
     LOCKED_SEMANTIC,
@@ -70,6 +71,10 @@ class RunAllRewriteRound:
     generation_had_error: dict[str, bool] = field(default_factory=dict)
     generation_rejection_reason: dict[str, str] = field(default_factory=dict)
     evals_by_word: dict[str, list[RewriteCandidateEval]] = field(default_factory=dict)
+
+
+def _definition_key(text: str) -> str:
+    return " ".join((text or "").split()).lower()
 
 
 class RunAllRewriteSession:
@@ -235,14 +240,14 @@ class RunAllRewriteSession:
             clue
             for clue in self.clues()
             if _needs_rewrite(clue, min_rebus=round_min_rebus)
-            # Remove stuck_words check to keep trying for full duration
+            and clue.word_normalized not in self.stuck_words
+            and self.consecutive_failures.get(clue.word_normalized, 0) < MAX_CONSECUTIVE_FAILURES
         ]
         if not candidate_clues:
             self.phase = "done"
             return
 
-        # Remove candidate count limit (MAX_REWRITE_CANDIDATES_PER_ROUND)
-        selected = sorted(candidate_clues, key=_rewrite_priority)
+        selected = sorted(candidate_clues, key=_rewrite_priority)[:MAX_REWRITE_CANDIDATES_PER_ROUND]
         round_state = RunAllRewriteRound(
             round_index=self.round_index,
             round_min_rebus=round_min_rebus,
@@ -369,7 +374,7 @@ class RunAllRewriteSession:
             return
         definition = str(payload.get("definition") or "").strip()
         rejection_reason = str(payload.get("rejection_reason") or "")
-        if not definition or definition == clue.current.definition:
+        if not definition or _definition_key(definition) == _definition_key(clue.current.definition):
             if rejection_reason:
                 self.current_round.generation_rejection_reason[word] = rejection_reason
             return
@@ -494,6 +499,7 @@ class RunAllRewriteSession:
     def evaluation_rate_units(self, unit_factory) -> list[object]:
         if self.current_round is None:
             return []
+        primary_model_id = self.model_order[0]
         for model_id in self.model_order:
             pending: list[tuple[WorkingClue, RewriteCandidateEval]] = []
             for word, evals in self.current_round.evals_by_word.items():
@@ -501,6 +507,11 @@ class RunAllRewriteSession:
                 for evaluation in evals:
                     if model_id in evaluation.rate_done_models:
                         continue
+                    if model_id == primary_model_id:
+                        verify_votes = evaluation.candidate.assessment.verify_votes.get(primary_model_id, [])
+                        if clue.word_normalized not in [normalize(candidate) for candidate in verify_votes]:
+                            evaluation.rate_done_models.update(self.model_order)
+                            continue
                     pending.append((clue, evaluation))
             if pending:
                 return [
@@ -600,7 +611,10 @@ class RunAllRewriteSession:
     def _note_generation_failure(self, word: str, *, had_error: bool, rejection_reason: str) -> None:
         self.outcomes[word].had_error = self.outcomes[word].had_error or had_error
         self.consecutive_failures[word] = self.consecutive_failures.get(word, 0) + 1
-        # Quarantine disabled: keep trying for the full duration of the available rounds
+        if self.consecutive_failures[word] >= MAX_CONSECUTIVE_FAILURES:
+            if word not in self.stuck_words:
+                log(f"  {word}: quarantined after {self.consecutive_failures[word]} unchanged rounds")
+            self.stuck_words.add(word)
         if rejection_reason:
             for clue in self.clues():
                 if clue.word_normalized == word:

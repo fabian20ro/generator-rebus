@@ -6,6 +6,8 @@ from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.domain.pipeline_state import ClueAssessment, ClueScores, PuzzleAssessment
 from rebus_generator.domain.puzzle_metrics import PuzzleEvaluationResult
 from rebus_generator.workflows.redefine.service import build_parser
+from rebus_generator.workflows.redefine.load import PlannedClueUpdate, RedefinePersistencePlan
+from rebus_generator.workflows.redefine.persist import apply_redefined_puzzle_persistence
 from rebus_generator.workflows.redefine.runtime import (
     REDEFINE_ROUNDS,
     build_working_puzzle,
@@ -217,6 +219,56 @@ class FetchPuzzlesTests(unittest.TestCase):
         self.assertEqual("abc", result[0]["id"])
         mock_query.gte.assert_called_once_with("created_at", "2026-03-15T00:00:00")
         mock_query.lte.assert_called_once_with("created_at", "2026-03-15T23:59:59")
+
+
+class PersistenceRetryTests(unittest.TestCase):
+    @patch("rebus_generator.workflows.redefine.persist.time.sleep", return_value=None)
+    @patch("rebus_generator.workflows.redefine.persist.execute_logged_update")
+    def test_apply_redefined_puzzle_persistence_retries_retryable_supabase_errors(self, mock_update, _mock_sleep):
+        mock_update.side_effect = [
+            Exception("500 JSON could not be generated"),
+            Exception("500 JSON could not be generated"),
+            None,
+        ]
+        puzzle_row = {"id": "puzzle-1"}
+        clue_rows = [{
+            "id": "clue-1",
+            "puzzle_id": "puzzle-1",
+            "definition": "veche",
+            "verify_note": "",
+            "verified": False,
+        }]
+        plan = RedefinePersistencePlan(
+            clue_updates=[
+                PlannedClueUpdate(
+                    row_id="clue-1",
+                    clue_ref="H1",
+                    candidate_definition="veche",
+                    canonical_definition="noua",
+                    update_payload={
+                        "definition": "noua",
+                        "verify_note": "",
+                        "verified": True,
+                        "canonical_definition_id": "canon-1",
+                    },
+                    canonical_action="merge",
+                    canonical_detail=None,
+                )
+            ],
+            metadata_payload=None,
+        )
+
+        updated = apply_redefined_puzzle_persistence(
+            MagicMock(),
+            puzzle_row,
+            clue_rows,
+            plan,
+            dry_run=False,
+        )
+
+        self.assertEqual(1, updated)
+        self.assertEqual("noua", clue_rows[0]["definition"])
+        self.assertEqual(3, mock_update.call_count)
 
     def test_fetch_puzzles_by_id(self):
         mock_supabase = MagicMock()

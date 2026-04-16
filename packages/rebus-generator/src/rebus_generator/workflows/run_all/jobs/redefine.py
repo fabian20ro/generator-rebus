@@ -41,6 +41,7 @@ class RedefineJobState(JobState):
         self.clue_rows: list[dict] = []
         self.baseline_puzzle = None
         self.candidate_puzzle = None
+        self.dex_provider: DexProvider | None = None
         self.baseline_verify_done: dict[str, set[str]] = {}
         self.baseline_rate_done: dict[str, set[str]] = {}
         self.rewrite_session: RunAllRewriteSession | None = None
@@ -75,6 +76,7 @@ class RedefineJobState(JobState):
                     ]
             return [self._non_llm_step("baseline_verify_finalize", "redefine_baseline_verify_finalize", self._baseline_verify_finalize)]
         if self.stage == "baseline_rate":
+            dex = self._ensure_dex_provider()
             for model_id in self._model_order(ctx):
                 pending = [clue for clue in self._baseline_clues() if clue.word_normalized not in self.baseline_rate_done.get(model_id, set())]
                 if pending:
@@ -86,7 +88,7 @@ class RedefineJobState(JobState):
                             lambda _ctx, clue=clue, model_id=model_id: rate_clue_with_model(
                                 clue,
                                 _ctx.ai_client,
-                                dex=DexProvider.for_puzzle(self.baseline_puzzle),
+                                dex=dex,
                                 model_id=model_id,
                             ),
                         )
@@ -113,6 +115,7 @@ class RedefineJobState(JobState):
             return self._complete(0, detail="no_clues")
         self.baseline_puzzle = build_working_puzzle(self.puzzle_row, self.clue_rows)
         self.candidate_puzzle = build_working_puzzle(self.puzzle_row, self.clue_rows)
+        self.dex_provider = DexProvider.for_puzzle(self.baseline_puzzle)
         theme = getattr(self.candidate_puzzle, "title", None) or self.puzzle_row.get("title") or "Puzzle rebus"
         self.rewrite_session = RunAllRewriteSession(
             puzzle=self.candidate_puzzle,
@@ -120,7 +123,7 @@ class RedefineJobState(JobState):
             theme=theme,
             rounds=ctx.redefine_rounds,
             multi_model=ctx.multi_model,
-            dex=DexProvider.for_puzzle(self.candidate_puzzle),
+            dex=self._ensure_dex_provider(),
             verify_candidates=ctx.verify_candidates,
             hybrid_deanchor=True,
             runtime=ctx.runtime,
@@ -144,6 +147,12 @@ class RedefineJobState(JobState):
 
     def _baseline_clues(self):
         return self.baseline_puzzle.horizontal_clues + self.baseline_puzzle.vertical_clues
+
+    def _ensure_dex_provider(self) -> DexProvider:
+        assert self.baseline_puzzle is not None
+        if self.dex_provider is None:
+            self.dex_provider = DexProvider.for_puzzle(self.baseline_puzzle)
+        return self.dex_provider
 
     def _model_order(self, ctx):
         return [PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id] if ctx.multi_model else [PRIMARY_MODEL.model_id]

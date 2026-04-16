@@ -379,6 +379,22 @@ class CreativeTitleTests(unittest.TestCase):
         self.assertGreaterEqual(len(gen_client.calls), 3)
         self.assertNotIn("(gol)", gen_client.calls[-1]["messages"][-1]["content"])
 
+    def test_single_model_title_rating_stays_on_primary_model(self):
+        runtime = _FakeRuntime()
+        gen_client = _TraceClient(runtime, content="Orizont Calm")
+        result = generate_creative_title_result(
+            ["AER", "MUNTE"],
+            ["Gaz din atmosferă", "Formă de relief"],
+            client=gen_client,
+            rate_client=_fake_rate_client(8),
+            runtime=runtime,
+            multi_model=False,
+        )
+        self.assertEqual("Orizont Calm", result.title)
+        self.assertTrue(result.score_complete)
+        self.assertEqual(8, result.score)
+        self.assertNotIn("secondary", runtime.trace)
+
     def test_retries_on_low_score(self):
         runtime = _FakeRuntime()
         title = generate_creative_title(

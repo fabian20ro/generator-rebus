@@ -158,11 +158,15 @@ def _response_source(response) -> str:
     return str(getattr(response, "_response_source", RESPONSE_SOURCE_REASONING))
 
 
-def compute_rebus_score(guessability: int, creativity: int) -> int:
+def compute_rebus_score(guessability: int, creativity: int, answer_length: int = 5) -> int:
+    # 2-3 letters: 50/50 balance (high creativity reward)
+    if answer_length <= 3:
+        return round_half_up(0.5 * guessability + 0.5 * creativity)
+    # 7+ letters: 90/10 balance (precision priority)
+    if answer_length >= 7:
+        return round_half_up(0.9 * guessability + 0.1 * creativity)
+    # 4-6 letters: 75/25 balance (standard)
     return round_half_up(0.75 * guessability + 0.25 * creativity)
-
-
-
 
 
 def generate_definition(
@@ -186,14 +190,15 @@ def generate_definition(
     prompt = _append_existing_canonical_definitions(
         prompt, existing_canonical_definitions
     )
-    system_prompt = load_system_prompt("definition")
+    resolved_model = _resolve_model_name(model)
+    system_prompt = load_system_prompt("definition", model_id=resolved_model)
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
-    log(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
-    log(f"  [LLM user prompt]\n{prompt}")
+    if llm_debug_enabled():
+        log(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
+        log(f"  [LLM user prompt]\n{prompt}")
 
     for attempt in range(retries):
         try:
-            resolved_model = _resolve_model_name(model)
             max_tokens = chat_max_tokens(resolved_model)
             response = _chat_completion_create(
                 client,
@@ -202,7 +207,7 @@ def generate_definition(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=temperature if temperature is not None else 0.2,
+                temperature=temperature if temperature is not None else 0.4,
                 max_tokens=max_tokens,
                 purpose="definition_generate",
             )
@@ -283,10 +288,12 @@ def rewrite_definition(
     prompt = _append_existing_canonical_definitions(
         prompt, existing_canonical_definitions
     )
-    system_prompt = load_system_prompt("rewrite")
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
-    log(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
-    log(f"  [LLM user prompt]\n{prompt}")
+    resolved_model = _resolve_model_name(model)
+    system_prompt = load_system_prompt("rewrite", model_id=resolved_model)
+    if llm_debug_enabled():
+        log(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
+        log(f"  [LLM user prompt]\n{prompt}")
 
     last_rejection = ""
     for attempt in range(retries):
@@ -362,9 +369,10 @@ def verify_definition_candidates(
             client,
             model=resolved_model,
             messages=[
-                {"role": "system", "content": load_system_prompt("verify")},
+                {"role": "system", "content": load_system_prompt("verify", model_id=resolved_model)},
                 {"role": "user", "content": prompt},
             ],
+
             temperature=0.0,
             max_tokens=max_tokens,
             purpose="definition_verify",
@@ -408,11 +416,11 @@ def rate_definition(
         word_type=word_type,
         dex_definitions=dex_definitions,
     )
-    system_prompt = load_system_prompt("rate")
+    resolved_model = _resolve_model_name(model)
+    system_prompt = load_system_prompt("rate", model_id=resolved_model).replace("{answer_length}", str(answer_length))
 
     for attempt in range(2):
         try:
-            resolved_model = _resolve_model_name(model)
             max_tokens = min(chat_max_tokens(resolved_model), RATE_MAX_TOKENS)
             response = _chat_completion_create(
                 client,

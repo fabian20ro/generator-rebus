@@ -5,6 +5,8 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from rebus_generator.platform.llm.models import get_model_config
+
 
 _PROMPTS_ROOT = Path(__file__).resolve().parent
 _SYSTEM_PATHS = {
@@ -31,13 +33,26 @@ _USER_PATHS = {
 }
 
 
+def _resolve_model_prompt_path(base_path: Path, model_name: str | None) -> Path:
+    if not model_name:
+        return base_path
+    config = get_model_config(model_name)
+    if not config:
+        return base_path
+    model_specific_name = f"{base_path.stem}_{config.display_name}{base_path.suffix}"
+    model_path = base_path.parent / model_specific_name
+    return model_path if model_path.exists() else base_path
+
+
 @lru_cache(maxsize=32)
-def load_system_prompt(name: str) -> str:
+def load_system_prompt(name: str, model_id: str | None = None) -> str:
     path = _SYSTEM_PATHS[name]
+    path = _resolve_model_prompt_path(path, model_id)
     return path.read_text(encoding="utf-8").strip()
 
 
 @lru_cache(maxsize=32)
-def load_user_template(name: str) -> str:
+def load_user_template(name: str, model_id: str | None = None) -> str:
     path = _USER_PATHS[name]
+    path = _resolve_model_prompt_path(path, model_id)
     return path.read_text(encoding="utf-8").strip()

@@ -81,10 +81,10 @@ def rate_title_creativity(
     return 0, "parse error"
 
 
-def _pair_rating_runtime(runtime: LmRuntime | None) -> LmRuntime:
-    if runtime is not None and getattr(runtime, "multi_model", True):
+def _rating_runtime(runtime: LmRuntime | None, *, multi_model: bool) -> LmRuntime:
+    if runtime is not None:
         return runtime
-    return LmRuntime(multi_model=True)
+    return LmRuntime(multi_model=multi_model)
 
 
 def _combine_title_feedback(first: str, second: str) -> str:
@@ -117,7 +117,7 @@ def _title_rating_runner(client):
     return _run
 
 
-def _title_rating_conclusion(item: WorkItem[_TitleRatingPayload, tuple[int, str]]) -> WorkConclusion:
+def _title_rating_conclusion(item: WorkItem[_TitleRatingPayload, tuple[int, str]], *, expected_votes: int) -> WorkConclusion:
     if any(vote.terminal for vote in item.votes.values()):
         return WorkConclusion(
             failed=True,
@@ -126,7 +126,7 @@ def _title_rating_conclusion(item: WorkItem[_TitleRatingPayload, tuple[int, str]
                 "evaluare incompletă",
             ),
         )
-    if len(item.votes) >= 2:
+    if len(item.votes) >= expected_votes:
         return WorkConclusion(complete=True)
     return WorkConclusion()
 
@@ -135,9 +135,12 @@ def rate_title_creativity_batch(
     titles: list[tuple[str, str, list[str]]],
     client,
     *,
+    multi_model: bool,
     runtime: LmRuntime | None = None,
 ) -> dict[str, TitleRatingResult]:
-    active_models = list(get_active_models(multi_model=True))
+    active_models = list(get_active_models(multi_model=multi_model))
+    expected_votes = len(active_models)
+    pair_mode = multi_model and expected_votes >= 2
     items = [
         WorkItem[_TitleRatingPayload, tuple[int, str]](
             item_id=item_id,
@@ -148,11 +151,16 @@ def rate_title_creativity_batch(
         for item_id, title, words in titles
     ]
     run_llm_workload(
-        runtime=_pair_rating_runtime(runtime),
+        runtime=_rating_runtime(runtime, multi_model=multi_model),
         models=active_models,
         items=items,
         steps=[
-            WorkStep(model_id=model.model_id, purpose="title_rate", runner=_title_rating_runner(client), can_conclude=_title_rating_conclusion)
+            WorkStep(
+                model_id=model.model_id,
+                purpose="title_rate",
+                runner=_title_rating_runner(client),
+                can_conclude=lambda item, expected_votes=expected_votes: _title_rating_conclusion(item, expected_votes=expected_votes),
+            )
             for model in active_models
         ],
         task_label="title_rate",
@@ -165,6 +173,24 @@ def rate_title_creativity_batch(
             for model_id in ordered_ids
             if model_id in item.votes and item.votes[model_id].value is not None
         }
+        if not pair_mode:
+            if len(votes) != 1:
+                results[item.item_id] = TitleRatingResult(
+                    0,
+                    item.terminal_reason or "evaluare incompletă",
+                    False,
+                    {model_id: value for model_id, value in votes.items() if value is not None},
+                )
+                continue
+            model_id = ordered_ids[0]
+            score, feedback = votes[model_id]
+            results[item.item_id] = TitleRatingResult(
+                score=score,
+                feedback=feedback,
+                complete=True,
+                votes={model_id: votes[model_id]},
+            )
+            continue
         if len(votes) != 2:
             results[item.item_id] = TitleRatingResult(
                 0,
@@ -191,4 +217,4 @@ def rate_title_creativity_pair(
     *,
     runtime: LmRuntime | None = None,
 ) -> TitleRatingResult:
-    return rate_title_creativity_batch([("single", title, words)], client, runtime=runtime)["single"]
+    return rate_title_creativity_batch([("single", title, words)], client, multi_model=True, runtime=runtime)["single"]

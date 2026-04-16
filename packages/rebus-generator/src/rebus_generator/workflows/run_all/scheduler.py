@@ -21,6 +21,7 @@ from .reporting import (
     maybe_heartbeat,
     maybe_raise_stall,
     queue_snapshot_text,
+    write_summary_snapshot,
     write_summary_artifacts,
 )
 from .state import (
@@ -85,6 +86,8 @@ class RunAllSupervisor:
         self.last_completion_at = self.started_at
         self.last_progress_at = self.started_at
         self.last_heartbeat_at = 0.0
+        self.last_summary_snapshot_at = self.started_at
+        self.summary_snapshot_seconds = 300.0
         initial_load_seconds = float(getattr(self.ctx.runtime, "activation_seconds_total", 0.0)) + float(
             getattr(self.ctx.runtime, "unload_seconds_total", 0.0)
         )
@@ -675,6 +678,10 @@ class RunAllSupervisor:
 
     def _maybe_heartbeat(self, *, force: bool) -> None:
         maybe_heartbeat(self, force=force)
+        now = time.monotonic()
+        if force or (now - self.last_summary_snapshot_at) >= self.summary_snapshot_seconds:
+            write_summary_snapshot(self)
+            self.last_summary_snapshot_at = now
 
     def _dominant_failure_global_text(self) -> str:
         return dominant_failure_global_text(self)

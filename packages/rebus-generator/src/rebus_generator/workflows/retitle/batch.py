@@ -167,6 +167,7 @@ def _rate_batch_candidates(
     rating_results = rate_title_creativity_batch(
         [(state.puzzle_id, title, state.words) for state, title in candidates],
         rate_client,
+        multi_model=multi_model,
         runtime=runtime,
     )
 

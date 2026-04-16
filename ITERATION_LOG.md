@@ -1402,3 +1402,9 @@
 **Outcome:** success
 **Insight:** wrapper session classes in unattended flows need a stable finish contract or must never be passed to helpers written for another session type; late-stage persist code is where these interface mismatches surface.
 **Promoted:** yes — see LESSONS_LEARNED entry on session-wrapper finish contracts.
+
+### [2026-04-17] — run_all efficiency and reliability pass
+**Context:** user asked for a quality-preserving optimization pass around the active `run_all` run, with focus on DEX churn, title-mode behavior, logging, retryability, and rewrite waste.
+**Happened:** Hoisted puzzle-scoped DEX providers into `GenerateJobState` and `RedefineJobState` so clue-level generation/rating helpers reuse one provider per job. Made title rating respect `multi_model=False` instead of silently switching to pair mode on the shared runtime, and updated title generation tests to cover the single-model path. Gated full prompt-body logging in `ai_clues.py` behind `--debug`, changed failure logging to preserve newline-separated warning/error entries, and added periodic summary snapshot writes during `run_all` heartbeats. Added retry/backoff for redefine persistence updates on retryable Supabase 500-style failures. Reintroduced bounded rewrite candidate fan-out in `RunAllRewriteSession`, skipped rating for candidates whose primary verify does not contain the answer, and quarantined words after repeated unchanged rounds. Added tests for prompt logging, title single-model behavior, DEX audit dedupe, summary snapshots, and persistence retries.
+**Verification:** not run yet in this pass; next step is targeted unit tests around touched modules.
+**Outcome:** in progress

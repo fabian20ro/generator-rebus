@@ -106,8 +106,17 @@ def validate_definition_text(word: str, definition: str) -> str | None:
         return "single-word gloss"
     if _last_word(clean_definition) in DANGLING_ENDING_MARKERS:
         return "dangling ending"
-    if _definition_mentions_answer(word, clean_definition) or clue_uses_same_family(word, clean_definition):
+    
+    mentions_answer = _definition_mentions_answer(word, clean_definition)
+    same_family = clue_uses_same_family(word, clean_definition)
+    
+    if mentions_answer or same_family:
+        if len(word) <= 3:
+            # For short words, we flag but don't reject. 
+            # The LLM judge will decide if it's a showstopper.
+            return None 
         return "contains answer or family word"
+        
     if contains_english_markers(clean_definition):
         return "English markers detected"
     if definition_describes_english_meaning(word, clean_definition):

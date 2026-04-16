@@ -150,6 +150,7 @@ class IsExpiredTests(unittest.TestCase):
 class DexProviderMemoryOnlyTests(unittest.TestCase):
     def setUp(self):
         DexProvider._last_fetch_time = 0.0  # reset class-level state
+        DexProvider._short_definition_audit_keys.clear()
         self.dex = DexProvider(local_cache_dir=None)  # no supabase client
 
     def test_lookup_unknown_returns_none(self):
@@ -513,6 +514,7 @@ class DexProviderLocalDiskCacheTests(unittest.TestCase):
 class DexProviderFetchStoreTests(unittest.TestCase):
     def setUp(self):
         DexProvider._last_fetch_time = 0.0  # reset class-level state
+        DexProvider._short_definition_audit_keys.clear()
 
     def test_get_stores_in_supabase_after_fetch(self):
         sb = _mock_supabase_with_rows([])  # nothing cached
@@ -765,6 +767,23 @@ class DexProviderPrefetchBatchTests(unittest.TestCase):
         dex = DexProvider(sb, local_cache_dir=None)
         result = dex.prefetch(["CASA", "CASA", "CASA"], fetch_missing=False)
         self.assertEqual(len(result), 1)
+
+
+class DexProviderAuditTests(unittest.TestCase):
+    def setUp(self):
+        DexProvider._short_definition_audit_keys.clear()
+
+    def test_short_definition_audit_is_deduped_per_run_and_word(self):
+        dex1 = DexProvider(local_cache_dir=None)
+        dex2 = DexProvider(local_cache_dir=None)
+        with (
+            patch("rebus_generator.platform.io.dex_cache.current_run_id", return_value="run-1"),
+            patch("rebus_generator.platform.io.dex_cache.audit") as mock_audit,
+        ):
+            dex1._remember_uncertain_short_definition("CASA", "Diminutiv al lui cas")
+            dex2._remember_uncertain_short_definition("CASA", "Diminutiv al lui cas")
+
+        self.assertEqual(1, mock_audit.call_count)
 
 
 if __name__ == "__main__":

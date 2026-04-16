@@ -51,6 +51,7 @@ class GenerateJobState(JobState):
         self.candidate = None
         self.resolved_metadata: dict[str, dict[str, object]] = {}
         self.working_puzzle = None
+        self.dex_provider: DexProvider | None = None
         self.define_done_words: set[str] = set()
         self.first_passed = 0
         self.final_passed = 0
@@ -70,6 +71,7 @@ class GenerateJobState(JobState):
             return [self._background_step("fill_grid", "generate_fill_grid", self._fill_grid)]
         if self.stage == "define_initial":
             state = self._ensure_define_state()
+            dex = self._ensure_dex_provider()
             pending = [
                 clue
                 for clue in state.horizontal_clues + state.vertical_clues
@@ -85,7 +87,7 @@ class GenerateJobState(JobState):
                             clue,
                             _ctx.ai_client,
                             theme=self._ensure_define_state().title or "Rebus Românesc",
-                            dex=DexProvider.for_puzzle(self._ensure_define_state()),
+                            dex=dex,
                             model_config=PRIMARY_MODEL,
                         ),
                     )
@@ -130,6 +132,7 @@ class GenerateJobState(JobState):
             self.candidate.metadata,
         )
         self.working_puzzle = puzzle
+        self.dex_provider = DexProvider.for_puzzle(self.working_puzzle)
         self.define_done_words = set()
         self.rewrite_session = None
         self._progress("define_initial", detail=f"attempt={self.attempt_index}/{self.effective_attempts}")
@@ -145,6 +148,12 @@ class GenerateJobState(JobState):
             clue.word_type = word_meta.get("word_type", "")
         self.working_puzzle = state
         return state
+
+    def _ensure_dex_provider(self) -> DexProvider:
+        state = self._ensure_define_state()
+        if self.dex_provider is None:
+            self.dex_provider = DexProvider.for_puzzle(state)
+        return self.dex_provider
 
     def apply_unit_result(self, unit, result, ctx) -> None:
         if unit.purpose == "generate_define_initial":
@@ -175,7 +184,7 @@ class GenerateJobState(JobState):
             rounds=ctx.generate_rewrite_rounds,
             theme=self.working_puzzle.title or "Puzzle intern",
             multi_model=ctx.multi_model,
-            dex=DexProvider.for_puzzle(self.working_puzzle),
+            dex=self._ensure_dex_provider(),
             verify_candidates=ctx.verify_candidates,
             hybrid_deanchor=False,
             runtime=ctx.runtime,

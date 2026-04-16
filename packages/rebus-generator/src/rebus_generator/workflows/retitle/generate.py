@@ -226,7 +226,7 @@ def generate_creative_title_result(
 
     best_result: TitleGenerationResult | None = None
     rejected: list[tuple[str, str]] = []
-    rejected_by_model = {model.model_id: [] for model in get_active_models(multi_model=True)}
+    rejected_by_model = {model.model_id: [] for model in get_active_models(multi_model=multi_model)}
     forbidden_keys = {key for key in (forbidden_title_keys or []) if key}
     for round_idx in range(1, MAX_TITLE_ROUNDS + 1):
         round_candidates: list[tuple[str, ModelConfig, TitleCandidateReview]] = []
@@ -335,7 +335,7 @@ def generate_creative_title_result(
 
         # Phase 3: Batch Rating
         batch_input = [(f"r{round_idx}_{i}", title, words) for i, (title, _, _) in enumerate(round_candidates)]
-        ratings = rate_title_creativity_batch(batch_input, rate_client, runtime=runtime)
+        ratings = rate_title_creativity_batch(batch_input, rate_client, multi_model=multi_model, runtime=runtime)
 
         for i, (title, generator_model, reviewed) in enumerate(round_candidates):
             rating = ratings.get(f"r{round_idx}_{i}")

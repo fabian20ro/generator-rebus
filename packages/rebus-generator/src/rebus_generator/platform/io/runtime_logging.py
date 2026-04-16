@@ -53,6 +53,8 @@ class TimestampedWriter:
         self._streams = list(streams)
         self._failure_stream = failure_stream
         self._at_line_start = True
+        self._failure_buffer = ""
+        self._failure_line_is_failure = False
 
     def write(self, data: str) -> int:
         if not data:
@@ -71,6 +73,9 @@ class TimestampedWriter:
         for stream in self._streams:
             stream.flush()
         if self._failure_stream is not None:
+            if self._failure_buffer:
+                self._failure_stream.write(self._failure_buffer)
+                self._failure_buffer = ""
             self._failure_stream.flush()
 
     def isatty(self) -> bool:
@@ -84,15 +89,21 @@ class TimestampedWriter:
             rendered = _ensure_level_prefix(text)
             if text != "\n" and not _TIMESTAMP_PREFIX_RE.match(text):
                 rendered = f"{human_timestamp()} {rendered}"
-        
+
         for stream in self._streams:
             stream.write(rendered)
             stream.flush()
-            
-        if self._failure_stream is not None and ("WARN" in rendered or "ERROR" in rendered or "CRITICAL" in rendered):
-            self._failure_stream.write(rendered)
-            self._failure_stream.flush()
-            
+
+        chunk_is_failure = "WARN" in rendered or "ERROR" in rendered or "CRITICAL" in rendered
+        if self._failure_stream is not None and (self._failure_line_is_failure or chunk_is_failure):
+            self._failure_buffer += rendered
+            self._failure_line_is_failure = True
+            if text.endswith("\n"):
+                self._failure_stream.write(self._failure_buffer)
+                self._failure_stream.flush()
+                self._failure_buffer = ""
+                self._failure_line_is_failure = False
+
         self._at_line_start = text.endswith("\n")
 
 
@@ -226,6 +237,13 @@ def set_llm_debug_enabled(enabled: bool) -> None:
 
 def llm_debug_enabled() -> bool:
     return _LLM_DEBUG_ENABLED
+
+
+def current_run_id() -> str | None:
+    state = _STATE
+    if state is None:
+        return None
+    return state.run_id
 
 
 def audit(event: str, *, component: str | None = None, payload: dict | None = None) -> None:
