@@ -1421,3 +1421,11 @@
 **Verification:** `pytest tests/generator/domain/test_short_word_guard_bypass.py tests/generator/domain/test_clue_family.py tests/generator/platform/test_clue_canon_store.py tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py` (`112 passed`); `pytest tests/generator/workflows/test_clue_canon_simplify.py` (`15 passed`); `pytest tests/generator/domain/test_puzzle_metrics.py` (`4 passed`).
 **Outcome:** success
 **Insight:** strict short-word leakage enforcement needs a validator-local guard rather than relaxing the shared family matcher globally; promoted to `LESSONS_LEARNED.md`.
+
+### [2026-04-18] — Frontend completion overlay reset for puzzle switches
+**Context:** user reported that after solving a puzzle, closing the completion popup, and opening another unsolved puzzle, the stale `REZOLVAT` stamp still covered the new puzzle until full page refresh.
+**Happened:** Traced the bug to `apps/frontend/src/app/bootstrap.ts`: solve flow showed `#stamp-container` and modal, but no navigation/load path ever cleared that transient UI. Extracted a small `completion-overlay` helper to centralize reset/show behavior, cached `stampContainer` once in bootstrap, and now reset overlay state before tab/list transitions and at the start of puzzle loads. Updated solve flow to replay the stamp animation from a clean state and added a focused `jsdom` regression test for reset/replay behavior. Added `jest-environment-jsdom` as a frontend dev dependency for that test.
+**Verification:** `npm test -- --runInBand` (`21 passed`); `npm run build` (success) in `apps/frontend`.
+**Outcome:** success
+**Insight:** transient celebration UI needs an explicit reset on every context switch; if display state is not derived from puzzle state, centralize cleanup instead of relying on later renders to overwrite it.
+**Promoted:** no

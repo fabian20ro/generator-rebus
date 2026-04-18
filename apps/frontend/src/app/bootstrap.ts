@@ -32,6 +32,10 @@ import {
   renderPuzzleList,
 } from "../features/puzzle-browser/puzzle-selector";
 import {
+  resetCompletionOverlay,
+  showCompletionCelebration,
+} from "../features/gamification/completion-overlay";
+import {
   revealLetter,
   revealWord,
   checkPuzzle,
@@ -94,6 +98,7 @@ const btnHintWord = document.getElementById("btn-hint-word")!;
 const btnBack = document.getElementById("btn-back")!;
 const completionModal = document.getElementById("completion-modal")!;
 const btnCloseModal = document.getElementById("btn-close-modal")!;
+const stampContainer = document.getElementById("stamp-container")!;
 const definitionBar = document.getElementById("definition-bar")!;
 const headerPoints = document.getElementById("header-points")!;
 const statsPanel = document.getElementById("stats-panel")!;
@@ -111,6 +116,11 @@ const touchRemoteDirection = document.getElementById(
 const touchRemoteButtons = Array.from(
   touchRemote.querySelectorAll<HTMLButtonElement>("button")
 );
+const completionOverlay = {
+  completionModal,
+  stampContainer,
+  completionDetails,
+};
 
 // --- State ---
 let gridState: GridState | null = null;
@@ -373,6 +383,7 @@ function renderCurrentTab(): void {
 
 function showTab(tab: AppTab): void {
   saveCurrentProgress();
+  resetCompletionOverlay(completionOverlay);
   activeTab = tab;
   gridState = null;
   currentPuzzleId = null;
@@ -663,6 +674,7 @@ function updateProgressCounter(state: GridState): void {
 function handleCompletion(): void {
   if (!currentPuzzleId || !gridState) return;
   if (isPuzzleAlreadySolved(currentPuzzleId)) {
+    resetCompletionOverlay(completionOverlay);
     completionDetails.innerHTML = "<p>Ai rezolvat deja acest rebus!</p>";
     completionModal.classList.remove("hidden");
     return;
@@ -703,13 +715,6 @@ function handleCompletion(): void {
   const newBadges = badgesAfter.filter((b) => !badgesBefore.has(b.id));
 
   // Trigger REZOLVAT stamp
-  const stampContainer = document.getElementById("stamp-container");
-  if (stampContainer) {
-    stampContainer.classList.remove("hidden");
-    stampContainer.classList.add("animate-stamp");
-    console.log("PUZZLE SOLVED: REZOLVAT!");
-  }
-
   // Build completion modal content
   const timeStr = formatTime(timeSeconds);
   let html = `
@@ -735,7 +740,8 @@ function handleCompletion(): void {
   }
 
   completionDetails.innerHTML = html;
-  completionModal.classList.remove("hidden");
+  showCompletionCelebration(completionOverlay);
+  console.log("PUZZLE SOLVED: REZOLVAT!");
 
   // Confetti celebration
   confetti({ particleCount: 80, spread: 70, origin: { x: 0.3, y: 0.6 } });
@@ -747,6 +753,7 @@ function handleCompletion(): void {
 async function loadPuzzle(id: string): Promise<void> {
   try {
     puzzleListScrollY = window.scrollY;
+    resetCompletionOverlay(completionOverlay);
     const alreadySolved = isPuzzleAlreadySolved(id);
 
     // Fetch puzzle and solution in parallel
@@ -859,6 +866,7 @@ async function loadPuzzle(id: string): Promise<void> {
 
 // --- Show puzzle list ---
 async function showPuzzleList(): Promise<void> {
+  resetCompletionOverlay(completionOverlay);
   gridState = null;
   currentPuzzleId = null;
   puzzleView.classList.add("hidden");
