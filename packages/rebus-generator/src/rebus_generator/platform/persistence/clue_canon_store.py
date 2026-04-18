@@ -578,6 +578,57 @@ class ClueCanonStore:
                 offset += _CLUE_PAGE_SIZE
         return rows
 
+    def fetch_clue_rows_for_canonical_ids(
+        self,
+        canonical_ids: list[str],
+        *,
+        extra_fields: tuple[str, ...] = (),
+    ) -> list[dict]:
+        if self.client is None:
+            return []
+        unique_ids = sorted({
+            str(canonical_id or "").strip()
+            for canonical_id in canonical_ids
+            if str(canonical_id or "").strip()
+        })
+        if not unique_ids:
+            return []
+        select_fields = [
+            "id",
+            "puzzle_id",
+            "canonical_definition_id",
+            "word_normalized",
+            "word_original",
+            "word_type",
+            "verify_note",
+            "verified",
+            "definition",
+        ]
+        for field in extra_fields:
+            if field not in select_fields:
+                select_fields.append(field)
+        rows: list[dict] = []
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            batch = (
+                self.client.table("crossword_clue_effective")
+                .select(", ".join(select_fields))
+                .in_("canonical_definition_id", chunk)
+                .execute()
+                .data
+                or []
+            )
+            rows.extend(batch)
+        rows.sort(
+            key=lambda row: (
+                str(row.get("canonical_definition_id") or ""),
+                0 if str(row.get("verify_note") or "").strip() else 1,
+                0 if bool(row.get("verified")) else 1,
+                str(row.get("id") or ""),
+            )
+        )
+        return rows
+
     def count_clue_rows(
         self,
         *,

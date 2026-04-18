@@ -193,6 +193,33 @@ class ClueCanonStoreTests(unittest.TestCase):
         self.assertEqual(1, len(rows))
         self.assertEqual("LA", rows[0].word_normalized)
 
+    def test_fetch_clue_rows_for_canonical_ids_returns_sorted_rows(self):
+        client = MagicMock()
+        query = MagicMock()
+        query.in_.return_value = query
+        query.execute.return_value = SimpleNamespace(data=[
+            {
+                "id": "c2",
+                "canonical_definition_id": "canon-2",
+                "verify_note": "",
+                "verified": False,
+                "definition": "Def 2",
+            },
+            {
+                "id": "c1",
+                "canonical_definition_id": "canon-1",
+                "verify_note": "Scor semantic: 8/10",
+                "verified": True,
+                "definition": "Def 1",
+            },
+        ])
+        client.table.return_value.select.return_value = query
+        store = ClueCanonStore(client=client)
+
+        rows = store.fetch_clue_rows_for_canonical_ids(["canon-2", "canon-1"])
+
+        self.assertEqual(["canon-1", "canon-2"], [row["canonical_definition_id"] for row in rows])
+
     @patch("rebus_generator.platform.persistence.clue_canon_store.execute_logged_insert")
     def test_create_canonical_definition_recovers_from_duplicate_conflict_via_exact_db_reload(self, mock_insert):
         client = MagicMock()

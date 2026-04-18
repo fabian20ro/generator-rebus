@@ -18,6 +18,7 @@ from rebus_generator.workflows.redefine.persist import (
     plan_redefined_puzzle_persistence,
     resolve_redefined_puzzle_canonicals,
 )
+from rebus_generator.workflows.redefine.runtime import apply_scored_canonical_fallbacks
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
 from .base import JobState
 
@@ -290,6 +291,15 @@ class RedefineJobState(JobState):
         self.rewrite_session.prepare_round()
         if self.rewrite_session.phase == "done":
             result = self.rewrite_session.finish()
+            apply_scored_canonical_fallbacks(
+                ctx.supabase,
+                self.puzzle_row,
+                self.baseline_puzzle,
+                self.candidate_puzzle,
+                client=ctx.ai_client,
+                runtime=ctx.runtime,
+                multi_model=ctx.multi_model,
+            )
             self.candidate_puzzle.assessment = score_puzzle_state(self.candidate_puzzle)
             assessment = self.candidate_puzzle.assessment
             puzzle_id = str(self.puzzle_row["id"])

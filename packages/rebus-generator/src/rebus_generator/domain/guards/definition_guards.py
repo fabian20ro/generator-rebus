@@ -93,6 +93,23 @@ def _definition_mentions_answer(answer: str, definition: str) -> bool:
     return re.search(pattern, normalized_definition) is not None
 
 
+def _short_answer_family_leak(answer: str, definition: str) -> bool:
+    answer_norm = normalize(answer).lower()
+    if len(answer_norm) > 3 or len(answer_norm) < 2:
+        return False
+    for token in re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", normalize(definition)):
+        token_norm = token.lower()
+        if token_norm == answer_norm:
+            return True
+        if len(token_norm) <= 1:
+            continue
+        if token_norm.startswith(answer_norm) and len(token_norm) > len(answer_norm):
+            return True
+        if answer_norm.startswith(token_norm) and len(token_norm) >= max(2, len(answer_norm) - 1):
+            return True
+    return False
+
+
 def _last_word(text: str) -> str:
     tokens = re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", normalize(text))
     return tokens[-1].lower() if tokens else ""
@@ -109,14 +126,11 @@ def validate_definition_text(word: str, definition: str) -> str | None:
     
     mentions_answer = _definition_mentions_answer(word, clean_definition)
     same_family = clue_uses_same_family(word, clean_definition)
-    
-    if mentions_answer or same_family:
-        if len(word) <= 3:
-            # For short words, we flag but don't reject. 
-            # The LLM judge will decide if it's a showstopper.
-            return None 
+    short_family = _short_answer_family_leak(word, clean_definition)
+
+    if mentions_answer or same_family or short_family:
         return "contains answer or family word"
-        
+
     if contains_english_markers(clean_definition):
         return "English markers detected"
     if definition_describes_english_meaning(word, clean_definition):
@@ -167,4 +181,3 @@ def extract_verify_candidates(raw: str, answer_length: int, max_guesses: int) ->
         if len(candidates) >= max_guesses:
             break
     return candidates[:max_guesses]
-

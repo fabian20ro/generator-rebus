@@ -1020,6 +1020,45 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual(2, job.rewrite_session.round_index)
         self.assertEqual("rewrite_prepare_round", job.stage)
 
+    def test_redefine_job_applies_scored_canonical_fallback_before_scoring(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["redefine"],
+            topic_caps={"redefine": 1},
+        )
+        item = _item("redefine", "redefine:puzzle:p1", puzzle_id="p1")
+        item.payload = {"puzzle_row": {"id": "p1", "title": "Titlu"}}
+        job = supervisor._build_job(item)
+        ctx = _context(runtime)
+        calls: list[str] = []
+
+        class _DoneRewriteSession:
+            round_index = 2
+            phase = "done"
+
+            def prepare_round(self):
+                self.phase = "done"
+
+            def finish(self):
+                calls.append("finish")
+                return SimpleNamespace(initial_passed=0, final_passed=0, total=1)
+
+        job.rewrite_session = _DoneRewriteSession()
+        job.puzzle_row = {"id": "p1", "title": "Titlu"}
+        job.baseline_puzzle = SimpleNamespace()
+        job.candidate_puzzle = SimpleNamespace(assessment=None)
+        job.stage = "rewrite_prepare_round"
+
+        with (
+            patch("rebus_generator.workflows.run_all.jobs.redefine.apply_scored_canonical_fallbacks", side_effect=lambda *args, **kwargs: calls.append("fallback") or {}),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.score_puzzle_state", side_effect=lambda puzzle: calls.append("score") or SimpleNamespace(min_rebus=1, avg_rebus=1.0, verified_count=0, total_clues=1)),
+        ):
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+
+        self.assertEqual(["finish", "fallback", "score"], calls)
+        self.assertEqual("resolve_canonicals", job.stage)
+
     def test_redefine_persist_prepare_uses_run_all_rewrite_session_finish(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(

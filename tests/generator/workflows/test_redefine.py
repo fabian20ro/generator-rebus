@@ -10,6 +10,7 @@ from rebus_generator.workflows.redefine.load import PlannedClueUpdate, RedefineP
 from rebus_generator.workflows.redefine.persist import apply_redefined_puzzle_persistence
 from rebus_generator.workflows.redefine.runtime import (
     REDEFINE_ROUNDS,
+    apply_scored_canonical_fallbacks,
     build_working_puzzle,
     fetch_clues,
     fetch_puzzles,
@@ -827,6 +828,150 @@ class RedefinePuzzleTests(unittest.TestCase):
         )
 
         self.assertEqual(0, count)
+
+
+class FallbackSelectionTests(unittest.TestCase):
+    def test_apply_scored_canonical_fallbacks_reuses_scored_canonical(self):
+        clue_rows = [_make_clue_row("OUA", "Mai multe ouă.", clue_id="c1", verified=False)]
+        fixture = _SupabaseFixture(clue_rows)
+        fixture._canonical_rows.append({
+            "id": "canon-1",
+            "word_normalized": "OUA",
+            "word_original_seed": "oua",
+            "definition": "Produse de găină, în coajă.",
+            "definition_norm": "produse de gaina in coaja",
+            "word_type": "",
+            "usage_label": "",
+            "verified": True,
+            "semantic_score": 9,
+            "rebus_score": 8,
+            "creativity_score": 6,
+            "usage_count": 2,
+            "superseded_by": None,
+        })
+        representative_row = {
+            "id": "rep-1",
+            "canonical_definition_id": "canon-1",
+            "word_normalized": "OUA",
+            "word_original": "oua",
+            "word_type": "",
+            "definition": "Produse de găină, în coajă.",
+            "verified": True,
+            "verify_note": "AI a ghicit: OUA | Scor semantic: 9/10 | Scor rebus: 8/10 | Scor creativitate: 6/10",
+        }
+        baseline_puzzle = build_working_puzzle({"id": "p1", "title": "Test", "grid_size": 7}, clue_rows)
+        candidate_puzzle = build_working_puzzle({"id": "p1", "title": "Test", "grid_size": 7}, clue_rows)
+
+        with patch(
+            "rebus_generator.workflows.redefine.runtime.ClueCanonStore.fetch_clue_rows_for_canonical_ids",
+            return_value=[representative_row],
+        ):
+            applied = apply_scored_canonical_fallbacks(
+                fixture.supabase,
+                {"id": "p1", "title": "Test"},
+                baseline_puzzle,
+                candidate_puzzle,
+            )
+
+        clue = candidate_puzzle.horizontal_clues[0]
+        self.assertEqual({"canon-1"}, set(applied.values()))
+        self.assertEqual("Produse de găină, în coajă.", clue.current.definition)
+        self.assertEqual("canonical_fallback", clue.current.source)
+        self.assertTrue(clue.current.assessment.verified)
+        self.assertEqual(9, clue.current.assessment.scores.semantic_exactness)
+
+    def test_apply_scored_canonical_fallbacks_skips_null_score_pool(self):
+        clue_rows = [_make_clue_row("OUA", "Mai multe ouă.", clue_id="c1", verified=False)]
+        fixture = _SupabaseFixture(clue_rows)
+        fixture._canonical_rows.append({
+            "id": "canon-1",
+            "word_normalized": "OUA",
+            "word_original_seed": "oua",
+            "definition": "Variantă veche.",
+            "definition_norm": "varianta veche",
+            "word_type": "",
+            "usage_label": "",
+            "verified": True,
+            "semantic_score": None,
+            "rebus_score": None,
+            "creativity_score": None,
+            "usage_count": 2,
+            "superseded_by": None,
+        })
+        baseline_puzzle = build_working_puzzle({"id": "p1", "title": "Test", "grid_size": 7}, clue_rows)
+        candidate_puzzle = build_working_puzzle({"id": "p1", "title": "Test", "grid_size": 7}, clue_rows)
+
+        applied = apply_scored_canonical_fallbacks(
+            fixture.supabase,
+            {"id": "p1", "title": "Test"},
+            baseline_puzzle,
+            candidate_puzzle,
+        )
+
+        self.assertEqual({}, applied)
+        self.assertEqual("Mai multe ouă.", candidate_puzzle.horizontal_clues[0].current.definition)
+
+    @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
+    @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
+    def test_redefine_puzzle_persists_fallback_definition(self, mock_evaluate, mock_rewrite):
+        clue_rows = [_make_clue_row("OUA", "Mai multe ouă.", clue_id="c1", verified=False)]
+        fixture = _SupabaseFixture(clue_rows)
+        fixture._canonical_rows.append({
+            "id": "canon-fallback",
+            "word_normalized": "OUA",
+            "word_original_seed": "oua",
+            "definition": "Produse de găină, în coajă.",
+            "definition_norm": "produse de gaina in coaja",
+            "word_type": "",
+            "usage_label": "",
+            "verified": True,
+            "semantic_score": 9,
+            "rebus_score": 8,
+            "creativity_score": 6,
+            "usage_count": 2,
+            "superseded_by": None,
+        })
+        mock_evaluate.side_effect = lambda puzzle, *_args, **_kwargs: PuzzleEvaluationResult(
+            assessment=_assessment(1, avg_rebus=1.0, verified_count=0, total=1),
+            passed=0,
+            total=1,
+            evaluator_model=PRIMARY_MODEL.display_name,
+        )
+        mock_rewrite.side_effect = lambda *_args, **_kwargs: SimpleNamespace(initial_passed=0, final_passed=0, total=1)
+
+        def _fallback(_supabase, _puzzle_row, _baseline, candidate, **_kwargs):
+            clue = candidate.horizontal_clues[0]
+            clue.current.definition = "Produse de găină, în coajă."
+            clue.current.source = "canonical_fallback"
+            clue.current.assessment = ClueAssessment(
+                verified=True,
+                verify_candidates=["OUA"],
+                feedback="Definiție canonică reutilizată după eșecul redefinirii.",
+                scores=ClueScores(
+                    semantic_exactness=9,
+                    answer_targeting=8,
+                    creativity=6,
+                    rebus_score=8,
+                ),
+            )
+            clue.best = clue.current
+            return {("H", 0, 0): "canon-fallback"}
+
+        with patch("rebus_generator.workflows.redefine.runtime.apply_scored_canonical_fallbacks", side_effect=_fallback):
+            count = redefine_puzzle(
+                fixture.supabase,
+                {"id": "p1", "title": "Test", "grid_size": 7},
+                MagicMock(),
+                dry_run=False,
+                multi_model=False,
+                rounds=1,
+            )
+
+        self.assertEqual(1, count)
+        clue_payload = fixture.clue_table.update.call_args[0][0]
+        self.assertEqual("canon-fallback", clue_payload["canonical_definition_id"])
+        self.assertTrue(clue_payload["verified"])
+        self.assertIn("Scor semantic: 9/10", clue_payload["verify_note"])
 
 
 class ParserTests(unittest.TestCase):

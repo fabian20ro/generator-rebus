@@ -8,6 +8,7 @@ from itertools import combinations
 import re
 
 from rebus_generator.domain.clue_canon_ranking import canonical_reset_safe_sort_key
+from rebus_generator.domain.selection_engine import stable_tie_rng
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.domain.clue_canon_types import (
     BackfillStats,
@@ -190,8 +191,40 @@ class ClueCanonService:
         self.multi_model = multi_model
 
     def fetch_prompt_examples(self, word_normalized: str, *, limit: int = 3) -> list[str]:
-        rows = self.store.fetch_canonical_variants(word_normalized, limit=limit)
-        return [row.definition for row in rows]
+        rows = self._scored_active_canonicals(word_normalized)
+        return [row.definition for row in rows[:limit]]
+
+    def select_scored_fallback(
+        self,
+        *,
+        word_normalized: str,
+        word_type: str = "",
+        usage_label: str = "",
+        seed_parts: tuple[object, ...] = (),
+    ) -> CanonicalDefinition | None:
+        rows = self._scored_active_canonicals(
+            word_normalized,
+            word_type=word_type,
+            usage_label=usage_label,
+        )
+        if not rows:
+            return None
+        if len(rows) == 1:
+            return rows[0]
+        snapshot = "|".join(
+            f"{row.id}:{row.semantic_score}:{row.rebus_score}:{row.creativity_score}:{row.usage_count}"
+            for row in rows
+        )
+        rng = stable_tie_rng(
+            "canonical_scored_fallback",
+            word_normalized,
+            word_type,
+            usage_label,
+            snapshot,
+            *seed_parts,
+        )
+        weights = [_canonical_fallback_weight(row) for row in rows]
+        return rows[rng.choices(range(len(rows)), weights=weights, k=1)[0]]
 
     def resolve_definition(
         self,
@@ -309,6 +342,27 @@ class ClueCanonService:
         matches.sort(key=lambda item: (-item[0], _canonical_match_key(item[1])))
         return [row for _score, row in matches[:3]]
 
+    def _scored_active_canonicals(
+        self,
+        word_normalized: str,
+        *,
+        word_type: str | None = None,
+        usage_label: str | None = None,
+    ) -> list[CanonicalDefinition]:
+        rows = self.store.fetch_canonical_variants(word_normalized)
+        exact_word_type = None if word_type is None else str(word_type or "").strip().upper()
+        exact_usage_label = None if usage_label is None else str(usage_label or "").strip().lower()
+        eligible = [
+            row
+            for row in rows
+            if row.superseded_by is None
+            and _canonical_has_complete_scores(row)
+            and (exact_word_type is None or row.word_type == exact_word_type)
+            and (exact_usage_label is None or row.usage_label.strip().lower() == exact_usage_label)
+        ]
+        eligible.sort(key=canonical_reset_safe_sort_key)
+        return eligible
+
     def _run_referee(self, record: ClueDefinitionRecord, canonical: CanonicalDefinition) -> DefinitionRefereeResult:
         if self.client is None:
             from rebus_generator.platform.llm.llm_client import create_client
@@ -378,3 +432,21 @@ class ClueCanonService:
 
 def _canonical_match_key(row: CanonicalDefinition) -> tuple[object, ...]:
     return canonical_reset_safe_sort_key(row)
+
+
+def _canonical_has_complete_scores(row: CanonicalDefinition) -> bool:
+    return (
+        getattr(row, "semantic_score", None) is not None
+        and getattr(row, "rebus_score", None) is not None
+        and getattr(row, "creativity_score", None) is not None
+    )
+
+
+def _canonical_fallback_weight(row: CanonicalDefinition) -> float:
+    score_sum = (
+        int(getattr(row, "semantic_score", 0) or 0)
+        + int(getattr(row, "rebus_score", 0) or 0)
+        + int(getattr(row, "creativity_score", 0) or 0)
+    )
+    usage_count = max(0, int(getattr(row, "usage_count", 0) or 0))
+    return score_sum / (usage_count + 1)

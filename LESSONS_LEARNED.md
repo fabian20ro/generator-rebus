@@ -214,6 +214,8 @@
 
 **[2026-04-11]** Run-specific session wrappers must either honor the shared session finish contract or avoid shared finalizers entirely — `run_all` used `RunAllRewriteSession` during bounded rewrite rounds, then later called `finish_rewrite_session(...)`, which expects a different session type with `.final_result`. That mismatch surfaced only in late-stage persist prep and retried into deterministic quarantine. If a workflow introduces a wrapper session class, give it an idempotent cached `.finish()` result and keep later stages on that native interface instead of mixing helper APIs across session types.
 
+**[2026-04-18]** Strict short-word leakage needs a local prefix/subform guard, not a global family-root loosening — the shared `clue_uses_same_family()` helper intentionally ignores roots shorter than 4 chars to avoid false positives, so simply removing the short-word bypass in definition validation still lets leaks like `OS` -> `osoasă` through. Keep the general family matcher conservative, and add any stricter 2-3 letter rejection logic at the clue-validation layer where the product policy is explicitly “prefer false rejects over answer leakage.”
+
 ---
 
 ## Archive

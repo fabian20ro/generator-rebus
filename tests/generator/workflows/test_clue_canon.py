@@ -163,13 +163,13 @@ class ClueCanonTests(unittest.TestCase):
 
         self.assertEqual("1", winner.id)
 
-    def test_fetch_prompt_examples_keeps_reset_safe_store_order(self):
+    def test_fetch_prompt_examples_filters_out_null_score_canonicals(self):
         store = type("Store", (), {
             "fetch_canonical_variants": lambda _self, _word, limit=None: [
                 _canonical(
                     canonical_id="1",
                     word="LA",
-                    definition="Abordare lexicală.",
+                    definition="Null-score veche.",
                     verified=False,
                     usage_count=0,
                     semantic_score=None,
@@ -179,20 +179,136 @@ class ClueCanonTests(unittest.TestCase):
                 _canonical(
                     canonical_id="2",
                     word="LA",
-                    definition="Zidire lexicală.",
-                    verified=False,
-                    usage_count=0,
-                    semantic_score=None,
-                    rebus_score=None,
-                    creativity_score=None,
+                    definition="Variantă bună.",
+                    verified=True,
+                    usage_count=2,
+                    semantic_score=8,
+                    rebus_score=7,
+                    creativity_score=6,
                 ),
-            ][:limit],
+            ],
         })()
         service = ClueCanonService(store=store)
 
         examples = service.fetch_prompt_examples("LA", limit=2)
 
-        self.assertEqual(["Abordare lexicală.", "Zidire lexicală."], examples)
+        self.assertEqual(["Variantă bună."], examples)
+
+    def test_select_scored_fallback_excludes_null_scores(self):
+        store = type("Store", (), {
+            "fetch_canonical_variants": lambda _self, _word, limit=None: [
+                _canonical(
+                    canonical_id="1",
+                    word="LA",
+                    definition="Null-score veche.",
+                    verified=True,
+                    usage_count=0,
+                    semantic_score=None,
+                    rebus_score=None,
+                    creativity_score=None,
+                ),
+                _canonical(
+                    canonical_id="2",
+                    word="LA",
+                    definition="Variantă bună.",
+                    verified=True,
+                    usage_count=1,
+                    semantic_score=8,
+                    rebus_score=7,
+                    creativity_score=6,
+                ),
+            ],
+        })()
+        service = ClueCanonService(store=store)
+
+        chosen = service.select_scored_fallback(
+            word_normalized="LA",
+            word_type="",
+            usage_label="",
+            seed_parts=("p1", "H", 1, 1),
+        )
+
+        self.assertIsNotNone(chosen)
+        self.assertEqual("2", chosen.id)
+
+    def test_select_scored_fallback_penalizes_high_usage_when_scores_match(self):
+        store = type("Store", (), {
+            "fetch_canonical_variants": lambda _self, _word, limit=None: [
+                _canonical(
+                    canonical_id="1",
+                    word="LA",
+                    definition="Variantă rar folosită.",
+                    verified=True,
+                    usage_count=0,
+                    semantic_score=8,
+                    rebus_score=8,
+                    creativity_score=8,
+                ),
+                _canonical(
+                    canonical_id="2",
+                    word="LA",
+                    definition="Variantă des folosită.",
+                    verified=True,
+                    usage_count=7,
+                    semantic_score=8,
+                    rebus_score=8,
+                    creativity_score=8,
+                ),
+            ],
+        })()
+        service = ClueCanonService(store=store)
+        counts = {"1": 0, "2": 0}
+
+        for seed in range(100):
+            chosen = service.select_scored_fallback(
+                word_normalized="LA",
+                word_type="",
+                usage_label="",
+                seed_parts=("p1", "H", 1, seed),
+            )
+            counts[chosen.id] += 1
+
+        self.assertGreater(counts["1"], counts["2"])
+
+    def test_select_scored_fallback_keeps_lower_scores_in_pool(self):
+        store = type("Store", (), {
+            "fetch_canonical_variants": lambda _self, _word, limit=None: [
+                _canonical(
+                    canonical_id="1",
+                    word="LA",
+                    definition="Variantă excelentă.",
+                    verified=True,
+                    usage_count=0,
+                    semantic_score=9,
+                    rebus_score=9,
+                    creativity_score=9,
+                ),
+                _canonical(
+                    canonical_id="2",
+                    word="LA",
+                    definition="Variantă modestă.",
+                    verified=True,
+                    usage_count=0,
+                    semantic_score=1,
+                    rebus_score=1,
+                    creativity_score=1,
+                ),
+            ],
+        })()
+        service = ClueCanonService(store=store)
+        counts = {"1": 0, "2": 0}
+
+        for seed in range(100):
+            chosen = service.select_scored_fallback(
+                word_normalized="LA",
+                word_type="",
+                usage_label="",
+                seed_parts=("p1", "V", 2, seed),
+            )
+            counts[chosen.id] += 1
+
+        self.assertGreater(counts["1"], counts["2"])
+        self.assertGreater(counts["2"], 0)
 
     def test_generate_near_duplicate_candidates_finds_similar_same_word_defs(self):
         rows = [

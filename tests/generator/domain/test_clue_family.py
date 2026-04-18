@@ -22,6 +22,9 @@ class ClueFamilyTests(unittest.TestCase):
     def test_prefix_family_postbelic_catches_belic(self):
         self.assertTrue(clue_uses_same_family("POSTBELIC", "Perioadă belică"))
 
+    def test_plural_family_oua_catches_ou(self):
+        self.assertTrue(clue_uses_same_family("OUA", "Mai multe ouă"))
+
     def test_prefix_stripping_skips_short_remainder(self):
         # "rece" starts with "re" but remainder "ce" is only 2 chars — should NOT strip
         self.assertFalse(clue_uses_same_family("RECE", "Temperatură joasă"))
