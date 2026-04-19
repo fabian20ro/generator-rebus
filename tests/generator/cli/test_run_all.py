@@ -9,6 +9,7 @@ from unittest.mock import patch
 from rebus_generator.platform.llm.llm_client import _chat_completion_create, configure_run_llm_policy, reset_run_llm_state
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.cli.run_all import _preflight, build_parser
+from rebus_generator.domain.pipeline_state import ClueAssessment, PuzzleAssessment, WorkingClue, WorkingPuzzle
 from rebus_generator.platform.io.markdown_io import ClueEntry, PuzzleData
 from rebus_generator.workflows.run_all import (
     ClaimState,
@@ -1058,6 +1059,57 @@ class RunAllSupervisorTests(unittest.TestCase):
 
         self.assertEqual(["finish", "fallback", "score"], calls)
         self.assertEqual("resolve_canonicals", job.stage)
+
+    def test_generate_job_skips_title_when_puzzle_is_still_unresolved_after_fallback(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        ctx = _context(runtime)
+        item = _item("generate", "generate:size:14:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 14, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "rewrite_prepare_round"
+        job.attempt_index = 1
+        job.effective_attempts = 3
+        job.candidate = SimpleNamespace(report=None)
+        clue = WorkingClue(row_number=1, word_normalized="AN", word_original="an")
+        clue.current.definition = "[NECLAR]"
+        clue.current.assessment = ClueAssessment(verified=False)
+        job.working_puzzle = WorkingPuzzle("", 14, [], [clue], [])
+        calls: list[str] = []
+
+        class _DoneRewriteSession:
+            round_index = 1
+            phase = "done"
+
+            def prepare_round(self):
+                self.phase = "done"
+
+            def finish(self):
+                calls.append("finish")
+                return SimpleNamespace(initial_passed=0, final_passed=0, total=1)
+
+        job.rewrite_session = _DoneRewriteSession()
+
+        with (
+            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", side_effect=lambda **kwargs: calls.append("fallback") or {}),
+            patch(
+                "rebus_generator.workflows.run_all.jobs.generate.score_puzzle_state",
+                side_effect=lambda *_args, **_kwargs: calls.append("score") or PuzzleAssessment(
+                    definition_score=0.0,
+                    verified_count=0,
+                    total_clues=1,
+                    scores_complete=False,
+                    verify_incomplete_count=1,
+                    rating_incomplete_count=0,
+                    incomplete_words=["AN"],
+                ),
+            ),
+            patch("rebus_generator.workflows.run_all.jobs.generate.generate_title_for_final_puzzle_result") as title_mock,
+        ):
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+
+        self.assertEqual(["finish", "fallback", "score"], calls)
+        title_mock.assert_not_called()
+        self.assertEqual("fill_grid", job.stage)
 
     def test_redefine_persist_prepare_uses_run_all_rewrite_session_finish(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)

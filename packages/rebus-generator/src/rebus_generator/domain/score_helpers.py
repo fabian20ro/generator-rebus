@@ -55,6 +55,41 @@ def _extract_rebus_score(clue: WorkingClue) -> int | None:
     return clue.active_version().assessment.scores.rebus_score
 
 
+def _definition_missing_or_placeholder(clue: WorkingClue | ClueEntry) -> bool:
+    clue = _coerce_working_clue(clue)
+    definition = (clue.active_version().definition or "").strip()
+    return not definition or definition.startswith("[")
+
+
+def _has_complete_rating_scores(clue: WorkingClue | ClueEntry) -> bool:
+    clue = _coerce_working_clue(clue)
+    scores = clue.active_version().assessment.scores
+    return (
+        scores.semantic_exactness is not None
+        and scores.answer_targeting is not None
+        and scores.creativity is not None
+        and scores.rebus_score is not None
+    )
+
+
+def _verify_evaluation_incomplete(clue: WorkingClue | ClueEntry) -> bool:
+    clue = _coerce_working_clue(clue)
+    return not clue.active_version().assessment.verify_complete
+
+
+def _rating_evaluation_incomplete(clue: WorkingClue | ClueEntry) -> bool:
+    clue = _coerce_working_clue(clue)
+    assessment = clue.active_version().assessment
+    return not assessment.rating_complete or not _has_complete_rating_scores(clue)
+
+
+def _pair_evaluation_incomplete(clue: WorkingClue | ClueEntry) -> bool:
+    clue = _coerce_working_clue(clue)
+    if _definition_missing_or_placeholder(clue):
+        return False
+    return _verify_evaluation_incomplete(clue) or _rating_evaluation_incomplete(clue)
+
+
 def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     """Return True when a clue should be rewritten.
 
@@ -66,7 +101,7 @@ def _needs_rewrite(clue: WorkingClue, min_rebus: int = RATE_MIN_REBUS) -> bool:
     definition = clue.current.definition
     if not definition:
         return True
-    if definition.startswith("["):
+    if _definition_missing_or_placeholder(clue):
         return False
 
     semantic_score = _extract_semantic_score(clue)

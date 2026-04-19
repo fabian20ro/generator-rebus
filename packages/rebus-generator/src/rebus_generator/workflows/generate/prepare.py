@@ -19,9 +19,18 @@ from rebus_generator.domain.pipeline_state import (
     working_puzzle_from_puzzle,
 )
 from rebus_generator.domain.puzzle_metrics import score_puzzle_state
-from rebus_generator.domain.score_helpers import _coerce_working_clue, _compact_log_text, _restore_best_versions
+from rebus_generator.domain.score_helpers import (
+    _coerce_working_clue,
+    _compact_log_text,
+    _definition_missing_or_placeholder,
+    _restore_best_versions,
+)
 from rebus_generator.domain.selection_engine import choose_clue_version, stable_tie_rng
 from rebus_generator.domain.size_tuning import get_min_preparation_attempts
+from rebus_generator.workflows.canonicals.scored_fallbacks import (
+    apply_scored_canonical_fallbacks,
+    generate_scored_fallback_policy,
+)
 from rebus_generator.workflows.generate.define import generate_definitions_for_puzzle
 from rebus_generator.workflows.generate.titleing import generate_publication_title
 from rebus_generator.workflows.redefine.rewrite_engine import run_rewrite_loop
@@ -34,9 +43,36 @@ def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
     return [
         clue
         for clue in all_working_clues(puzzle)
-        if not clue.active_version().definition
-        or clue.active_version().definition.startswith("[")
+        if _definition_missing_or_placeholder(clue)
     ]
+
+
+def _should_skip_title_generation(puzzle: WorkingPuzzle) -> bool:
+    return bool(_blocking_clues(puzzle)) or not puzzle.assessment.scores_complete
+
+
+def _build_prepared_puzzle(
+    *,
+    title: str,
+    title_score: int,
+    candidate,
+    puzzle: WorkingPuzzle,
+    first_passed: int,
+    final_passed: int,
+    total: int,
+) -> PreparedPuzzle:
+    return PreparedPuzzle(
+        title=title,
+        title_score=title_score,
+        candidate=candidate,
+        puzzle=copy.deepcopy(puzzle),
+        first_passed=first_passed,
+        final_passed=final_passed,
+        total=total,
+        definition_score=puzzle.assessment.definition_score,
+        blocking_words=[clue.word_normalized for clue in _blocking_clues(puzzle)],
+        assessment=copy.deepcopy(puzzle.assessment),
+    )
 
 
 def _choose_metadata_variants_for_puzzle(
@@ -222,8 +258,34 @@ def _prepare_puzzle_for_publication(
             runtime=runtime,
         )
         _restore_best_versions(state)
+        apply_scored_canonical_fallbacks(
+            target_puzzle=state,
+            puzzle_identity=f"generate:{index}:{size}:{attempt_index}",
+            policy=generate_scored_fallback_policy,
+            client=client,
+            runtime=runtime,
+            multi_model=multi_model,
+            seed_parts=(index, size, attempt_index),
+        )
         state.assessment = score_puzzle_state(state, candidate.report)
-        blockers = _blocking_clues(state)
+        if _should_skip_title_generation(state):
+            prepared = _build_prepared_puzzle(
+                title="",
+                title_score=0,
+                candidate=candidate,
+                puzzle=state,
+                first_passed=first_passed,
+                final_passed=final_passed,
+                total=total,
+            )
+            best_prepared = _better_prepared_puzzle(
+                best_prepared, prepared, client=client, runtime=runtime
+            )
+            log(
+                "Rejected puzzle before title generation: "
+                + _describe_publishability_failure(prepared)
+            )
+            continue
         title_result = generate_publication_title(
             puzzle_from_working_state(state),
             client=client,
@@ -232,17 +294,14 @@ def _prepare_puzzle_for_publication(
         )
         state.title = title_result.title
         log(f"Titlu final: {title_result.title}")
-        prepared = PreparedPuzzle(
+        prepared = _build_prepared_puzzle(
             title=title_result.title,
             title_score=title_result.score,
             candidate=candidate,
-            puzzle=copy.deepcopy(state),
+            puzzle=state,
             first_passed=first_passed,
             final_passed=final_passed,
             total=total,
-            definition_score=state.assessment.definition_score,
-            blocking_words=[clue.word_normalized for clue in blockers],
-            assessment=copy.deepcopy(state.assessment),
         )
         best_prepared = _better_prepared_puzzle(
             best_prepared, prepared, client=client, runtime=runtime

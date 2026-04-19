@@ -1429,3 +1429,10 @@
 **Outcome:** success
 **Insight:** transient celebration UI needs an explicit reset on every context switch; if display state is not derived from puzzle state, centralize cleanup instead of relying on later renders to overwrite it.
 **Promoted:** no
+
+### [2026-04-19] — Shared scored-canonical fallback for redefine + generate
+**Context:** user asked to make redefine fallback reuse DRY/reusable, extend it to generate, and stop doomed title attempts when publishability blockers remain after rewrite selection.
+**Happened:** Extracted scored canonical fallback logic from `workflows/redefine/runtime.py` into new shared module `workflows/canonicals/scored_fallbacks.py`. Shared code now owns canonical selection, representative assessment rehydration, synthesized fallback assessment, and applying fallback to `current`/`best`/`history`/`locked`. Added shared clue-state helpers in `domain/score_helpers.py` for placeholder-or-missing definitions and incomplete pair evaluation / missing score fields. Kept redefine semantics via `redefine_scored_fallback_policy` (unchanged-from-baseline + still-needs-rewrite) behind a thin compatibility wrapper. Added `generate_scored_fallback_policy` and wired shared fallback into both non-`run_all` generate prep and `run_all` generate rewrite-finalize flow before rescoring/title generation. Added pre-title guard so unresolved puzzles skip title generation and fail/retry on the actual blocker instead of looping through doomed title steps. Added regression coverage for generate placeholder fallback, generate incomplete-pair fallback, complete-but-low-score no-op, redefine unchanged-from-baseline requirement, `run_all` generate title skip, and non-`run_all` generate title skip.
+**Verification:** `pytest tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py tests/generator/workflows/test_batch_publish.py tests/generator/domain/test_puzzle_metrics.py -q` (`128 passed, 2 subtests passed`).
+**Outcome:** success
+**Promoted:** no

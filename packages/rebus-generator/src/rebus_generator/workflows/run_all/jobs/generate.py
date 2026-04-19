@@ -19,16 +19,22 @@ from rebus_generator.workflows.generate.define import generate_definition_for_wo
 from rebus_generator.workflows.generate.models import PreparedPuzzle
 from rebus_generator.workflows.generate.prepare import (
     _backfill_generated_model,
+    _build_prepared_puzzle,
     _blocking_clues,
     _choose_metadata_variants_for_puzzle,
     _inject_word_metadata,
     _preparation_attempts_for_size,
+    _should_skip_title_generation,
 )
 from rebus_generator.workflows.generate.publish import publish_prepared_puzzle
 from rebus_generator.workflows.generate.quality_gate import (
     _better_prepared_puzzle,
     _describe_publishability_failure,
     _is_publishable,
+)
+from rebus_generator.workflows.canonicals.scored_fallbacks import (
+    apply_scored_canonical_fallbacks,
+    generate_scored_fallback_policy,
 )
 from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
@@ -295,7 +301,43 @@ class GenerateJobState(JobState):
             result = self.rewrite_session.finish()
             self.first_passed, self.final_passed, self.total = result.initial_passed, result.final_passed, result.total
             _restore_best_versions(self.working_puzzle)
+            apply_scored_canonical_fallbacks(
+                target_puzzle=self.working_puzzle,
+                puzzle_identity=self.item.item_id,
+                policy=generate_scored_fallback_policy,
+                client=ctx.ai_client,
+                runtime=ctx.runtime,
+                multi_model=ctx.multi_model,
+                seed_parts=(self.size, self.index, self.attempt_index),
+            )
             self.working_puzzle.assessment = score_puzzle_state(self.working_puzzle, self.candidate.report)
+            if _should_skip_title_generation(self.working_puzzle):
+                prepared = _build_prepared_puzzle(
+                    title="",
+                    title_score=0,
+                    candidate=self.candidate,
+                    puzzle=self.working_puzzle,
+                    first_passed=self.first_passed,
+                    final_passed=self.final_passed,
+                    total=self.total,
+                )
+                self.best_prepared = _better_prepared_puzzle(
+                    self.best_prepared,
+                    prepared,
+                    client=ctx.ai_client,
+                    runtime=ctx.runtime,
+                )
+                if self.attempt_index < self.effective_attempts:
+                    log(
+                        "Rejected generated puzzle before title generation: "
+                        + _describe_publishability_failure(prepared)
+                    )
+                    self._progress("fill_grid", detail=f"retry={self.attempt_index + 1}/{self.effective_attempts}")
+                    return result
+                raise RuntimeError(
+                    f"Could not prepare a publishable {self.size}x{self.size} puzzle. "
+                    f"Quality gate failed: {_describe_publishability_failure(prepared)}"
+                )
             self._progress("title", detail=f"verified={self.final_passed}/{self.total}")
             return result
         self._progress(self.rewrite_session.phase, detail=f"round={self.rewrite_session.round_index}")
@@ -334,17 +376,14 @@ class GenerateJobState(JobState):
             multi_model=False,
         )
         self.working_puzzle.title = title_result.title
-        prepared = PreparedPuzzle(
+        prepared = _build_prepared_puzzle(
             title=title_result.title,
             title_score=title_result.score,
             candidate=self.candidate,
-            puzzle=copy.deepcopy(self.working_puzzle),
+            puzzle=self.working_puzzle,
             first_passed=self.first_passed,
             final_passed=self.final_passed,
             total=self.total,
-            definition_score=self.working_puzzle.assessment.definition_score,
-            blocking_words=[clue.word_normalized for clue in _blocking_clues(self.working_puzzle)],
-            assessment=copy.deepcopy(self.working_puzzle.assessment),
         )
         self.best_prepared = _better_prepared_puzzle(
             self.best_prepared,

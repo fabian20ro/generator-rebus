@@ -520,6 +520,7 @@ class BatchPublishTests(unittest.TestCase):
         self.assertFalse(hasattr(batch_publish_service, "_inject_word_metadata"))
 
     @patch("rebus_generator.workflows.generate.titleing.generate_title_for_final_puzzle_result")
+    @patch("rebus_generator.workflows.generate.prepare.apply_scored_canonical_fallbacks", return_value={})
     @patch("rebus_generator.workflows.generate.prepare._rewrite_failed_clues")
     @patch("rebus_generator.workflows.generate.prepare.generate_definitions_for_puzzle")
     @patch("rebus_generator.workflows.generate.prepare.parse_markdown")
@@ -530,6 +531,7 @@ class BatchPublishTests(unittest.TestCase):
         mock_parse_markdown,
         mock_generate_definitions,
         mock_rewrite_failed,
+        _mock_fallback,
         mock_final_title,
     ):
         puzzle = type("Puzzle", (), {
@@ -559,7 +561,16 @@ class BatchPublishTests(unittest.TestCase):
             puzzle_obj.horizontal_clues[0].definition = "Gaz din atmosferă"
 
         def _rewrite(puzzle_obj, client, rounds, **kwargs):
-            puzzle_obj.horizontal_clues[0].current.definition = "Substanță gazoasă din atmosferă"
+            clue = puzzle_obj.horizontal_clues[0]
+            clue.current.definition = "Substanță gazoasă din atmosferă"
+            clue.current.assessment.verified = True
+            clue.current.assessment.verify_complete = True
+            clue.current.assessment.rating_complete = True
+            clue.current.assessment.scores.semantic_exactness = 9
+            clue.current.assessment.scores.answer_targeting = 8
+            clue.current.assessment.scores.creativity = 6
+            clue.current.assessment.scores.rebus_score = 8
+            clue.best = clue.current
             return (0, 1, 1)
 
         def _title_from_final(puzzle_obj, client=None, rate_client=None, runtime=None, multi_model=False):
@@ -583,6 +594,70 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertEqual("Substanță gazoasă din atmosferă", prepared.title)
         self.assertEqual("Substanță gazoasă din atmosferă", prepared.puzzle.title)
+
+    @patch("rebus_generator.workflows.generate.prepare.generate_publication_title")
+    @patch("rebus_generator.workflows.generate.prepare.apply_scored_canonical_fallbacks", return_value={})
+    @patch("rebus_generator.workflows.generate.prepare._rewrite_failed_clues")
+    @patch("rebus_generator.workflows.generate.prepare.generate_definitions_for_puzzle")
+    @patch("rebus_generator.workflows.generate.prepare.parse_markdown")
+    @patch("rebus_generator.workflows.generate.prepare._best_candidate")
+    def test_prepare_skips_title_generation_when_puzzle_is_still_unresolved(
+        self,
+        mock_best_candidate,
+        mock_parse_markdown,
+        mock_generate_definitions,
+        mock_rewrite_failed,
+        _mock_fallback,
+        mock_title,
+    ):
+        puzzle = type("Puzzle", (), {
+            "title": "",
+            "horizontal_clues": [ClueEntry(1, "AN", "", "", verified=None, verify_note="")],
+            "vertical_clues": [],
+        })()
+        mock_best_candidate.return_value = Candidate(
+            score=12.0,
+            report=QualityReport(
+                score=12.0,
+                word_count=1,
+                average_length=2.0,
+                average_rarity=1.0,
+                two_letter_words=1,
+                three_letter_words=0,
+                high_rarity_words=0,
+                uncommon_letter_words=0,
+                friendly_words=1,
+            ),
+            template=[[True, True]],
+            markdown="# Rebus\n",
+        )
+        mock_parse_markdown.return_value = puzzle
+
+        def _fill_defs(puzzle_obj, client, metadata=None, runtime=None, model_config=None):
+            puzzle_obj.horizontal_clues[0].definition = "[NECLAR]"
+
+        def _rewrite(puzzle_obj, client, rounds, **kwargs):
+            puzzle_obj.horizontal_clues[0].current.definition = "[NECLAR]"
+            return (0, 0, 1)
+
+        mock_generate_definitions.side_effect = _fill_defs
+        mock_rewrite_failed.side_effect = _rewrite
+
+        prepared = _prepare_puzzle_for_publication(
+            index=1,
+            total_puzzles=1,
+            size=7,
+            raw_words=[],
+            words_path=Path("build/words.json"),
+            client=object(),
+            rewrite_rounds=1,
+            preparation_attempts=1,
+            seen_template_fingerprints=set(),
+        )
+
+        mock_title.assert_not_called()
+        self.assertEqual("", prepared.title)
+        self.assertEqual(["AN"], prepared.blocking_words)
 
     def test_failure_reason_prefers_verify_candidates(self):
         clue = ClueEntry(
