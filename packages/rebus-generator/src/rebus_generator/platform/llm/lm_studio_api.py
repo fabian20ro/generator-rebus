@@ -13,6 +13,8 @@ from rebus_generator.platform.config import LMSTUDIO_BASE_URL
 from .models import ModelConfig
 from rebus_generator.platform.io.runtime_logging import log
 
+_REASONING_ALLOWED_OPTIONS_CACHE: dict[str, tuple[str, ...] | None] = {}
+
 
 @dataclass(frozen=True)
 class LoadedModelInstance:
@@ -48,6 +50,40 @@ def get_loaded_models() -> list[str]:
         return [m["key"] for m in data.get("models", []) if m.get("loaded_instances")]
     except Exception:
         return []
+
+
+def reset_model_capability_cache() -> None:
+    _REASONING_ALLOWED_OPTIONS_CACHE.clear()
+
+
+def get_model_reasoning_allowed_options(
+    model_id: str,
+    *,
+    refresh: bool = False,
+) -> tuple[str, ...] | None:
+    normalized = str(model_id or "").strip()
+    if not normalized:
+        return None
+    if not refresh and normalized in _REASONING_ALLOWED_OPTIONS_CACHE:
+        return _REASONING_ALLOWED_OPTIONS_CACHE[normalized]
+    try:
+        data = _get_json("/api/v1/models")
+    except Exception:
+        return _REASONING_ALLOWED_OPTIONS_CACHE.get(normalized)
+
+    result: tuple[str, ...] | None = None
+    for model in data.get("models", []):
+        if str(model.get("key") or "").strip() != normalized:
+            continue
+        reasoning = (model.get("capabilities") or {}).get("reasoning") or {}
+        allowed = reasoning.get("allowed_options")
+        if isinstance(allowed, list):
+            values = [str(value or "").strip().lower() for value in allowed]
+            cleaned = tuple(value for value in values if value)
+            result = cleaned or None
+        break
+    _REASONING_ALLOWED_OPTIONS_CACHE[normalized] = result
+    return result
 
 
 def load_model(config: ModelConfig) -> None:

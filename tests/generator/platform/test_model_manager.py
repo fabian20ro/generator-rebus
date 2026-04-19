@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from rebus_generator.platform.llm.models import (
     ModelConfig,
     PRIMARY_MODEL,
+    ReasoningTransportConfig,
     SECONDARY_MODEL,
     chat_max_tokens,
     chat_reasoning_options,
@@ -13,6 +14,7 @@ from rebus_generator.platform.llm.models import (
     get_active_secondary_model,
     get_model_config,
     get_model_by_key,
+    resolve_chat_reasoning_request,
     resolve_reasoning_effort,
 )
 from rebus_generator.platform.llm.lm_studio_api import (
@@ -48,6 +50,7 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual(6000, PRIMARY_MODEL.max_completion_tokens)
         self.assertEqual(PRIMARY_MODEL.context_length, 8192)
         self.assertEqual("low", PRIMARY_MODEL.reasoning_by_purpose["default"])
+        self.assertTrue(PRIMARY_MODEL.reasoning_transport.prefer_omit_for_binary_reasoning)
 
     def test_secondary_model_config(self):
         self.assertEqual("eurollm_22b", SECONDARY_MODEL.registry_key)
@@ -78,18 +81,36 @@ class ModelManagerTests(unittest.TestCase):
                 get_active_model_labels(multi_model=True),
             )
 
-    def test_chat_reasoning_options_return_low_for_primary_default(self):
-        self.assertEqual({"reasoning_effort": "low"}, chat_reasoning_options(PRIMARY_MODEL.model_id))
+    def test_chat_reasoning_options_omit_param_for_primary_default(self):
+        self.assertEqual({}, chat_reasoning_options(PRIMARY_MODEL.model_id))
 
-    def test_chat_reasoning_options_return_low_for_primary_generate(self):
+    def test_chat_reasoning_options_omit_param_for_primary_generate(self):
         self.assertEqual(
-            {"reasoning_effort": "low"},
+            {},
             chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_generate"),
         )
 
-    def test_chat_reasoning_options_return_low_for_primary_compare(self):
+    def test_chat_reasoning_request_marks_primary_generate_as_reasoning_enabled(self):
+        request = resolve_chat_reasoning_request(
+            PRIMARY_MODEL.model_id,
+            purpose="definition_generate",
+        )
+        self.assertEqual("low", request.abstract_effort)
+        self.assertEqual({}, dict(request.request_options))
+        self.assertTrue(request.reasoning_enabled)
+
+    def test_chat_reasoning_request_marks_primary_verify_as_no_thinking(self):
+        request = resolve_chat_reasoning_request(
+            PRIMARY_MODEL.model_id,
+            purpose="definition_verify",
+        )
+        self.assertEqual("none", request.abstract_effort)
+        self.assertEqual({"reasoning_effort": "none"}, dict(request.request_options))
+        self.assertFalse(request.reasoning_enabled)
+
+    def test_chat_reasoning_options_omit_param_for_primary_compare(self):
         self.assertEqual(
-            {"reasoning_effort": "low"},
+            {},
             chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="clue_compare"),
         )
 
@@ -164,6 +185,22 @@ class ModelManagerTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             chat_reasoning_options(config)
+
+    def test_transport_can_map_thinking_to_omit_while_preserving_enabled_state(self):
+        config = ModelConfig(
+            registry_key="mapped",
+            model_id="mapped/model",
+            display_name="mapped",
+            max_completion_tokens=777,
+            reasoning_by_purpose={"default": "medium"},
+            reasoning_transport=ReasoningTransportConfig(
+                thinking_value_by_effort={"default": None}
+            ),
+        )
+        request = resolve_chat_reasoning_request(config)
+        self.assertEqual("medium", request.abstract_effort)
+        self.assertEqual({}, dict(request.request_options))
+        self.assertTrue(request.reasoning_enabled)
 
     def test_get_loaded_models_returns_empty_on_failure(self):
         with patch("rebus_generator.platform.llm.lm_studio_api._get_json", side_effect=Exception("offline")):

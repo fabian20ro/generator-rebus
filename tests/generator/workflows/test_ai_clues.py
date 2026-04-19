@@ -150,7 +150,7 @@ class AiCluesTests(unittest.TestCase):
         reset_run_llm_state()
         set_llm_debug_enabled(False)
 
-    def test_generate_definition_sends_medium_reasoning_effort_for_primary_model(self):
+    def test_generate_definition_omits_reasoning_effort_for_primary_model(self):
         client = _RecordingClient(["Locuință pentru oameni."])
 
         generate_definition(
@@ -161,7 +161,7 @@ class AiCluesTests(unittest.TestCase):
             model=PRIMARY_MODEL.model_id,
         )
 
-        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
 
     def test_rate_definition_sends_medium_reasoning_effort_for_primary_model(self):
@@ -492,7 +492,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(2, len(client.calls))
-        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(4000, client.calls[0]["max_tokens"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual(200, client.calls[1]["max_tokens"])
@@ -796,9 +796,9 @@ class AiCluesTests(unittest.TestCase):
             max_tokens=2048,
             purpose="default",
         )
-        self.assertEqual("minimal", client.calls[0]["reasoning_effort"])
+        self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(2048, client.calls[0]["max_tokens"])
-        self.assertEqual("minimal", client.calls[2]["reasoning_effort"])
+        self.assertNotIn("reasoning_effort", client.calls[2])
         self.assertEqual("none", client.calls[4]["reasoning_effort"])
         snapshot = llm_run_stats_snapshot()
         self.assertIn(f"{PRIMARY_MODEL.model_id}|default", snapshot["adaptive_downgrades"])

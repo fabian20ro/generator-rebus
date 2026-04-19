@@ -34,7 +34,7 @@ work style: telegraph; noun-phrases ok; drop grammar; min tokens.
 <!-- non-obvious, needed BEFORE exploring. keep minimal. -->
 - **never blocklist Romanian words** — softer alternatives (quality scoring, definability thresholds, rarity penalties). blocklisting = slippery slope.
 - **dev server**: LM Studio running locally `http://localhost:1234`.
-- **two-model workflow**: gemma-4 + eurollm-22b active default. alternate rewrite rounds. models loaded/unloaded via LM Studio REST API. central pair config in `packages/rebus-generator/src/rebus_generator/platform/llm/model_manager.py`. never assume single model.
+- **two-model workflow**: gemma-4 + eurollm-22b active default. alternate rewrite rounds. models loaded/unloaded via LM Studio REST API. central pair config in `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`. never assume single model.
 
 ## Legacy & Deprecated
 

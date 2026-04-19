@@ -17,10 +17,16 @@ from rebus_generator.platform.io.runtime_logging import llm_debug_enabled, log
 
 from ..config import LMSTUDIO_BASE_URL
 from .llm_text import clean_llm_text_response
+from .lm_studio_api import (
+    get_model_reasoning_allowed_options,
+    reset_model_capability_cache,
+)
 from .models import (
     PRIMARY_MODEL,
+    ResolvedReasoningOptions,
     chat_reasoning_options,
-    resolve_reasoning_effort,
+    get_model_config,
+    resolve_chat_reasoning_request,
 )
 
 RETRY_WITHOUT_THINKING_MAX_TOKENS = 200
@@ -62,6 +68,8 @@ _RUN_SLOW_CALL_SECONDS = DEFAULT_SLOW_CALL_SECONDS
 _ADAPTIVE_DOWNGRADES: set[tuple[str, str]] = set()
 _ADAPTIVE_DOWNGRADE_LOGGED: set[tuple[str, str]] = set()
 _LLM_STATS: dict[tuple[str, str], _LlmPurposeStats] = defaultdict(_LlmPurposeStats)
+_REASONING_REQUEST_CACHE: dict[str, dict[str | None, ResolvedReasoningOptions]] = defaultdict(dict)
+_REASONING_REMAP_LOGGED: set[tuple[str, str, str | None, str]] = set()
 
 
 def create_client() -> OpenAI:
@@ -303,6 +311,9 @@ def reset_run_llm_state() -> None:
     _ADAPTIVE_DOWNGRADES.clear()
     _ADAPTIVE_DOWNGRADE_LOGGED.clear()
     _LLM_STATS.clear()
+    _REASONING_REQUEST_CACHE.clear()
+    _REASONING_REMAP_LOGGED.clear()
+    reset_model_capability_cache()
     global _RUN_TRUNCATION_THRESHOLD, _RUN_SLOW_CALL_SECONDS
     _RUN_TRUNCATION_THRESHOLD = DEFAULT_TRUNCATION_THRESHOLD
     _RUN_SLOW_CALL_SECONDS = DEFAULT_SLOW_CALL_SECONDS
@@ -409,13 +420,10 @@ def _adaptive_downgrade_active(model: str, purpose: str) -> bool:
 def _effective_max_tokens(
     *, model: str, purpose: str, requested_max_tokens: int
 ) -> int:
-    # If reasoning is active for this purpose, we MUST NOT cap at short-form tokens.
-    # Reasoning requires a large budget (e.g., 6000) or it will truncate.
-    # We check if reasoning is NOT disabled by the model config or policy.
-    reasoning_options = _effective_reasoning_options(
+    reasoning_request = _effective_reasoning_request(
         model=model, purpose=purpose, max_tokens=requested_max_tokens
     )
-    if reasoning_options.get("reasoning_effort") not in (None, "none"):
+    if reasoning_request.reasoning_enabled:
         return requested_max_tokens
 
     if not _run_policy_enabled():
@@ -436,25 +444,131 @@ def short_form_max_tokens(
     return min(requested_max_tokens, cap)
 
 
-def _effective_reasoning_options(
+def _effective_reasoning_request(
     *, model: str, purpose: str, max_tokens: int
-) -> dict[str, str]:
+) -> ResolvedReasoningOptions:
     if max_tokens < 2000:
-        return chat_reasoning_options(
+        return resolve_chat_reasoning_request(
             model, purpose=purpose, reasoning_effort_override="none"
         )
     if _adaptive_downgrade_active(model, purpose):
-        return chat_reasoning_options(
+        return resolve_chat_reasoning_request(
             model, purpose=purpose, reasoning_effort_override="none"
         )
     if not _run_policy_enabled():
-        return chat_reasoning_options(model, purpose=purpose)
+        return resolve_chat_reasoning_request(model, purpose=purpose)
     override = _configured_reasoning_override(model, purpose)
     if override is _DEFAULT_REASONING_SENTINEL:
-        return chat_reasoning_options(model, purpose=purpose)
-    return chat_reasoning_options(
+        return resolve_chat_reasoning_request(model, purpose=purpose)
+    return resolve_chat_reasoning_request(
         model, purpose=purpose, reasoning_effort_override=override
     )
+
+
+def _cached_reasoning_request(
+    model: str,
+    abstract_effort: str | None,
+) -> ResolvedReasoningOptions | None:
+    return _REASONING_REQUEST_CACHE.get(model, {}).get(abstract_effort)
+
+
+def _cache_reasoning_request(
+    model: str,
+    request: ResolvedReasoningOptions,
+) -> None:
+    _REASONING_REQUEST_CACHE[model][request.abstract_effort] = request
+
+
+def _binary_reasoning_prefers_omit(model: str) -> bool:
+    config = get_model_config(model)
+    if not config or not config.reasoning_transport.prefer_omit_for_binary_reasoning:
+        return False
+    allowed = get_model_reasoning_allowed_options(model)
+    if not allowed:
+        return False
+    return set(allowed) == {"off", "on"}
+
+
+def _prepare_reasoning_request(
+    *,
+    model: str,
+    purpose: str,
+    request: ResolvedReasoningOptions,
+) -> tuple[ResolvedReasoningOptions, str | None]:
+    cached = _cached_reasoning_request(model, request.abstract_effort)
+    if cached is not None:
+        return cached, None
+    if request.reasoning_enabled and request.request_options and _binary_reasoning_prefers_omit(model):
+        return request.with_request_options({}), "binary_metadata_prefers_omit"
+    return request, None
+
+
+def _reasoning_request_label(request: ResolvedReasoningOptions) -> str:
+    if not request.request_options:
+        return "omit"
+    return str(request.request_options.get("reasoning_effort") or "omit")
+
+
+def _log_reasoning_remap(
+    *,
+    model: str,
+    purpose: str,
+    requested: ResolvedReasoningOptions,
+    resolved: ResolvedReasoningOptions,
+    reason: str,
+    exc: Exception | None = None,
+) -> None:
+    if requested.request_options == resolved.request_options and exc is None:
+        return
+    key = (
+        model,
+        purpose,
+        requested.abstract_effort,
+        f"{reason}:{_reasoning_request_label(resolved)}",
+    )
+    if key in _REASONING_REMAP_LOGGED:
+        return
+    _REASONING_REMAP_LOGGED.add(key)
+    parts = [
+        "reasoning remap",
+        f"purpose={purpose}",
+        f"model={model}",
+        f"abstract={requested.abstract_effort or 'omit'}",
+        f"request={_reasoning_request_label(requested)}",
+        f"resolved={_reasoning_request_label(resolved)}",
+        f"reason={reason}",
+    ]
+    if exc is not None:
+        parts.append(f"error={str(exc).strip()[:160]}")
+    log("  [" + " ".join(parts) + "]", level="WARN")
+
+
+def _is_reasoning_request_error(exc: Exception) -> bool:
+    text = str(exc or "").lower()
+    return "reasoning_effort" in text and (
+        "invalid" in text or "supported" in text or "not supported" in text
+    )
+
+
+def _fallback_reasoning_request(
+    *,
+    request: ResolvedReasoningOptions,
+    exc: Exception,
+) -> ResolvedReasoningOptions | None:
+    if not _is_reasoning_request_error(exc):
+        return None
+    seen = {tuple(sorted(request.request_options.items()))}
+    candidates: list[ResolvedReasoningOptions] = []
+    if request.abstract_effort == "none":
+        candidates.append(request.with_request_options({"reasoning_effort": "none"}))
+    elif request.reasoning_enabled:
+        candidates.append(request.with_request_options({}))
+    for candidate in candidates:
+        key = tuple(sorted(candidate.request_options.items()))
+        if key in seen:
+            continue
+        return candidate
+    return None
 
 
 def _record_call_stats(
@@ -573,46 +687,62 @@ def _create_chat_completion_once(
     temperature: float,
     max_tokens: int,
     purpose: str,
-    reasoning_options: dict[str, str],
+    reasoning_request: ResolvedReasoningOptions,
 ):
     started_at = time.monotonic()
     debug = llm_debug_enabled()
-    if debug:
-        _log_debug_request(
+    prepared_request, remap_reason = _prepare_reasoning_request(
+        model=model,
+        purpose=purpose,
+        request=reasoning_request,
+    )
+    if remap_reason is not None:
+        _log_reasoning_remap(
             model=model,
             purpose=purpose,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            reasoning_options=reasoning_options,
-            stream=True,
+            requested=reasoning_request,
+            resolved=prepared_request,
+            reason=remap_reason,
         )
 
     try:
-        # Always attempt streaming to capture reasoning/output consistently.
-        # _DebugStreamChannel internalizes debug suppression via llm_debug_enabled().
-        response = _chat_completion_create_streaming(
+        response = _send_chat_completion(
             client,
             model=model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            reasoning_options=reasoning_options,
+            purpose=purpose,
+            reasoning_options=dict(prepared_request.request_options),
+            debug=debug,
         )
+        _cache_reasoning_request(model, prepared_request)
     except Exception as exc:
-        if debug:
-            log(
-                f"  [LLM debug stream fallback purpose={purpose} model={model} error={exc}]",
-                level="WARN",
-            )
-        response = client.chat.completions.create(
+        fallback_request = _fallback_reasoning_request(
+            request=prepared_request,
+            exc=exc,
+        )
+        if fallback_request is None:
+            raise
+        _log_reasoning_remap(
+            model=model,
+            purpose=purpose,
+            requested=prepared_request,
+            resolved=fallback_request,
+            reason="retry_after_invalid_request",
+            exc=exc,
+        )
+        response = _send_chat_completion(
+            client,
             model=model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            **reasoning_options,
+            purpose=purpose,
+            reasoning_options=dict(fallback_request.request_options),
+            debug=debug,
         )
-        if debug:
-            _log_debug_response(response)
+        _cache_reasoning_request(model, fallback_request)
 
     _record_call_stats(
         model=model,
@@ -634,6 +764,55 @@ def _create_chat_completion_once(
         max_tokens=max_tokens,
     )
     return response
+
+
+def _send_chat_completion(
+    client: OpenAI,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+    purpose: str,
+    reasoning_options: dict[str, str],
+    debug: bool,
+):
+    if debug:
+        _log_debug_request(
+            model=model,
+            purpose=purpose,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_options=reasoning_options,
+            stream=True,
+        )
+    try:
+        return _chat_completion_create_streaming(
+            client,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_options=reasoning_options,
+        )
+    except Exception as exc:
+        if _is_reasoning_request_error(exc):
+            raise
+        if debug:
+            log(
+                f"  [LLM debug stream fallback purpose={purpose} model={model} error={exc}]",
+                level="WARN",
+            )
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **reasoning_options,
+        )
+        if debug:
+            _log_debug_response(response)
+        return response
 
 
 def _mark_response_source(response, source: str):
@@ -658,7 +837,7 @@ def _chat_completion_create(
         purpose=purpose,
         requested_max_tokens=max_tokens,
     )
-    reasoning_options = _effective_reasoning_options(
+    reasoning_request = _effective_reasoning_request(
         model=model,
         purpose=purpose,
         max_tokens=max_tokens,
@@ -670,7 +849,7 @@ def _chat_completion_create(
         temperature=temperature,
         max_tokens=max_tokens,
         purpose=purpose,
-        reasoning_options=reasoning_options,
+        reasoning_request=reasoning_request,
     )
     _mark_response_source(response, RESPONSE_SOURCE_REASONING)
     if not _should_retry_without_thinking(
@@ -693,7 +872,7 @@ def _chat_completion_create(
         temperature=temperature,
         max_tokens=_retry_without_thinking_max_tokens(),
         purpose=purpose,
-        reasoning_options=chat_reasoning_options(
+        reasoning_request=resolve_chat_reasoning_request(
             model,
             purpose=purpose,
             reasoning_effort_override="none",

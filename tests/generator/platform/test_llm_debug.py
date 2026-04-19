@@ -6,7 +6,11 @@ from unittest.mock import patch
 from rebus_generator.evaluation.assessment.service import main as assessment_main
 from rebus_generator.workflows.generate.service import build_parser as build_batch_publish_parser
 from rebus_generator.workflows.canonicals.service import build_parser as build_clue_canon_parser
-from rebus_generator.platform.llm.llm_client import _chat_completion_create
+from rebus_generator.platform.llm.llm_client import (
+    _chat_completion_create,
+    reset_run_llm_state,
+)
+from rebus_generator.platform.llm.models import ResolvedReasoningOptions
 from rebus_generator.platform.io.runtime_logging import set_llm_debug_enabled
 from rebus_generator.cli.loop_controller import build_batch_command, build_parser as build_loop_parser
 from rebus_generator.cli.pipeline import build_parser as build_rebus_parser
@@ -55,6 +59,7 @@ class _FakeRetryStreamingClient:
 
 class LlmDebugTests(unittest.TestCase):
     def tearDown(self):
+        reset_run_llm_state()
         set_llm_debug_enabled(False)
 
     def test_streaming_debug_logs_reasoning_then_output(self):
@@ -238,11 +243,72 @@ class LlmDebugTests(unittest.TestCase):
         output = captured.getvalue()
         self.assertIn("retry without_thinking", output)
         self.assertEqual(2, len(client.calls))
-        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(4000, client.calls[0]["max_tokens"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual(200, client.calls[1]["max_tokens"])
         self.assertEqual("raspuns scurt", response.choices[0].message.content)
+
+    def test_invalid_reasoning_value_retries_once_and_caches_working_request(self):
+        class _RetryClient:
+            def __init__(self):
+                self.calls = []
+                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+            def create(self, **kwargs):
+                self.calls.append(kwargs)
+                if kwargs.get("reasoning_effort") == "off":
+                    raise ValueError(
+                        "Invalid 'reasoning_effort' value: 'off'. Supported values: none, minimal, low, medium, high, xhigh."
+                    )
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            message=SimpleNamespace(content="OK", reasoning_content=""),
+                        )
+                    ],
+                    usage=None,
+                )
+
+        client = _RetryClient()
+        with (
+            patch(
+                "rebus_generator.platform.llm.llm_client.resolve_chat_reasoning_request",
+                return_value=ResolvedReasoningOptions(
+                    abstract_effort="none",
+                    request_options={"reasoning_effort": "off"},
+                    reasoning_enabled=False,
+                ),
+            ),
+            patch(
+                "rebus_generator.platform.llm.llm_client.get_model_reasoning_allowed_options",
+                return_value=("off", "on"),
+            ),
+        ):
+            first = _chat_completion_create(
+                client,
+                model="google/gemma-4-26b-a4b",
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=64,
+                purpose="definition_verify",
+            )
+            second = _chat_completion_create(
+                client,
+                model="google/gemma-4-26b-a4b",
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=64,
+                purpose="definition_verify",
+            )
+
+        self.assertEqual(3, len(client.calls))
+        self.assertEqual("off", client.calls[0]["reasoning_effort"])
+        self.assertEqual("none", client.calls[1]["reasoning_effort"])
+        self.assertEqual("none", client.calls[2]["reasoning_effort"])
+        self.assertEqual("OK", first.choices[0].message.content)
+        self.assertEqual("OK", second.choices[0].message.content)
 
 
 class DebugParserTests(unittest.TestCase):

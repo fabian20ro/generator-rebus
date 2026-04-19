@@ -7,6 +7,27 @@ from typing import Mapping
 
 
 @dataclass(frozen=True)
+class ReasoningTransportConfig:
+    no_thinking_value: str | None = "none"
+    thinking_value_by_effort: Mapping[str, str | None] = field(default_factory=dict)
+    prefer_omit_for_binary_reasoning: bool = False
+
+
+@dataclass(frozen=True)
+class ResolvedReasoningOptions:
+    abstract_effort: str | None
+    request_options: Mapping[str, str] = field(default_factory=dict)
+    reasoning_enabled: bool = False
+
+    def with_request_options(self, request_options: Mapping[str, str]) -> "ResolvedReasoningOptions":
+        return ResolvedReasoningOptions(
+            abstract_effort=self.abstract_effort,
+            request_options=dict(request_options),
+            reasoning_enabled=self.reasoning_enabled,
+        )
+
+
+@dataclass(frozen=True)
 class ModelConfig:
     registry_key: str
     model_id: str
@@ -14,6 +35,9 @@ class ModelConfig:
     max_completion_tokens: int
     context_length: int = 8192
     reasoning_by_purpose: Mapping[str, str | None] = field(default_factory=dict)
+    reasoning_transport: ReasoningTransportConfig = field(
+        default_factory=ReasoningTransportConfig
+    )
 
 
 MODEL_CATALOG: dict[str, ModelConfig] = {
@@ -32,6 +56,10 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
             "title_generate": "low",
             "title_rate": "none",
         },
+        reasoning_transport=ReasoningTransportConfig(
+            thinking_value_by_effort={"default": None},
+            prefer_omit_for_binary_reasoning=True
+        ),
     ),
     "gpt_oss_20b": ModelConfig(
         registry_key="gpt_oss_20b",
@@ -132,12 +160,45 @@ def chat_reasoning_options(
     purpose: str = "default",
     reasoning_effort_override: str | None | object = _USE_MODEL_REASONING,
 ) -> dict[str, str]:
+    return dict(
+        resolve_chat_reasoning_request(
+            model,
+            purpose=purpose,
+            reasoning_effort_override=reasoning_effort_override,
+        ).request_options
+    )
+
+
+def resolve_chat_reasoning_request(
+    model: str | ModelConfig | None,
+    *,
+    purpose: str = "default",
+    reasoning_effort_override: str | None | object = _USE_MODEL_REASONING,
+) -> ResolvedReasoningOptions:
     effort = resolve_reasoning_effort(
         model,
         purpose=purpose,
         reasoning_effort_override=reasoning_effort_override,
     )
-    return {"reasoning_effort": effort} if effort is not None else {}
+    if effort is None:
+        return ResolvedReasoningOptions(
+            abstract_effort=None,
+            request_options={},
+            reasoning_enabled=False,
+        )
+    config = model if isinstance(model, ModelConfig) else get_model_config(str(model or ""))
+    transport = (
+        config.reasoning_transport if config else ReasoningTransportConfig()
+    )
+    request_effort = _transport_reasoning_effort(transport, effort)
+    request_options = (
+        {"reasoning_effort": request_effort} if request_effort is not None else {}
+    )
+    return ResolvedReasoningOptions(
+        abstract_effort=effort,
+        request_options=request_options,
+        reasoning_enabled=effort != "none",
+    )
 
 
 def chat_max_tokens(model: str | ModelConfig | None) -> int:
@@ -153,3 +214,17 @@ def _normalize_reasoning_effort(effort: str) -> str:
     if normalized not in _VALID_REASONING_EFFORTS:
         raise ValueError(f"Unsupported reasoning_effort value: {effort}")
     return normalized
+
+
+def _transport_reasoning_effort(
+    transport: ReasoningTransportConfig,
+    effort: str,
+) -> str | None:
+    if effort == "none":
+        return transport.no_thinking_value
+    mapping = transport.thinking_value_by_effort
+    if effort in mapping:
+        return mapping[effort]
+    if "default" in mapping:
+        return mapping["default"]
+    return effort
