@@ -202,15 +202,31 @@ class ClueCanonService:
         usage_label: str = "",
         seed_parts: tuple[object, ...] = (),
     ) -> CanonicalDefinition | None:
-        rows = self._scored_active_canonicals(
+        canonical, _tier = self.select_scored_fallback_with_detail(
+            word_normalized=word_normalized,
+            word_type=word_type,
+            usage_label=usage_label,
+            seed_parts=seed_parts,
+        )
+        return canonical
+
+    def select_scored_fallback_with_detail(
+        self,
+        *,
+        word_normalized: str,
+        word_type: str = "",
+        usage_label: str = "",
+        seed_parts: tuple[object, ...] = (),
+    ) -> tuple[CanonicalDefinition | None, str]:
+        tier_name, rows = self._scored_active_canonicals_for_fallback(
             word_normalized,
             word_type=word_type,
             usage_label=usage_label,
         )
         if not rows:
-            return None
+            return None, "none"
         if len(rows) == 1:
-            return rows[0]
+            return rows[0], tier_name
         snapshot = "|".join(
             f"{row.id}:{row.semantic_score}:{row.rebus_score}:{row.creativity_score}:{row.usage_count}"
             for row in rows
@@ -220,11 +236,12 @@ class ClueCanonService:
             word_normalized,
             word_type,
             usage_label,
+            tier_name,
             snapshot,
             *seed_parts,
         )
         weights = [_canonical_fallback_weight(row) for row in rows]
-        return rows[rng.choices(range(len(rows)), weights=weights, k=1)[0]]
+        return rows[rng.choices(range(len(rows)), weights=weights, k=1)[0]], tier_name
 
     def resolve_definition(
         self,
@@ -362,6 +379,38 @@ class ClueCanonService:
         ]
         eligible.sort(key=canonical_reset_safe_sort_key)
         return eligible
+
+    def _scored_active_canonicals_for_fallback(
+        self,
+        word_normalized: str,
+        *,
+        word_type: str = "",
+        usage_label: str = "",
+    ) -> tuple[str, list[CanonicalDefinition]]:
+        rows = self._scored_active_canonicals(word_normalized)
+        exact_word_type = str(word_type or "").strip().upper()
+        exact_usage_label = str(usage_label or "").strip().lower()
+        tiers: list[tuple[str, list[CanonicalDefinition]]] = []
+        seen_ids: set[str] = set()
+
+        def _usage_matches(row: CanonicalDefinition) -> bool:
+            return row.usage_label.strip().lower() == exact_usage_label
+
+        def _collect(name: str, predicate) -> None:
+            matched = [
+                row for row in rows
+                if row.id not in seen_ids and predicate(row)
+            ]
+            if not matched:
+                return
+            tiers.append((name, matched))
+            seen_ids.update(row.id for row in matched)
+
+        _collect("exact_type_usage", lambda row: row.word_type == exact_word_type and _usage_matches(row))
+        _collect("exact_type_any_usage", lambda row: row.word_type == exact_word_type)
+        _collect("any_type_exact_usage", _usage_matches)
+        _collect("same_word_any_metadata", lambda _row: True)
+        return tiers[0] if tiers else ("none", [])
 
     def _run_referee(self, record: ClueDefinitionRecord, canonical: CanonicalDefinition) -> DefinitionRefereeResult:
         if self.client is None:

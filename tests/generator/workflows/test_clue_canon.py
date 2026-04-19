@@ -310,6 +310,78 @@ class ClueCanonTests(unittest.TestCase):
         self.assertGreater(counts["1"], counts["2"])
         self.assertGreater(counts["2"], 0)
 
+    def test_select_scored_fallback_relaxes_to_same_word_when_exact_metadata_empty(self):
+        store = type("Store", (), {
+            "fetch_canonical_variants": lambda _self, _word, limit=None: [
+                _canonical(
+                    canonical_id="1",
+                    word="CAR",
+                    definition="Vehicul cu patru roți pentru transport.",
+                    word_type="SUBST",
+                    usage_label="",
+                    verified=True,
+                    usage_count=1,
+                    semantic_score=8,
+                    rebus_score=7,
+                    creativity_score=6,
+                ),
+            ],
+        })()
+        service = ClueCanonService(store=store)
+
+        chosen, tier_name = service.select_scored_fallback_with_detail(
+            word_normalized="CAR",
+            word_type="VERB",
+            usage_label="(reg.)",
+            seed_parts=("p1", "H", 1, 1),
+        )
+
+        self.assertIsNotNone(chosen)
+        self.assertEqual("1", chosen.id)
+        self.assertEqual("same_word_any_metadata", tier_name)
+
+    def test_select_scored_fallback_keeps_exact_metadata_when_available(self):
+        store = type("Store", (), {
+            "fetch_canonical_variants": lambda _self, _word, limit=None: [
+                _canonical(
+                    canonical_id="1",
+                    word="CAR",
+                    definition="Vehicul cu patru roți pentru transport.",
+                    word_type="SUBST",
+                    usage_label="",
+                    verified=True,
+                    usage_count=1,
+                    semantic_score=8,
+                    rebus_score=7,
+                    creativity_score=6,
+                ),
+                _canonical(
+                    canonical_id="2",
+                    word="CAR",
+                    definition="Piesă cilindrică la mașina de scris.",
+                    word_type="SUBST",
+                    usage_label="(tehn.)",
+                    verified=True,
+                    usage_count=1,
+                    semantic_score=9,
+                    rebus_score=9,
+                    creativity_score=9,
+                ),
+            ],
+        })()
+        service = ClueCanonService(store=store)
+
+        chosen, tier_name = service.select_scored_fallback_with_detail(
+            word_normalized="CAR",
+            word_type="SUBST",
+            usage_label="",
+            seed_parts=("p1", "H", 1, 1),
+        )
+
+        self.assertIsNotNone(chosen)
+        self.assertEqual("1", chosen.id)
+        self.assertEqual("exact_type_usage", tier_name)
+
     def test_generate_near_duplicate_candidates_finds_similar_same_word_defs(self):
         rows = [
             build_definition_record({

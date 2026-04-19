@@ -40,6 +40,56 @@ def _make_clue(word: str, rebus_score: int, verified: bool = True, semantic_scor
 
 
 class AggressiveRewriteRegressionTests(unittest.TestCase):
+    def test_run_all_prepare_round_includes_placeholder_for_fresh_only_generation(self):
+        clue = WorkingClue(
+            row_number=1,
+            word_normalized="CAR",
+            word_original="car",
+            current=ClueCandidateVersion(
+                definition="[Definiție negenerată]",
+                round_index=0,
+                source="import",
+                assessment=ClueAssessment(verified=False),
+            ),
+            history=[],
+        )
+        clue.history = [clue.current]
+        puzzle = WorkingPuzzle(
+            title="Test",
+            size=7,
+            grid=[],
+            horizontal_clues=[clue],
+            vertical_clues=[],
+        )
+        runtime = MagicMock()
+        runtime.primary = PRIMARY_MODEL
+        runtime.multi_model = False
+
+        session = RunAllRewriteSession(
+            puzzle=puzzle,
+            client=MagicMock(),
+            rounds=1,
+            theme="Test",
+            multi_model=False,
+            dex=MagicMock(),
+            verify_candidates=1,
+            hybrid_deanchor=False,
+            runtime=runtime,
+        )
+        session.build_initial_outcomes()
+
+        session.prepare_round()
+
+        self.assertIsNotNone(session.current_round)
+        self.assertIn("CAR", session.current_round.clues_by_word)
+        self.assertEqual(
+            ["fresh_only"],
+            [
+                request.strategy_label
+                for request in session.current_round.generation_requests_by_word["CAR"]
+            ],
+        )
+
     def test_run_all_aggressive_staging_and_plateau_guard(self):
         """Verify that run_all rewrite session uses 3-stage targets and guards plateau."""
         puzzle = WorkingPuzzle(
@@ -128,8 +178,8 @@ class AggressiveRewriteRegressionTests(unittest.TestCase):
             # Check limit removal: All 20 should be selected (previously limited to 12)
             self.assertEqual(len(round_state.candidates), 20)
 
-    def test_no_quarantine_in_failures(self):
-        """Verify that words are no longer added to stuck_words after failures."""
+    def test_failures_still_quarantine_after_threshold(self):
+        """Verify repeated unchanged failures still quarantine stuck words."""
         puzzle = WorkingPuzzle(title="T", size=7, grid=[], horizontal_clues=[_make_clue("FAIL", 2)], vertical_clues=[])
         runtime = MagicMock()
         runtime.primary = PRIMARY_MODEL
@@ -145,5 +195,5 @@ class AggressiveRewriteRegressionTests(unittest.TestCase):
         for _ in range(10):
             session._note_generation_failure("FAIL", had_error=True, rejection_reason="test")
             
-        self.assertNotIn("FAIL", session.stuck_words)
+        self.assertIn("FAIL", session.stuck_words)
         self.assertEqual(session.consecutive_failures["FAIL"], 10)

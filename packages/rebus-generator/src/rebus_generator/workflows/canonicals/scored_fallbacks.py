@@ -143,6 +143,10 @@ def _fallback_usage_label(clue: WorkingClue, reference_clue: WorkingClue | None)
     return ""
 
 
+def _can_hydrate_same_text_fallback(clue: WorkingClue, reference_clue: WorkingClue | None) -> bool:
+    return reference_clue is None and _pair_evaluation_incomplete(clue)
+
+
 def apply_scored_canonical_fallbacks(
     *,
     target_puzzle: WorkingPuzzle,
@@ -164,12 +168,12 @@ def apply_scored_canonical_fallbacks(
     )
     target_clues = _working_clue_map(target_puzzle)
     reference_clues = _working_clue_map(reference_puzzle) if reference_puzzle is not None else {}
-    selected: dict[tuple[str, int, int], object] = {}
+    selected: dict[tuple[str, int, int], tuple[object, str, bool]] = {}
     for key, clue in target_clues.items():
         reference_clue = reference_clues.get(key)
         if not policy(clue, reference_clue):
             continue
-        fallback = clue_canon.select_scored_fallback(
+        fallback, tier_name = clue_canon.select_scored_fallback_with_detail(
             word_normalized=clue.word_normalized,
             word_type=clue.word_type,
             usage_label=_fallback_usage_label(clue, reference_clue),
@@ -184,14 +188,25 @@ def apply_scored_canonical_fallbacks(
             ),
         )
         if fallback is None:
+            log(
+                f"  [{puzzle_identity}] fallback {clue.word_normalized} skipped: "
+                "no eligible canonical after metadata relaxation"
+            )
             continue
-        if _normalized_definition(fallback.definition) == _normalized_definition(clue.active_version().definition):
+        same_text = _normalized_definition(fallback.definition) == _normalized_definition(clue.active_version().definition)
+        if same_text and not _can_hydrate_same_text_fallback(clue, reference_clue):
+            log(
+                f"  [{puzzle_identity}] fallback {clue.word_normalized} skipped: "
+                f"same clue text already present (tier={tier_name})"
+            )
             continue
-        selected[key] = fallback
+        selected[key] = (fallback, tier_name, same_text)
     if not selected:
         return {}
 
-    representative_rows = store.fetch_clue_rows_for_canonical_ids([canonical.id for canonical in selected.values()])
+    representative_rows = store.fetch_clue_rows_for_canonical_ids(
+        [canonical.id for canonical, _tier_name, _same_text in selected.values()]
+    )
     representative_by_canonical_id: dict[str, dict] = {}
     for row in representative_rows:
         canonical_id = str(row.get("canonical_definition_id") or "")
@@ -199,7 +214,7 @@ def apply_scored_canonical_fallbacks(
             representative_by_canonical_id[canonical_id] = row
 
     applied: dict[tuple[str, int, int], str] = {}
-    for key, canonical in selected.items():
+    for key, (canonical, tier_name, same_text) in selected.items():
         clue = target_clues[key]
         representative = representative_by_canonical_id.get(canonical.id)
         assessment = (
@@ -213,8 +228,9 @@ def apply_scored_canonical_fallbacks(
             assessment=assessment,
         )
         applied[key] = canonical.id
+        action = "hydrate" if same_text else "replace"
         log(
             f"  [{puzzle_identity}] fallback {clue.word_normalized} -> "
-            f"'{canonical.definition}' (canonical={canonical.id})"
+            f"'{canonical.definition}' (canonical={canonical.id}, action={action}, tier={tier_name})"
         )
     return applied

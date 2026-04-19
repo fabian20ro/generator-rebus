@@ -216,6 +216,8 @@
 
 **[2026-04-18]** Strict short-word leakage needs a local prefix/subform guard, not a global family-root loosening — the shared `clue_uses_same_family()` helper intentionally ignores roots shorter than 4 chars to avoid false positives, so simply removing the short-word bypass in definition validation still lets leaks like `OS` -> `osoasă` through. Keep the general family matcher conservative, and add any stricter 2-3 letter rejection logic at the clue-validation layer where the product policy is explicitly “prefer false rejects over answer leakage.”
 
+**[2026-04-20]** Same-text canonical fallback can still be a real repair when pair evaluation is incomplete — generate-time rescue logic must not treat `fallback.definition == current.definition` as an automatic no-op. If the live clue is blocked only because one model left verify/rate incomplete or unparsable, rehydrating the assessment from a scored canonical representative is enough to unblock strict publishability gates. Scope that hydration narrowly to unresolved generate clues; redefine/no-op flows should not count same-text reassessment as a content change.
+
 ---
 
 ## Archive

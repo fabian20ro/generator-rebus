@@ -11,6 +11,7 @@ from rebus_generator.domain.score_helpers import (
     LOCKED_SEMANTIC,
     MAX_CONSECUTIVE_FAILURES,
     PLATEAU_LOOKBACK,
+    _definition_missing_or_placeholder,
     _extract_rebus_score,
     _extract_semantic_score,
     _is_locked_clue,
@@ -239,7 +240,10 @@ class RunAllRewriteSession:
         candidate_clues = [
             clue
             for clue in self.clues()
-            if _needs_rewrite(clue, min_rebus=round_min_rebus)
+            if (
+                _definition_missing_or_placeholder(clue)
+                or _needs_rewrite(clue, min_rebus=round_min_rebus)
+            )
             and clue.word_normalized not in self.stuck_words
             and self.consecutive_failures.get(clue.word_normalized, 0) < MAX_CONSECUTIVE_FAILURES
         ]

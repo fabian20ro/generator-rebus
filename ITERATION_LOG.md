@@ -1436,3 +1436,11 @@
 **Verification:** `pytest tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py tests/generator/workflows/test_batch_publish.py tests/generator/domain/test_puzzle_metrics.py -q` (`128 passed, 2 subtests passed`).
 **Outcome:** success
 **Promoted:** no
+
+### [2026-04-20] — run_all placeholder recovery + same-text canonical hydration
+**Context:** user reported `run_all.sh` quarantining `generate:size:14` at `rewrite_prepare_round` with `missing definitions: CAR` and `incomplete pair evaluation: verify=0, rate=15`, and asked whether this was a regression from recent commits.
+**Happened:** Confirmed a mixed root cause. `da239a0` made the failure visible sooner by enforcing a strict pre-title gate on `scores_complete=False`, but the deeper bugs were older: placeholder clues like `CAR -> [Definiție negenerată]` never entered `RunAllRewriteSession.prepare_round()`, so they could not schedule the existing `fresh_only` recovery path; and generate-time scored canonical fallback treated same-text canonicals as automatic no-ops, so clues blocked only by incomplete/parse-error pair evaluation could not be repaired from existing canonical assessments. Fixed run-all rewrite admission to include placeholder clues, added tiered scored-canonical fallback selection (`exact_type_usage` → `exact_type_any_usage` → `any_type_exact_usage` → `same_word_any_metadata`), and allowed same-text canonical hydration only for unresolved generate clues with incomplete pair evaluation. Added clearer fallback logs for applied replacement vs hydration vs no eligible canonical. Added regression tests for relaxed fallback tiering, same-text generate hydration, placeholder `fresh_only` admission, and `run_all` advancement to title once a placeholder clue is repaired.
+**Verification:** `pytest tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py tests/generator/workflows/test_aggressive_rewrite_regression.py` (`100 passed`).
+**Outcome:** success
+**Insight:** same-text canonical fallback is a content no-op but an assessment repair; promote when strict quality gates depend on pair-complete metadata rather than clue text alone.
+**Promoted:** yes — see LESSONS_LEARNED entry on same-text canonical fallback hydration.
