@@ -9,6 +9,8 @@ from rebus_generator.platform.llm.llm_client import (
     RESPONSE_SOURCE_NO_THINKING_RETRY,
     RESPONSE_SOURCE_REASONING,
     _chat_completion_create,
+    extract_json_object_with_status,
+    llm_attempt_temperatures,
 )
 from rebus_generator.platform.llm.llm_dispatch import (
     WorkConclusion,
@@ -42,7 +44,11 @@ def rate_title_creativity(
         title=title,
         words=", ".join(words[:10]),
     )
-    for _ in range(2):
+    attempt_temperatures = llm_attempt_temperatures(
+        temperature=0.1,
+        default_temperature=0.1,
+    )
+    for attempt_temperature in attempt_temperatures:
         try:
             response = _chat_completion_create(
                 client,
@@ -51,23 +57,13 @@ def rate_title_creativity(
                     {"role": "system", "content": load_system_prompt("title_rate")},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
+                temperature=attempt_temperature,
                 max_tokens=min(chat_max_tokens(model_config), TITLE_RATE_MAX_TOKENS),
                 purpose="title_rate",
             )
             raw = response.choices[0].message.content or ""
-            fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
-            bare_match = re.search(r"\{.*\}", raw, re.DOTALL)
-            match = fence_match or bare_match
-            if match:
-                json_str = match.group(1) if fence_match and match is fence_match else match.group()
-                try:
-                    data = json.loads(json_str)
-                except json.JSONDecodeError:
-                    if str(getattr(response, "_response_source", RESPONSE_SOURCE_REASONING)) == RESPONSE_SOURCE_NO_THINKING_RETRY:
-                        return 0, "parse error"
-                    prompt += "\nRăspunsul anterior nu a fost JSON valid. Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
-                    continue
+            data, _parse_status = extract_json_object_with_status(raw)
+            if data is not None:
                 try:
                     score = int(data.get("creativity_score", 0))
                 except (TypeError, ValueError):

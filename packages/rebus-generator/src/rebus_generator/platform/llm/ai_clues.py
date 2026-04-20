@@ -65,6 +65,9 @@ from .llm_client import (
     _clean_response,
     _chat_completion_create,
     _extract_json_object,
+    extract_json_object_with_status,
+    llm_attempt_temperatures,
+    record_llm_parse_failure,
 )
 
 
@@ -197,7 +200,11 @@ def generate_definition(
         log(f"  [LLM prompt] word={word} system={len(system_prompt)} chars")
         log(f"  [LLM user prompt]\n{prompt}")
 
-    for attempt in range(retries):
+    attempt_temperatures = llm_attempt_temperatures(
+        temperature=temperature,
+        default_temperature=0.4,
+    )
+    for attempt_index, attempt_temperature in enumerate(attempt_temperatures):
         try:
             max_tokens = chat_max_tokens(resolved_model)
             response = _chat_completion_create(
@@ -207,7 +214,7 @@ def generate_definition(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=temperature if temperature is not None else 0.4,
+                temperature=attempt_temperature,
                 max_tokens=max_tokens,
                 purpose="definition_generate",
             )
@@ -229,7 +236,7 @@ def generate_definition(
                 continue
             return definition
         except Exception:
-            if attempt < retries - 1:
+            if attempt_index < len(attempt_temperatures) - 1:
                 time.sleep(2)
             else:
                 raise
@@ -296,7 +303,11 @@ def rewrite_definition(
         log(f"  [LLM user prompt]\n{prompt}")
 
     last_rejection = ""
-    for attempt in range(retries):
+    attempt_temperatures = llm_attempt_temperatures(
+        temperature=temperature,
+        default_temperature=0.3,
+    )
+    for attempt_index, attempt_temperature in enumerate(attempt_temperatures):
         try:
             resolved_model = _resolve_model_name(model)
             max_tokens = chat_max_tokens(resolved_model)
@@ -307,7 +318,7 @@ def rewrite_definition(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=temperature if temperature is not None else 0.3,
+                temperature=attempt_temperature,
                 max_tokens=max_tokens,
                 purpose="definition_rewrite",
             )
@@ -332,7 +343,7 @@ def rewrite_definition(
             result = RewriteAttemptResult(definition=definition)
             return result if return_diagnostics else result.definition
         except Exception:
-            if attempt < retries - 1:
+            if attempt_index < len(attempt_temperatures) - 1:
                 time.sleep(2)
             else:
                 raise
@@ -362,7 +373,11 @@ def verify_definition_candidates(
 
     last_candidates: list[str] = []
     last_source = RESPONSE_SOURCE_REASONING
-    for attempt in range(2):
+    attempt_temperatures = llm_attempt_temperatures(
+        temperature=0.1,
+        default_temperature=0.1,
+    )
+    for attempt_temperature in attempt_temperatures:
         resolved_model = _resolve_model_name(model)
         max_tokens = min(chat_max_tokens(resolved_model), VERIFY_MAX_TOKENS)
         response = _chat_completion_create(
@@ -373,7 +388,7 @@ def verify_definition_candidates(
                 {"role": "user", "content": prompt},
             ],
 
-            temperature=0.0,
+            temperature=attempt_temperature,
             max_tokens=max_tokens,
             purpose="definition_verify",
         )
@@ -417,9 +432,20 @@ def rate_definition(
         dex_definitions=dex_definitions,
     )
     resolved_model = _resolve_model_name(model)
-    system_prompt = load_system_prompt("rate", model_id=resolved_model).replace("{answer_length}", str(answer_length))
-
-    for attempt in range(2):
+    system_prompt = (
+        load_system_prompt("rate", model_id=resolved_model)
+        .replace("{answer_length}", str(answer_length))
+        + "\nRăspunzi strict cu un singur obiect JSON valid și nimic altceva."
+    )
+    retry_instruction = (
+        "\nRăspunsul anterior nu a fost un JSON valid sau complet. "
+        "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
+    )
+    attempt_temperatures = llm_attempt_temperatures(
+        temperature=0.1,
+        default_temperature=0.1,
+    )
+    for attempt_temperature in attempt_temperatures:
         try:
             max_tokens = min(chat_max_tokens(resolved_model), RATE_MAX_TOKENS)
             response = _chat_completion_create(
@@ -429,52 +455,50 @@ def rate_definition(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.0,
+                temperature=attempt_temperature,
                 max_tokens=max_tokens,
                 purpose="definition_rate",
             )
             raw = response.choices[0].message.content or ""
-            fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
-            bare_match = re.search(r"\{.*\}", raw, re.DOTALL)
-            match = fence_match or bare_match
-            if match:
-                json_str = (
-                    match.group(1)
-                    if fence_match and match is fence_match
-                    else match.group()
-                )
-                try:
-                    data = json.loads(json_str)
-                except json.JSONDecodeError:
-                    if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
-                        return None
-                    prompt += (
-                        "\nRăspunsul anterior nu a fost JSON valid. "
-                        "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
-                    )
-                    continue
-                feedback = str(data.get("feedback", "")).strip()
-                if contains_english_markers(feedback):
-                    prompt += "\nAtenție: feedback-ul anterior nu a fost în română. Refă-l exclusiv în română."
-                    continue
-                rating = DefinitionRating(
-                    semantic_score=_clamp_score(data.get("semantic_score")),
-                    guessability_score=_clamp_score(data.get("guessability_score")),
-                    feedback=feedback,
-                    creativity_score=_clamp_score(data.get("creativity_score")),
+            data, parse_status = extract_json_object_with_status(raw)
+            if data is None:
+                record_llm_parse_failure(
+                    model=resolved_model,
+                    purpose="definition_rate",
+                    word=word,
                     response_source=_response_source(response),
+                    finish_reason=str(getattr(response.choices[0], "finish_reason", "") or ""),
+                    payload_preview=raw,
+                    status=parse_status,
                 )
-                rating = _guard_same_family_rating(word, definition, rating)
-                rating = _guard_english_meaning_rating(word, definition, rating)
-                return _guard_definition_centric_rating(rating)
-            if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
-                return None
-            prompt += (
-                "\nRăspunsul anterior nu a fost JSON valid. "
-                "Răspunde acum strict cu un singur obiect JSON valid, fără text suplimentar."
+                if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
+                    return None
+                prompt += retry_instruction
+                continue
+            feedback = str(data.get("feedback", "")).strip()
+            if contains_english_markers(feedback):
+                prompt += "\nAtenție: feedback-ul anterior nu a fost în română. Refă-l exclusiv în română."
+                continue
+            rating = DefinitionRating(
+                semantic_score=_clamp_score(data.get("semantic_score")),
+                guessability_score=_clamp_score(data.get("guessability_score")),
+                feedback=feedback,
+                creativity_score=_clamp_score(data.get("creativity_score")),
+                response_source=_response_source(response),
             )
-        except Exception:
-            pass
+            rating = _guard_same_family_rating(word, definition, rating)
+            rating = _guard_english_meaning_rating(word, definition, rating)
+            return _guard_definition_centric_rating(rating)
+        except Exception as exc:
+            record_llm_parse_failure(
+                model=resolved_model,
+                purpose="definition_rate",
+                word=word,
+                response_source="exception",
+                finish_reason="exception",
+                payload_preview=str(exc),
+                status="exception",
+            )
 
     return None
 

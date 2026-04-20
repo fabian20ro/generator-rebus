@@ -218,6 +218,8 @@
 
 **[2026-04-20]** Same-text canonical fallback can still be a real repair when pair evaluation is incomplete — generate-time rescue logic must not treat `fallback.definition == current.definition` as an automatic no-op. If the live clue is blocked only because one model left verify/rate incomplete or unparsable, rehydrating the assessment from a scored canonical representative is enough to unblock strict publishability gates. Scope that hydration narrowly to unresolved generate clues; redefine/no-op flows should not count same-text reassessment as a content change.
 
+**[2026-04-20]** Generate-time canonical rescue needs an unresolved-only policy, not the broad generate fallback policy — `generate_scored_fallback_policy()` also treats missing verify/rate scores as incomplete, which is correct after rewrite but far too broad before rewrite starts. Reusing it in define-finalize would try to canonical-replace every fresh generated clue because none are rated yet. For early rescue, gate only on missing/placeholder definitions, then keep pair-incomplete hydration for the later post-rewrite fallback pass.
+
 **[2026-04-20]** Reasoning transport must separate “thinking enabled” from “reasoning param present” — LM Studio can accept `reasoning_effort="none"` to disable hidden reasoning while also preferring omitted params for thinking-enabled Gemma calls. If code infers “reasoning off” only from missing `reasoning_effort`, omitted-param thinking paths get misclassified and short-form token caps fire incorrectly. Keep abstract reasoning intent separate from backend request params, and carry an explicit `reasoning_enabled` flag through request budgeting and retries.
 
 ---

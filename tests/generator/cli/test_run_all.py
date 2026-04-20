@@ -1223,6 +1223,76 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual(["finish", "fallback", "score"], calls)
         self.assertEqual("title", job.stage)
 
+    def test_generate_define_finalize_uses_unresolved_only_fallback_policy(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        ctx = _context(runtime)
+        item = _item("generate", "generate:size:14:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 14, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "define_initial"
+        clue = WorkingClue(row_number=1, word_normalized="CAR", word_original="car")
+        clue.current.definition = "[NECLAR]"
+        job.working_puzzle = WorkingPuzzle("", 14, [], [clue], [])
+        job.define_done_words = {"CAR"}
+        policy_names: list[str] = []
+
+        class _CaptureRewriteSession:
+            def __init__(self, *, puzzle, **_kwargs):
+                self.puzzle = puzzle
+
+        def _apply_fallback(**kwargs):
+            policy_names.append(kwargs["policy"].__name__)
+            clue.current.definition = "Vehicul cu patru roți."
+            clue.best = clue.current
+            return {("H", 0, 0): "canon-1"}
+
+        job.dex_provider = SimpleNamespace(
+            get=lambda *_args, **_kwargs: "",
+            uncertain_short_definitions=lambda: [],
+        )
+
+        with (
+            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", side_effect=_apply_fallback),
+            patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", _CaptureRewriteSession),
+        ):
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+
+        self.assertEqual(["generate_unresolved_definition_fallback_policy"], policy_names)
+        self.assertEqual("Vehicul cu patru roți.", clue.current.definition)
+        self.assertEqual("rewrite_initial_verify", job.stage)
+
+    def test_generate_define_finalize_rescues_placeholder_from_dex(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        ctx = _context(runtime)
+        item = _item("generate", "generate:size:14:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 14, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "define_initial"
+        clue = WorkingClue(row_number=1, word_normalized="AN", word_original="an")
+        clue.current.definition = "[Definiție negenerată]"
+        job.working_puzzle = WorkingPuzzle("", 14, [], [clue], [])
+        job.define_done_words = {"AN"}
+
+        class _CaptureRewriteSession:
+            def __init__(self, *, puzzle, **_kwargs):
+                self.puzzle = puzzle
+
+        job.dex_provider = SimpleNamespace(
+            get=lambda *_args, **_kwargs: '- Definiție directă DEX pentru „an”: Perioadă de douăsprezece luni.',
+            uncertain_short_definitions=lambda: [{"word": "AN", "definition": "Perioadă de douăsprezece luni."}],
+        )
+
+        with (
+            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", return_value={}),
+            patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", _CaptureRewriteSession),
+        ):
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+
+        self.assertEqual("Perioadă de douăsprezece luni.", clue.current.definition)
+        self.assertEqual("generate_rescue_dex", clue.current.source)
+        self.assertEqual("dex_rescue", clue.current.generated_by)
+        self.assertEqual("rewrite_initial_verify", job.stage)
+
     def test_redefine_persist_prepare_uses_run_all_rewrite_session_finish(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(

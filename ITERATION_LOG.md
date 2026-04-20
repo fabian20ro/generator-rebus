@@ -1468,3 +1468,11 @@
 **Outcome:** success
 **Insight:** generate-size dead-end classification cannot be tied only to one pipeline stage; the same “bad size, not broken run” outcome can surface after rewrite/publishability gates too.
 **Promoted:** yes — expanded existing `LESSONS_LEARNED.md` entry on deterministic generate-size dead ends.
+
+### [2026-04-20] — global temperature policy + generate rescue
+**Context:** user wanted full implementation of shared nonzero LLM temperature policy, pair-rating resilience, stricter `definition_rate`, and generate-time unresolved-definition rescue.
+**Happened:** Added shared LLM temperature helpers in `llm_client.py`: clamp floor `0.1`, exact 5-attempt ramp `+0.025` to `+0.10`, parse-failure counters, structured `llm_parse_failure` audit logging, more tolerant JSON object extraction. Routed clue generate/rewrite/verify/rate, compare/tiebreak, title-rate, and preflight through the policy. Refactored pair rating so parse-miss votes no longer terminal-fail the item; finalization now accepts `single_model_fallback` as rating-complete and records resolution metadata on `ClueAssessment`. Added early unresolved-only canonical fallback policy plus DEX rescue in `run_all` generate define-finalize before rewrite session starts. Added regression coverage for temp ramp/clamp, parse-failure counters, pair fallback semantics, puzzle metrics completeness, and generate define-finalize fallback/DEX rescue.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_ai_clues.py -q` (`95 passed`); `python3 -m pytest tests/generator/workflows/test_verify.py tests/generator/domain/test_puzzle_metrics.py tests/generator/cli/test_run_all.py -q` (`68 passed`); `python3 -m pytest tests/generator/workflows/test_ai_clues.py -q -k 'title or compare or referee'` (`8 passed`); `python3 -m pytest tests/generator/platform/test_llm_debug.py -q` (`10 passed`).
+**Outcome:** success
+**Insight:** early generate rescue cannot reuse the broad post-rewrite generate fallback policy because missing scores make every fresh clue look “incomplete”; define-finalize needs unresolved-only gating.
+**Promoted:** yes — added LESSONS_LEARNED entry on unresolved-only generate rescue policy.

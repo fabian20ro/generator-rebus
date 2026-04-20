@@ -304,7 +304,7 @@ class VerifyPhaseTests(unittest.TestCase):
         return_value=SimpleNamespace(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id),
     )
     @patch("rebus_generator.workflows.generate.verify.rate_definition")
-    def test_rate_working_puzzle_marks_incomplete_pair_unrated(self, mock_rate_definition, _mock_primary, _mock_secondary):
+    def test_rate_working_puzzle_accepts_single_model_fallback_rating(self, mock_rate_definition, _mock_primary, _mock_secondary):
         mock_rate_definition.side_effect = [
             DefinitionRating(semantic_score=8, guessability_score=6, feedback="ok", creativity_score=6),
             None,
@@ -316,8 +316,9 @@ class VerifyPhaseTests(unittest.TestCase):
 
         avg_semantic, avg_guessability, rated = rate_puzzle(puzzle, client=object())
 
-        self.assertEqual((0.0, 0.0, 0), (avg_semantic, avg_guessability, rated))
-        self.assertEqual("", puzzle.horizontal_clues[0].verify_note)
+        self.assertEqual((8.0, 6.0, 1), (avg_semantic, avg_guessability, rated))
+        self.assertIn("Scor semantic: 8/10", puzzle.horizontal_clues[0].verify_note)
+        self.assertIn("Scor rebus: 6/10", puzzle.horizontal_clues[0].verify_note)
 
     def test_puzzle_metrics_keep_live_pass_rate_when_pair_incomplete(self):
         passed = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
@@ -394,7 +395,27 @@ class VerifyPhaseTests(unittest.TestCase):
         )
 
         assessed = clue.current.assessment
+        self.assertTrue(assessed.rating_complete)
+        self.assertEqual("single_model_fallback", assessed.rating_resolution)
+        self.assertEqual([PRIMARY_MODEL.model_id], assessed.rating_resolution_models)
+        self.assertEqual(8, assessed.scores.semantic_exactness)
+        self.assertEqual(6, assessed.scores.answer_targeting)
+        self.assertEqual(6, assessed.scores.rebus_score)
+        self.assertEqual("feedback", assessed.failure_reason.kind)  # type: ignore[union-attr]
+
+    def test_finalize_pair_rating_stays_incomplete_when_both_votes_missing(self):
+        clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
+
+        _finalize_pair_rating(
+            [clue],
+            model_order=[PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
+            model_label="gemma + eurollm",
+        )
+
+        assessed = clue.current.assessment
         self.assertFalse(assessed.rating_complete)
+        self.assertEqual("", assessed.rating_resolution)
+        self.assertEqual([], assessed.rating_resolution_models)
         self.assertIsNone(assessed.scores.semantic_exactness)
         self.assertEqual("unrated", assessed.failure_reason.kind)  # type: ignore[union-attr]
 

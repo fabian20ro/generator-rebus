@@ -46,6 +46,8 @@ class ClueAssessment:
     rating_votes: dict[str, object] = field(default_factory=dict)
     rating_vote_sources: dict[str, str] = field(default_factory=dict)
     rating_complete: bool = True
+    rating_resolution: str = ""
+    rating_resolution_models: list[str] = field(default_factory=list)
     scores: ClueScores = field(default_factory=ClueScores)
     failure_reason: ClueFailureReason | None = None
     rewrite_rejection_reason: str = ""

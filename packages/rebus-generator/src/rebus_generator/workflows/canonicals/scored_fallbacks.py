@@ -133,6 +133,13 @@ def generate_scored_fallback_policy(clue: WorkingClue, _reference_clue: WorkingC
     return _definition_missing_or_placeholder(clue) or _pair_evaluation_incomplete(clue)
 
 
+def generate_unresolved_definition_fallback_policy(
+    clue: WorkingClue,
+    _reference_clue: WorkingClue | None,
+) -> bool:
+    return _definition_missing_or_placeholder(clue)
+
+
 def _fallback_usage_label(clue: WorkingClue, reference_clue: WorkingClue | None) -> str:
     for candidate in (reference_clue, clue):
         if candidate is None or _definition_missing_or_placeholder(candidate):

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from openai import OpenAI
 
-from rebus_generator.platform.io.runtime_logging import llm_debug_enabled, log
+from rebus_generator.platform.io.runtime_logging import audit, llm_debug_enabled, log
 
 from ..config import LMSTUDIO_BASE_URL
 from .llm_text import clean_llm_text_response
@@ -36,6 +36,9 @@ RESPONSE_SOURCE_NO_THINKING_RETRY = "no_thinking_retry"
 DEFAULT_TRUNCATION_THRESHOLD = 3
 DEFAULT_SLOW_CALL_SECONDS = 20.0
 _DEFAULT_REASONING_SENTINEL = object()
+MIN_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_ATTEMPT_COUNT = 5
+LLM_ATTEMPT_TEMPERATURE_SPREAD = 0.10
 _SHORT_FORM_MAX_TOKENS: dict[tuple[str, str], int] = {
     (PRIMARY_MODEL.model_id, "definition_verify"): 256,
     (PRIMARY_MODEL.model_id, "definition_rate"): 240,
@@ -52,6 +55,7 @@ _CHOICE_SHORT_FORM_PURPOSES = {"clue_tiebreaker"}
 class _LlmPurposeStats:
     calls: int = 0
     truncations: int = 0
+    parse_failures: int = 0
     retries: int = 0
     no_thinking_retries: int = 0
     slow_calls: int = 0
@@ -70,6 +74,26 @@ _ADAPTIVE_DOWNGRADE_LOGGED: set[tuple[str, str]] = set()
 _LLM_STATS: dict[tuple[str, str], _LlmPurposeStats] = defaultdict(_LlmPurposeStats)
 _REASONING_REQUEST_CACHE: dict[str, dict[str | None, ResolvedReasoningOptions]] = defaultdict(dict)
 _REASONING_REMAP_LOGGED: set[tuple[str, str, str | None, str]] = set()
+
+
+def clamp_llm_temperature(temperature: float) -> float:
+    return round(max(float(temperature), MIN_LLM_TEMPERATURE), 3)
+
+
+def llm_attempt_temperatures(
+    *,
+    temperature: float | None,
+    default_temperature: float,
+    attempts: int = DEFAULT_LLM_ATTEMPT_COUNT,
+) -> tuple[float, ...]:
+    total_attempts = max(1, int(attempts))
+    start = clamp_llm_temperature(
+        default_temperature if temperature is None else float(temperature)
+    )
+    if total_attempts == 1:
+        return (start,)
+    step = LLM_ATTEMPT_TEMPERATURE_SPREAD / (total_attempts - 1)
+    return tuple(round(start + step * index, 3) for index in range(total_attempts))
 
 
 def create_client() -> OpenAI:
@@ -347,6 +371,7 @@ def llm_run_stats_snapshot() -> dict[str, object]:
             {
                 "calls": 0,
                 "truncations": 0,
+                "parse_failures": 0,
                 "retries": 0,
                 "no_thinking_retries": 0,
                 "slow_calls": 0,
@@ -360,6 +385,7 @@ def llm_run_stats_snapshot() -> dict[str, object]:
         )
         bucket["calls"] += stats.calls
         bucket["truncations"] += stats.truncations
+        bucket["parse_failures"] += stats.parse_failures
         bucket["retries"] += stats.retries
         bucket["no_thinking_retries"] += stats.no_thinking_retries
         bucket["slow_calls"] += stats.slow_calls
@@ -388,6 +414,7 @@ def _stats_to_dict(stats: _LlmPurposeStats) -> dict[str, float | int]:
     return {
         "calls": stats.calls,
         "truncations": stats.truncations,
+        "parse_failures": stats.parse_failures,
         "retries": stats.retries,
         "no_thinking_retries": stats.no_thinking_retries,
         "slow_calls": stats.slow_calls,
@@ -401,6 +428,49 @@ def _stats_to_dict(stats: _LlmPurposeStats) -> dict[str, float | int]:
 
 def _purpose_stats(model: str, purpose: str) -> _LlmPurposeStats:
     return _LLM_STATS[(model, purpose)]
+
+
+def record_llm_parse_failure(
+    *,
+    model: str,
+    purpose: str,
+    word: str = "",
+    response_source: str = "",
+    finish_reason: str = "",
+    payload_preview: str = "",
+    status: str = "",
+) -> None:
+    _purpose_stats(model, purpose).parse_failures += 1
+    compact_preview = " ".join((payload_preview or "").split())[:160]
+    parts = [
+        "llm parse_failure",
+        f"purpose={purpose}",
+        f"model={model}",
+    ]
+    if word:
+        parts.append(f"word={word}")
+    if status:
+        parts.append(f"status={status}")
+    if response_source:
+        parts.append(f"response_source={response_source}")
+    if finish_reason:
+        parts.append(f"finish_reason={finish_reason}")
+    if compact_preview:
+        parts.append(f"preview={compact_preview}")
+    log("  [" + " ".join(parts) + "]", level="WARN")
+    audit(
+        "llm_parse_failure",
+        component="llm_client",
+        payload={
+            "model": model,
+            "purpose": purpose,
+            "word": word,
+            "status": status,
+            "response_source": response_source,
+            "finish_reason": finish_reason,
+            "payload_preview": compact_preview,
+        },
+    )
 
 
 def _configured_reasoning_override(model: str, purpose: str) -> str | None | object:
@@ -832,6 +902,7 @@ def _chat_completion_create(
     max_tokens: int,
     purpose: str = "default",
 ):
+    temperature = clamp_llm_temperature(temperature)
     max_tokens = _effective_max_tokens(
         model=model,
         purpose=purpose,
@@ -945,13 +1016,35 @@ def _log_if_completion_truncated(
 
 
 def _extract_json_object(raw: str) -> dict | None:
-    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw or "", re.DOTALL)
-    bare_match = re.search(r"\{.*\}", raw or "", re.DOTALL)
-    match = fence_match or bare_match
-    if not match:
-        return None
-    json_str = match.group(1) if fence_match and match is fence_match else match.group()
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
-        return None
+    data, _status = extract_json_object_with_status(raw)
+    return data
+
+
+def extract_json_object_with_status(raw: str) -> tuple[dict | None, str]:
+    text = raw or ""
+    if not text.strip():
+        return None, "empty"
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence_match:
+        try:
+            data = json.loads(fence_match.group(1))
+        except json.JSONDecodeError:
+            pass
+        else:
+            if isinstance(data, dict):
+                return data, "fenced_json"
+    decoder = json.JSONDecoder()
+    saw_object_start = False
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        saw_object_start = True
+        try:
+            data, offset = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            suffix = text[index + offset :].strip()
+            status = "inline_json" if suffix else "bare_json"
+            return data, status
+    return None, "invalid_json" if saw_object_start else "no_json_object"

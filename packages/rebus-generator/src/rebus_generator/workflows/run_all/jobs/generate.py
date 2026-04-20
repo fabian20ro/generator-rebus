@@ -9,8 +9,14 @@ from pathlib import Path
 from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.io.metrics import BatchMetric, update_word_difficulty, write_metrics
 from rebus_generator.platform.io.rust_bridge import _best_candidate, _load_words, _metadata_by_word
+from rebus_generator.domain.guards.definition_guards import validate_definition_text
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
-from rebus_generator.domain.pipeline_state import puzzle_from_working_state, working_puzzle_from_puzzle
+from rebus_generator.domain.pipeline_state import (
+    all_working_clues,
+    puzzle_from_working_state,
+    set_current_definition,
+    working_puzzle_from_puzzle,
+)
 from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.domain.score_helpers import _restore_best_versions
 from rebus_generator.platform.io.runtime_logging import path_timestamp, utc_timestamp, log
@@ -35,10 +41,50 @@ from rebus_generator.workflows.generate.quality_gate import (
 from rebus_generator.workflows.canonicals.scored_fallbacks import (
     apply_scored_canonical_fallbacks,
     generate_scored_fallback_policy,
+    generate_unresolved_definition_fallback_policy,
 )
 from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
 from .base import JobState
+
+
+def _is_unresolved_definition(definition: str) -> bool:
+    text = str(definition or "").strip()
+    return not text or text in {"[NECLAR]", "[Definiție negenerată]"} or text.startswith("[")
+
+
+def _strip_dex_rescue_label(text: str) -> str:
+    stripped = str(text or "").strip()
+    if ": " in stripped and (
+        stripped.startswith("Definiție directă DEX")
+        or stripped.startswith("Sens bază")
+    ):
+        return stripped.split(": ", 1)[1].strip()
+    return stripped
+
+
+def _dex_rescue_candidates(*, raw_dex: str, uncertain_short_definition: str) -> list[str]:
+    candidates: list[str] = []
+    for candidate in [uncertain_short_definition]:
+        cleaned = _strip_dex_rescue_label(candidate)
+        if cleaned:
+            candidates.append(cleaned)
+    for raw_line in raw_dex.splitlines():
+        line = raw_line.strip()
+        if line.startswith("- "):
+            line = line[2:].strip()
+        cleaned = _strip_dex_rescue_label(line)
+        if cleaned:
+            candidates.append(cleaned)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = candidate.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate.strip())
+    return deduped
 
 
 class GenerateJobState(JobState):
@@ -161,6 +207,47 @@ class GenerateJobState(JobState):
             self.dex_provider = DexProvider.for_puzzle(state)
         return self.dex_provider
 
+    def _rescue_unresolved_generated_definitions(self, ctx) -> None:
+        state = self._ensure_define_state()
+        dex = self._ensure_dex_provider()
+        apply_scored_canonical_fallbacks(
+            target_puzzle=state,
+            puzzle_identity=self.item.item_id,
+            policy=generate_unresolved_definition_fallback_policy,
+            client=ctx.ai_client,
+            runtime=ctx.runtime,
+            multi_model=ctx.multi_model,
+            seed_parts=(self.size, self.index, self.attempt_index, "define_finalize"),
+        )
+        unresolved_short_defs = {
+            str(entry.get("word") or ""): str(entry.get("definition") or "")
+            for entry in getattr(dex, "uncertain_short_definitions", lambda: [])()
+        }
+        for clue in all_working_clues(state):
+            if not _is_unresolved_definition(clue.current.definition):
+                continue
+            raw_dex = dex.get(clue.word_normalized, clue.word_original) or ""
+            for candidate in _dex_rescue_candidates(
+                raw_dex=raw_dex,
+                uncertain_short_definition=unresolved_short_defs.get(clue.word_normalized, ""),
+            ):
+                rejection = validate_definition_text(clue.word_normalized, candidate)
+                if rejection is not None:
+                    continue
+                set_current_definition(
+                    clue,
+                    candidate,
+                    round_index=0,
+                    source="generate_rescue_dex",
+                    generated_by="dex_rescue",
+                )
+                clue.best = copy.deepcopy(clue.current)
+                log(
+                    f"  [{self.item.item_id}] DEX rescue {clue.word_normalized} -> "
+                    f"'{candidate}'"
+                )
+                break
+
     def apply_unit_result(self, unit, result, ctx) -> None:
         if unit.purpose == "generate_define_initial":
             word = unit.step_id.split(":", 1)[1]
@@ -181,6 +268,7 @@ class GenerateJobState(JobState):
 
     def _finalize_define_initial(self, ctx):
         state = self._ensure_define_state()
+        self._rescue_unresolved_generated_definitions(ctx)
         _backfill_generated_model(state, PRIMARY_MODEL.display_name)
         _inject_word_metadata(state, self.resolved_metadata)
         self.working_puzzle = state

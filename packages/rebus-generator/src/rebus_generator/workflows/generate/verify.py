@@ -240,8 +240,6 @@ def _rate_runner(client: OpenAI, *, dex: DexProvider | None):
                 model_id=model.model_id,
                 value=None,
                 source="parse_error",
-                terminal=True,
-                terminal_reason="rating_parse_error",
             )
         return WorkVote(
             model_id=model.model_id,
@@ -276,15 +274,6 @@ def rate_clue_with_model(
 
 def _rate_conclusion(model_order: list[str]):
     def _conclude(item: WorkItem[WorkingClue, DefinitionRating]) -> WorkConclusion:
-        if any(vote.terminal for vote in item.votes.values()):
-            return WorkConclusion(
-                failed=True,
-                skip_models=set(item.pending_models),
-                terminal_reason=next(
-                    (vote.terminal_reason for vote in item.votes.values() if vote.terminal_reason),
-                    "rating_terminal",
-                ),
-            )
         if len(item.votes) == len(model_order):
             return WorkConclusion(complete=True)
         return WorkConclusion()
@@ -536,6 +525,8 @@ def _rate_clues(
             clue.current.assessment.feedback = ""
             clue.current.assessment.rarity_only_override = False
             clue.current.assessment.rated_by = model_label
+            clue.current.assessment.rating_resolution = ""
+            clue.current.assessment.rating_resolution_models = []
             clue.current.assessment.scores = ClueScores(
                 semantic_exactness=None,
                 answer_targeting=None,
@@ -559,6 +550,8 @@ def _rate_clues(
         clue.current.assessment.feedback = feedback
         clue.current.assessment.rarity_only_override = rarity_override
         clue.current.assessment.rated_by = model_label
+        clue.current.assessment.rating_resolution = "single_model_direct"
+        clue.current.assessment.rating_resolution_models = [vote_key] if vote_key else []
         clue.current.assessment.scores = ClueScores(
             semantic_exactness=semantic_score,
             answer_targeting=guessability_score,
@@ -691,31 +684,11 @@ def _finalize_pair_rating(
             if model_id in clue.current.assessment.rating_votes
         }
         available_model_order = _available_model_order(votes, model_order)
-        clue.current.assessment.rating_complete = len(votes) == len(model_order)
         clue.current.assessment.rated_by = model_label
-
-        if not clue.current.assessment.rating_complete:
-            clue.current.assessment.feedback = ""
-            clue.current.assessment.rarity_only_override = False
-            clue.current.assessment.scores = ClueScores(
-                semantic_exactness=None,
-                answer_targeting=None,
-                ambiguity_risk=None,
-                family_leakage=False,
-                language_integrity=10,
-                creativity=None,
-                rebus_score=None,
-            )
-            if clue.current.assessment.failure_reason is None:
-                clue.current.assessment.failure_reason = ClueFailureReason(
-                    "unrated",
-                    "Evaluarea în pereche este incompletă.",
-                )
-            log(f"    ⚠ {clue.word_normalized}: evaluare în pereche incompletă")
-            continue
-
-        if len(available_model_order) < 2:
+        if not available_model_order:
             clue.current.assessment.rating_complete = False
+            clue.current.assessment.rating_resolution = ""
+            clue.current.assessment.rating_resolution_models = []
             clue.current.assessment.feedback = ""
             clue.current.assessment.rarity_only_override = False
             clue.current.assessment.scores = ClueScores(
@@ -735,39 +708,76 @@ def _finalize_pair_rating(
             log(f"    ⚠ {clue.word_normalized}: evaluare în pereche incompletă")
             continue
 
-        first_vote = votes[available_model_order[0]]
-        second_vote = votes[available_model_order[1]]
-        if first_vote is None or second_vote is None:
-            clue.current.assessment.rating_complete = False
-            clue.current.assessment.feedback = ""
-            clue.current.assessment.rarity_only_override = False
-            clue.current.assessment.scores = ClueScores(
-                semantic_exactness=None,
-                answer_targeting=None,
-                ambiguity_risk=None,
-                family_leakage=False,
-                language_integrity=10,
-                creativity=None,
-                rebus_score=None,
-            )
-            if clue.current.assessment.failure_reason is None:
-                clue.current.assessment.failure_reason = ClueFailureReason(
-                    "unrated",
-                    "Evaluarea în pereche este incompletă.",
+        if len(available_model_order) == len(model_order):
+            first_vote = votes[available_model_order[0]]
+            second_vote = votes[available_model_order[1]]
+            if first_vote is None or second_vote is None:
+                clue.current.assessment.rating_complete = False
+                clue.current.assessment.rating_resolution = ""
+                clue.current.assessment.rating_resolution_models = []
+                clue.current.assessment.feedback = ""
+                clue.current.assessment.rarity_only_override = False
+                clue.current.assessment.scores = ClueScores(
+                    semantic_exactness=None,
+                    answer_targeting=None,
+                    ambiguity_risk=None,
+                    family_leakage=False,
+                    language_integrity=10,
+                    creativity=None,
+                    rebus_score=None,
                 )
-            log(f"    ⚠ {clue.word_normalized}: evaluare în pereche incompletă")
-            continue
+                if clue.current.assessment.failure_reason is None:
+                    clue.current.assessment.failure_reason = ClueFailureReason(
+                        "unrated",
+                        "Evaluarea în pereche este incompletă.",
+                    )
+                log(f"    ⚠ {clue.word_normalized}: evaluare în pereche incompletă")
+                continue
+            rating = combine_definition_ratings(first_vote, second_vote)
+            clue.current.assessment.rating_complete = True
+            clue.current.assessment.rating_resolution = "pair_consensus"
+            clue.current.assessment.rating_resolution_models = list(available_model_order)
+            clue.current.assessment.rarity_only_override = (
+                first_vote.rarity_only_override and second_vote.rarity_only_override
+            )
+            resolution_label = "pair"
+        else:
+            fallback_vote = votes[available_model_order[0]]
+            if fallback_vote is None:
+                clue.current.assessment.rating_complete = False
+                clue.current.assessment.rating_resolution = ""
+                clue.current.assessment.rating_resolution_models = []
+                clue.current.assessment.feedback = ""
+                clue.current.assessment.rarity_only_override = False
+                clue.current.assessment.scores = ClueScores(
+                    semantic_exactness=None,
+                    answer_targeting=None,
+                    ambiguity_risk=None,
+                    family_leakage=False,
+                    language_integrity=10,
+                    creativity=None,
+                    rebus_score=None,
+                )
+                if clue.current.assessment.failure_reason is None:
+                    clue.current.assessment.failure_reason = ClueFailureReason(
+                        "unrated",
+                        "Evaluarea în pereche este incompletă.",
+                    )
+                log(f"    ⚠ {clue.word_normalized}: evaluare în pereche incompletă")
+                continue
+            rating = fallback_vote
+            clue.current.assessment.rating_complete = True
+            clue.current.assessment.rating_resolution = "single_model_fallback"
+            clue.current.assessment.rating_resolution_models = list(available_model_order)
+            clue.current.assessment.rarity_only_override = fallback_vote.rarity_only_override
+            resolution_label = "single-model fallback"
 
-        rating = combine_definition_ratings(first_vote, second_vote)
         feedback = _combine_rating_feedback(votes, model_order)
         semantic_score = rating.semantic_score
         guessability_score = rating.guessability_score
         creativity_score = rating.creativity_score
         rebus = compute_rebus_score(guessability_score, creativity_score)
         clue.current.assessment.feedback = feedback
-        clue.current.assessment.rarity_only_override = (
-            first_vote.rarity_only_override and second_vote.rarity_only_override
-        )
         clue.current.assessment.scores = ClueScores(
             semantic_exactness=semantic_score,
             answer_targeting=guessability_score,
@@ -785,6 +795,7 @@ def _finalize_pair_rating(
         log(
             f"    {symbol} {clue.word_normalized}: "
             f"'{definition}' -> semantic {semantic_score}/10, rebus {rebus}/10"
+            f" [{resolution_label}]"
             f" — {feedback or 'fără feedback'}"
         )
 

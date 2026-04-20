@@ -70,6 +70,25 @@ class TestPuzzleMetrics(unittest.TestCase):
         self.assertIn("Scor rebus: 8/10", desc)
         self.assertIn("Medie rebus: 8.0/10", desc)
 
+    def test_score_puzzle_state_accepts_single_model_fallback_rating_as_complete(self):
+        clue = WorkingClue(row_number=1, word_normalized="TEST", word_original="test")
+        clue.current.definition = "def"
+        clue.current.assessment.verify_complete = True
+        clue.current.assessment.rating_complete = True
+        clue.current.assessment.rating_resolution = "single_model_fallback"
+        clue.current.assessment.rating_resolution_models = ["m1"]
+        clue.current.assessment.scores = ClueScores(
+            semantic_exactness=8,
+            answer_targeting=7,
+            creativity=5,
+            rebus_score=6,
+        )
+
+        assessment = score_puzzle_state(WorkingPuzzle("T", 5, [], [clue], []))
+
+        self.assertTrue(assessment.scores_complete)
+        self.assertEqual(6, assessment.min_rebus)
+
     def test_backward_compatibility_creativity(self):
         # Old note without creativity
         entry = ClueEntry(

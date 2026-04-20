@@ -17,6 +17,7 @@ from .llm_client import (
     _resolve_model_name,
     _extract_json_object,
     _clean_response,
+    llm_attempt_temperatures,
     short_form_max_tokens,
 )
 from .models import PRIMARY_MODEL, SECONDARY_MODEL, chat_max_tokens
@@ -114,7 +115,11 @@ def _compare_definition_variant_attempt(
         purpose="clue_compare",
         requested_max_tokens=chat_max_tokens(resolved_model),
     )
-    for attempt in range(2):
+    attempt_temperatures = llm_attempt_temperatures(
+        temperature=0.1,
+        default_temperature=0.1,
+    )
+    for attempt_index, attempt_temperature in enumerate(attempt_temperatures):
         compare_started = time.monotonic()
         try:
             response = _chat_completion_create(
@@ -124,7 +129,7 @@ def _compare_definition_variant_attempt(
                     {"role": "system", "content": load_system_prompt("clue_compare")},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.0,
+                temperature=attempt_temperature,
                 max_tokens=max_tokens,
                 purpose="clue_compare",
             )
@@ -140,7 +145,7 @@ def _compare_definition_variant_attempt(
                     "  [invalid compare json "
                     f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f}]"
                 )
-                if attempt == 1:
+                if attempt_index == len(attempt_temperatures) - 1:
                     return DefinitionComparisonAttempt(
                         model_id=resolved_model,
                         model_role="",
@@ -174,7 +179,7 @@ def _compare_definition_variant_attempt(
                 "  [compare exception "
                 f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f} error={exc}]"
             )
-            if attempt == 0:
+            if attempt_index < len(attempt_temperatures) - 1:
                 prompt += retry_prompt
                 continue
             return DefinitionComparisonAttempt(
@@ -414,7 +419,7 @@ def choose_better_clue_variant(
                 {"role": "system", "content": load_system_prompt("clue_tiebreaker", model_id=resolved_model)},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.0,
+            temperature=0.1,
             max_tokens=max_tokens,
             purpose="clue_tiebreaker",
         )
@@ -440,7 +445,7 @@ def choose_better_puzzle_variant(
                 {"role": "system", "content": load_system_prompt("puzzle_tiebreaker", model_id=resolved_model)},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.0,
+            temperature=0.1,
             max_tokens=max_tokens,
             purpose="puzzle_tiebreaker",
         )

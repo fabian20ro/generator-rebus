@@ -208,7 +208,7 @@ def _preflight(*, topics: list[str], artifact_path: Path, multi_model: bool) -> 
                     smoke_client,
                     model=model.model_id,
                     messages=_smoke_messages(model_id=model.model_id, purpose=purpose),
-                    temperature=0.0,
+                    temperature=0.1,
                     max_tokens=96,
                     purpose=purpose,
                 )

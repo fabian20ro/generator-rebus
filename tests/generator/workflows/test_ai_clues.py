@@ -6,7 +6,9 @@ from unittest import mock
 from rebus_generator.platform.llm.llm_client import (
     _chat_completion_create,
     _clean_response,
+    clamp_llm_temperature,
     configure_run_llm_policy,
+    llm_attempt_temperatures,
     llm_run_stats_snapshot,
     reset_run_llm_state,
     short_form_max_tokens,
@@ -47,6 +49,7 @@ from rebus_generator.platform.llm.definition_referee import (
 from rebus_generator.domain.clue_canon_types import DefinitionRefereeInput
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL, chat_max_tokens
 from rebus_generator.prompts.loader import load_system_prompt
+from rebus_generator.workflows.retitle.rate import rate_title_creativity
 
 
 class _RecordingClient:
@@ -1628,7 +1631,7 @@ class AiCluesTests(unittest.TestCase):
         self.assertIn("dangling ending", client.prompts[1])
 
     def test_rewrite_definition_returns_last_structural_rejection_when_requested(self):
-        client = _RecordingClient(["Pământ"])
+        client = _RecordingClient(["Pământ"] * 5)
 
         result = rewrite_definition(
             client,
@@ -1649,6 +1652,68 @@ class AiCluesTests(unittest.TestCase):
             ),
             result,
         )
+
+    def test_shared_attempt_temperatures_exact_ramp(self):
+        self.assertEqual((0.1, 0.125, 0.15, 0.175, 0.2), llm_attempt_temperatures(temperature=0.0, default_temperature=0.0))
+        self.assertEqual((0.2, 0.225, 0.25, 0.275, 0.3), llm_attempt_temperatures(temperature=0.2, default_temperature=0.2))
+        self.assertEqual(0.1, clamp_llm_temperature(0.0))
+
+    def test_chat_completion_clamps_zero_temperature(self):
+        client = _QueuedResponseClient([_chat_response(content="ok")])
+
+        _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=64,
+            purpose="definition_verify",
+        )
+
+        self.assertEqual(0.1, client.calls[0]["temperature"])
+
+    def test_rate_definition_uses_shared_temperature_ramp_and_records_parse_failures(self):
+        client = _QueuedResponseClient([
+            _chat_response(content="nu e json"),
+            _chat_response(content="```json\n{\"semantic_score\": 8\n```"),
+            _chat_response(content="prefix {bad"),
+            _chat_response(content="[1,2,3]"),
+            _chat_response(content="text final"),
+        ])
+
+        with mock.patch("rebus_generator.platform.llm.llm_client.audit") as mock_audit:
+            rating = rate_definition(
+                client,
+                word="ARACI",
+                original="araci",
+                definition="Bețe de sprijin pentru vie",
+                answer_length=5,
+                model=PRIMARY_MODEL.model_id,
+            )
+
+        self.assertIsNone(rating)
+        self.assertEqual([0.1, 0.125, 0.15, 0.175, 0.2], [call["temperature"] for call in client.calls])
+        snapshot = llm_run_stats_snapshot()
+        self.assertEqual(5, snapshot["per_purpose"]["definition_rate"]["parse_failures"])
+        self.assertEqual(5, mock_audit.call_count)
+        self.assertEqual("llm_parse_failure", mock_audit.call_args.args[0])
+
+    def test_title_rate_uses_shared_temperature_ramp(self):
+        client = _RecordingClient([
+            "invalid",
+            '{"creativity_score": 7, "feedback": "bun"}',
+        ])
+
+        score, feedback = rate_title_creativity(
+            "Tema",
+            ["A", "B"],
+            client,
+            model_config=PRIMARY_MODEL,
+        )
+
+        self.assertEqual(7, score)
+        self.assertEqual("bun", feedback)
+        self.assertEqual([0.1, 0.125], [call["temperature"] for call in client.calls])
 
 
 if __name__ == "__main__":
