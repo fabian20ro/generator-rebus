@@ -8,6 +8,7 @@ from rebus_generator.workflows.generate.service import build_parser as build_bat
 from rebus_generator.workflows.canonicals.service import build_parser as build_clue_canon_parser
 from rebus_generator.platform.llm.llm_client import (
     _chat_completion_create,
+    llm_top_p,
     reset_run_llm_state,
 )
 from rebus_generator.platform.llm.models import ResolvedReasoningOptions
@@ -243,11 +244,39 @@ class LlmDebugTests(unittest.TestCase):
         output = captured.getvalue()
         self.assertIn("retry without_thinking", output)
         self.assertEqual(2, len(client.calls))
+        self.assertEqual(llm_top_p(), client.calls[0]["top_p"])
+        self.assertEqual(llm_top_p(), client.calls[1]["top_p"])
         self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(4000, client.calls[0]["max_tokens"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual(200, client.calls[1]["max_tokens"])
         self.assertEqual("raspuns scurt", response.choices[0].message.content)
+
+    def test_debug_request_log_includes_top_p(self):
+        client = _FakeStreamingClient([
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(reasoning_content=None, content="ok"),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+        ])
+        set_llm_debug_enabled(True)
+
+        with patch("rebus_generator.platform.llm.llm_client.log") as log_mock:
+            _chat_completion_create(
+                client,
+                model="google/gemma-4-26b-a4b",
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=32,
+                purpose="definition_generate",
+            )
+
+        logged_messages = [call.args[0] for call in log_mock.call_args_list]
+        self.assertTrue(any(f"top_p={llm_top_p()}" in message for message in logged_messages))
 
     def test_invalid_reasoning_value_retries_once_and_caches_working_request(self):
         class _RetryClient:
@@ -304,6 +333,9 @@ class LlmDebugTests(unittest.TestCase):
             )
 
         self.assertEqual(3, len(client.calls))
+        self.assertEqual(llm_top_p(), client.calls[0]["top_p"])
+        self.assertEqual(llm_top_p(), client.calls[1]["top_p"])
+        self.assertEqual(llm_top_p(), client.calls[2]["top_p"])
         self.assertEqual("off", client.calls[0]["reasoning_effort"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual("none", client.calls[2]["reasoning_effort"])

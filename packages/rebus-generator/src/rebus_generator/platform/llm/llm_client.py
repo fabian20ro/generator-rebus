@@ -37,6 +37,7 @@ DEFAULT_TRUNCATION_THRESHOLD = 3
 DEFAULT_SLOW_CALL_SECONDS = 20.0
 _DEFAULT_REASONING_SENTINEL = object()
 MIN_LLM_TEMPERATURE = 0.1
+GLOBAL_LLM_TOP_P = 0.95
 DEFAULT_LLM_ATTEMPT_COUNT = 5
 LLM_ATTEMPT_TEMPERATURE_SPREAD = 0.10
 _SHORT_FORM_MAX_TOKENS: dict[tuple[str, str], int] = {
@@ -94,6 +95,10 @@ def llm_attempt_temperatures(
         return (start,)
     step = LLM_ATTEMPT_TEMPERATURE_SPREAD / (total_attempts - 1)
     return tuple(round(start + step * index, 3) for index in range(total_attempts))
+
+
+def llm_top_p() -> float:
+    return GLOBAL_LLM_TOP_P
 
 
 def create_client() -> OpenAI:
@@ -158,6 +163,7 @@ def _log_debug_request(
     model: str,
     purpose: str,
     temperature: float,
+    top_p: float,
     max_tokens: int,
     reasoning_options: dict[str, str],
     stream: bool,
@@ -167,6 +173,7 @@ def _log_debug_request(
         f"purpose={purpose}",
         f"model={model}",
         f"temperature={temperature}",
+        f"top_p={top_p}",
         f"max_tokens={max_tokens}",
         f"stream={str(stream).lower()}",
     ]
@@ -225,6 +232,7 @@ def _chat_completion_create_streaming(
     model: str,
     messages: list[dict[str, str]],
     temperature: float,
+    top_p: float,
     max_tokens: int,
     reasoning_options: dict[str, str],
 ):
@@ -237,6 +245,7 @@ def _chat_completion_create_streaming(
         model=model,
         messages=messages,
         temperature=temperature,
+        top_p=top_p,
         max_tokens=max_tokens,
         stream=True,
         **reasoning_options,
@@ -755,6 +764,7 @@ def _create_chat_completion_once(
     model: str,
     messages: list[dict[str, str]],
     temperature: float,
+    top_p: float,
     max_tokens: int,
     purpose: str,
     reasoning_request: ResolvedReasoningOptions,
@@ -781,6 +791,7 @@ def _create_chat_completion_once(
             model=model,
             messages=messages,
             temperature=temperature,
+            top_p=top_p,
             max_tokens=max_tokens,
             purpose=purpose,
             reasoning_options=dict(prepared_request.request_options),
@@ -807,6 +818,7 @@ def _create_chat_completion_once(
             model=model,
             messages=messages,
             temperature=temperature,
+            top_p=top_p,
             max_tokens=max_tokens,
             purpose=purpose,
             reasoning_options=dict(fallback_request.request_options),
@@ -842,6 +854,7 @@ def _send_chat_completion(
     model: str,
     messages: list[dict[str, str]],
     temperature: float,
+    top_p: float,
     max_tokens: int,
     purpose: str,
     reasoning_options: dict[str, str],
@@ -852,6 +865,7 @@ def _send_chat_completion(
             model=model,
             purpose=purpose,
             temperature=temperature,
+            top_p=top_p,
             max_tokens=max_tokens,
             reasoning_options=reasoning_options,
             stream=True,
@@ -862,6 +876,7 @@ def _send_chat_completion(
             model=model,
             messages=messages,
             temperature=temperature,
+            top_p=top_p,
             max_tokens=max_tokens,
             reasoning_options=reasoning_options,
         )
@@ -877,6 +892,7 @@ def _send_chat_completion(
             model=model,
             messages=messages,
             temperature=temperature,
+            top_p=top_p,
             max_tokens=max_tokens,
             **reasoning_options,
         )
@@ -903,6 +919,7 @@ def _chat_completion_create(
     purpose: str = "default",
 ):
     temperature = clamp_llm_temperature(temperature)
+    top_p = llm_top_p()
     max_tokens = _effective_max_tokens(
         model=model,
         purpose=purpose,
@@ -918,6 +935,7 @@ def _chat_completion_create(
         model=model,
         messages=messages,
         temperature=temperature,
+        top_p=top_p,
         max_tokens=max_tokens,
         purpose=purpose,
         reasoning_request=reasoning_request,
@@ -941,6 +959,7 @@ def _chat_completion_create(
         model=model,
         messages=messages,
         temperature=temperature,
+        top_p=top_p,
         max_tokens=_retry_without_thinking_max_tokens(),
         purpose=purpose,
         reasoning_request=resolve_chat_reasoning_request(

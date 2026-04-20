@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from rebus_generator.platform.llm.llm_client import _chat_completion_create, configure_run_llm_policy, reset_run_llm_state
+from rebus_generator.platform.llm.llm_client import _chat_completion_create, configure_run_llm_policy, llm_top_p, reset_run_llm_state
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.cli.run_all import _preflight, build_parser
 from rebus_generator.domain.pipeline_state import ClueAssessment, PuzzleAssessment, WorkingClue, WorkingPuzzle
@@ -1500,6 +1500,49 @@ class RunAllSupervisorTests(unittest.TestCase):
 class RunAllPreflightTests(unittest.TestCase):
     def tearDown(self):
         reset_run_llm_state()
+
+    def test_preflight_smoke_calls_forward_global_top_p(self):
+        class _PreflightRuntime:
+            def __init__(self, multi_model=False):
+                self.multi_model = multi_model
+                self.primary = PRIMARY_MODEL
+                self.secondary = SECONDARY_MODEL
+
+            def sync(self):
+                return {}
+
+            def activate(self, model, **kwargs):
+                return model
+
+        class _Client:
+            def __init__(self):
+                self.calls = []
+                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+            def create(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content="ok", reasoning_content=""))],
+                    usage=None,
+                )
+
+        client = _Client()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "preflight.json"
+            with (
+                patch("rebus_generator.cli.run_all.SUPABASE_URL", "https://test.supabase.co"),
+                patch("rebus_generator.cli.run_all.SUPABASE_SERVICE_ROLE_KEY", "test-key"),
+                patch("rebus_generator.cli.run_all.create_service_role_client"),
+                patch("rebus_generator.cli.run_all._rust_binary_path"),
+                patch("rebus_generator.cli.run_all.LmRuntime", _PreflightRuntime),
+                patch("rebus_generator.cli.run_all._preflight_unload_all"),
+                patch("rebus_generator.cli.run_all.create_ai_client", return_value=client),
+            ):
+                _preflight(topics=["generate"], artifact_path=artifact, multi_model=False)
+
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual(llm_top_p(), client.calls[0]["top_p"])
 
     def test_preflight_writes_artifact_and_aborts_on_secondary_load_failure(self):
         class _PreflightRuntime:

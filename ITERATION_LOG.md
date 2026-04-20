@@ -1476,3 +1476,11 @@
 **Outcome:** success
 **Insight:** early generate rescue cannot reuse the broad post-rewrite generate fallback policy because missing scores make every fresh clue look “incomplete”; define-finalize needs unresolved-only gating.
 **Promoted:** yes — added LESSONS_LEARNED entry on unresolved-only generate rescue policy.
+
+### [2026-04-21] — global top_p filter
+**Context:** user wanted explicit `top_p=0.95` on every real LLM call, only as a light global filter for bad-token tails, with no per-purpose tuning and no `top_k`/`min_p`.
+**Happened:** Added shared `GLOBAL_LLM_TOP_P = 0.95` and `llm_top_p()` in `llm_client.py`, then threaded `top_p` through the common streaming request path, non-stream fallback path, and no-thinking retry path. Extended debug request logging to print `top_p`. Added regression coverage that outgoing kwargs now include `top_p=0.95` in shared helper tests, debug-path tests, and a real `run_all` preflight smoke-path test using the underlying fake client rather than patching the helper boundary.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_ai_clues.py tests/generator/platform/test_llm_debug.py tests/generator/cli/test_run_all.py -q` (`154 passed`).
+**Outcome:** success
+**Insight:** when validating shared transport params like `top_p`, tests that patch `_chat_completion_create(...)` are the wrong seam; at least one test has to inspect the fake OpenAI client kwargs underneath the helper or it will miss transport-level regressions.
+**Promoted:** no

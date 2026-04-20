@@ -9,6 +9,7 @@ from rebus_generator.platform.llm.llm_client import (
     clamp_llm_temperature,
     configure_run_llm_policy,
     llm_attempt_temperatures,
+    llm_top_p,
     llm_run_stats_snapshot,
     reset_run_llm_state,
     short_form_max_tokens,
@@ -495,6 +496,8 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(2, len(client.calls))
+        self.assertEqual(llm_top_p(), client.calls[0]["top_p"])
+        self.assertEqual(llm_top_p(), client.calls[1]["top_p"])
         self.assertNotIn("reasoning_effort", client.calls[0])
         self.assertEqual(4000, client.calls[0]["max_tokens"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
@@ -522,6 +525,8 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(2, len(client.calls))
+        self.assertEqual(llm_top_p(), client.calls[0]["top_p"])
+        self.assertEqual(llm_top_p(), client.calls[1]["top_p"])
         self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual(4000, client.calls[0]["max_tokens"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
@@ -549,6 +554,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(2, len(client.calls))
+        self.assertEqual(llm_top_p(), client.calls[1]["top_p"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual(200, client.calls[1]["max_tokens"])
 
@@ -867,14 +873,19 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(256, client.calls[0]["max_tokens"])
+        self.assertEqual(llm_top_p(), client.calls[0]["top_p"])
         self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual(256, client.calls[1]["max_tokens"])
+        self.assertEqual(llm_top_p(), client.calls[1]["top_p"])
         self.assertEqual("none", client.calls[1]["reasoning_effort"])
         self.assertEqual(224, client.calls[2]["max_tokens"])
+        self.assertEqual(llm_top_p(), client.calls[2]["top_p"])
         self.assertEqual("none", client.calls[2]["reasoning_effort"])
         self.assertEqual(320, client.calls[3]["max_tokens"])
+        self.assertEqual(llm_top_p(), client.calls[3]["top_p"])
         self.assertEqual("none", client.calls[3]["reasoning_effort"])
         self.assertEqual(256, client.calls[4]["max_tokens"])
+        self.assertEqual(llm_top_p(), client.calls[4]["top_p"])
         self.assertEqual("none", client.calls[4]["reasoning_effort"])
 
     def test_chat_completion_retries_title_rate_when_truncated_json_is_invalid(self):
@@ -1671,6 +1682,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(0.1, client.calls[0]["temperature"])
+        self.assertEqual(0.95, client.calls[0]["top_p"])
 
     def test_rate_definition_uses_shared_temperature_ramp_and_records_parse_failures(self):
         client = _QueuedResponseClient([
