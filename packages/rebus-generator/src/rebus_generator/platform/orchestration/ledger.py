@@ -114,11 +114,22 @@ class RunLedger:
         )
 
     @staticmethod
-    def should_continue_after_quarantine(job, step, exc: Exception) -> bool:
-        if job.topic != "generate" or step.step_id != "fill_grid":
-            return False
+    def _is_generate_size_dead_end(step_id: str, exc: Exception) -> bool:
         lowered = str(exc).lower()
-        return "rust phase-1 failed for" in lowered and "could not generate a valid filled grid" in lowered
+        if step_id == "fill_grid":
+            return "rust phase-1 failed for" in lowered and "could not generate a valid filled grid" in lowered
+        if step_id == "rewrite_prepare_round":
+            return (
+                lowered.startswith("could not prepare a publishable")
+                and ("missing definitions:" in lowered or "incomplete pair evaluation:" in lowered)
+            )
+        return False
+
+    @staticmethod
+    def should_continue_after_quarantine(job, step, exc: Exception) -> bool:
+        if job.topic != "generate":
+            return False
+        return RunLedger._is_generate_size_dead_end(step.step_id, exc)
 
     def record_failure_occurrence(self, supervisor, job, step, signature: str, exc: Exception, *, quarantine_error_cls) -> None:
         failure_key = (job.topic, supervisor._stable_item_key(job), step.step_id, signature)
@@ -153,4 +164,3 @@ class RunLedger:
             return
         log(f"[run_all quarantine] {message}", level="ERROR")
         raise quarantine_error_cls(message)
-

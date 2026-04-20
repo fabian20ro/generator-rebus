@@ -471,6 +471,51 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertIn(14, supervisor.generate_size_penalty_map())
         self.assertIn(14, supervisor.active_generate_size_exclusions())
 
+    def test_generate_rewrite_prepare_dead_end_quarantines_size_without_stopping_run(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["generate"],
+            topic_caps={"generate": 1},
+            retry_limit=5,
+        )
+        failure_step = StepState(
+            step_id="rewrite_prepare_round",
+            job_id="generate:size:14:1",
+            topic="generate",
+            kind="non_llm",
+            purpose="rewrite_prepare_round",
+            model_id=None,
+            runner=lambda ctx: (_ for _ in ()).throw(
+                RuntimeError(
+                    "Could not prepare a publishable 14x14 puzzle. "
+                    "Quality gate failed: missing definitions: IT; "
+                    "incomplete pair evaluation: verify=0, rate=19 "
+                    "(GLODAS, SES, GATER)"
+                )
+            ),
+            execution_mode="inline_non_llm",
+        )
+        item = _item("generate", "generate:size:14:1", preferred_model_id=SECONDARY_MODEL.model_id)
+        item.payload = {"size": 14, "index": 1}
+        supervisor.slots["generate"].active_job = _StaticJob(
+            item,
+            steps=[failure_step],
+            stage="rewrite_prepare_round",
+        )
+
+        for _ in range(3):
+            supervisor._run_ready_steps()
+            if supervisor.slots["generate"].active_job is not None:
+                supervisor.slots["generate"].active_job.available_after = 0
+
+        supervisor._finalize_finished_jobs()
+
+        self.assertEqual(1, supervisor.failed)
+        self.assertIsNone(supervisor.slots["generate"].active_job)
+        self.assertIn(14, supervisor.generate_size_penalty_map())
+        self.assertIn(14, supervisor.active_generate_size_exclusions())
+
     def test_stall_detection_stops_when_switch_churn_grows_without_completion(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(

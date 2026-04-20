@@ -1452,3 +1452,11 @@
 **Outcome:** success
 **Insight:** omitted reasoning params can still mean “thinking on”; budget logic must key off abstract reasoning intent / explicit enabled state, not raw request presence.
 **Promoted:** yes — see LESSONS_LEARNED entry on reasoning transport vs reasoning-enabled state.
+
+### [2026-04-20] — run_all generate rewrite dead-end quarantine continuation
+**Context:** user reported `run_all` still stopping the whole unattended run after three repeated `generate:size:14` failures at `rewrite_prepare_round`, even though size cooldown/quarantine handling already existed for deterministic generate dead ends.
+**Happened:** Confirmed policy gap in `RunLedger.should_continue_after_quarantine(...)`: continuation only matched generate `fill_grid` Rust-unsat failures, so the same size-level dead-end discovered later at `rewrite_prepare_round` still raised `DeterministicFailureQuarantine`. Added shared `_is_generate_size_dead_end(...)` classifier and broadened the continuation rule to include stable publishability dead ends that start with `Could not prepare a publishable` and contain `missing definitions:` and/or `incomplete pair evaluation:`. Kept non-generate and non-dead-end quarantine behavior unchanged. Added regression coverage for repeated `rewrite_prepare_round` publishability failure continuing the supervisor while marking the size failed/cooled-down, and tightened the existing `fill_grid` continuation test to assert penalty/cooldown state too.
+**Verification:** `pytest tests/generator/cli/test_run_all.py -q` (`45 passed`).
+**Outcome:** success
+**Insight:** generate-size dead-end classification cannot be tied only to one pipeline stage; the same “bad size, not broken run” outcome can surface after rewrite/publishability gates too.
+**Promoted:** yes — expanded existing `LESSONS_LEARNED.md` entry on deterministic generate-size dead ends.
