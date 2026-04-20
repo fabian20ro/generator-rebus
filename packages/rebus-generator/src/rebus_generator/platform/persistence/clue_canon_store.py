@@ -529,6 +529,48 @@ class ClueCanonStore:
             offset += _CLUE_PAGE_SIZE
         return rows[:limit] if limit is not None else rows
 
+    def fetch_canonical_rows(
+        self,
+        *,
+        limit: int | None = None,
+        extra_fields: tuple[str, ...] = (),
+    ) -> list[dict]:
+        if self.client is None:
+            return []
+        select_fields = [
+            "id",
+            "word_normalized",
+            "definition",
+            "superseded_by",
+        ]
+        for field in extra_fields:
+            if field not in select_fields:
+                select_fields.append(field)
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            page_size = _CLUE_PAGE_SIZE
+            if limit is not None:
+                remaining = limit - len(rows)
+                if remaining <= 0:
+                    break
+                page_size = min(page_size, remaining)
+            batch = (
+                self.client.table("canonical_clue_definitions")
+                .select(", ".join(select_fields))
+                .order("word_normalized")
+                .order("id")
+                .range(offset, offset + page_size - 1)
+                .execute()
+                .data
+                or []
+            )
+            rows.extend(batch)
+            if len(batch) < page_size or (limit is not None and len(rows) >= limit):
+                break
+            offset += page_size
+        return rows[:limit] if limit is not None else rows
+
     def fetch_clue_rows_for_puzzle_ids(
         self,
         puzzle_ids: list[str],

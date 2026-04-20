@@ -13,6 +13,7 @@ from rebus_generator.platform.io.runtime_logging import audit, install_process_l
 from rebus_generator.domain.slot_extractor import extract_slots
 
 DEFAULT_REPORT_DIR = Path("build/puzzle_definition_audit")
+_UNREFERENCED_CANONICAL_SAMPLE_LIMIT = 25
 
 
 def _slot_key(direction: str, start_row: Any, start_col: Any) -> tuple[str, int, int]:
@@ -66,6 +67,25 @@ def _finding(
     }
     payload.update(extra)
     return payload
+
+
+def _canonical_finding(row: dict) -> dict[str, object]:
+    return {
+        "puzzle_id": "",
+        "title": "",
+        "published": False,
+        "issue_type": "unreferenced_canonical_definition",
+        "direction": "",
+        "start_row": None,
+        "start_col": None,
+        "length": None,
+        "clue_id": "",
+        "clue_number": None,
+        "definition_preview": _definition_preview(str(row.get("definition") or "")),
+        "canonical_id": str(row.get("id") or ""),
+        "word_normalized": str(row.get("word_normalized") or ""),
+        "superseded_by": str(row.get("superseded_by") or ""),
+    }
 
 
 def _audit_puzzle(puzzle: dict, clue_rows: list[dict]) -> list[dict[str, object]]:
@@ -178,6 +198,23 @@ def _to_int(value: object) -> int | None:
         return None
 
 
+def _audit_unreferenced_canonicals(store: ClueCanonStore) -> list[dict[str, object]]:
+    referenced_ids = {
+        str(row.get("canonical_definition_id") or "").strip()
+        for row in store.fetch_raw_clue_rows()
+        if str(row.get("canonical_definition_id") or "").strip()
+    }
+    findings: list[dict[str, object]] = []
+    for row in store.fetch_canonical_rows():
+        canonical_id = str(row.get("id") or "").strip()
+        if not canonical_id or canonical_id in referenced_ids:
+            continue
+        finding = _canonical_finding(row)
+        audit("puzzle_definition_issue", payload=finding)
+        findings.append(finding)
+    return findings
+
+
 def _build_summary(*, puzzles: list[dict], clue_rows: list[dict], findings: list[dict], output: Path, details: Path) -> dict[str, object]:
     issue_types = [str(finding.get("issue_type") or "") for finding in findings]
     puzzles_with_issues = sorted({
@@ -185,6 +222,11 @@ def _build_summary(*, puzzles: list[dict], clue_rows: list[dict], findings: list
         for finding in findings
         if str(finding.get("puzzle_id") or "").strip()
     })
+    canonical_findings = [
+        finding
+        for finding in findings
+        if str(finding.get("issue_type") or "") == "unreferenced_canonical_definition"
+    ]
     return {
         "ok": not findings,
         "total_puzzles_scanned": len(puzzles),
@@ -196,6 +238,16 @@ def _build_summary(*, puzzles: list[dict], clue_rows: list[dict], findings: list
         "orphan_clue_rows": issue_types.count("orphan_clue_row"),
         "puzzle_count_mismatches": issue_types.count("puzzle_count_mismatch"),
         "invalid_grid_templates": issue_types.count("invalid_grid_template"),
+        "unreferenced_canonical_definitions": len(canonical_findings),
+        "unreferenced_canonical_samples": [
+            {
+                "id": str(finding.get("canonical_id") or ""),
+                "word_normalized": str(finding.get("word_normalized") or ""),
+                "definition_preview": str(finding.get("definition_preview") or ""),
+                "superseded_by": str(finding.get("superseded_by") or ""),
+            }
+            for finding in canonical_findings[:_UNREFERENCED_CANONICAL_SAMPLE_LIMIT]
+        ],
         "output": str(output),
         "details": str(details),
         "issue_puzzle_ids": puzzles_with_issues,
@@ -247,6 +299,14 @@ def run_audit(
         for finding in puzzle_findings:
             audit("puzzle_definition_issue", payload=finding)
         findings.extend(puzzle_findings)
+    canonical_findings = _audit_unreferenced_canonicals(store)
+    if canonical_findings:
+        log(
+            "[puzzle-audit] "
+            f"unreferenced_canonical_definitions={len(canonical_findings)} "
+            f"sample={json.dumps([finding.get('canonical_id') for finding in canonical_findings[:5]])}"
+        )
+    findings.extend(canonical_findings)
 
     summary = _build_summary(
         puzzles=puzzles,

@@ -1453,6 +1453,14 @@
 **Insight:** omitted reasoning params can still mean “thinking on”; budget logic must key off abstract reasoning intent / explicit enabled state, not raw request presence.
 **Promoted:** yes — see LESSONS_LEARNED entry on reasoning transport vs reasoning-enabled state.
 
+### [2026-04-20] — puzzle definition audit canonical orphan coverage
+**Context:** user wanted all clue-unreferenced canonical definitions removable via one-off SQL and also wanted `./run_puzzle_definition_audit.sh` to report those canonical orphans alongside existing puzzle/clue integrity failures.
+**Happened:** Added `ClueCanonStore.fetch_canonical_rows()` for paged raw canonical reads. Extended `puzzle_definition_audit.py` to gather global clue-referenced canonical ids from `crossword_clues`, flag every unreferenced canonical as `unreferenced_canonical_definition`, include count plus first-25 sample rows in the summary JSON, and keep the existing wrapper entrypoint unchanged. Expanded the audit fake store/tests with canonical fixtures and regression coverage for both all-referenced and orphan-canonical cases. Added `db/delete_unreferenced_canonicals.sql` containing the agreed preflight/sample/null-out/delete transaction for one-off cleanup.
+**Verification:** `pytest tests/generator/workflows/test_puzzle_definition_audit.py -q` (`12 passed`).
+**Outcome:** success
+**Insight:** none
+**Promoted:** no
+
 ### [2026-04-20] — run_all generate rewrite dead-end quarantine continuation
 **Context:** user reported `run_all` still stopping the whole unattended run after three repeated `generate:size:14` failures at `rewrite_prepare_round`, even though size cooldown/quarantine handling already existed for deterministic generate dead ends.
 **Happened:** Confirmed policy gap in `RunLedger.should_continue_after_quarantine(...)`: continuation only matched generate `fill_grid` Rust-unsat failures, so the same size-level dead-end discovered later at `rewrite_prepare_round` still raised `DeterministicFailureQuarantine`. Added shared `_is_generate_size_dead_end(...)` classifier and broadened the continuation rule to include stable publishability dead ends that start with `Could not prepare a publishable` and contain `missing definitions:` and/or `incomplete pair evaluation:`. Kept non-generate and non-dead-end quarantine behavior unchanged. Added regression coverage for repeated `rewrite_prepare_round` publishability failure continuing the supervisor while marking the size failed/cooled-down, and tightened the existing `fill_grid` continuation test to assert penalty/cooldown state too.

@@ -42,6 +42,7 @@ def _clue(
     definition: str = "def",
     clue_number: int = 1,
     length: int = 2,
+    canonical_definition_id: str | None = None,
 ) -> dict:
     return {
         "id": clue_id,
@@ -52,15 +53,34 @@ def _clue(
         "length": length,
         "clue_number": clue_number,
         "definition": definition,
+        "canonical_definition_id": canonical_definition_id,
+    }
+
+
+def _canonical(
+    canonical_id: str,
+    *,
+    word_normalized: str = "WORD",
+    definition: str = "def",
+    superseded_by: str | None = None,
+) -> dict:
+    return {
+        "id": canonical_id,
+        "word_normalized": word_normalized,
+        "definition": definition,
+        "superseded_by": superseded_by,
     }
 
 
 class _FakeStore:
-    def __init__(self, puzzles: list[dict], clues: list[dict]):
+    def __init__(self, puzzles: list[dict], clues: list[dict], canonicals: list[dict] | None = None):
         self.puzzles = puzzles
         self.clues = clues
+        self.canonicals = list(canonicals or [])
         self.fetch_puzzle_rows_calls: list[dict] = []
         self.fetch_clue_rows_for_puzzle_ids_calls: list[list[str]] = []
+        self.fetch_raw_clue_rows_calls = 0
+        self.fetch_canonical_rows_calls = 0
 
     def fetch_puzzle_rows(self, **kwargs):
         self.fetch_puzzle_rows_calls.append(kwargs)
@@ -78,6 +98,18 @@ class _FakeStore:
         self.fetch_clue_rows_for_puzzle_ids_calls.append(list(puzzle_ids))
         wanted = set(puzzle_ids)
         return [row for row in self.clues if row.get("puzzle_id") in wanted]
+
+    def fetch_raw_clue_rows(self, **_kwargs):
+        self.fetch_raw_clue_rows_calls += 1
+        return list(self.clues)
+
+    def fetch_canonical_rows(self, **kwargs):
+        self.fetch_canonical_rows_calls += 1
+        rows = list(self.canonicals)
+        limit = kwargs.get("limit")
+        if limit is not None:
+            rows = rows[:limit]
+        return rows
 
 
 class PuzzleDefinitionAuditTests(unittest.TestCase):
@@ -101,6 +133,33 @@ class PuzzleDefinitionAuditTests(unittest.TestCase):
         self.assertTrue(summary["ok"])
         self.assertEqual(1, len(store.fetch_puzzle_rows_calls))
         self.assertEqual([["p1"]], store.fetch_clue_rows_for_puzzle_ids_calls)
+
+    def test_canonical_audit_passes_when_all_referenced(self):
+        store = _FakeStore(
+            [_puzzle()],
+            [
+                _clue("p1", "c1", "H", 0, 0, canonical_definition_id="canon-1"),
+                _clue("p1", "c2", "H", 1, 0, canonical_definition_id="canon-2"),
+                _clue("p1", "c3", "V", 0, 0, canonical_definition_id="canon-3"),
+                _clue("p1", "c4", "V", 0, 1, canonical_definition_id="canon-4"),
+            ],
+            [
+                _canonical("canon-1", word_normalized="A"),
+                _canonical("canon-2", word_normalized="B"),
+                _canonical("canon-3", word_normalized="C"),
+                _canonical("canon-4", word_normalized="D"),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "summary.json"
+            details = Path(tmpdir) / "details.jsonl"
+            exit_code = run_audit(store=store, output=str(output), details=str(details))
+            summary = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, exit_code)
+        self.assertTrue(summary["ok"])
+        self.assertEqual(0, summary["unreferenced_canonical_definitions"])
+        self.assertEqual([], summary["unreferenced_canonical_samples"])
 
     def test_detects_missing_slot_row(self):
         store = _FakeStore(
@@ -227,6 +286,49 @@ class PuzzleDefinitionAuditTests(unittest.TestCase):
 
         self.assertEqual(1, summary["total_puzzles_scanned"])
         self.assertEqual([["p1"]], store.fetch_clue_rows_for_puzzle_ids_calls)
+
+    def test_detects_unreferenced_canonical_definition(self):
+        store = _FakeStore(
+            [_puzzle()],
+            [
+                _clue("p1", "c1", "H", 0, 0, canonical_definition_id="canon-1"),
+                _clue("p1", "c2", "H", 1, 0, canonical_definition_id="canon-2"),
+                _clue("p1", "c3", "V", 0, 0, canonical_definition_id="canon-3"),
+                _clue("p1", "c4", "V", 0, 1, canonical_definition_id="canon-4"),
+            ],
+            [
+                _canonical("canon-1", word_normalized="A"),
+                _canonical("canon-2", word_normalized="B"),
+                _canonical("canon-3", word_normalized="C"),
+                _canonical("canon-4", word_normalized="D"),
+                _canonical("canon-orphan", word_normalized="ORFAN", definition="unused canonical"),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "summary.json"
+            details = Path(tmpdir) / "details.json"
+            exit_code = run_audit(store=store, output=str(output), details=str(details))
+            summary = json.loads(output.read_text(encoding="utf-8"))
+            findings = json.loads(details.read_text(encoding="utf-8"))
+
+        self.assertEqual(1, exit_code)
+        self.assertFalse(summary["ok"])
+        self.assertEqual(1, summary["unreferenced_canonical_definitions"])
+        self.assertEqual(
+            [
+                {
+                    "id": "canon-orphan",
+                    "word_normalized": "ORFAN",
+                    "definition_preview": "unused canonical",
+                    "superseded_by": "",
+                }
+            ],
+            summary["unreferenced_canonical_samples"],
+        )
+        self.assertIn(
+            "unreferenced_canonical_definition",
+            [finding["issue_type"] for finding in findings],
+        )
 
     def test_wrapper_forwards_args_to_python_module(self):
         wrapper = Path(__file__).resolve().parents[3] / "run_puzzle_definition_audit.sh"
