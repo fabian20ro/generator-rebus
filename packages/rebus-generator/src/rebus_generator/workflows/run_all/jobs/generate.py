@@ -505,6 +505,8 @@ class GenerateJobState(JobState):
             total_puzzles=1,
             size=self.size,
             puzzle_dir=puzzle_dir,
+            client=ctx.ai_client,
+            runtime=ctx.runtime,
             multi_model=ctx.multi_model,
         )
         puzzle_metric.total_elapsed_ms = int((time.monotonic() - puzzle_start) * 1000)

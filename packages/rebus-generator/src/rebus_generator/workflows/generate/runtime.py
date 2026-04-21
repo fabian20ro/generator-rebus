@@ -131,6 +131,8 @@ def run_batch(
             total_puzzles=len(sizes),
             size=size,
             puzzle_dir=puzzle_dir,
+            client=client,
+            runtime=runtime,
             multi_model=multi_model,
         )
         all_word_metrics.extend(word_metrics)

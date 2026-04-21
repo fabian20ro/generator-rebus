@@ -43,6 +43,7 @@ from rebus_generator.platform.llm.definition_referee import (
     DefinitionComparisonVote,
     choose_better_clue_variant,
     compare_definition_variants,
+    compare_definition_variants_attempt,
     run_definition_referee,
     run_definition_referee_batch,
     run_definition_referee_adaptive_batch,
@@ -1041,6 +1042,26 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(2, results["r2"].same_meaning_votes)
         self.assertEqual(1, results["r2"].better_a_votes)
         self.assertEqual(1, results["r2"].better_b_votes)
+
+    def test_compare_definition_variants_attempt_returns_exception_status(self):
+        client = object()
+
+        with mock.patch(
+            "rebus_generator.platform.llm.definition_referee._chat_completion_create",
+            side_effect=RuntimeError("model boom"),
+        ):
+            attempt = compare_definition_variants_attempt(
+                client,
+                word="LA",
+                answer_length=2,
+                definition_a="Def A",
+                definition_b="Def B",
+                model=PRIMARY_MODEL.model_id,
+            )
+
+        self.assertFalse(attempt.valid_vote)
+        self.assertEqual("exception", attempt.parse_status)
+        self.assertIn("model boom", attempt.error_message or "")
 
     def test_run_definition_referee_adaptive_batch_stops_after_two_clear_non_matches(self):
         class _Runtime:

@@ -222,6 +222,8 @@
 
 **[2026-04-20]** Reasoning transport must separate “thinking enabled” from “reasoning param present” — LM Studio can accept `reasoning_effort="none"` to disable hidden reasoning while also preferring omitted params for thinking-enabled Gemma calls. If code infers “reasoning off” only from missing `reasoning_effort`, omitted-param thinking paths get misclassified and short-form token caps fire incorrectly. Keep abstract reasoning intent separate from backend request params, and carry an explicit `reasoning_enabled` flag through request budgeting and retries.
 
+**[2026-04-21]** Publish flows must delay durable inserts until referee/canonical resolution finishes — if `upload_puzzle()` inserts `crossword_puzzles` before runtime-aware canonical resolution/referee work, any later publish exception leaves a real puzzle row behind. Scheduler retries then create duplicate published puzzles even when the visible failure looks deterministic. Resolve canonicals first, then insert durable rows, and keep best-effort cleanup for failures after the first insert.
+
 ---
 
 ## Archive

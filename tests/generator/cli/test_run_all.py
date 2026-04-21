@@ -1223,6 +1223,43 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual(["finish", "fallback", "score"], calls)
         self.assertEqual("title", job.stage)
 
+    def test_generate_publish_threads_client_and_runtime_to_publish_helper(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        ctx = _context(runtime)
+        ctx.ai_client = object()
+        item = _item("generate", "generate:size:15:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 15, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "publish"
+        job.index = 1
+        job.size = 15
+        job.best_prepared = SimpleNamespace(
+            puzzle=SimpleNamespace(metadata={}),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            job.run_dir = Path(tmpdir)
+            with (
+                patch(
+                    "rebus_generator.workflows.run_all.jobs.generate.publish_prepared_puzzle",
+                    return_value=(
+                        {"puzzle_id": "p1"},
+                        SimpleNamespace(total_elapsed_ms=0),
+                        [],
+                    ),
+                ) as publish_mock,
+                patch("rebus_generator.workflows.run_all.jobs.generate.write_metrics"),
+                patch("rebus_generator.workflows.run_all.jobs.generate.update_word_difficulty"),
+            ):
+                result = job._publish(ctx)
+
+        publish_mock.assert_called_once()
+        kwargs = publish_mock.call_args.kwargs
+        self.assertIs(ctx.ai_client, kwargs["client"])
+        self.assertIs(ctx.runtime, kwargs["runtime"])
+        self.assertTrue(kwargs["multi_model"])
+        self.assertEqual([{"puzzle_id": "p1"}], result)
+        self.assertEqual("done", job.stage)
+
     def test_generate_define_finalize_uses_unresolved_only_fallback_policy(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         ctx = _context(runtime)

@@ -90,6 +90,8 @@ def publish_prepared_puzzle(
     total_puzzles: int,
     size: int,
     puzzle_dir: Path,
+    client,
+    runtime,
     multi_model: bool,
 ) -> tuple[dict[str, object], PuzzleMetric, list[WordMetric]]:
     template_path = puzzle_dir / "template.md"
@@ -120,6 +122,9 @@ def publish_prepared_puzzle(
             **puzzle_metadata_payload(prepared.assessment, description=description),
             "title_score": prepared.title_score,
         },
+        client=client,
+        runtime=runtime,
+        multi_model=multi_model,
     )
     set_published(puzzle_id, True)
 

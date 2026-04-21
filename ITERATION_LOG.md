@@ -1484,3 +1484,11 @@
 **Outcome:** success
 **Insight:** when validating shared transport params like `top_p`, tests that patch `_chat_completion_create(...)` are the wrong seam; at least one test has to inspect the fake OpenAI client kwargs underneath the helper or it will miss transport-level regressions.
 **Promoted:** no
+
+### [2026-04-21] — publish runtime bypass + duplicate partial uploads
+**Context:** user reported `run_all` publish quarantine on `NameError:name 'attempt' is not defined`, plus evidence that the same puzzle published three times in two minutes before quarantine.
+**Happened:** Traced two coupled bugs. First, `definition_referee._compare_definition_variant_attempt()` still logged `attempt + 1` after loop variable rename, so any real compare exception was masked by `NameError`. Second, publish/upload canonical resolution bypassed `LmRuntime` and instantiated `ClueCanonService` with default `runtime=None`, so publish-time referee could provoke direct secondary-model loads. `upload_puzzle()` also inserted `crossword_puzzles` before canonical resolution; when publish crashed later, scheduler retries created duplicate puzzle rows. Fixed the stale variable refs, threaded `client/runtime/multi_model` through `publish_prepared_puzzle()` and `upload_puzzle()`, resolved canonical decisions before the first durable insert, and added best-effort cleanup if a later clue insert fails. Added regressions for exception-status return, runtime threading, no pre-resolution puzzle insert, and cleanup of partial uploads.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_upload_phase.py tests/generator/workflows/test_ai_clues.py tests/generator/cli/test_run_all.py -q` (`150 passed`).
+**Outcome:** success
+**Insight:** publish paths with retrying supervisors cannot perform durable inserts ahead of non-idempotent LLM/canonical work; partial success turns deterministic logic failures into duplicate content in production.
+**Promoted:** yes — added LESSONS_LEARNED entry on delaying durable inserts until referee/canonical resolution finishes.

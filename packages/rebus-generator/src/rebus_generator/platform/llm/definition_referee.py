@@ -137,13 +137,13 @@ def _compare_definition_variant_attempt(
             if elapsed > 10.0:
                 log(
                     "  [slow compare "
-                    f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f}]"
+                    f"model={resolved_model} attempt={attempt_index + 1} seconds={elapsed:.2f}]"
                 )
             data = _extract_json_object(response.choices[0].message.content or "")
             if not data:
                 log(
                     "  [invalid compare json "
-                    f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f}]"
+                    f"model={resolved_model} attempt={attempt_index + 1} seconds={elapsed:.2f}]"
                 )
                 if attempt_index == len(attempt_temperatures) - 1:
                     return DefinitionComparisonAttempt(
@@ -177,7 +177,7 @@ def _compare_definition_variant_attempt(
             elapsed = time.monotonic() - compare_started
             log(
                 "  [compare exception "
-                f"model={resolved_model} attempt={attempt + 1} seconds={elapsed:.2f} error={exc}]"
+                f"model={resolved_model} attempt={attempt_index + 1} seconds={elapsed:.2f} error={exc}]"
             )
             if attempt_index < len(attempt_temperatures) - 1:
                 prompt += retry_prompt

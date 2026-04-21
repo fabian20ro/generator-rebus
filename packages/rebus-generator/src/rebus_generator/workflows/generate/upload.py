@@ -11,6 +11,7 @@ from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.io.clue_logging import clue_label_from_row, log_canonical_event
 from rebus_generator.platform.io.markdown_io import parse_markdown
 from rebus_generator.platform.io.runtime_logging import log
+from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.domain.slot_extractor import Slot, extract_slots
 
 
@@ -55,6 +56,9 @@ def upload_puzzle(
     difficulty: int = 3,
     description: str = "",
     metadata: dict[str, object] | None = None,
+    client=None,
+    runtime: LmRuntime | None = None,
+    multi_model: bool = True,
 ) -> str:
     """Upload a parsed puzzle object and return the puzzle ID."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
@@ -138,10 +142,38 @@ def upload_puzzle(
     log(f"  Grid: {puzzle.size}x{puzzle.size}")
     log(f"  Clues: {len(clue_records)}")
 
-    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    clue_store = ClueCanonStore(client=client)
-    clue_canon = ClueCanonService(store=clue_store)
+    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    clue_store = ClueCanonStore(client=supabase)
+    clue_canon = ClueCanonService(
+        store=clue_store,
+        client=client,
+        runtime=runtime,
+        multi_model=multi_model,
+    )
     created_timestamp = _now_iso()
+
+    resolved_clue_records: list[dict[str, object]] = []
+    canonical_events: list[tuple[str, dict[str, object], str, object]] = []
+    for record in clue_records:
+        resolved_record = dict(record)
+        original_definition = str(resolved_record.pop("_candidate_definition", "") or "")
+        decision = clue_canon.resolve_definition(
+            word_normalized=resolved_record["word_normalized"],
+            word_original=resolved_record["word_original"],
+            definition=original_definition,
+            word_type=str(resolved_record.get("word_type") or ""),
+        )
+        if not decision.canonical_definition_id:
+            raise RuntimeError(
+                f"Canonical clue resolution produced no canonical_definition_id for {resolved_record['word_normalized']}"
+            )
+        resolved_record.update(
+            clue_store.build_clue_definition_payload(
+                canonical_definition_id=decision.canonical_definition_id,
+            )
+        )
+        resolved_clue_records.append(resolved_record)
+        canonical_events.append((decision.action, resolved_record, original_definition, decision))
 
     # Insert puzzle
     puzzle_data = {
@@ -158,43 +190,34 @@ def upload_puzzle(
     puzzle_data["created_at"] = created_timestamp
     puzzle_data["updated_at"] = created_timestamp
 
-    result = client.table("crossword_puzzles").insert(puzzle_data).execute()
-    puzzle_id = result.data[0]["id"]
-    log(f"  Puzzle ID: {puzzle_id}")
+    puzzle_id = ""
+    try:
+        result = supabase.table("crossword_puzzles").insert(puzzle_data).execute()
+        puzzle_id = result.data[0]["id"]
+        log(f"  Puzzle ID: {puzzle_id}")
 
-    # Insert clues
-    if clue_records:
-        for record in clue_records:
-            original_definition = str(record.pop("_candidate_definition", "") or "")
-            decision = clue_canon.resolve_definition(
-                word_normalized=record["word_normalized"],
-                word_original=record["word_original"],
-                definition=original_definition,
-                word_type=str(record.get("word_type") or ""),
-            )
-            if not decision.canonical_definition_id:
-                raise RuntimeError(
-                    f"Canonical clue resolution produced no canonical_definition_id for {record['word_normalized']}"
+        if resolved_clue_records:
+            for record in resolved_clue_records:
+                record["puzzle_id"] = puzzle_id
+            supabase.table("crossword_clues").insert(resolved_clue_records).execute()
+            for action, record, original_definition, decision in canonical_events:
+                log_canonical_event(
+                    action,
+                    puzzle_id=puzzle_id,
+                    clue_ref=clue_label_from_row(record),
+                    candidate_definition=original_definition,
+                    canonical_definition=decision.canonical_definition,
+                    detail=decision.decision_note or None,
                 )
-            resolved_payload = clue_store.build_clue_definition_payload(
-                canonical_definition_id=decision.canonical_definition_id,
-            )
-            record.update(resolved_payload)
-            record["puzzle_id"] = puzzle_id
-            log_canonical_event(
-                decision.action,
-                puzzle_id=puzzle_id,
-                clue_ref=clue_label_from_row(record),
-                candidate_definition=original_definition,
-                canonical_definition=decision.canonical_definition,
-                detail=decision.decision_note or None,
-            )
-        client.table("crossword_clues").insert(clue_records).execute()
-        for record in clue_records:
-            log(
-                f"  [DB] {clue_label_from_row(record)}: "
-                f"{(record.get('canonical_definition_id') or '')[:80]}"
-            )
+            for record in resolved_clue_records:
+                log(
+                    f"  [DB] {clue_label_from_row(record)}: "
+                    f"{(record.get('canonical_definition_id') or '')[:80]}"
+                )
+    except Exception:
+        if puzzle_id:
+            _delete_uploaded_puzzle(supabase, puzzle_id)
+        raise
 
     log(f"Uploaded! Puzzle ID: {puzzle_id}")
     log(f"Run 'python -m rebus_generator activate {puzzle_id}' to publish it.")
@@ -210,3 +233,12 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
         puzzle = parse_markdown(f.read())
 
     upload_puzzle(puzzle, force=force)
+
+
+def _delete_uploaded_puzzle(supabase, puzzle_id: str) -> None:
+    try:
+        supabase.table("crossword_clues").delete().eq("puzzle_id", puzzle_id).execute()
+        supabase.table("crossword_puzzles").delete().eq("id", puzzle_id).execute()
+        log(f"  [cleanup] removed partial upload for puzzle_id={puzzle_id}")
+    except Exception as cleanup_exc:
+        log(f"  [cleanup failed] puzzle_id={puzzle_id} error={cleanup_exc}", level="WARN")
