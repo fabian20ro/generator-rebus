@@ -290,6 +290,73 @@ class UploadPhaseTests(unittest.TestCase):
             ],
             client.payload_store["_deletes"],
         )
+        mock_store.delete_unreferenced_canonicals_by_ids.assert_not_called()
+
+    @patch("rebus_generator.workflows.generate.upload.ClueCanonService")
+    @patch("rebus_generator.workflows.generate.upload.ClueCanonStore")
+    @patch("rebus_generator.workflows.generate.upload._slots_with_words")
+    @patch("rebus_generator.workflows.generate.upload.create_client")
+    @patch("rebus_generator.workflows.generate.upload.SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    @patch("rebus_generator.workflows.generate.upload.SUPABASE_URL", "https://example.supabase.co")
+    def test_upload_deletes_new_unreferenced_canonicals_when_clue_insert_fails(
+        self,
+        mock_create_client,
+        mock_slots_with_words,
+        mock_store_cls,
+        mock_service_cls,
+    ):
+        client = _Client(fail_inserts={"crossword_clues"})
+        mock_create_client.return_value = client
+        mock_slots_with_words.return_value = [
+            (SimpleNamespace(direction="H", start_row=0, start_col=0), "A"),
+            (SimpleNamespace(direction="V", start_row=0, start_col=0), "A"),
+        ]
+        mock_store = mock_store_cls.return_value
+        mock_store.build_clue_definition_payload.side_effect = lambda *, canonical_definition_id: {
+            "canonical_definition_id": canonical_definition_id,
+        }
+        mock_service_cls.return_value.resolve_definition.side_effect = [
+            SimpleNamespace(
+                canonical_definition_id="canon-new",
+                action="create_new",
+                canonical_definition="Prima literă",
+                decision_note=None,
+                created_new=True,
+            ),
+            SimpleNamespace(
+                canonical_definition_id="canon-reused",
+                action="reuse_exact",
+                canonical_definition="Prima literă verticală",
+                decision_note=None,
+                created_new=False,
+            ),
+        ]
+        puzzle = SimpleNamespace(
+            title="Test",
+            size=1,
+            grid=[["A"]],
+            horizontal_clues=[
+                SimpleNamespace(
+                    word_normalized="A",
+                    word_original="a",
+                    definition="Prima literă",
+                    verified=True,
+                )
+            ],
+            vertical_clues=[
+                SimpleNamespace(
+                    word_normalized="A",
+                    word_original="a",
+                    definition="Prima literă verticală",
+                    verified=True,
+                )
+            ],
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "insert failed for crossword_clues"):
+            upload_puzzle(puzzle)
+
+        mock_store.delete_unreferenced_canonicals_by_ids.assert_called_once_with(["canon-new"])
 
 
 if __name__ == "__main__":

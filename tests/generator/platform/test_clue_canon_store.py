@@ -1,10 +1,67 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from postgrest.exceptions import APIError
 
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
+
+
+class _CleanupQuery:
+    def __init__(self, client, table_name):
+        self.client = client
+        self.table_name = table_name
+        self.operation = ""
+        self.payload = None
+        self.in_filters: list[tuple[str, list[str]]] = []
+
+    def select(self, *_args, **_kwargs):
+        self.operation = "select"
+        return self
+
+    def update(self, payload):
+        self.operation = "update"
+        self.payload = payload
+        return self
+
+    def delete(self):
+        self.operation = "delete"
+        return self
+
+    def in_(self, field, values):
+        self.in_filters.append((field, list(values)))
+        return self
+
+    def execute(self):
+        self.client.operations.append((self.table_name, self.operation, list(self.in_filters), self.payload))
+        values = self.in_filters[-1][1] if self.in_filters else []
+        if self.table_name == "canonical_clue_definitions" and self.operation == "select":
+            return SimpleNamespace(data=[
+                {"id": value, "word_normalized": f"WORD{index}"}
+                for index, value in enumerate(values)
+            ])
+        if self.table_name == "crossword_clues" and self.operation == "select":
+            return SimpleNamespace(data=[
+                {"canonical_definition_id": value}
+                for value in values
+                if value in self.client.referenced_ids
+            ])
+        if self.table_name == "canonical_clue_definitions" and self.operation == "delete":
+            return SimpleNamespace(data=[
+                {"id": value}
+                for value in values
+                if value not in self.client.referenced_ids
+            ])
+        return SimpleNamespace(data=[])
+
+
+class _CleanupClient:
+    def __init__(self, *, referenced_ids: set[str]):
+        self.referenced_ids = referenced_ids
+        self.operations: list[tuple[str, str, list[tuple[str, list[str]]], object]] = []
+
+    def table(self, name):
+        return _CleanupQuery(self, name)
 
 
 class ClueCanonStoreTests(unittest.TestCase):
@@ -259,6 +316,45 @@ class ClueCanonStoreTests(unittest.TestCase):
 
         self.assertEqual(existing, created)
         bump_usage.assert_called_once_with("canon-1", "LA")
+
+    def test_delete_unreferenced_canonicals_by_ids_deletes_only_unreferenced(self):
+        client = _CleanupClient(referenced_ids={"canon-referenced"})
+        store = ClueCanonStore(client=client)
+
+        deleted = store.delete_unreferenced_canonicals_by_ids([
+            "canon-free",
+            "canon-referenced",
+            "",
+        ])
+
+        self.assertEqual(1, deleted)
+        self.assertIn(
+            (
+                "canonical_clue_definitions",
+                "update",
+                [("superseded_by", ["canon-free"])],
+                {"superseded_by": None, "updated_at": ANY},
+            ),
+            client.operations,
+        )
+        self.assertIn(
+            (
+                "canonical_clue_definitions",
+                "update",
+                [("id", ["canon-free"])],
+                {"superseded_by": None, "updated_at": ANY},
+            ),
+            client.operations,
+        )
+        self.assertIn(
+            (
+                "canonical_clue_definitions",
+                "delete",
+                [("id", ["canon-free"])],
+                None,
+            ),
+            client.operations,
+        )
 
 
 if __name__ == "__main__":

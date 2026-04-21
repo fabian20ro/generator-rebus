@@ -316,7 +316,7 @@ class ClueCanonService:
                     decision_note="existing canonical kept",
                 )
             if result.merge_allowed and result.winner == "A":
-                created = self.store.create_canonical_definition(record)
+                created, created_new = self.store.create_canonical_definition_with_status(record)
                 promoted = created or canonical
                 self._attach_if_possible(clue_id, puzzle_id, promoted.id)
                 return CanonicalDecision(
@@ -327,11 +327,12 @@ class ClueCanonService:
                     same_meaning_votes=result.same_meaning_votes,
                     winner_votes=result.winner_votes,
                     decision_note="new immutable canonical created; existing canonical retained",
+                    created_new=created_new,
                 )
             if result.disagreement:
                 continue
 
-        created = self.store.create_canonical_definition(record)
+        created, created_new = self.store.create_canonical_definition_with_status(record)
         canonical_id = created.id if created is not None else None
         canonical_text = created.definition if created is not None else record.definition
         self._attach_if_possible(clue_id, puzzle_id, canonical_id)
@@ -340,6 +341,7 @@ class ClueCanonService:
             canonical_definition_norm=record.definition_norm,
             canonical_definition_id=canonical_id,
             action="create_new",
+            created_new=created_new,
         )
 
     def _likely_matches(self, record: ClueDefinitionRecord) -> list[CanonicalDefinition]:

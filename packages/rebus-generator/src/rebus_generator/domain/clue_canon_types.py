@@ -135,6 +135,7 @@ class CanonicalDecision:
     same_meaning_votes: int | None = None
     winner_votes: int | None = None
     decision_note: str = ""
+    created_new: bool = False
 
 
 @dataclass

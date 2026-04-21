@@ -1492,3 +1492,11 @@
 **Outcome:** success
 **Insight:** publish paths with retrying supervisors cannot perform durable inserts ahead of non-idempotent LLM/canonical work; partial success turns deterministic logic failures into duplicate content in production.
 **Promoted:** yes — added LESSONS_LEARNED entry on delaying durable inserts until referee/canonical resolution finishes.
+
+### [2026-04-21] — run_all touched canonical cleanup
+**Context:** user wanted unreferenced canonical definitions deleted automatically during `run_all.sh`, but only for canonicals touched by the current action, not via a broad global sweep.
+**Happened:** Added `ClueCanonStore.delete_unreferenced_canonicals_by_ids(...)` to clear self-FK `superseded_by` links and delete only explicit ids with zero clue references. Added created-vs-reused status to canonical creation decisions so upload failure cleanup deletes only newly created unreferenced canonicals. Wired simplify merges to delete superseded source ids after successful repoint/supersede. Added focused tests for targeted deletion, simplify delete order, and upload failure cleanup.
+**Verification:** `pytest tests/generator/workflows/test_clue_canon_simplify.py tests/generator/workflows/test_upload_phase.py tests/generator/platform/test_clue_canon_store.py` (`33 passed`); `pytest tests/generator/workflows/test_clue_canon.py` (`15 passed`).
+**Outcome:** success
+**Insight:** touched-only cleanup needs creation provenance on `CanonicalDecision`; action labels alone are not enough because conflict recovery can turn a create path into reuse.
+**Promoted:** no

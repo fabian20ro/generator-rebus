@@ -218,6 +218,43 @@ class ClueCanonSimplifyTests(unittest.TestCase):
 
         self.assertEqual(["create", "repoint"], calls)
 
+    def test_apply_merge_deletes_superseded_sources_after_repoint(self):
+        calls = []
+
+        class _Store:
+            def create_canonical_definition(self, record):
+                calls.append(("create", record.definition))
+                return SimpleNamespace(id="survivor-1")
+
+            def repoint_clues_by_canonical_ids(self, ids, *, canonical_definition_id):
+                calls.append(("repoint", ids, canonical_definition_id))
+
+            def mark_canonicals_superseded(self, ids, *, superseded_by):
+                calls.append(("supersede", ids, superseded_by))
+
+            def delete_unreferenced_canonicals_by_ids(self, ids):
+                calls.append(("delete", ids))
+                return len(ids)
+
+        survivor_id = _apply_merge(
+            store=_Store(),
+            left=_canonical(canonical_id="1", word="LA", definition="Prepoziție care indică locul."),
+            right=_canonical(canonical_id="2", word="LA", definition="Prepoziție care arată locul."),
+            survivor_definition="Prepoziție care indică locul.",
+            dry_run=False,
+        )
+
+        self.assertEqual("survivor-1", survivor_id)
+        self.assertEqual(
+            [
+                ("create", "Prepoziție care indică locul."),
+                ("repoint", ["1", "2"], "survivor-1"),
+                ("supersede", ["1", "2"], "survivor-1"),
+                ("delete", ["1", "2"]),
+            ],
+            calls,
+        )
+
     def test_simplify_state_roundtrip_restores_current_batch(self):
         rng = __import__("random").Random(7)
         stats = SimplifyStats(pairs_sampled=3)

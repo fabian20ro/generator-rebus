@@ -505,6 +505,7 @@ def _apply_merge(
         [left.id, right.id],
         superseded_by=survivor.id,
     )
+    store.delete_unreferenced_canonicals_by_ids([left.id, right.id])
     return survivor.id
 
 

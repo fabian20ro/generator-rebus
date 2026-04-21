@@ -199,6 +199,13 @@ class ClueCanonStore:
         return canonical
 
     def create_canonical_definition(self, record: ClueDefinitionRecord) -> CanonicalDefinition | None:
+        canonical, _created = self.create_canonical_definition_with_status(record)
+        return canonical
+
+    def create_canonical_definition_with_status(
+        self,
+        record: ClueDefinitionRecord,
+    ) -> tuple[CanonicalDefinition | None, bool]:
         existing = self.find_exact_canonical(
             record.word_normalized,
             record.definition_norm,
@@ -213,7 +220,7 @@ class ClueCanonStore:
                 usage_label=record.usage_label,
             )
         if existing is not None:
-            return self.bump_usage(existing.id, record.word_normalized)
+            return self.bump_usage(existing.id, record.word_normalized), False
 
         payload = {
             "word_normalized": record.word_normalized,
@@ -269,7 +276,7 @@ class ClueCanonStore:
                     "[canonical conflict recovered_direct_exact] "
                     f"word={record.word_normalized} definition_norm={record.definition_norm}"
                 )
-                return self.bump_usage(existing.id, record.word_normalized) or existing
+                return self.bump_usage(existing.id, record.word_normalized) or existing, False
             audit(
                 "clue_canon_conflict_unresolved",
                 component="clue_canon",
@@ -292,7 +299,7 @@ class ClueCanonStore:
             ) from exc
         row = self._canonical_from_row((result.data or [payload])[0])
         self._prime_canonical_cache(row)
-        return row
+        return row, True
 
     def bump_usage(self, canonical_id: str, word_normalized: str) -> CanonicalDefinition | None:
         rows = self.fetch_canonical_variants(word_normalized)
@@ -812,6 +819,66 @@ class ClueCanonStore:
         for row in word_map.values():
             self._invalidate_canonical_cache(row)
         return batches
+
+    def delete_unreferenced_canonicals_by_ids(self, canonical_ids: list[str]) -> int:
+        if self.client is None:
+            return 0
+        unique_ids = sorted({
+            str(canonical_id or "").strip()
+            for canonical_id in canonical_ids
+            if str(canonical_id or "").strip()
+        })
+        if not unique_ids:
+            return 0
+
+        word_map = self.fetch_canonical_definitions_by_word_ids(unique_ids)
+        deleted_total = 0
+        skipped_total = 0
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            referenced_rows = (
+                self.client.table("crossword_clues")
+                .select("canonical_definition_id")
+                .in_("canonical_definition_id", chunk)
+                .execute()
+                .data
+                or []
+            )
+            referenced_ids = {
+                str(row.get("canonical_definition_id") or "").strip()
+                for row in referenced_rows
+                if str(row.get("canonical_definition_id") or "").strip()
+            }
+            doomed = [canonical_id for canonical_id in chunk if canonical_id not in referenced_ids]
+            skipped_total += len(chunk) - len(doomed)
+            if not doomed:
+                continue
+            payload = {
+                "superseded_by": None,
+                "updated_at": _now_iso(),
+            }
+            self.client.table("canonical_clue_definitions").update(payload).in_("superseded_by", doomed).execute()
+            self.client.table("canonical_clue_definitions").update(payload).in_("id", doomed).execute()
+            result = (
+                self.client.table("canonical_clue_definitions")
+                .delete()
+                .in_("id", doomed)
+                .execute()
+            )
+            deleted_total += len(result.data or [])
+            doomed_set = set(doomed)
+            self._canonical_lookup = {
+                key: value
+                for key, value in self._canonical_lookup.items()
+                if value.id not in doomed_set
+            }
+        for word in set(word_map.values()):
+            self._invalidate_canonical_cache(word)
+        log(
+            "[canonical cleanup] "
+            f"requested={len(unique_ids)} deleted={deleted_total} skipped_referenced={skipped_total}"
+        )
+        return deleted_total
 
     def fetch_canonical_definitions_by_word_ids(self, canonical_ids: list[str]) -> dict[str, str]:
         if not canonical_ids or self.client is None:

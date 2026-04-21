@@ -152,29 +152,6 @@ def upload_puzzle(
     )
     created_timestamp = _now_iso()
 
-    resolved_clue_records: list[dict[str, object]] = []
-    canonical_events: list[tuple[str, dict[str, object], str, object]] = []
-    for record in clue_records:
-        resolved_record = dict(record)
-        original_definition = str(resolved_record.pop("_candidate_definition", "") or "")
-        decision = clue_canon.resolve_definition(
-            word_normalized=resolved_record["word_normalized"],
-            word_original=resolved_record["word_original"],
-            definition=original_definition,
-            word_type=str(resolved_record.get("word_type") or ""),
-        )
-        if not decision.canonical_definition_id:
-            raise RuntimeError(
-                f"Canonical clue resolution produced no canonical_definition_id for {resolved_record['word_normalized']}"
-            )
-        resolved_record.update(
-            clue_store.build_clue_definition_payload(
-                canonical_definition_id=decision.canonical_definition_id,
-            )
-        )
-        resolved_clue_records.append(resolved_record)
-        canonical_events.append((decision.action, resolved_record, original_definition, decision))
-
     # Insert puzzle
     puzzle_data = {
         "title": puzzle.title or "Rebus",
@@ -191,7 +168,33 @@ def upload_puzzle(
     puzzle_data["updated_at"] = created_timestamp
 
     puzzle_id = ""
+    created_canonical_ids: list[str] = []
     try:
+        resolved_clue_records: list[dict[str, object]] = []
+        canonical_events: list[tuple[str, dict[str, object], str, object]] = []
+        for record in clue_records:
+            resolved_record = dict(record)
+            original_definition = str(resolved_record.pop("_candidate_definition", "") or "")
+            decision = clue_canon.resolve_definition(
+                word_normalized=resolved_record["word_normalized"],
+                word_original=resolved_record["word_original"],
+                definition=original_definition,
+                word_type=str(resolved_record.get("word_type") or ""),
+            )
+            if not decision.canonical_definition_id:
+                raise RuntimeError(
+                    f"Canonical clue resolution produced no canonical_definition_id for {resolved_record['word_normalized']}"
+                )
+            if getattr(decision, "created_new", False):
+                created_canonical_ids.append(decision.canonical_definition_id)
+            resolved_record.update(
+                clue_store.build_clue_definition_payload(
+                    canonical_definition_id=decision.canonical_definition_id,
+                )
+            )
+            resolved_clue_records.append(resolved_record)
+            canonical_events.append((decision.action, resolved_record, original_definition, decision))
+
         result = supabase.table("crossword_puzzles").insert(puzzle_data).execute()
         puzzle_id = result.data[0]["id"]
         log(f"  Puzzle ID: {puzzle_id}")
@@ -217,6 +220,8 @@ def upload_puzzle(
     except Exception:
         if puzzle_id:
             _delete_uploaded_puzzle(supabase, puzzle_id)
+        if created_canonical_ids:
+            clue_store.delete_unreferenced_canonicals_by_ids(created_canonical_ids)
         raise
 
     log(f"Uploaded! Puzzle ID: {puzzle_id}")
