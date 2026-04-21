@@ -1277,7 +1277,7 @@ V3_EXPERIMENTS = [
         "prompt_dedup_cleanup",
         [_edit(
             SYS_DEFINITION,
-            "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact.\n- Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.\n",
+            "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact (dar creativ dacă e posibil).\n- Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.\n",
             "- Pentru cuvinte scurte sau forme gramaticale, formulezi exact forma cerută.\n",
         )],
     ),
@@ -1532,7 +1532,7 @@ V6_EXPERIMENTS = [
         "rate tighten guessability around exact answer at this length",
         [_edit(
             SYS_RATE,
-            "- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe de completat, ar scrie exact cuvântul-răspuns? 9-10 = un singur cuvânt posibil la această lungime, 7-8 = probabil corect, 5-6 = mai multe opțiuni, 1-3 = ar scrie altceva cu certitudine\n",
+            "- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe de completat, ar scrie exact cuvântul-răspuns? 9-10 = un singur cuvânt posibil la această lungime, 7-8 = probabil corect, 5-6 = mai multe opțiuni, 1-3 = ar scrie altceva cu certitudine.\n",
             "- guessability_score: dacă un rezolvitor ar vedea definiția și exact {answer_length} căsuțe, ar scrie chiar răspunsul cerut? 9-10 = răspunsul exact iese clar la această lungime, 7-8 = probabil corect, 5-6 = rămân mai multe opțiuni, 1-3 = ar scrie alt cuvânt cu certitudine\n",
         )],
         family="rate_exact_answer_calibration",

@@ -5,7 +5,7 @@ import copy
 from rebus_generator.platform.config import VERIFY_CANDIDATE_COUNT
 from rebus_generator.platform.io.clue_logging import clue_label_from_working_clue, log_definition_event
 from rebus_generator.platform.io.dex_cache import DexProvider
-from rebus_generator.platform.io.runtime_logging import log
+from rebus_generator.platform.io.runtime_logging import audit, log
 from rebus_generator.platform.llm.ai_clues import RewriteAttemptResult, generate_definition, rewrite_definition
 from rebus_generator.platform.llm.definition_referee import choose_better_clue_variant
 from rebus_generator.platform.llm.llm_dispatch import next_generation_model, run_single_model_call
@@ -13,7 +13,10 @@ from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.domain.pipeline_state import WorkingClue, WorkingPuzzle, all_working_clues, set_current_definition
 from rebus_generator.domain.plateau import has_plateaued
 from rebus_generator.domain.selection_engine import choose_clue_version, stable_tie_rng
-from rebus_generator.domain.guards.definition_guards import validate_definition_text
+from rebus_generator.domain.guards.definition_guards import (
+    DefinitionRejectionDetails,
+    validate_definition_text_with_details,
+)
 from rebus_generator.domain.score_helpers import (
     LOCKED_REBUS,
     LOCKED_SEMANTIC,
@@ -39,6 +42,44 @@ from .rewrite_session import (
 
 HYBRID_REBUS_THRESHOLD = 4
 MAX_REWRITE_CANDIDATES_PER_ROUND = 12
+
+
+def _log_definition_rejection(
+    *,
+    word: str,
+    model_id: str,
+    purpose: str,
+    attempt_index: int | None,
+    details: DefinitionRejectionDetails,
+    definition: str,
+) -> None:
+    compact = []
+    if details.matched_token:
+        compact.append(f"match={details.matched_token}")
+    if details.matched_stem:
+        compact.append(f"stem={details.matched_stem}")
+    if details.leak_kind:
+        compact.append(f"kind={details.leak_kind}")
+    suffix = (" " + " ".join(compact)) if compact else ""
+    log(
+        f"    [rewrite rejected {word}: {details.reason}{suffix}; definition={definition[:120]}]",
+        level="WARN",
+    )
+    audit(
+        "definition_rejection",
+        component="rewrite_rounds",
+        payload={
+            "word": word,
+            "model_id": model_id,
+            "purpose": purpose,
+            "attempt_index": attempt_index,
+            "reason": details.reason,
+            "definition_preview": definition[:200],
+            "matched_token": details.matched_token,
+            "matched_stem": details.matched_stem,
+            "leak_kind": details.leak_kind,
+        },
+    )
 
 
 def _definition_key(text: str) -> str:
@@ -133,10 +174,18 @@ def _build_pending_candidates(
             cleaned = (definition or "").strip()
             if not cleaned or cleaned == clue.current.definition:
                 return
-            rejection = validate_definition_text(clue.word_normalized, cleaned)
-            if rejection:
+            rejection_details = validate_definition_text_with_details(clue.word_normalized, cleaned)
+            if rejection_details:
                 if not rewrite_rejection_reason:
-                    rewrite_rejection_reason = rejection
+                    rewrite_rejection_reason = rejection_details.reason
+                _log_definition_rejection(
+                    word=clue.word_normalized,
+                    model_id=model.model_id,
+                    purpose="rewrite_generate",
+                    attempt_index=None,
+                    details=rejection_details,
+                    definition=cleaned,
+                )
                 return
             key = _definition_key(cleaned)
             if key in seen:
@@ -380,11 +429,18 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
                 cleaned = (definition or "").strip()
                 if not cleaned or cleaned == clue.current.definition:
                     return
-                rejection = validate_definition_text(clue.word_normalized, cleaned)
-                if rejection:
+                rejection_details = validate_definition_text_with_details(clue.word_normalized, cleaned)
+                if rejection_details:
                     if not rewrite_rejection_reason:
-                        rewrite_rejection_reason = rejection
-                    log(f"    [rewrite rejected {clue.word_normalized}: {rejection}; definition={cleaned[:120]}]", level="WARN")
+                        rewrite_rejection_reason = rejection_details.reason
+                    _log_definition_rejection(
+                        word=clue.word_normalized,
+                        model_id=model.model_id,
+                        purpose="rewrite_generate",
+                        attempt_index=None,
+                        details=rejection_details,
+                        definition=cleaned,
+                    )
                     return
                 key = _definition_key(cleaned)
                 if key in seen:

@@ -27,12 +27,14 @@ from .models import (
     chat_reasoning_options,
 )
 from rebus_generator.domain.quality import ENGLISH_HOMOGRAPH_HINTS
-from rebus_generator.platform.io.runtime_logging import llm_debug_enabled, log
+from rebus_generator.platform.io.runtime_logging import audit, llm_debug_enabled, log
 
 from rebus_generator.domain.guards.definition_guards import (
+    DefinitionRejectionDetails,
     contains_english_markers,
     extract_verify_candidates as _extract_verify_candidates,
     validate_definition_text as _validate_definition,
+    validate_definition_text_with_details as _validate_definition_details,
 )
 from rebus_generator.domain.guards.rating_guards import (
     clamp_score as _clamp_score,
@@ -40,6 +42,46 @@ from rebus_generator.domain.guards.rating_guards import (
     guard_english_meaning_rating as _guard_english_meaning_rating,
     guard_same_family_rating as _guard_same_family_rating,
 )
+
+
+def _log_definition_rejection(
+    *,
+    word: str,
+    model_id: str,
+    purpose: str,
+    attempt_index: int | None,
+    details: DefinitionRejectionDetails,
+    definition: str,
+    rewrite: bool,
+) -> None:
+    compact = []
+    if details.matched_token:
+        compact.append(f"match={details.matched_token}")
+    if details.matched_stem:
+        compact.append(f"stem={details.matched_stem}")
+    if details.leak_kind:
+        compact.append(f"kind={details.leak_kind}")
+    prefix = "rewrite rejected" if rewrite else "rejected"
+    suffix = (" " + " ".join(compact)) if compact else ""
+    log(
+        f"    [{prefix} {word}: {details.reason}{suffix}; definition={definition[:120]}]",
+        level="WARN",
+    )
+    audit(
+        "definition_rejection",
+        component="ai_clues",
+        payload={
+            "word": word,
+            "model_id": model_id,
+            "purpose": purpose,
+            "attempt_index": attempt_index,
+            "reason": details.reason,
+            "definition_preview": definition[:200],
+            "matched_token": details.matched_token,
+            "matched_stem": details.matched_stem,
+            "leak_kind": details.leak_kind,
+        },
+    )
 from .prompt_builders import (
     _build_generate_prompt,
     _append_existing_canonical_definitions,
@@ -224,15 +266,20 @@ def generate_definition(
             definition = _normalize_definition_usage_suffix(definition, required_suffix)
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
-            rejection = _validate_definition(word, definition)
-            if rejection:
-                log(
-                    f"    [rejected {word}: {rejection}; definition={definition[:120]}]",
-                    level="WARN",
+            rejection_details = _validate_definition_details(word, definition)
+            if rejection_details:
+                _log_definition_rejection(
+                    word=word,
+                    model_id=resolved_model,
+                    purpose="definition_generate",
+                    attempt_index=attempt_index,
+                    details=rejection_details,
+                    definition=definition,
+                    rewrite=False,
                 )
                 if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
                     break
-                prompt = _augment_definition_retry_prompt(prompt, rejection)
+                prompt = _augment_definition_retry_prompt(prompt, rejection_details.reason)
                 continue
             return definition
         except Exception:
@@ -329,16 +376,21 @@ def rewrite_definition(
             definition = _normalize_definition_usage_suffix(definition, required_suffix)
             if len(definition) > 200:
                 definition = definition[:200].rsplit(" ", 1)[0]
-            rejection = _validate_definition(word, definition)
-            if rejection:
-                last_rejection = rejection
-                log(
-                    f"    [rewrite rejected {word}: {rejection}; definition={definition[:120]}]",
-                    level="WARN",
+            rejection_details = _validate_definition_details(word, definition)
+            if rejection_details:
+                last_rejection = rejection_details.reason
+                _log_definition_rejection(
+                    word=word,
+                    model_id=resolved_model,
+                    purpose="definition_rewrite",
+                    attempt_index=attempt_index,
+                    details=rejection_details,
+                    definition=definition,
+                    rewrite=True,
                 )
                 if _response_source(response) == RESPONSE_SOURCE_NO_THINKING_RETRY:
                     break
-                prompt = _augment_definition_retry_prompt(prompt, rejection)
+                prompt = _augment_definition_retry_prompt(prompt, rejection_details.reason)
                 continue
             result = RewriteAttemptResult(definition=definition)
             return result if return_diagnostics else result.definition

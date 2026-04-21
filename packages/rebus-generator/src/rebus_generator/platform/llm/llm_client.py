@@ -7,7 +7,8 @@ import random
 import re
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
+from contextvars import ContextVar
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -65,6 +66,11 @@ class _LlmPurposeStats:
     latency_seconds_total: float = 0.0
     max_observed_latency_seconds: float = 0.0
     usage_samples: int = 0
+    truncations_by_max_tokens_reasoning: Counter[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.truncations_by_max_tokens_reasoning is None:
+            self.truncations_by_max_tokens_reasoning = Counter()
 
 
 _RUN_REASONING_OVERRIDES: dict[tuple[str, str], str | None] = {}
@@ -75,6 +81,7 @@ _ADAPTIVE_DOWNGRADE_LOGGED: set[tuple[str, str]] = set()
 _LLM_STATS: dict[tuple[str, str], _LlmPurposeStats] = defaultdict(_LlmPurposeStats)
 _REASONING_REQUEST_CACHE: dict[str, dict[str | None, ResolvedReasoningOptions]] = defaultdict(dict)
 _REASONING_REMAP_LOGGED: set[tuple[str, str, str | None, str]] = set()
+_LLM_LOG_CONTEXT: ContextVar[dict[str, str] | None] = ContextVar("llm_log_context", default=None)
 
 
 def clamp_llm_temperature(temperature: float) -> float:
@@ -350,6 +357,15 @@ def reset_run_llm_state() -> None:
     global _RUN_TRUNCATION_THRESHOLD, _RUN_SLOW_CALL_SECONDS
     _RUN_TRUNCATION_THRESHOLD = DEFAULT_TRUNCATION_THRESHOLD
     _RUN_SLOW_CALL_SECONDS = DEFAULT_SLOW_CALL_SECONDS
+    _LLM_LOG_CONTEXT.set(None)
+
+
+def set_llm_log_context(context: dict[str, str] | None):
+    return _LLM_LOG_CONTEXT.set(context)
+
+
+def reset_llm_log_context(token) -> None:
+    _LLM_LOG_CONTEXT.reset(token)
 
 
 def configure_run_llm_policy(
@@ -389,6 +405,7 @@ def llm_run_stats_snapshot() -> dict[str, object]:
                 "latency_seconds_total": 0.0,
                 "max_observed_latency_seconds": 0.0,
                 "usage_samples": 0,
+                "truncations_by_max_tokens_reasoning": {},
                 "models": [],
             },
         )
@@ -406,6 +423,9 @@ def llm_run_stats_snapshot() -> dict[str, object]:
             stats.max_observed_latency_seconds,
         )
         bucket["usage_samples"] += stats.usage_samples
+        for key, value in stats.truncations_by_max_tokens_reasoning.items():
+            nested = bucket["truncations_by_max_tokens_reasoning"]
+            nested[key] = nested.get(key, 0) + value
         models = bucket["models"]
         if model not in models:
             models.append(model)
@@ -419,7 +439,7 @@ def llm_run_stats_snapshot() -> dict[str, object]:
     }
 
 
-def _stats_to_dict(stats: _LlmPurposeStats) -> dict[str, float | int]:
+def _stats_to_dict(stats: _LlmPurposeStats) -> dict[str, object]:
     return {
         "calls": stats.calls,
         "truncations": stats.truncations,
@@ -432,6 +452,9 @@ def _stats_to_dict(stats: _LlmPurposeStats) -> dict[str, float | int]:
         "latency_seconds_total": round(stats.latency_seconds_total, 3),
         "max_observed_latency_seconds": round(stats.max_observed_latency_seconds, 3),
         "usage_samples": stats.usage_samples,
+        "truncations_by_max_tokens_reasoning": dict(
+            sorted(stats.truncations_by_max_tokens_reasoning.items())
+        ),
     }
 
 
@@ -650,8 +673,23 @@ def _fallback_reasoning_request(
     return None
 
 
+def _reasoning_summary_label(request: ResolvedReasoningOptions | None) -> str:
+    if request is None:
+        return "unknown"
+    request_label = _reasoning_request_label(request).replace(" ", "_")
+    abstract = request.abstract_effort or "omit"
+    enabled = "on" if request.reasoning_enabled else "off"
+    return f"abstract={abstract},request={request_label},enabled={enabled}"
+
+
 def _record_call_stats(
-    *, model: str, purpose: str, max_tokens: int, response, elapsed_seconds: float
+    *,
+    model: str,
+    purpose: str,
+    max_tokens: int,
+    response,
+    elapsed_seconds: float,
+    effective_reasoning_request: ResolvedReasoningOptions | None = None,
 ) -> None:
     stats = _purpose_stats(model, purpose)
     stats.calls += 1
@@ -670,6 +708,9 @@ def _record_call_stats(
             stats.usage_samples += 1
     if _response_finish_reason(response) == "length":
         stats.truncations += 1
+        stats.truncations_by_max_tokens_reasoning[
+            f"{max_tokens}|{_reasoning_summary_label(effective_reasoning_request)}"
+        ] += 1
         key = (model, purpose)
         threshold = (
             1
@@ -768,6 +809,7 @@ def _create_chat_completion_once(
     max_tokens: int,
     purpose: str,
     reasoning_request: ResolvedReasoningOptions,
+    response_source_label: str = RESPONSE_SOURCE_REASONING,
 ):
     started_at = time.monotonic()
     debug = llm_debug_enabled()
@@ -784,6 +826,7 @@ def _create_chat_completion_once(
             resolved=prepared_request,
             reason=remap_reason,
         )
+    effective_request = prepared_request
 
     try:
         response = _send_chat_completion(
@@ -825,6 +868,7 @@ def _create_chat_completion_once(
             debug=debug,
         )
         _cache_reasoning_request(model, fallback_request)
+        effective_request = fallback_request
 
     _record_call_stats(
         model=model,
@@ -832,6 +876,7 @@ def _create_chat_completion_once(
         max_tokens=max_tokens,
         response=response,
         elapsed_seconds=time.monotonic() - started_at,
+        effective_reasoning_request=effective_request,
     )
     _log_if_reasoning_budget_high(
         response,
@@ -844,6 +889,9 @@ def _create_chat_completion_once(
         model=model,
         purpose=purpose,
         max_tokens=max_tokens,
+        requested_reasoning_request=reasoning_request,
+        effective_reasoning_request=effective_request,
+        response_source=response_source_label,
     )
     return response
 
@@ -967,6 +1015,7 @@ def _chat_completion_create(
             purpose=purpose,
             reasoning_effort_override="none",
         ),
+        response_source_label=RESPONSE_SOURCE_NO_THINKING_RETRY,
     )
     _purpose_stats(model, purpose).no_thinking_retries += 1
     return _mark_response_source(retry_response, RESPONSE_SOURCE_NO_THINKING_RETRY)
@@ -1012,6 +1061,9 @@ def _log_if_completion_truncated(
     model: str,
     purpose: str,
     max_tokens: int,
+    requested_reasoning_request: ResolvedReasoningOptions | None = None,
+    effective_reasoning_request: ResolvedReasoningOptions | None = None,
+    response_source: str = "",
 ) -> None:
     choice = response.choices[0] if getattr(response, "choices", None) else None
     finish_reason = getattr(choice, "finish_reason", None)
@@ -1021,17 +1073,52 @@ def _log_if_completion_truncated(
     completion_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "completion_tokens_details", None)
     reasoning_tokens = getattr(details, "reasoning_tokens", None)
+    raw_content = _response_content_text(response)
+    cleaned_content = _clean_response(raw_content)
+    context = _LLM_LOG_CONTEXT.get() or {}
     parts = [
         f"completion truncated: purpose={purpose}",
         f"model={model}",
         f"finish_reason={finish_reason}",
         f"max_tokens={max_tokens}",
+        f"requested_reasoning={_reasoning_summary_label(requested_reasoning_request)}",
+        f"effective_reasoning={_reasoning_summary_label(effective_reasoning_request)}",
     ]
+    if response_source:
+        parts.append(f"response_source={response_source}")
     if completion_tokens is not None:
         parts.append(f"completion_tokens={completion_tokens}")
     if reasoning_tokens is not None:
         parts.append(f"reasoning_tokens={reasoning_tokens}")
+    parts.append(f"raw_len={len(raw_content)}")
+    parts.append(f"cleaned_len={len(cleaned_content)}")
+    for key in ("topic", "job_id", "step_id"):
+        value = context.get(key)
+        if value:
+            parts.append(f"{key}={value}")
+    compact_preview = " ".join(cleaned_content.split())[:160]
+    if compact_preview:
+        parts.append(f"preview={compact_preview}")
     log("  [" + " ".join(parts) + "]", level="WARN")
+    audit(
+        "llm_completion_truncated",
+        component="llm_client",
+        payload={
+            "model": model,
+            "purpose": purpose,
+            "finish_reason": finish_reason,
+            "max_tokens": max_tokens,
+            "requested_reasoning": _reasoning_summary_label(requested_reasoning_request),
+            "effective_reasoning": _reasoning_summary_label(effective_reasoning_request),
+            "response_source": response_source,
+            "completion_tokens": completion_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "raw_len": len(raw_content),
+            "cleaned_len": len(cleaned_content),
+            "cleaned_preview": compact_preview,
+            "run_all": context,
+        },
+    )
 
 
 def _extract_json_object(raw: str) -> dict | None:

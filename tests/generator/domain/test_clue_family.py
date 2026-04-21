@@ -1,6 +1,7 @@
 import unittest
 
 from rebus_generator.domain.clue_family import clue_uses_same_family, forbidden_definition_stems, words_share_family
+from rebus_generator.domain.guards.definition_guards import validate_definition_text_with_details
 
 
 class ClueFamilyTests(unittest.TestCase):
@@ -8,6 +9,13 @@ class ClueFamilyTests(unittest.TestCase):
         self.assertTrue(clue_uses_same_family("NATURAL", "Formă naturală a lucrurilor"))
         self.assertTrue(clue_uses_same_family("NATURAL", "La plural: naturale"))
         self.assertTrue(clue_uses_same_family("NATURAL", "Stare de naturalețe"))
+
+    def test_rejection_details_family_root(self):
+        details = validate_definition_text_with_details("NATURAL", "Stare de naturalețe")
+        self.assertIsNotNone(details)
+        self.assertEqual("contains answer or family word", details.reason)
+        self.assertEqual("naturalete", details.matched_token)
+        self.assertEqual("family_root", details.leak_kind)
 
     def test_unrelated_words_do_not_overfire(self):
         self.assertFalse(clue_uses_same_family("NATURAL", "Care ține de firea omului"))

@@ -12,6 +12,8 @@ from rebus_generator.platform.llm.llm_client import (
     llm_top_p,
     llm_run_stats_snapshot,
     reset_run_llm_state,
+    reset_llm_log_context,
+    set_llm_log_context,
     short_form_max_tokens,
 )
 from rebus_generator.platform.io.runtime_logging import set_llm_debug_enabled
@@ -1704,6 +1706,82 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertEqual(0.1, client.calls[0]["temperature"])
         self.assertEqual(0.95, client.calls[0]["top_p"])
+
+    def test_truncation_log_records_no_thinking_reasoning_for_gemma_verify(self):
+        client = _QueuedResponseClient([
+            _chat_response(
+                content="GUAS, GALA",
+                finish_reason="length",
+                completion_tokens=255,
+                reasoning_tokens=0,
+            )
+        ])
+        configure_run_llm_policy(
+            reasoning_overrides={(PRIMARY_MODEL.model_id, "definition_verify"): "none"}
+        )
+
+        with mock.patch("rebus_generator.platform.llm.llm_client.log") as mock_log:
+            _chat_completion_create(
+                client,
+                model=PRIMARY_MODEL.model_id,
+                messages=[{"role": "user", "content": "test"}],
+                temperature=0.0,
+                max_tokens=VERIFY_MAX_TOKENS,
+                purpose="definition_verify",
+            )
+
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        line = " ".join(str(call.args[0]) for call in mock_log.call_args_list)
+        self.assertIn("completion truncated: purpose=definition_verify", line)
+        self.assertIn("effective_reasoning=abstract=none", line)
+        self.assertIn("enabled=off", line)
+        self.assertIn("response_source=reasoning", line)
+
+    def test_truncation_log_includes_run_all_context(self):
+        client = _QueuedResponseClient([
+            _chat_response(content="GUAS", finish_reason="length")
+        ])
+        token = set_llm_log_context(
+            {"topic": "generate", "job_id": "generate:size:10:test", "step_id": "verify:GUAS"}
+        )
+        try:
+            with mock.patch("rebus_generator.platform.llm.llm_client.log") as mock_log:
+                _chat_completion_create(
+                    client,
+                    model=PRIMARY_MODEL.model_id,
+                    messages=[{"role": "user", "content": "test"}],
+                    temperature=0.0,
+                    max_tokens=VERIFY_MAX_TOKENS,
+                    purpose="definition_verify",
+                )
+        finally:
+            reset_llm_log_context(token)
+
+        line = " ".join(str(call.args[0]) for call in mock_log.call_args_list)
+        self.assertIn("topic=generate", line)
+        self.assertIn("job_id=generate:size:10:test", line)
+        self.assertIn("step_id=verify:GUAS", line)
+
+    def test_truncation_summary_groups_by_max_tokens_and_reasoning(self):
+        client = _QueuedResponseClient([
+            _chat_response(content="GUAS", finish_reason="length")
+        ])
+
+        _chat_completion_create(
+            client,
+            model=PRIMARY_MODEL.model_id,
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.0,
+            max_tokens=VERIFY_MAX_TOKENS,
+            purpose="definition_verify",
+        )
+
+        snapshot = llm_run_stats_snapshot()
+        grouped = snapshot["per_model_purpose"][f"{PRIMARY_MODEL.model_id}|definition_verify"][
+            "truncations_by_max_tokens_reasoning"
+        ]
+        self.assertEqual(1, sum(grouped.values()))
+        self.assertTrue(any(key.startswith("300|abstract=none") for key in grouped))
 
     def test_rate_definition_uses_shared_temperature_ramp_and_records_parse_failures(self):
         client = _QueuedResponseClient([

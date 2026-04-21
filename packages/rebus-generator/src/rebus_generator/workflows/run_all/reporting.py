@@ -168,6 +168,15 @@ def build_summary_payload(supervisor) -> dict[str, object]:
     unload_seconds_total = float(getattr(supervisor.ctx.runtime, "unload_seconds_total", 0.0))
     elapsed_seconds = max(1e-6, time.monotonic() - supervisor.started_at)
     llm_stats = llm_run_stats_snapshot()
+    truncations_by_model_purpose_max_tokens_reasoning: dict[str, int] = {}
+    for model_purpose, stats in llm_stats.get("per_model_purpose", {}).items():
+        grouped = stats.get("truncations_by_max_tokens_reasoning", {})
+        if not isinstance(grouped, dict):
+            continue
+        for token_reasoning, count in grouped.items():
+            truncations_by_model_purpose_max_tokens_reasoning[
+                f"{model_purpose}|{token_reasoning}"
+            ] = int(count)
     return {
         "stop_reason": supervisor.stop_reason or "closed",
         "started_at_monotonic": round(supervisor.started_at, 3),
@@ -197,6 +206,7 @@ def build_summary_payload(supervisor) -> dict[str, object]:
             key: int(stats.get("truncations", 0))
             for key, stats in llm_stats.get("per_model_purpose", {}).items()
         },
+        "truncations_by_model_purpose_max_tokens_reasoning": truncations_by_model_purpose_max_tokens_reasoning,
         "unit_trace_path": str(getattr(supervisor, "unit_trace_path", "")),
         "unit_counts_by_purpose": dict(getattr(supervisor, "unit_purpose_counts", {})),
         "topic_drain_counts": dict(getattr(supervisor, "topic_drain_counts", {})),

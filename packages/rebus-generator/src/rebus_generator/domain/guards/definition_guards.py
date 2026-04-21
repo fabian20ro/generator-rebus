@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
-from rebus_generator.domain.clue_family import clue_uses_same_family
+from dataclasses import dataclass
+
+from rebus_generator.domain.clue_family import clue_family_match
 from rebus_generator.domain.diacritics import normalize
 
 ENGLISH_MARKERS = {
@@ -55,6 +57,14 @@ DANGLING_ENDING_MARKERS = {
 }
 
 
+@dataclass(frozen=True)
+class DefinitionRejectionDetails:
+    reason: str
+    matched_token: str = ""
+    matched_stem: str = ""
+    leak_kind: str = ""
+
+
 def strip_trailing_usage_suffixes(definition: str) -> str:
     return _TRAILING_USAGE_SUFFIX_RE.sub("", definition or "").strip()
 
@@ -85,29 +95,53 @@ def contains_english_markers(text: str | None) -> bool:
     return any(token in ENGLISH_MARKERS for token in _latin_word_tokens(text))
 
 
-def _definition_mentions_answer(answer: str, definition: str) -> bool:
+def _definition_mentions_answer_detail(answer: str, definition: str) -> DefinitionRejectionDetails | None:
     if not definition:
-        return False
+        return None
+    answer_norm = normalize(answer).lower()
     normalized_definition = normalize(definition).lower()
-    pattern = rf"\b{re.escape(answer.lower())}\b"
-    return re.search(pattern, normalized_definition) is not None
+    pattern = rf"\b{re.escape(answer_norm)}\b"
+    match = re.search(pattern, normalized_definition)
+    if match is None:
+        return None
+    return DefinitionRejectionDetails(
+        reason="contains answer or family word",
+        matched_token=match.group(0),
+        matched_stem=answer_norm,
+        leak_kind="exact_answer",
+    )
 
 
-def _short_answer_family_leak(answer: str, definition: str) -> bool:
+def _short_answer_family_leak_detail(answer: str, definition: str) -> DefinitionRejectionDetails | None:
     answer_norm = normalize(answer).lower()
     if len(answer_norm) > 3 or len(answer_norm) < 2:
-        return False
+        return None
     for token in re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", normalize(definition)):
         token_norm = token.lower()
         if token_norm == answer_norm:
-            return True
+            return DefinitionRejectionDetails(
+                reason="contains answer or family word",
+                matched_token=token_norm,
+                matched_stem=answer_norm,
+                leak_kind="short_answer_family",
+            )
         if len(token_norm) <= 1:
             continue
         if token_norm.startswith(answer_norm) and len(token_norm) > len(answer_norm):
-            return True
+            return DefinitionRejectionDetails(
+                reason="contains answer or family word",
+                matched_token=token_norm,
+                matched_stem=answer_norm,
+                leak_kind="short_answer_family",
+            )
         if answer_norm.startswith(token_norm) and len(token_norm) >= max(2, len(answer_norm) - 1):
-            return True
-    return False
+            return DefinitionRejectionDetails(
+                reason="contains answer or family word",
+                matched_token=token_norm,
+                matched_stem=token_norm,
+                leak_kind="short_answer_family",
+            )
+    return None
 
 
 def _last_word(text: str) -> str:
@@ -116,25 +150,38 @@ def _last_word(text: str) -> str:
 
 
 def validate_definition_text(word: str, definition: str) -> str | None:
+    details = validate_definition_text_with_details(word, definition)
+    return details.reason if details is not None else None
+
+
+def validate_definition_text_with_details(word: str, definition: str) -> DefinitionRejectionDetails | None:
     clean_definition = strip_trailing_usage_suffixes(definition)
     if len(clean_definition) < 5:
-        return f"too short ({len(clean_definition)} chars)"
+        return DefinitionRejectionDetails(reason=f"too short ({len(clean_definition)} chars)")
     if len(re.findall(r"[A-Za-zĂÂÎȘȘȚăâîșț0-9]+", clean_definition)) < 2:
-        return "single-word gloss"
+        return DefinitionRejectionDetails(reason="single-word gloss")
     if _last_word(clean_definition) in DANGLING_ENDING_MARKERS:
-        return "dangling ending"
+        return DefinitionRejectionDetails(reason="dangling ending")
     
-    mentions_answer = _definition_mentions_answer(word, clean_definition)
-    same_family = clue_uses_same_family(word, clean_definition)
-    short_family = _short_answer_family_leak(word, clean_definition)
-
-    if mentions_answer or same_family or short_family:
-        return "contains answer or family word"
+    mentions_answer = _definition_mentions_answer_detail(word, clean_definition)
+    if mentions_answer is not None:
+        return mentions_answer
+    same_family = clue_family_match(word, clean_definition)
+    if same_family is not None:
+        return DefinitionRejectionDetails(
+            reason="contains answer or family word",
+            matched_token=same_family.matched_token,
+            matched_stem=same_family.matched_stem,
+            leak_kind=same_family.leak_kind,
+        )
+    short_family = _short_answer_family_leak_detail(word, clean_definition)
+    if short_family is not None:
+        return short_family
 
     if contains_english_markers(clean_definition):
-        return "English markers detected"
+        return DefinitionRejectionDetails(reason="English markers detected")
     if definition_describes_english_meaning(word, clean_definition):
-        return "English meaning"
+        return DefinitionRejectionDetails(reason="English meaning")
     return None
 
 

@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import re
 
+from dataclasses import dataclass
+
 from .diacritics import normalize
+
+
+@dataclass(frozen=True)
+class FamilyMatch:
+    matched_token: str
+    matched_stem: str
+    answer_stem: str
+    leak_kind: str
 
 
 # Ordered longest-first so that e.g. "inter" matches before "in"
@@ -143,12 +153,17 @@ def _shared_root(answer_stem: str, token_stem: str) -> bool:
 
 def clue_uses_same_family(answer: str, definition: str) -> bool:
     """Return True if the clue leaks the answer or an obvious close-family form."""
+    return clue_family_match(answer, definition) is not None
+
+
+def clue_family_match(answer: str, definition: str) -> FamilyMatch | None:
+    """Return first lexical-family leak, if any."""
     if not answer or not definition:
-        return False
+        return None
 
     answer_tokens = _normalized_tokens(answer)
     if not answer_tokens:
-        return False
+        return None
     answer_token = answer_tokens[0]
     answer_stem = _strip_suffixes(answer_token)
 
@@ -160,7 +175,12 @@ def clue_uses_same_family(answer: str, definition: str) -> bool:
 
     for token in _normalized_tokens(definition):
         if token == answer_token:
-            return True
+            return FamilyMatch(
+                matched_token=token,
+                matched_stem=token,
+                answer_stem=answer_token,
+                leak_kind="exact_answer",
+            )
         token_stem = _strip_suffixes(token)
         token_stems = {token_stem}
         # Only strip prefixes from definition tokens when the answer
@@ -173,9 +193,14 @@ def clue_uses_same_family(answer: str, definition: str) -> bool:
         for a in answer_stems:
             for t in token_stems:
                 if _shared_root(a, t):
-                    return True
+                    return FamilyMatch(
+                        matched_token=token,
+                        matched_stem=t,
+                        answer_stem=a,
+                        leak_kind="family_root",
+                    )
 
-    return False
+    return None
 
 
 def words_share_family(a: str, b: str) -> bool:

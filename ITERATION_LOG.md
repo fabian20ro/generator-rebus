@@ -1500,3 +1500,19 @@
 **Outcome:** success
 **Insight:** touched-only cleanup needs creation provenance on `CanonicalDecision`; action labels alone are not enough because conflict recovery can turn a create path into reuse.
 **Promoted:** no
+
+### [2026-04-22] — run_all rejection/truncation diagnostics
+**Context:** user wanted logging-only improvements for the active `run_all` bad/ugly speed investigation: family-word rejection detail and Gemma verify truncation/reasoning proof. No retry/scheduler behavior changes.
+**Happened:** Added structured rejection details while preserving `validate_definition_text()`'s reason-string contract. `clue_family_match()` and `validate_definition_text_with_details()` now expose matched token/stem and leak kind (`exact_answer`, `family_root`, `short_answer_family`). Wired generate/rewrite rejection warnings plus audit events in `ai_clues.py` and `rewrite_rounds.py`. Extended LLM truncation logging/audit with requested/effective reasoning, response source, raw/cleaned lengths, preview, usage tokens, and run_all topic/job/step context. Added truncation grouping by `model|purpose|max_tokens|reasoning` into run summaries.
+**Verification:** `python3 -m pytest tests/generator/cli/test_run_all.py tests/generator/domain/test_short_word_guard_bypass.py tests/generator/domain/test_clue_family.py tests/generator/workflows/test_ai_clues.py` (`166 passed`); `python3 -m py_compile ...` touched modules; `git diff --check`. Full `python3 -m pytest` had unrelated existing failures: `v3exp014 missing anchor/replacement in definition/system.md`; `retitle/batch.py NameError: multi_model`.
+**Outcome:** success
+**Insight:** none
+**Promoted:** no
+
+### [2026-04-22] — full pytest root-cause cleanup
+**Context:** full pytest after logging diagnostics exposed two unrelated failures: stale prompt experiment anchors and retitle batch `NameError`.
+**Happened:** Fixed `retitle/batch.py` by threading the existing `multi_model` argument into `_rate_batch_candidates()` instead of relying on an undefined outer name. Refreshed active prompt experiment anchors for `v3exp014` and `v6exp005` to match current production prompt text, including the current short-word parenthetical and rate-rule punctuation.
+**Verification:** `python3 -m pytest tests/generator/evaluation/test_run_experiments.py tests/generator/workflows/test_retitle.py` (`58 passed`); `python3 -m pytest` (`690 passed`, 18 warnings).
+**Outcome:** success
+**Insight:** none
+**Promoted:** no

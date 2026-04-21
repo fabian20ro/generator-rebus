@@ -1487,7 +1487,7 @@ class RunAllSupervisorTests(unittest.TestCase):
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(
                         create=lambda **kwargs: SimpleNamespace(
-                            choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content="ok", reasoning_content=""))],
+                            choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="ok", reasoning_content=""))],
                             usage=SimpleNamespace(
                                 completion_tokens=12,
                                 completion_tokens_details=SimpleNamespace(reasoning_tokens=3),
@@ -1516,6 +1516,8 @@ class RunAllSupervisorTests(unittest.TestCase):
             self.assertIn("dominant_failures", summary)
             self.assertIn("truncations_by_purpose", summary)
             self.assertIn("truncations_by_model_purpose", summary)
+            self.assertIn("truncations_by_model_purpose_max_tokens_reasoning", summary)
+            self.assertEqual(1, sum(summary["truncations_by_model_purpose_max_tokens_reasoning"].values()))
             self.assertIn("definition_rate", summary["llm"]["per_purpose"])
             self.assertIn("retitle", summary["topics"])
 

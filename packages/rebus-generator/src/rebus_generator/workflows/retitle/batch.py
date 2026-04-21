@@ -160,6 +160,7 @@ def _rate_batch_candidates(
     generator_model: ModelConfig,
     runtime: LmRuntime,
     round_idx: int,
+    multi_model: bool,
 ) -> None:
     if not candidates:
         return
@@ -225,6 +226,7 @@ def generate_title_results_batch(
                 generator_model=PRIMARY_MODEL,
                 runtime=runtime,
                 round_idx=round_idx,
+                multi_model=multi_model,
             )
             pending = [state for state in states if not state.done]
             if not pending:
@@ -242,6 +244,7 @@ def generate_title_results_batch(
                 generator_model=SECONDARY_MODEL,
                 runtime=runtime,
                 round_idx=round_idx,
+                multi_model=multi_model,
             )
         else:
             _rate_batch_candidates(
@@ -250,6 +253,7 @@ def generate_title_results_batch(
                 generator_model=PRIMARY_MODEL,
                 runtime=runtime,
                 round_idx=round_idx,
+                multi_model=multi_model,
             )
 
     return {state.puzzle_id: _finalize_title_result(state) for state in states}

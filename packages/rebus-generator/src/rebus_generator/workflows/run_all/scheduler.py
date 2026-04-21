@@ -8,7 +8,12 @@ from collections import Counter
 from pathlib import Path
 
 from rebus_generator.platform.orchestration import RunLedger
-from rebus_generator.platform.llm.llm_client import llm_run_retry_count, llm_run_stats_snapshot
+from rebus_generator.platform.llm.llm_client import (
+    llm_run_retry_count,
+    llm_run_stats_snapshot,
+    reset_llm_log_context,
+    set_llm_log_context,
+)
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.platform.io.runtime_logging import log
@@ -282,13 +287,16 @@ class RunAllSupervisor:
             f"step={unit.step_id} purpose={unit.purpose} lane={lane} model={unit.model_id or '-'}"
         )
         started_at = time.monotonic()
+        log_context_token = None
         try:
             if lane == "llm":
+                context = {"topic": job.topic, "job_id": job.item_id, "step_id": unit.step_id}
                 setattr(
                     self.ctx.runtime,
                     "_run_all_active_step",
-                    {"topic": job.topic, "job_id": job.item_id, "step_id": unit.step_id},
+                    context,
                 )
+                log_context_token = set_llm_log_context(context)
             result = unit.execute(self.ctx)
         except KeyboardInterrupt:
             job.running_step_id = None
@@ -310,6 +318,8 @@ class RunAllSupervisor:
             self._record_unit_success(job, unit, normalized, lane=lane, latency_ms=int((time.monotonic() - started_at) * 1000))
             self._note_progress(f"step:{job.topic}:{unit.step_id}")
         finally:
+            if log_context_token is not None:
+                reset_llm_log_context(log_context_token)
             if lane == "llm" and hasattr(self.ctx.runtime, "_run_all_active_step"):
                 setattr(self.ctx.runtime, "_run_all_active_step", None)
 
