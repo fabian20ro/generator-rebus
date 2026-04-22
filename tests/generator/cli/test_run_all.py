@@ -872,6 +872,32 @@ class RunAllSupervisorTests(unittest.TestCase):
             job.working_puzzle.metadata["resolved_word_metadata"]["AER"]["original"],
         )
 
+    @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definition_for_working_clue")
+    def test_generate_define_initial_tracks_duplicate_words_by_clue_ref(self, mock_define):
+        item = _item("generate", "generate:size:14:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 14, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "define_initial"
+        job.attempt_index = 1
+        job.effective_attempts = 3
+        first = WorkingClue(row_number=1, word_normalized="IT", word_original="it")
+        second = WorkingClue(row_number=2, word_normalized="IT", word_original="it")
+        job.working_puzzle = WorkingPuzzle("", 14, [], [first, second], [])
+        job.dex_provider = SimpleNamespace(get=lambda *_args, **_kwargs: "")
+        mock_define.side_effect = ["Definiție pentru primul IT.", "Definiție pentru al doilea IT."]
+        ctx = _context(_FakeRuntime(current_model=PRIMARY_MODEL))
+
+        define_units = job.plan_ready_units(ctx)
+        self.assertEqual(2, len(define_units))
+        self.assertNotEqual(define_units[0].step_id, define_units[1].step_id)
+        for unit in define_units:
+            _run_planned_unit(job, unit, ctx)
+
+        self.assertEqual("Definiție pentru primul IT.", first.current.definition)
+        self.assertEqual("Definiție pentru al doilea IT.", second.current.definition)
+        self.assertEqual(2, len(job.define_done_refs))
+        self.assertEqual("generate_define_finalize", job.plan_ready_units(ctx)[0].purpose)
+
     def test_redefine_job_splits_baseline_into_verify_rate_finalize(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(
@@ -1270,7 +1296,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         clue = WorkingClue(row_number=1, word_normalized="CAR", word_original="car")
         clue.current.definition = "[NECLAR]"
         job.working_puzzle = WorkingPuzzle("", 14, [], [clue], [])
-        job.define_done_words = {"CAR"}
+        job.define_done_refs = {("H", 0, 0, 0)}
         policy_names: list[str] = []
 
         class _CaptureRewriteSession:
@@ -1308,7 +1334,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         clue = WorkingClue(row_number=1, word_normalized="AN", word_original="an")
         clue.current.definition = "[Definiție negenerată]"
         job.working_puzzle = WorkingPuzzle("", 14, [], [clue], [])
-        job.define_done_words = {"AN"}
+        job.define_done_refs = {("H", 0, 0, 0)}
 
         class _CaptureRewriteSession:
             def __init__(self, *, puzzle, **_kwargs):

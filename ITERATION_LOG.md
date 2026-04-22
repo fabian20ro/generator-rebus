@@ -1516,3 +1516,11 @@
 **Outcome:** success
 **Insight:** none
 **Promoted:** no
+
+### [2026-04-22] — run_all generate duplicate clue identity fallback
+**Context:** active `run_all` generated puzzle rejected before title with `missing definitions: IT`; user asked whether redefine's scored canonical fallback existed for generate and to implement a DRY root-cause fix.
+**Happened:** Found generate already called shared scored canonical fallback, but two identity bugs prevented rescue: initial define tracked completion by normalized word and fallback keyed clues by `(direction,start_row,start_col)`, which collapses generated split clues with default `0,0` positions. Added shared `WorkingClueRef` / `iter_working_clue_refs()` keyed by direction plus per-direction index and starts; switched fallback maps and run_all define tracking to exact refs; added concise duplicate/fallback ref logs; added regressions for duplicate `IT` define units and fallback for duplicate zero-position clues.
+**Verification:** `python3 -m pytest tests/generator/cli/test_run_all.py::RunAllSupervisorTests::test_generate_define_initial_tracks_duplicate_words_by_clue_ref tests/generator/cli/test_run_all.py::RunAllSupervisorTests::test_generate_define_initial_injects_metadata_into_working_state tests/generator/workflows/test_redefine.py::FallbackSelectionTests::test_generate_unresolved_fallback_targets_duplicate_placeholder_not_same_word_peer tests/generator/workflows/test_redefine.py::FallbackSelectionTests::test_apply_scored_canonical_fallbacks_keeps_duplicate_zero_position_clues -q` (`4 passed`); `python3 -m pytest tests/generator/cli/test_run_all.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_batch_publish.py -q` (`134 passed, 2 subtests passed`); `git diff --check`.
+**Outcome:** success
+**Insight:** generated markdown clue rows do not provide reliable slot coordinates after compound splitting; fallback/define state must use list-position clue identity, not normalized word or `(start_row,start_col)` alone.
+**Promoted:** no

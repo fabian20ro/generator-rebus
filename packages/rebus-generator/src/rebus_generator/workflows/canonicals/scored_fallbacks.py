@@ -26,18 +26,41 @@ from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
 from rebus_generator.domain.diacritics import normalize
 
 FallbackPolicy = Callable[[WorkingClue, WorkingClue | None], bool]
+WorkingClueRef = tuple[str, int, int, int]
 
 
 def _normalized_definition(text: str) -> str:
     return " ".join(normalize(text or "").lower().split())
 
 
-def _working_clue_map(puzzle: WorkingPuzzle) -> dict[tuple[str, int, int], WorkingClue]:
-    mapping: dict[tuple[str, int, int], WorkingClue] = {}
+def iter_working_clue_refs(puzzle: WorkingPuzzle) -> list[tuple[WorkingClueRef, WorkingClue]]:
+    refs: list[tuple[WorkingClueRef, WorkingClue]] = []
     for direction, clues in (("H", puzzle.horizontal_clues), ("V", puzzle.vertical_clues)):
-        for clue in clues:
-            mapping[(direction, int(clue.start_row or 0), int(clue.start_col or 0))] = clue
+        for index, clue in enumerate(clues):
+            refs.append(
+                (
+                    (
+                        direction,
+                        index,
+                        int(clue.start_row or 0),
+                        int(clue.start_col or 0),
+                    ),
+                    clue,
+                )
+            )
+    return refs
+
+
+def _working_clue_map(puzzle: WorkingPuzzle) -> dict[WorkingClueRef, WorkingClue]:
+    mapping: dict[WorkingClueRef, WorkingClue] = {}
+    for key, clue in iter_working_clue_refs(puzzle):
+        mapping[key] = clue
     return mapping
+
+
+def _format_clue_ref(key: WorkingClueRef) -> str:
+    direction, index, row, col = key
+    return f"{direction}{index + 1}@{row},{col}"
 
 
 def _next_round_index(clue: WorkingClue) -> int:
@@ -165,7 +188,7 @@ def apply_scored_canonical_fallbacks(
     runtime: LmRuntime | None = None,
     multi_model: bool = True,
     seed_parts: tuple[object, ...] = (),
-) -> dict[tuple[str, int, int], str]:
+) -> dict[WorkingClueRef, str]:
     store = ClueCanonStore(client=store_client)
     clue_canon = ClueCanonService(
         store=store,
@@ -175,7 +198,7 @@ def apply_scored_canonical_fallbacks(
     )
     target_clues = _working_clue_map(target_puzzle)
     reference_clues = _working_clue_map(reference_puzzle) if reference_puzzle is not None else {}
-    selected: dict[tuple[str, int, int], tuple[object, str, bool]] = {}
+    selected: dict[WorkingClueRef, tuple[object, str, bool]] = {}
     for key, clue in target_clues.items():
         reference_clue = reference_clues.get(key)
         if not policy(clue, reference_clue):
@@ -190,20 +213,23 @@ def apply_scored_canonical_fallbacks(
                 key[0],
                 key[1],
                 key[2],
+                key[3],
                 clue.word_normalized,
                 reference_clue.active_version().definition if reference_clue is not None else clue.active_version().definition,
             ),
         )
         if fallback is None:
             log(
-                f"  [{puzzle_identity}] fallback {clue.word_normalized} skipped: "
+                f"  [{puzzle_identity}] fallback {clue.word_normalized} "
+                f"{_format_clue_ref(key)} skipped: "
                 "no eligible canonical after metadata relaxation"
             )
             continue
         same_text = _normalized_definition(fallback.definition) == _normalized_definition(clue.active_version().definition)
         if same_text and not _can_hydrate_same_text_fallback(clue, reference_clue):
             log(
-                f"  [{puzzle_identity}] fallback {clue.word_normalized} skipped: "
+                f"  [{puzzle_identity}] fallback {clue.word_normalized} "
+                f"{_format_clue_ref(key)} skipped: "
                 f"same clue text already present (tier={tier_name})"
             )
             continue
@@ -220,7 +246,7 @@ def apply_scored_canonical_fallbacks(
         if canonical_id and canonical_id not in representative_by_canonical_id:
             representative_by_canonical_id[canonical_id] = row
 
-    applied: dict[tuple[str, int, int], str] = {}
+    applied: dict[WorkingClueRef, str] = {}
     for key, (canonical, tier_name, same_text) in selected.items():
         clue = target_clues[key]
         representative = representative_by_canonical_id.get(canonical.id)
@@ -237,7 +263,8 @@ def apply_scored_canonical_fallbacks(
         applied[key] = canonical.id
         action = "hydrate" if same_text else "replace"
         log(
-            f"  [{puzzle_identity}] fallback {clue.word_normalized} -> "
+            f"  [{puzzle_identity}] fallback {clue.word_normalized} "
+            f"{_format_clue_ref(key)} -> "
             f"'{canonical.definition}' (canonical={canonical.id}, action={action}, tier={tier_name})"
         )
     return applied

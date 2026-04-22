@@ -4,6 +4,7 @@ import copy
 import json
 import random
 import time
+from collections import Counter
 from pathlib import Path
 
 from rebus_generator.platform.io.dex_cache import DexProvider
@@ -39,9 +40,11 @@ from rebus_generator.workflows.generate.quality_gate import (
     _is_publishable,
 )
 from rebus_generator.workflows.canonicals.scored_fallbacks import (
+    WorkingClueRef,
     apply_scored_canonical_fallbacks,
     generate_scored_fallback_policy,
     generate_unresolved_definition_fallback_policy,
+    iter_working_clue_refs,
 )
 from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
@@ -104,7 +107,7 @@ class GenerateJobState(JobState):
         self.resolved_metadata: dict[str, dict[str, object]] = {}
         self.working_puzzle = None
         self.dex_provider: DexProvider | None = None
-        self.define_done_words: set[str] = set()
+        self.define_done_refs: set[WorkingClueRef] = set()
         self.first_passed = 0
         self.final_passed = 0
         self.total = 0
@@ -125,14 +128,14 @@ class GenerateJobState(JobState):
             state = self._ensure_define_state()
             dex = self._ensure_dex_provider()
             pending = [
-                clue
-                for clue in state.horizontal_clues + state.vertical_clues
-                if not clue.current.definition and clue.word_normalized not in self.define_done_words
+                (key, clue)
+                for key, clue in iter_working_clue_refs(state)
+                if not clue.current.definition and key not in self.define_done_refs
             ]
             if pending:
                 return [
                     self._llm_step(
-                        f"define_initial:{clue.word_normalized}",
+                        f"define_initial:{key[0]}:{key[1]}:{key[2]}:{key[3]}:{clue.word_normalized}",
                         "generate_define_initial",
                         PRIMARY_MODEL.model_id,
                         lambda _ctx, clue=clue: generate_definition_for_working_clue(
@@ -143,7 +146,7 @@ class GenerateJobState(JobState):
                             model_config=PRIMARY_MODEL,
                         ),
                     )
-                    for clue in pending
+                    for key, clue in pending
                 ]
             return [self._non_llm_step("define_finalize", "generate_define_finalize", self._finalize_define_initial)]
         if self.stage in {"rewrite_initial_verify", "rewrite_initial_rate", "rewrite_prepare_round", "generate_candidates", "evaluate_verify", "evaluate_rate", "select_candidates", "finalize_round"}:
@@ -185,7 +188,7 @@ class GenerateJobState(JobState):
         )
         self.working_puzzle = puzzle
         self.dex_provider = DexProvider.for_puzzle(self.working_puzzle)
-        self.define_done_words = set()
+        self.define_done_refs = set()
         self.rewrite_session = None
         self._progress("define_initial", detail=f"attempt={self.attempt_index}/{self.effective_attempts}")
         return None
@@ -250,18 +253,23 @@ class GenerateJobState(JobState):
 
     def apply_unit_result(self, unit, result, ctx) -> None:
         if unit.purpose == "generate_define_initial":
-            word = unit.step_id.split(":", 1)[1]
+            _prefix, direction, index, row, col, word = unit.step_id.split(":", 5)
+            key: WorkingClueRef = (direction, int(index), int(row), int(col))
             state = self._ensure_define_state()
-            for clue in state.horizontal_clues + state.vertical_clues:
-                if clue.word_normalized != word:
-                    continue
-                clue.current.definition = str(result.value or "")
-                clue.current.source = "generate"
-                clue.current.generated_by = PRIMARY_MODEL.display_name
-                if clue.best is None:
-                    clue.best = copy.deepcopy(clue.current)
-                self.define_done_words.add(word)
-                break
+            clues_by_ref = dict(iter_working_clue_refs(state))
+            clue = clues_by_ref.get(key)
+            if clue is None:
+                log(f"  [{self.item.item_id}] skipped stale define result for {word} {direction}{int(index) + 1}")
+                return
+            clue.current.definition = str(result.value or "")
+            clue.current.source = "generate"
+            clue.current.generated_by = PRIMARY_MODEL.display_name
+            if clue.best is None:
+                clue.best = copy.deepcopy(clue.current)
+            self.define_done_refs.add(key)
+            word_counts = Counter(candidate.word_normalized for _ref, candidate in iter_working_clue_refs(state))
+            if word_counts[word] > 1:
+                log(f"  [{self.item.item_id}] defined duplicate {word} {direction}{int(index) + 1}")
             return
         if self.rewrite_session is not None:
             self._apply_rewrite_result(unit, result)

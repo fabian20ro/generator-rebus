@@ -8,6 +8,7 @@ from rebus_generator.domain.puzzle_metrics import PuzzleEvaluationResult
 from rebus_generator.workflows.canonicals.scored_fallbacks import (
     apply_scored_canonical_fallbacks as apply_shared_scored_canonical_fallbacks,
     generate_scored_fallback_policy,
+    generate_unresolved_definition_fallback_policy,
     redefine_scored_fallback_policy,
 )
 from rebus_generator.workflows.redefine.service import build_parser
@@ -885,6 +886,102 @@ class FallbackSelectionTests(unittest.TestCase):
                 self.assertEqual(clue.current.definition, clue.best.definition)
                 self.assertEqual(clue.current.definition, clue.history[-1].definition)
                 self.assertTrue(clue.locked)
+
+    def test_generate_unresolved_fallback_targets_duplicate_placeholder_not_same_word_peer(self):
+        clue_rows = [
+            _make_clue_row("IT", "[NECLAR]", clue_id="c1", row=0, col=0, verified=False),
+            _make_clue_row("IT", "Definiție deja prezentă.", clue_id="c2", clue_number=2, row=0, col=0, verified=False),
+        ]
+        fixture = _SupabaseFixture(clue_rows)
+        fixture._canonical_rows.append({
+            "id": "canon-it",
+            "word_normalized": "IT",
+            "word_original_seed": "it",
+            "definition": "Fir scurt folosit la țesut.",
+            "definition_norm": "fir scurt folosit la tesut",
+            "word_type": "",
+            "usage_label": "",
+            "verified": True,
+            "semantic_score": 9,
+            "rebus_score": 8,
+            "creativity_score": 5,
+            "usage_count": 2,
+            "superseded_by": None,
+        })
+        representative_row = {
+            "id": "rep-it",
+            "canonical_definition_id": "canon-it",
+            "word_normalized": "IT",
+            "word_original": "it",
+            "word_type": "",
+            "definition": "Fir scurt folosit la țesut.",
+            "verified": True,
+            "verify_note": "AI a ghicit: IT | Scor semantic: 9/10 | Scor rebus: 8/10 | Scor creativitate: 5/10",
+        }
+        candidate_puzzle = build_working_puzzle({"id": "p1", "title": "Test", "grid_size": 7}, clue_rows)
+
+        with patch(
+            "rebus_generator.workflows.canonicals.scored_fallbacks.ClueCanonStore.fetch_clue_rows_for_canonical_ids",
+            return_value=[representative_row],
+        ):
+            applied = apply_shared_scored_canonical_fallbacks(
+                target_puzzle=candidate_puzzle,
+                puzzle_identity="p1",
+                policy=generate_unresolved_definition_fallback_policy,
+                store_client=fixture.supabase,
+            )
+
+        self.assertEqual(1, len(applied))
+        self.assertEqual("Fir scurt folosit la țesut.", candidate_puzzle.horizontal_clues[0].current.definition)
+        self.assertEqual("Definiție deja prezentă.", candidate_puzzle.horizontal_clues[1].current.definition)
+
+    def test_apply_scored_canonical_fallbacks_keeps_duplicate_zero_position_clues(self):
+        clue_rows = [
+            _make_clue_row("IT", "[NECLAR]", clue_id="c1", row=0, col=0, verified=False),
+            _make_clue_row("IT", "[Definiție negenerată]", clue_id="c2", clue_number=2, row=0, col=0, verified=False),
+        ]
+        fixture = _SupabaseFixture(clue_rows)
+        fixture._canonical_rows.append({
+            "id": "canon-it",
+            "word_normalized": "IT",
+            "word_original_seed": "it",
+            "definition": "Fir scurt folosit la țesut.",
+            "definition_norm": "fir scurt folosit la tesut",
+            "word_type": "",
+            "usage_label": "",
+            "verified": True,
+            "semantic_score": 9,
+            "rebus_score": 8,
+            "creativity_score": 5,
+            "usage_count": 2,
+            "superseded_by": None,
+        })
+        representative_row = {
+            "id": "rep-it",
+            "canonical_definition_id": "canon-it",
+            "word_normalized": "IT",
+            "word_original": "it",
+            "word_type": "",
+            "definition": "Fir scurt folosit la țesut.",
+            "verified": True,
+            "verify_note": "AI a ghicit: IT | Scor semantic: 9/10 | Scor rebus: 8/10 | Scor creativitate: 5/10",
+        }
+        candidate_puzzle = build_working_puzzle({"id": "p1", "title": "Test", "grid_size": 7}, clue_rows)
+
+        with patch(
+            "rebus_generator.workflows.canonicals.scored_fallbacks.ClueCanonStore.fetch_clue_rows_for_canonical_ids",
+            return_value=[representative_row],
+        ):
+            applied = apply_shared_scored_canonical_fallbacks(
+                target_puzzle=candidate_puzzle,
+                puzzle_identity="p1",
+                policy=generate_scored_fallback_policy,
+                store_client=fixture.supabase,
+            )
+
+        self.assertEqual(2, len(applied))
+        self.assertEqual("Fir scurt folosit la țesut.", candidate_puzzle.horizontal_clues[0].current.definition)
+        self.assertEqual("Fir scurt folosit la țesut.", candidate_puzzle.horizontal_clues[1].current.definition)
 
     def test_apply_scored_canonical_fallbacks_reuses_scored_canonical(self):
         clue_rows = [_make_clue_row("OUA", "Mai multe ouă.", clue_id="c1", verified=False)]
