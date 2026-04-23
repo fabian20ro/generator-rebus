@@ -345,6 +345,34 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertIsNone(admitted)
         self.assertEqual([], supervisor.pending_items)
 
+    @patch("rebus_generator.workflows.run_all.pollers.fetch_retitle_puzzles")
+    def test_retitle_poll_deprioritizes_no_change_item_when_fresh_exists(self, fetch_mock):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        supervisor = RunAllSupervisor(
+            context=_context(runtime),
+            topics=["retitle"],
+            topic_caps={"retitle": 1},
+        )
+        supervisor.stable_item_progress["retitle:puzzle:p1"] = StableItemProgress(
+            topic="retitle",
+            stable_key="retitle:puzzle:p1",
+            no_progress_admissions=2,
+        )
+        supervisor.ctx.store = SimpleNamespace(
+            fetch_clue_rows=lambda puzzle_id, extra_fields=(): [
+                {"word_normalized": "APA" if puzzle_id == "p1" else "NOR"}
+            ]
+        )
+        fetch_mock.return_value = [
+            {"id": "p1", "title": "Titlu vechi", "created_at": "2026-04-01T00:00:00+00:00"},
+            {"id": "p2", "title": "Titlu nou", "created_at": "2026-04-02T00:00:00+00:00"},
+        ]
+
+        admitted = supervisor._poll_retitle()
+
+        self.assertIsNotNone(admitted)
+        self.assertEqual("retitle:puzzle:p2", admitted.item_id)
+
     def test_system_exit_in_step_becomes_topic_failure_not_process_exit(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(

@@ -47,6 +47,7 @@ class RedefineJobState(JobState):
         self.baseline_rate_done: dict[str, set[str]] = {}
         self.rewrite_session: RunAllRewriteSession | None = None
         self.canonical_decisions = None
+        self.touched_canonical_ids: list[str] = []
         self.persistence_plan = None
 
     def next_steps(self, ctx):
@@ -341,6 +342,7 @@ class RedefineJobState(JobState):
             ctx.ai_client,
             runtime=ctx.runtime,
             multi_model=False,
+            touched_canonical_ids=self.touched_canonical_ids,
         )
         self._progress("persist_prepare", detail=f"resolved={len(self.canonical_decisions)}")
         return self.canonical_decisions
@@ -359,6 +361,7 @@ class RedefineJobState(JobState):
             dry_run=ctx.dry_run,
             multi_model=ctx.multi_model,
             runtime=ctx.runtime,
+            touched_canonical_ids=self.touched_canonical_ids,
         )
         self._progress("persist_apply", detail=f"updates={len(self.persistence_plan.clue_updates)}")
         return self.persistence_plan

@@ -1403,6 +1403,25 @@ class AiCluesTests(unittest.TestCase):
 
         self.assertEqual(["TUN", "ARC"], result.candidates)
 
+    def test_verify_definition_candidates_retries_truncated_commentary(self):
+        client = _QueuedResponseClient([
+            _chat_response(content="BAR (too long) -> Wait", finish_reason="length"),
+            _chat_response(content="TUN\nARC"),
+        ])
+
+        result = verify_definition_candidates(
+            client,
+            "Recipient mare pentru vin",
+            answer_length=3,
+            max_guesses=3,
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertEqual(["TUN", "ARC"], result.candidates)
+        self.assertEqual(2, len(client.calls))
+        self.assertLessEqual(client.calls[1]["max_tokens"], 160)
+        self.assertIn("fără explicații", client.calls[1]["messages"][-1]["content"])
+
     def test_rate_prompt_includes_word_type(self):
         prompt = _build_rate_prompt("casă", "CASA", "Locuință", 4, word_type="N")
         self.assertIn("Categorie gramaticală: substantiv", prompt)

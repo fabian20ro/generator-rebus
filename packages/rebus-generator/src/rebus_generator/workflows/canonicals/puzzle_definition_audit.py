@@ -8,6 +8,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from rebus_generator.domain.clue_canon_cleanup import (
+    UNREFERENCED_BEST_FALLBACK,
+    UNREFERENCED_REDUNDANT_DELETABLE,
+    UNREFERENCED_SINGLETON_FALLBACK,
+    classify_canonical_cleanup_rows,
+)
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.io.runtime_logging import audit, install_process_logging, log, path_timestamp
 from rebus_generator.domain.slot_extractor import extract_slots
@@ -69,12 +75,14 @@ def _finding(
     return payload
 
 
-def _canonical_finding(row: dict) -> dict[str, object]:
+def _canonical_finding(row: dict, *, category: str) -> dict[str, object]:
     return {
         "puzzle_id": "",
         "title": "",
         "published": False,
         "issue_type": "unreferenced_canonical_definition",
+        "cleanup_category": category,
+        "blocking": category == UNREFERENCED_REDUNDANT_DELETABLE,
         "direction": "",
         "start_row": None,
         "start_col": None,
@@ -205,21 +213,30 @@ def _audit_unreferenced_canonicals(store: ClueCanonStore) -> list[dict[str, obje
         if str(row.get("canonical_definition_id") or "").strip()
     }
     findings: list[dict[str, object]] = []
-    for row in store.fetch_canonical_rows():
-        canonical_id = str(row.get("id") or "").strip()
-        if not canonical_id or canonical_id in referenced_ids:
+    for classification in classify_canonical_cleanup_rows(
+        store.fetch_canonical_rows(),
+        referenced_ids=referenced_ids,
+    ):
+        if classification.category == "referenced":
             continue
-        finding = _canonical_finding(row)
+        finding = _canonical_finding(classification.row, category=classification.category)
         audit("puzzle_definition_issue", payload=finding)
         findings.append(finding)
     return findings
 
 
+def _is_blocking_finding(finding: dict) -> bool:
+    if str(finding.get("issue_type") or "") != "unreferenced_canonical_definition":
+        return True
+    return bool(finding.get("blocking"))
+
+
 def _build_summary(*, puzzles: list[dict], clue_rows: list[dict], findings: list[dict], output: Path, details: Path) -> dict[str, object]:
     issue_types = [str(finding.get("issue_type") or "") for finding in findings]
+    blocking_findings = [finding for finding in findings if _is_blocking_finding(finding)]
     puzzles_with_issues = sorted({
         str(finding.get("puzzle_id") or "")
-        for finding in findings
+        for finding in blocking_findings
         if str(finding.get("puzzle_id") or "").strip()
     })
     canonical_findings = [
@@ -227,8 +244,19 @@ def _build_summary(*, puzzles: list[dict], clue_rows: list[dict], findings: list
         for finding in findings
         if str(finding.get("issue_type") or "") == "unreferenced_canonical_definition"
     ]
+    canonical_by_category = {
+        category: [
+            finding for finding in canonical_findings
+            if str(finding.get("cleanup_category") or "") == category
+        ]
+        for category in (
+            UNREFERENCED_SINGLETON_FALLBACK,
+            UNREFERENCED_BEST_FALLBACK,
+            UNREFERENCED_REDUNDANT_DELETABLE,
+        )
+    }
     return {
-        "ok": not findings,
+        "ok": not blocking_findings,
         "total_puzzles_scanned": len(puzzles),
         "total_clue_rows_scanned": len(clue_rows),
         "puzzles_with_issues": len(puzzles_with_issues),
@@ -239,12 +267,17 @@ def _build_summary(*, puzzles: list[dict], clue_rows: list[dict], findings: list
         "puzzle_count_mismatches": issue_types.count("puzzle_count_mismatch"),
         "invalid_grid_templates": issue_types.count("invalid_grid_template"),
         "unreferenced_canonical_definitions": len(canonical_findings),
+        "unreferenced_canonical_definitions_total": len(canonical_findings),
+        "unreferenced_singleton_fallbacks": len(canonical_by_category[UNREFERENCED_SINGLETON_FALLBACK]),
+        "unreferenced_best_fallbacks": len(canonical_by_category[UNREFERENCED_BEST_FALLBACK]),
+        "unreferenced_redundant_deletable": len(canonical_by_category[UNREFERENCED_REDUNDANT_DELETABLE]),
         "unreferenced_canonical_samples": [
             {
                 "id": str(finding.get("canonical_id") or ""),
                 "word_normalized": str(finding.get("word_normalized") or ""),
                 "definition_preview": str(finding.get("definition_preview") or ""),
                 "superseded_by": str(finding.get("superseded_by") or ""),
+                "cleanup_category": str(finding.get("cleanup_category") or ""),
             }
             for finding in canonical_findings[:_UNREFERENCED_CANONICAL_SAMPLE_LIMIT]
         ],
@@ -301,9 +334,15 @@ def run_audit(
         findings.extend(puzzle_findings)
     canonical_findings = _audit_unreferenced_canonicals(store)
     if canonical_findings:
+        redundant = [
+            finding
+            for finding in canonical_findings
+            if str(finding.get("cleanup_category") or "") == UNREFERENCED_REDUNDANT_DELETABLE
+        ]
         log(
             "[puzzle-audit] "
-            f"unreferenced_canonical_definitions={len(canonical_findings)} "
+            f"unreferenced_canonical_definitions_total={len(canonical_findings)} "
+            f"unreferenced_redundant_deletable={len(redundant)} "
             f"sample={json.dumps([finding.get('canonical_id') for finding in canonical_findings[:5]])}"
         )
     findings.extend(canonical_findings)

@@ -34,8 +34,13 @@ class _CleanupQuery:
 
     def execute(self):
         self.client.operations.append((self.table_name, self.operation, list(self.in_filters), self.payload))
-        values = self.in_filters[-1][1] if self.in_filters else []
+        field, values = self.in_filters[-1] if self.in_filters else ("", [])
         if self.table_name == "canonical_clue_definitions" and self.operation == "select":
+            if self.client.canonical_rows:
+                return SimpleNamespace(data=[
+                    row for row in self.client.canonical_rows
+                    if str(row.get(field) or "") in values
+                ])
             return SimpleNamespace(data=[
                 {"id": value, "word_normalized": f"WORD{index}"}
                 for index, value in enumerate(values)
@@ -56,8 +61,9 @@ class _CleanupQuery:
 
 
 class _CleanupClient:
-    def __init__(self, *, referenced_ids: set[str]):
+    def __init__(self, *, referenced_ids: set[str], canonical_rows: list[dict] | None = None):
         self.referenced_ids = referenced_ids
+        self.canonical_rows = list(canonical_rows or [])
         self.operations: list[tuple[str, str, list[tuple[str, list[str]]], object]] = []
 
     def table(self, name):
@@ -351,6 +357,64 @@ class ClueCanonStoreTests(unittest.TestCase):
                 "canonical_clue_definitions",
                 "delete",
                 [("id", ["canon-free"])],
+                None,
+            ),
+            client.operations,
+        )
+
+    def test_delete_redundant_unreferenced_canonicals_keeps_best_fallback(self):
+        client = _CleanupClient(
+            referenced_ids=set(),
+            canonical_rows=[
+                {
+                    "id": "canon-best",
+                    "word_normalized": "APA",
+                    "definition": "best",
+                    "word_type": "",
+                    "usage_label": "",
+                    "verified": True,
+                    "semantic_score": 9,
+                    "rebus_score": 8,
+                    "creativity_score": 6,
+                    "usage_count": 2,
+                    "superseded_by": None,
+                    "updated_at": "2026-04-02T00:00:00+00:00",
+                },
+                {
+                    "id": "canon-worse",
+                    "word_normalized": "APA",
+                    "definition": "worse",
+                    "word_type": "",
+                    "usage_label": "",
+                    "verified": True,
+                    "semantic_score": 6,
+                    "rebus_score": 5,
+                    "creativity_score": 4,
+                    "usage_count": 1,
+                    "superseded_by": None,
+                    "updated_at": "2026-04-01T00:00:00+00:00",
+                },
+            ],
+        )
+        store = ClueCanonStore(client=client)
+
+        deleted = store.delete_redundant_unreferenced_canonicals_by_ids(["canon-best", "canon-worse"])
+
+        self.assertEqual(1, deleted)
+        self.assertIn(
+            (
+                "canonical_clue_definitions",
+                "delete",
+                [("id", ["canon-worse"])],
+                None,
+            ),
+            client.operations,
+        )
+        self.assertNotIn(
+            (
+                "canonical_clue_definitions",
+                "delete",
+                [("id", ["canon-best"])],
                 None,
             ),
             client.operations,

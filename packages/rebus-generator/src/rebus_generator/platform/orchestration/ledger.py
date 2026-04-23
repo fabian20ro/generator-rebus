@@ -85,10 +85,15 @@ class RunLedger:
         progress.no_progress_admissions += 1
 
     def should_deprioritize_live_item(self, *, topic: str, stable_key: str) -> bool:
-        if topic not in {"redefine", "simplify"}:
+        if topic not in {"redefine", "retitle", "simplify"}:
             return False
         progress = self.stable_item_progress.get(stable_key)
         return bool(progress and progress.no_progress_admissions >= FAIRNESS_NO_PROGRESS_ADMISSIONS)
+
+    def deprioritize_live_item(self, supervisor, *, topic: str, stable_key: str, reason: str) -> None:
+        progress = self.stable_progress(supervisor, stable_key, topic=topic)
+        progress.no_progress_admissions = max(progress.no_progress_admissions, FAIRNESS_NO_PROGRESS_ADMISSIONS)
+        log(f"[run_all {topic} no_change deprioritized] item={stable_key} reason={reason}")
 
     def active_generate_size_exclusions(self) -> set[int]:
         now = time.monotonic()

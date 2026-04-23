@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from rebus_generator.platform.io.markdown_io import ClueEntry
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
@@ -22,6 +22,7 @@ class PlannedClueUpdate:
 class RedefinePersistencePlan:
     clue_updates: list[PlannedClueUpdate]
     metadata_payload: dict[str, object] | None
+    touched_canonical_ids: list[str] = field(default_factory=list)
 
 
 def fetch_puzzles(

@@ -8,6 +8,7 @@ import time
 
 from postgrest.exceptions import APIError
 
+from rebus_generator.domain.clue_canon_cleanup import deletable_canonical_ids
 from rebus_generator.domain.clue_canon_ranking import canonical_reset_safe_sort_key
 from rebus_generator.domain.clue_canon_types import CanonicalDefinition, ClueDefinitionRecord
 from rebus_generator.platform.io.runtime_logging import audit, log
@@ -17,6 +18,10 @@ _CANONICAL_SELECT = (
     "id, word_normalized, word_original_seed, definition, definition_norm, "
     "word_type, usage_label, verified, semantic_score, rebus_score, "
     "creativity_score, usage_count, superseded_by"
+)
+_CANONICAL_CLEANUP_SELECT = (
+    "id, word_normalized, definition, word_type, usage_label, verified, "
+    "semantic_score, rebus_score, creativity_score, usage_count, superseded_by, updated_at"
 )
 _CLUE_PAGE_SIZE = 1000
 _CONFLICT_RELOAD_RETRY_SECONDS = 0.1
@@ -548,7 +553,15 @@ class ClueCanonStore:
             "id",
             "word_normalized",
             "definition",
+            "word_type",
+            "usage_label",
+            "verified",
+            "semantic_score",
+            "rebus_score",
+            "creativity_score",
+            "usage_count",
             "superseded_by",
+            "updated_at",
         ]
         for field in extra_fields:
             if field not in select_fields:
@@ -577,6 +590,40 @@ class ClueCanonStore:
                 break
             offset += page_size
         return rows[:limit] if limit is not None else rows
+
+    def fetch_canonical_rows_for_words(
+        self,
+        words_normalized: list[str],
+        *,
+        extra_fields: tuple[str, ...] = (),
+    ) -> list[dict]:
+        if self.client is None:
+            return []
+        words = sorted({
+            str(word or "").strip().upper()
+            for word in words_normalized
+            if str(word or "").strip()
+        })
+        if not words:
+            return []
+        select_fields = [field.strip() for field in _CANONICAL_CLEANUP_SELECT.split(",")]
+        for field in extra_fields:
+            if field not in select_fields:
+                select_fields.append(field)
+        rows: list[dict] = []
+        for start in range(0, len(words), _CLUE_PAGE_SIZE):
+            chunk = words[start : start + _CLUE_PAGE_SIZE]
+            batch = (
+                self.client.table("canonical_clue_definitions")
+                .select(", ".join(select_fields))
+                .in_("word_normalized", chunk)
+                .execute()
+                .data
+                or []
+            )
+            rows.extend(batch)
+        rows.sort(key=lambda row: (str(row.get("word_normalized") or ""), str(row.get("id") or "")))
+        return rows
 
     def fetch_clue_rows_for_puzzle_ids(
         self,
@@ -879,6 +926,78 @@ class ClueCanonStore:
             f"requested={len(unique_ids)} deleted={deleted_total} skipped_referenced={skipped_total}"
         )
         return deleted_total
+
+    def delete_redundant_unreferenced_canonicals_by_ids(self, canonical_ids: list[str]) -> int:
+        if self.client is None:
+            return 0
+        target_ids = sorted({
+            str(canonical_id or "").strip()
+            for canonical_id in canonical_ids
+            if str(canonical_id or "").strip()
+        })
+        if not target_ids:
+            return 0
+        target_rows = self.fetch_canonical_cleanup_rows_by_ids(target_ids)
+        words = [str(row.get("word_normalized") or "") for row in target_rows]
+        bucket_rows = self.fetch_canonical_rows_for_words(words)
+        bucket_ids = sorted({
+            str(row.get("id") or "").strip()
+            for row in bucket_rows
+            if str(row.get("id") or "").strip()
+        })
+        referenced_ids: set[str] = set()
+        for start in range(0, len(bucket_ids), _CLUE_PAGE_SIZE):
+            chunk = bucket_ids[start : start + _CLUE_PAGE_SIZE]
+            if not chunk:
+                continue
+            rows = (
+                self.client.table("crossword_clues")
+                .select("canonical_definition_id")
+                .in_("canonical_definition_id", chunk)
+                .execute()
+                .data
+                or []
+            )
+            referenced_ids.update(
+                str(row.get("canonical_definition_id") or "").strip()
+                for row in rows
+                if str(row.get("canonical_definition_id") or "").strip()
+            )
+        doomed = deletable_canonical_ids(
+            bucket_rows,
+            referenced_ids=referenced_ids,
+            target_ids=set(target_ids),
+        )
+        deleted = self.delete_unreferenced_canonicals_by_ids(doomed)
+        log(
+            "[canonical cleanup redundant] "
+            f"requested={len(target_ids)} deletable={len(doomed)} deleted={deleted}"
+        )
+        return deleted
+
+    def fetch_canonical_cleanup_rows_by_ids(self, canonical_ids: list[str]) -> list[dict]:
+        if self.client is None:
+            return []
+        unique_ids = sorted({
+            str(canonical_id or "").strip()
+            for canonical_id in canonical_ids
+            if str(canonical_id or "").strip()
+        })
+        if not unique_ids:
+            return []
+        rows: list[dict] = []
+        for start in range(0, len(unique_ids), _CLUE_PAGE_SIZE):
+            chunk = unique_ids[start : start + _CLUE_PAGE_SIZE]
+            batch = (
+                self.client.table("canonical_clue_definitions")
+                .select(_CANONICAL_CLEANUP_SELECT)
+                .in_("id", chunk)
+                .execute()
+                .data
+                or []
+            )
+            rows.extend(batch)
+        return rows
 
     def fetch_canonical_definitions_by_word_ids(self, canonical_ids: list[str]) -> dict[str, str]:
         if not canonical_ids or self.client is None:

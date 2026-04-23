@@ -31,6 +31,7 @@ from .reporting import (
 )
 from .state import (
     active_generate_size_exclusions,
+    deprioritize_live_item,
     generate_size_penalty_map,
     note_job_finished,
     note_job_started,
@@ -444,6 +445,13 @@ class RunAllSupervisor:
                 self.ledger.switch_count_at_last_completion = self.switch_count_at_last_completion
                 self.ledger.load_seconds_at_last_completion = self.load_seconds_at_last_completion
                 self._note_job_finished(job, outcome="complete")
+                if job.topic == "retitle" and str(job.progress_detail or "") == "changed=False":
+                    deprioritize_live_item(
+                        self,
+                        topic=job.topic,
+                        stable_key=self._stable_item_key(job),
+                        reason="changed_false",
+                    )
                 log(
                     f"[run_all finalize] topic={job.topic} job={job.item_id} outcome=complete "
                     f"elapsed_ms={elapsed_ms} persisted=yes detail={job.progress_detail or '-'} result={job.result!r}"

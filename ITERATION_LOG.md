@@ -1524,3 +1524,11 @@
 **Outcome:** success
 **Insight:** generated markdown clue rows do not provide reliable slot coordinates after compound splitting; fallback/define state must use list-position clue identity, not normalized word or `(start_row,start_col)` alone.
 **Promoted:** no
+
+### [2026-04-23] — unreferenced canonical cleanup policy + verify format retry
+**Context:** user wanted the high-probability `run_all` issues implemented: delete only redundant unreferenced canonicals, keep singleton/best fallbacks, stop retitle no-op churn, and address Gemma verify truncations without raising the token cap first.
+**Happened:** Added shared canonical cleanup classification with referenced/singleton/best/redundant categories. Updated puzzle definition audit and cleanup SQL to report categories and fail/delete only redundant unreferenced canonical definitions. Wired redefine persistence to track newly created canonicals and clean up only touched redundant rows after successful apply. Added run-local retitle no-change deprioritization using the existing stable-key ledger, with no persistent storage. Tightened verify prompts and added one strict format retry for truncated/commentary outputs while preserving candidate salvage and the current token cap.
+**Verification:** `pytest tests/generator/workflows/test_puzzle_definition_audit.py` (`13 passed`); `pytest tests/generator/cli/test_run_all.py` (`51 passed`); `pytest tests/generator/platform/test_clue_canon_store.py` (`12 passed`); `pytest tests/generator/workflows/test_ai_clues.py -k verify_definition_candidates` (`6 passed`); `git diff --check --cached`.
+**Outcome:** success
+**Insight:** Gemma verify truncations in this run were visible format drift/self-correction, not hidden reasoning budget exhaustion; improving the output contract and retry shape is higher leverage than increasing `max_tokens`.
+**Promoted:** no

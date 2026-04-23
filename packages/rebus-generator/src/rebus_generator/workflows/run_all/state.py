@@ -23,6 +23,10 @@ def note_job_finished(supervisor, job, *, outcome: str) -> None:
     supervisor.ledger.note_job_finished(supervisor, job, outcome=outcome)
 
 
+def deprioritize_live_item(supervisor, *, topic: str, stable_key: str, reason: str) -> None:
+    supervisor.ledger.deprioritize_live_item(supervisor, topic=topic, stable_key=stable_key, reason=reason)
+
+
 def should_deprioritize_live_item(supervisor, *, topic: str, stable_key: str) -> bool:
     return supervisor.ledger.should_deprioritize_live_item(topic=topic, stable_key=stable_key)
 

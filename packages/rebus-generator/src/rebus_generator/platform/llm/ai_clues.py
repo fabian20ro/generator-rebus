@@ -99,6 +99,11 @@ RATE_MIN_SEMANTIC = 7
 RATE_MIN_REBUS = 5
 VERIFY_MAX_TOKENS = 300
 RATE_MAX_TOKENS = 300
+VERIFY_FORMAT_RETRY_MAX_TOKENS = 160
+_VERIFY_COMMENTARY_RE = re.compile(
+    r"\(|\)|->|=>|\bwait\b|\blet'?s rethink\b|too long|prea lung|nu se potrivește|nu se potriveste",
+    re.IGNORECASE,
+)
 from .llm_client import (
     RESPONSE_SOURCE_NO_THINKING_RETRY,
     RESPONSE_SOURCE_REASONING,
@@ -425,6 +430,7 @@ def verify_definition_candidates(
 
     last_candidates: list[str] = []
     last_source = RESPONSE_SOURCE_REASONING
+    format_retry_used = False
     attempt_temperatures = llm_attempt_temperatures(
         temperature=0.1,
         default_temperature=0.1,
@@ -450,13 +456,46 @@ def verify_definition_candidates(
         )
         last_candidates = candidates
         last_source = _response_source(response)
-        if candidates:
+        if candidates and (format_retry_used or not _verify_needs_format_retry(raw, response)):
             return VerifyResult(candidates, response_source=last_source)
+        if (candidates or _verify_needs_format_retry(raw, response)) and not format_retry_used:
+            format_retry_used = True
+            retry_response = _chat_completion_create(
+                client,
+                model=resolved_model,
+                messages=[
+                    {"role": "system", "content": load_system_prompt("verify", model_id=resolved_model)},
+                    {"role": "user", "content": prompt + _VERIFY_FORMAT_RETRY_INSTRUCTION},
+                ],
+                temperature=0.0,
+                max_tokens=min(max_tokens, VERIFY_FORMAT_RETRY_MAX_TOKENS),
+                purpose="definition_verify",
+            )
+            retry_raw = retry_response.choices[0].message.content or ""
+            retry_candidates = _extract_verify_candidates(
+                retry_raw, answer_length, max_guesses=max_guesses
+            )
+            if retry_candidates:
+                return VerifyResult(retry_candidates, response_source=_response_source(retry_response))
+            if candidates:
+                return VerifyResult(candidates, response_source=last_source)
         if last_source == RESPONSE_SOURCE_NO_THINKING_RETRY:
             break
         prompt += "\nAtenție: răspunsul anterior nu a fost în română. Răspunde exclusiv în română."
 
     return VerifyResult(last_candidates, response_source=last_source)
+
+
+_VERIFY_FORMAT_RETRY_INSTRUCTION = (
+    "\nRăspunsul anterior a încălcat formatul sau a fost întrerupt. "
+    "Răspunde acum strict cu maximum 3 rânduri, un singur cuvânt românesc pe rând, "
+    "fără paranteze, fără săgeți, fără explicații, fără autocorectări."
+)
+
+
+def _verify_needs_format_retry(raw: str, response) -> bool:
+    finish_reason = str(getattr(response.choices[0], "finish_reason", "") or "")
+    return finish_reason == "length" or bool(_VERIFY_COMMENTARY_RE.search(raw or ""))
 
 
 def rate_definition(

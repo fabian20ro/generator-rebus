@@ -63,12 +63,26 @@ def _canonical(
     word_normalized: str = "WORD",
     definition: str = "def",
     superseded_by: str | None = None,
+    verified: bool = True,
+    semantic_score: int | None = 8,
+    rebus_score: int | None = 7,
+    creativity_score: int | None = 6,
+    usage_count: int = 1,
+    updated_at: str = "2026-04-01T00:00:00+00:00",
 ) -> dict:
     return {
         "id": canonical_id,
         "word_normalized": word_normalized,
         "definition": definition,
+        "word_type": "",
+        "usage_label": "",
+        "verified": verified,
+        "semantic_score": semantic_score,
+        "rebus_score": rebus_score,
+        "creativity_score": creativity_score,
+        "usage_count": usage_count,
         "superseded_by": superseded_by,
+        "updated_at": updated_at,
     }
 
 
@@ -287,7 +301,7 @@ class PuzzleDefinitionAuditTests(unittest.TestCase):
         self.assertEqual(1, summary["total_puzzles_scanned"])
         self.assertEqual([["p1"]], store.fetch_clue_rows_for_puzzle_ids_calls)
 
-    def test_detects_unreferenced_canonical_definition(self):
+    def test_unreferenced_singleton_canonical_definition_is_nonblocking_fallback(self):
         store = _FakeStore(
             [_puzzle()],
             [
@@ -311,9 +325,12 @@ class PuzzleDefinitionAuditTests(unittest.TestCase):
             summary = json.loads(output.read_text(encoding="utf-8"))
             findings = json.loads(details.read_text(encoding="utf-8"))
 
-        self.assertEqual(1, exit_code)
-        self.assertFalse(summary["ok"])
+        self.assertEqual(0, exit_code)
+        self.assertTrue(summary["ok"])
         self.assertEqual(1, summary["unreferenced_canonical_definitions"])
+        self.assertEqual(1, summary["unreferenced_canonical_definitions_total"])
+        self.assertEqual(1, summary["unreferenced_singleton_fallbacks"])
+        self.assertEqual(0, summary["unreferenced_redundant_deletable"])
         self.assertEqual(
             [
                 {
@@ -321,6 +338,7 @@ class PuzzleDefinitionAuditTests(unittest.TestCase):
                     "word_normalized": "ORFAN",
                     "definition_preview": "unused canonical",
                     "superseded_by": "",
+                    "cleanup_category": "unreferenced_singleton_fallback",
                 }
             ],
             summary["unreferenced_canonical_samples"],
@@ -329,6 +347,39 @@ class PuzzleDefinitionAuditTests(unittest.TestCase):
             "unreferenced_canonical_definition",
             [finding["issue_type"] for finding in findings],
         )
+
+    def test_detects_redundant_unreferenced_canonical_definition(self):
+        store = _FakeStore(
+            [_puzzle()],
+            [
+                _clue("p1", "c1", "H", 0, 0, canonical_definition_id="canon-1"),
+                _clue("p1", "c2", "H", 1, 0, canonical_definition_id="canon-2"),
+                _clue("p1", "c3", "V", 0, 0, canonical_definition_id="canon-3"),
+                _clue("p1", "c4", "V", 0, 1, canonical_definition_id="canon-4"),
+            ],
+            [
+                _canonical("canon-1", word_normalized="A"),
+                _canonical("canon-2", word_normalized="B"),
+                _canonical("canon-3", word_normalized="C"),
+                _canonical("canon-4", word_normalized="D"),
+                _canonical("canon-best", word_normalized="ORFAN", definition="best", semantic_score=9),
+                _canonical("canon-redundant", word_normalized="ORFAN", definition="worse", semantic_score=5),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "summary.json"
+            details = Path(tmpdir) / "details.json"
+            exit_code = run_audit(store=store, output=str(output), details=str(details))
+            summary = json.loads(output.read_text(encoding="utf-8"))
+            findings = json.loads(details.read_text(encoding="utf-8"))
+
+        self.assertEqual(1, exit_code)
+        self.assertFalse(summary["ok"])
+        self.assertEqual(2, summary["unreferenced_canonical_definitions_total"])
+        self.assertEqual(1, summary["unreferenced_best_fallbacks"])
+        self.assertEqual(1, summary["unreferenced_redundant_deletable"])
+        redundant = [finding for finding in findings if finding.get("blocking")]
+        self.assertEqual(["canon-redundant"], [finding["canonical_id"] for finding in redundant])
 
     def test_wrapper_forwards_args_to_python_module(self):
         wrapper = Path(__file__).resolve().parents[3] / "run_puzzle_definition_audit.sh"

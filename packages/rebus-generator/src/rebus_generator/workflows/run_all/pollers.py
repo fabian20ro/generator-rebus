@@ -68,6 +68,7 @@ def poll_redefine(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
 
 def poll_retitle(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
     rows = select_puzzles_for_retitle(fetch_retitle_puzzles(supervisor.ctx.supabase))
+    deferred: SupervisorWorkItem | None = None
     for row in rows:
         puzzle_id = str(row.get("id") or "")
         if supervisor.claims.has_puzzle(puzzle_id):
@@ -85,7 +86,14 @@ def poll_retitle(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
             puzzle_id=puzzle_id,
             words=words,
         )
+        stable_key = f"retitle:puzzle:{puzzle_id}"
+        if supervisor.should_deprioritize_live_item(topic="retitle", stable_key=stable_key):
+            deferred = item
+            continue
         supervisor._admit_item(item)
+        return supervisor._next_pending_for_topic("retitle")
+    if deferred is not None:
+        supervisor._admit_item(deferred)
         return supervisor._next_pending_for_topic("retitle")
     return None
 

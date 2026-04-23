@@ -124,6 +124,7 @@ def resolve_redefined_puzzle_canonicals(
     *,
     runtime: LmRuntime | None = None,
     multi_model: bool = True,
+    touched_canonical_ids: list[str] | None = None,
 ) -> dict[tuple[str, int, int], CanonicalDecision]:
     desired_payloads = desired_clue_payloads(candidate_puzzle)
     candidate_clues = working_clue_map(candidate_puzzle)
@@ -155,6 +156,8 @@ def resolve_redefined_puzzle_canonicals(
             raise RuntimeError(
                 f"Canonical clue resolution produced no canonical_definition_id for {source_clue.word_normalized}"
             )
+        if decision.created_new and touched_canonical_ids is not None:
+            touched_canonical_ids.append(decision.canonical_definition_id)
         decisions[key] = decision
     return decisions
 
@@ -171,6 +174,7 @@ def plan_redefined_puzzle_persistence(
     dry_run: bool = False,
     multi_model: bool = True,
     runtime: LmRuntime | None = None,
+    touched_canonical_ids: list[str] | None = None,
 ) -> RedefinePersistencePlan:
     puzzle_id = puzzle_row["id"]
     desired_payloads = desired_clue_payloads(candidate_puzzle)
@@ -184,6 +188,7 @@ def plan_redefined_puzzle_persistence(
     )
     clue_store = clue_canon.store
     clue_updates: list[PlannedClueUpdate] = []
+    touched_ids = list(touched_canonical_ids or [])
 
     if decisions is None:
         decisions = resolve_redefined_puzzle_canonicals(
@@ -194,6 +199,7 @@ def plan_redefined_puzzle_persistence(
             client,
             runtime=runtime,
             multi_model=multi_model,
+            touched_canonical_ids=touched_ids,
         )
 
     for row in clue_rows:
@@ -241,7 +247,11 @@ def plan_redefined_puzzle_persistence(
         metadata_payload = build_metadata_payload(persistence_puzzle.assessment, multi_model=multi_model)
     elif _needs_metadata_backfill(puzzle_row):
         metadata_payload = build_metadata_payload(baseline_puzzle.assessment, multi_model=multi_model)
-    return RedefinePersistencePlan(clue_updates=clue_updates, metadata_payload=metadata_payload)
+    return RedefinePersistencePlan(
+        clue_updates=clue_updates,
+        metadata_payload=metadata_payload,
+        touched_canonical_ids=sorted(set(touched_ids)),
+    )
 
 
 def apply_redefined_puzzle_persistence(
@@ -289,6 +299,12 @@ def apply_redefined_puzzle_persistence(
             persist_puzzle_metadata(supabase, puzzle_id, plan.metadata_payload, dry_run=dry_run)
     if plan.metadata_payload is not None and not plan.clue_updates:
         persist_puzzle_metadata(supabase, puzzle_id, plan.metadata_payload, dry_run=dry_run)
+    if plan.touched_canonical_ids and not dry_run:
+        deleted = ClueCanonStore(client=supabase).delete_redundant_unreferenced_canonicals_by_ids(
+            plan.touched_canonical_ids
+        )
+        if deleted:
+            log(f"  [{puzzle_id}] removed redundant unreferenced canonical definitions: {deleted}")
     return len(plan.clue_updates)
 
 
