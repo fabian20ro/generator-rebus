@@ -224,6 +224,8 @@
 
 **[2026-04-21]** Publish flows must delay durable inserts until referee/canonical resolution finishes — if `upload_puzzle()` inserts `crossword_puzzles` before runtime-aware canonical resolution/referee work, any later publish exception leaves a real puzzle row behind. Scheduler retries then create duplicate published puzzles even when the visible failure looks deterministic. Resolve canonicals first, then insert durable rows, and keep best-effort cleanup for failures after the first insert.
 
+**[2026-04-24]** Phase-1 normalized answers and clue originals must stay separate all the way through markdown — Rust grid payloads can correctly carry both `normalized` and `original`, but if the bridge renders the normalized form into the markdown “original” slot, downstream DEX lookup and prompt context lose forms like `IT [iț]`. Preserve `word.original` at the bridge boundary; grid/verify should use normalized answers, definition lookup should receive the original form.
+
 ---
 
 ## Archive

@@ -169,7 +169,7 @@ def _render_markdown_from_rust_payload(
     for slot in slots_payload:
         slot_id = int(slot["id"])
         word = word_by_slot[slot_id]
-        original = word.get("normalized", "")
+        original = word.get("original") or word.get("normalized", "")
         if slot["direction"] == "H":
             h_words[int(slot["start_row"])].append(word["normalized"])
             h_originals[int(slot["start_row"])].append(original)

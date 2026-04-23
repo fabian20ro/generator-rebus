@@ -1532,3 +1532,11 @@
 **Outcome:** success
 **Insight:** Gemma verify truncations in this run were visible format drift/self-correction, not hidden reasoning budget exhaustion; improving the output contract and retry shape is higher leverage than increasing `max_tokens`.
 **Promoted:** no
+
+### [2026-04-24] — short-word definition rescue for IT/IJE/SEM
+**Context:** user wanted the planned short-word fix implemented: truthful DEX ingestion, original-form preservation, and additive overlay clues for `IT`, `IJE`, `SEM`; no Romanian word blocklists.
+**Happened:** Extended DEX parsing/status detection to accept `defWrapper` + `span.def` pages and to reparse nonempty cached `not_found` HTML when it now yields definitions. Fixed Rust markdown rendering to emit `word.original` instead of reusing normalized text, preserving `IT [iț]` into markdown/state/DEX/prompt paths. Added `short_word_clues.json` plus validated overlay helpers seeded for `IT`, `IJE`, `SEM`. Wired overlay context and short-word forbidden tokens into generate/rewrite prompts, including explicit `SEM` traps (`semantic`, `semem`, `semnificație`). Added generate-finalize rescue priority DEX first, overlay second, LLM already earlier. Added a short-word prompt benchmark dataset/script for `IT,IJE,SEM,OS,OUA,AN,OF,IN,AT,AZ,IE,TI,IZ` with N-configurable runs.
+**Verification:** `python3 -m pytest tests/generator/domain/test_short_word_clues.py tests/generator/platform/test_rust_bridge.py tests/generator/platform/test_dex_cache.py tests/generator/evaluation/test_short_word_benchmark.py tests/generator/workflows/test_generate_define.py tests/generator/workflows/test_ai_clues.py tests/generator/cli/test_run_all.py -q` (`238 passed`, 2 warnings); `python3 tools/scripts/run_short_word_prompt_benchmark.py --runs 1 --no-run --dataset-out /tmp/short_word_benchmark_dataset.json`.
+**Outcome:** success
+**Insight:** the Rust bridge had the critical original-form loss: it rendered `word.normalized` into the markdown “original” field, so downstream DEX/prompt paths could never see `iț` once phase-1 selected `IT`.
+**Promoted:** yes

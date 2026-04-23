@@ -118,6 +118,7 @@ class _DefinitionExtractor(HTMLParser):
         self._categorized_depth = 0
         self._categorized_current: list[str] = []
         self.categorized_definitions: list[str] = []
+        self.raw_definitions: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         classes = dict(attrs).get("class", "") or ""
@@ -169,8 +170,11 @@ class _DefinitionExtractor(HTMLParser):
                 self._categorized_depth -= 1
                 if self._categorized_depth <= 0:
                     text = " ".join("".join(self._categorized_current).split()).strip()
-                    if text and _is_usage_category(self._current_category):
-                        self.categorized_definitions.append(f"{self._current_category}: {text}")
+                    if text:
+                        if _is_usage_category(self._current_category):
+                            self.categorized_definitions.append(f"{self._current_category}: {text}")
+                        else:
+                            self.raw_definitions.append(text)
                     self._in_categorized_def = False
 
         if tag == "div":
@@ -220,11 +224,17 @@ def parse_definitions_from_html(html: str) -> list[str]:
     parser.feed(html)
     seen: set[str] = set()
     result: list[str] = []
-    for d in parser.tree_definitions + parser.categorized_definitions:
+    for d in parser.tree_definitions + parser.categorized_definitions + parser.raw_definitions:
         if d not in seen:
             seen.add(d)
             result.append(d)
     return result
+
+
+def _html_yields_definitions(html: str | None) -> bool:
+    if not html:
+        return False
+    return bool(parse_definitions_from_html(html))
 
 
 def _format_definitions(defs: list[str]) -> str:
@@ -333,7 +343,7 @@ def fetch_from_dexonline(
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
-                if "meaningContainer" in html or "tree-def" in html:
+                if _html_yields_definitions(html):
                     return html, "ok"
                 return html, "not_found"
         except urllib.error.HTTPError as e:
@@ -369,11 +379,14 @@ def _sb_lookup_single(client, normalized: str) -> tuple[str | None, bool]:
     if not resp.data:
         return None, False
     row = resp.data[0]
-    if row["status"] != "ok" or not row.get("html"):
+    html = row.get("html") or ""
+    if row["status"] != "ok" or not html:
+        if _html_yields_definitions(html):
+            return html, True
         if _is_expired(row.get("fetched_at")):
             return None, False
         return None, True  # in DB but no usable content
-    return row["html"], True
+    return html, True
 
 
 def _sb_lookup_batch(client, words: list[str]) -> dict[str, str | None]:
@@ -389,8 +402,9 @@ def _sb_lookup_batch(client, words: list[str]) -> dict[str, str | None]:
         except Exception:
             continue
         for row in resp.data:
-            if row["status"] == "ok" and row.get("html"):
-                result[row["word"]] = row["html"]
+            html = row.get("html") or ""
+            if (row["status"] == "ok" and html) or _html_yields_definitions(html):
+                result[row["word"]] = html
             else:
                 if not _is_expired(row.get("fetched_at")):
                     result[row["word"]] = None  # present but unusable
@@ -426,11 +440,14 @@ def _local_lookup_single(cache_dir: Path | None, normalized: str) -> tuple[str |
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None, False
-    if data.get("status") != "ok" or not data.get("html"):
+    html = data.get("html") or ""
+    if data.get("status") != "ok" or not html:
+        if _html_yields_definitions(html):
+            return html, True
         if _is_expired(data.get("fetched_at")):
             return None, False
         return None, True
-    return data["html"], True
+    return html, True
 
 
 def _local_store(cache_dir: Path | None, word: str, original: str, html: str, status: str) -> None:

@@ -21,6 +21,24 @@ from rebus_generator.platform.io.dex_cache import (
 )
 from rebus_generator.domain.pipeline_state import WorkingClue, WorkingPuzzle
 
+IT_DEX_FIXTURE = (
+    '<div class=" defWrapper "><p>'
+    '<span class="def"><b>iț</b>, s.m. Copil neastâmpărat.</span>'
+    "</p></div>"
+)
+IJE_DEX_FIXTURE = (
+    '<div class="callout callout-secondary mt-5"><h3>Ortografice DOOM</h3></div>'
+    '<div class=" defWrapper "><p>'
+    '<span class="def"><b>ije</b> (literă chirilică) s.m.</span>'
+    "</p></div>"
+)
+SEM_DEX_FIXTURE = (
+    '<div class="meaningContainer">'
+    '<span class="tree-def">Unitate semantică minimală.</span>'
+    '<span class="tree-def">Trăsăturile semantice ale unui cuvânt.</span>'
+    "</div>"
+)
+
 
 # ---------------------------------------------------------------------------
 # Pure function tests
@@ -101,7 +119,14 @@ class ParseDefinitionsFromHtmlTests(unittest.TestCase):
             '<span class="def"><b>clin</b> = stan.</span>'
             "</p></div>"
         )
-        self.assertEqual(parse_definitions_from_html(html), [])
+        self.assertEqual(parse_definitions_from_html(html), ["clin = stan."])
+
+    def test_short_word_fixtures_extract_defwrapper_and_tree_defs(self):
+        self.assertIn("Copil neastâmpărat", " ".join(parse_definitions_from_html(IT_DEX_FIXTURE)))
+        self.assertIn("literă chirilică", " ".join(parse_definitions_from_html(IJE_DEX_FIXTURE)))
+        sem_defs = parse_definitions_from_html(SEM_DEX_FIXTURE)
+        self.assertIn("Unitate semantică minimală.", sem_defs)
+        self.assertIn("Trăsăturile semantice ale unui cuvânt.", sem_defs)
 
 
 class FormatDefinitionsTests(unittest.TestCase):
@@ -512,6 +537,23 @@ class DexProviderLocalDiskCacheTests(unittest.TestCase):
         sb.table.assert_not_called()
         mock_fetch.assert_not_called()
 
+    def test_lookup_reparses_parseable_local_negative_cache(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "IJE.json").write_text(json.dumps({
+                "word": "IJE",
+                "original": "ije",
+                "status": "not_found",
+                "html": IJE_DEX_FIXTURE,
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=False), encoding="utf-8")
+            sb = MagicMock()
+            dex = DexProvider(sb, local_cache_dir=temp_dir)
+            with patch("rebus_generator.platform.io.dex_cache.fetch_from_dexonline") as mock_fetch:
+                result = dex.get("IJE", "ije")
+        self.assertIn("literă chirilică", result)
+        sb.table.assert_not_called()
+        mock_fetch.assert_not_called()
+
     def test_lookup_local_negative_cache_expired_triggers_refetch(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             (Path(temp_dir) / "CASA.json").write_text(json.dumps({
@@ -617,6 +659,17 @@ class FetchFromDexonlineTests(unittest.TestCase):
         html, status = fetch_from_dexonline("casă", max_retries=0)
         self.assertEqual(status, "ok")
         self.assertIn("tree-def", html)
+
+    @patch("rebus_generator.platform.io.dex_cache.urllib.request.urlopen")
+    def test_defwrapper_response_is_ok(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = IJE_DEX_FIXTURE.encode("utf-8")
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+        html, status = fetch_from_dexonline("ije", max_retries=0)
+        self.assertEqual(status, "ok")
+        self.assertIn("defWrapper", html)
 
     @patch("rebus_generator.platform.io.dex_cache.urllib.request.urlopen")
     def test_404_no_retry(self, mock_urlopen):

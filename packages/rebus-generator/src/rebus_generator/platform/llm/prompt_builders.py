@@ -10,6 +10,10 @@ from rebus_generator.domain.guards.definition_guards import (
     strip_trailing_usage_suffixes as _strip_trailing_usage_suffixes,
 )
 from rebus_generator.domain.quality import ENGLISH_HOMOGRAPH_HINTS
+from rebus_generator.domain.short_word_clues import (
+    forbidden_short_word_terms,
+    short_word_prompt_context,
+)
 from rebus_generator.platform.config import VERIFY_CANDIDATE_COUNT
 from rebus_generator.prompts.loader import load_user_template
 
@@ -97,6 +101,17 @@ def _family_exclusion_note(word: str) -> str:
     )
 
 
+def _short_word_exclusion_note(word: str) -> str:
+    terms = forbidden_short_word_terms(word)
+    if not terms:
+        return ""
+    joined = ", ".join(terms)
+    return (
+        f"\nATENȚIE — Cuvânt scurt: evită orice termen care începe cu: {joined}.\n"
+        "Nu folosi familia lexicală a răspunsului; alege o perifrază fără rădăcina scurtă."
+    )
+
+
 def _build_generate_prompt(
     display_word: str,
     word: str,
@@ -131,7 +146,15 @@ def _build_generate_prompt(
             f"\nDefiniții DEX (referință):\n{dex_definitions}\n"
             "Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus."
         )
+    short_context = short_word_prompt_context(word)
+    if short_context:
+        prompt += (
+            "\nUnghiuri sigure pentru cuvânt scurt (referință externă):\n"
+            f"{short_context}\n"
+            "Le poți folosi ca sens de bază, reformulat natural."
+        )
     prompt += _family_exclusion_note(word)
+    prompt += _short_word_exclusion_note(word)
     return prompt
 
 
@@ -196,7 +219,15 @@ def _build_rewrite_prompt(
             f"\nDefiniții DEX (referință):\n{dex_definitions}\n"
             "Folosește aceste sensuri ca bază, dar reformulează creativ pentru rebus."
         )
+    short_context = short_word_prompt_context(word)
+    if short_context:
+        prompt += (
+            "\nUnghiuri sigure pentru cuvânt scurt (referință externă):\n"
+            f"{short_context}\n"
+            "Le poți folosi ca sens de bază, reformulat natural."
+        )
     prompt += _family_exclusion_note(word)
+    prompt += _short_word_exclusion_note(word)
     return prompt
 
 

@@ -1384,6 +1384,45 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual("dex_rescue", clue.current.generated_by)
         self.assertEqual("rewrite_initial_verify", job.stage)
 
+    def test_generate_define_finalize_rescues_placeholder_from_short_word_overlay(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        ctx = _context(runtime)
+        item = _item("generate", "generate:size:14:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 14, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "define_initial"
+        clues = [
+            WorkingClue(row_number=1, word_normalized="IT", word_original="iț"),
+            WorkingClue(row_number=2, word_normalized="IJE", word_original="ije"),
+            WorkingClue(row_number=3, word_normalized="SEM", word_original="sem"),
+        ]
+        for clue in clues:
+            clue.current.definition = "[Definiție negenerată]"
+        job.working_puzzle = WorkingPuzzle("", 14, [], clues, [])
+        job.define_done_refs = {("H", 0, 0, 0)}
+
+        class _CaptureRewriteSession:
+            def __init__(self, *, puzzle, **_kwargs):
+                self.puzzle = puzzle
+
+        job.dex_provider = SimpleNamespace(
+            get=lambda *_args, **_kwargs: "",
+            uncertain_short_definitions=lambda: [],
+        )
+
+        with (
+            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", return_value={}),
+            patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", _CaptureRewriteSession),
+        ):
+            _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
+
+        self.assertEqual("Domeniul web al țării cu Roma capitală.", clues[0].current.definition)
+        self.assertEqual("A zecea literă a alfabetului chirilic.", clues[1].current.definition)
+        self.assertEqual("Trăsătură distinctivă din structura înțelesului.", clues[2].current.definition)
+        self.assertTrue(all(clue.current.source == "generate_rescue_overlay" for clue in clues))
+        self.assertTrue(all(clue.current.generated_by == "short_word_overlay" for clue in clues))
+        self.assertEqual("rewrite_initial_verify", job.stage)
+
     def test_redefine_persist_prepare_uses_run_all_rewrite_session_finish(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
         supervisor = RunAllSupervisor(

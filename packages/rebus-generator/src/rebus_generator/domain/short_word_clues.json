@@ -1,0 +1,26 @@
+[
+  {
+    "normalized": "IT",
+    "original": "iț",
+    "definition": "Domeniul web al țării cu Roma capitală.",
+    "source": "curated:tld",
+    "category": "internet_domain",
+    "priority": 20
+  },
+  {
+    "normalized": "IJE",
+    "original": "ije",
+    "definition": "A zecea literă a alfabetului chirilic.",
+    "source": "curated:letter",
+    "category": "letter_name",
+    "priority": 20
+  },
+  {
+    "normalized": "SEM",
+    "original": "sem",
+    "definition": "Trăsătură distinctivă din structura înțelesului.",
+    "source": "curated:linguistics",
+    "category": "linguistics",
+    "priority": 20
+  }
+]

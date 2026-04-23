@@ -1173,7 +1173,7 @@ class AiCluesTests(unittest.TestCase):
 
     def test_generate_prompt_no_hint_for_normal_word(self):
         prompt = _build_generate_prompt("aer", "AER", 3)
-        self.assertNotIn("ATENȚIE", prompt)
+        self.assertNotIn("NU defini ca și cum ar fi un cuvânt englezesc", prompt)
         self.assertIn("nu un singur cuvânt izolat", prompt)
 
     def test_extract_usage_suffix_from_dex_prefers_highest_precedence(self):
@@ -1238,7 +1238,15 @@ class AiCluesTests(unittest.TestCase):
 
     def test_generate_prompt_forbidden_for_short_word(self):
         prompt = _build_generate_prompt("at", "AT", 2)
-        self.assertNotIn("interzise", prompt)
+        self.assertIn("Cuvânt scurt", prompt)
+        self.assertIn("at", prompt)
+
+    def test_generate_prompt_includes_short_word_overlay_and_sem_guards(self):
+        prompt = _build_generate_prompt("sem", "SEM", 3)
+        self.assertIn("Trăsătură distinctivă", prompt)
+        self.assertIn("semantic", prompt)
+        self.assertIn("semem", prompt)
+        self.assertIn("semnificație", prompt)
 
     def test_compute_rebus_score_formula(self):
         self.assertEqual(7, compute_rebus_score(6, 10))

@@ -11,6 +11,7 @@ from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.io.metrics import BatchMetric, update_word_difficulty, write_metrics
 from rebus_generator.platform.io.rust_bridge import _best_candidate, _load_words, _metadata_by_word
 from rebus_generator.domain.guards.definition_guards import validate_definition_text
+from rebus_generator.domain.short_word_clues import valid_short_word_clues_for
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.domain.pipeline_state import (
     all_working_clues,
@@ -87,6 +88,34 @@ def _dex_rescue_candidates(*, raw_dex: str, uncertain_short_definition: str) -> 
             continue
         seen.add(key)
         deduped.append(candidate.strip())
+    return deduped
+
+
+def _definition_rescue_candidates(
+    *,
+    word: str,
+    raw_dex: str,
+    uncertain_short_definition: str,
+) -> list[tuple[str, str, str]]:
+    candidates: list[tuple[str, str, str]] = [
+        (candidate, "generate_rescue_dex", "dex_rescue")
+        for candidate in _dex_rescue_candidates(
+            raw_dex=raw_dex,
+            uncertain_short_definition=uncertain_short_definition,
+        )
+    ]
+    candidates.extend(
+        (clue.definition, "generate_rescue_overlay", "short_word_overlay")
+        for clue in valid_short_word_clues_for(word)
+    )
+    deduped: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for definition, source, generated_by in candidates:
+        key = definition.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append((definition, source, generated_by))
     return deduped
 
 
@@ -230,7 +259,8 @@ class GenerateJobState(JobState):
             if not _is_unresolved_definition(clue.current.definition):
                 continue
             raw_dex = dex.get(clue.word_normalized, clue.word_original) or ""
-            for candidate in _dex_rescue_candidates(
+            for candidate, source, generated_by in _definition_rescue_candidates(
+                word=clue.word_normalized,
                 raw_dex=raw_dex,
                 uncertain_short_definition=unresolved_short_defs.get(clue.word_normalized, ""),
             ):
@@ -241,12 +271,12 @@ class GenerateJobState(JobState):
                     clue,
                     candidate,
                     round_index=0,
-                    source="generate_rescue_dex",
-                    generated_by="dex_rescue",
+                    source=source,
+                    generated_by=generated_by,
                 )
                 clue.best = copy.deepcopy(clue.current)
                 log(
-                    f"  [{self.item.item_id}] DEX rescue {clue.word_normalized} -> "
+                    f"  [{self.item.item_id}] definition rescue {clue.word_normalized} -> "
                     f"'{candidate}'"
                 )
                 break
