@@ -226,6 +226,8 @@
 
 **[2026-04-24]** Phase-1 normalized answers and clue originals must stay separate all the way through markdown — Rust grid payloads can correctly carry both `normalized` and `original`, but if the bridge renders the normalized form into the markdown “original” slot, downstream DEX lookup and prompt context lose forms like `IT [iț]`. Preserve `word.original` at the bridge boundary; grid/verify should use normalized answers, definition lookup should receive the original form.
 
+**[2026-04-24]** Curated short-answer support must enter the Rust dictionary, not only Python prompts — adding fallback definitions for two-letter answers helps rescue after generation, but it does not improve grids unless phase-1 sees those answers as usable word rows with clue-support metadata. Keep non-DEX answer supply as a shared artifact that can materialize both Rust word rows and Python prompt/rescue context.
+
 ---
 
 ## Archive

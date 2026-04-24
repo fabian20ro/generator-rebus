@@ -234,13 +234,18 @@ def generate_definition(
     """Generate a single clue definition."""
     display_word = original if original else word.lower()
     length = len(word)
+    resolved_model = _resolve_model_name(model)
     prompt = _build_generate_prompt(
-        display_word, word, length, word_type=word_type, dex_definitions=dex_definitions
+        display_word,
+        word,
+        length,
+        word_type=word_type,
+        dex_definitions=dex_definitions,
+        model_id=resolved_model,
     )
     prompt = _append_existing_canonical_definitions(
         prompt, existing_canonical_definitions
     )
-    resolved_model = _resolve_model_name(model)
     system_prompt = load_system_prompt("definition", model_id=resolved_model)
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     if llm_debug_enabled():
@@ -334,6 +339,7 @@ def rewrite_definition(
             f"- Motiv: {bad_example_reason}\n"
             "- Nu produce ceva similar cu această definiție respinsă.\n"
         )
+    resolved_model = _resolve_model_name(model)
     prompt = _build_rewrite_prompt(
         display_word,
         word,
@@ -343,12 +349,12 @@ def rewrite_definition(
         word_type=word_type,
         dex_definitions=dex_definitions,
         failure_history=failure_history,
+        model_id=resolved_model,
     )
     prompt = _append_existing_canonical_definitions(
         prompt, existing_canonical_definitions
     )
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
-    resolved_model = _resolve_model_name(model)
     system_prompt = load_system_prompt("rewrite", model_id=resolved_model)
     if llm_debug_enabled():
         log(f"  [LLM rewrite prompt] word={word} system={len(system_prompt)} chars")
@@ -421,11 +427,13 @@ def verify_definition_candidates(
     model: str | None = None,
 ) -> VerifyResult:
     """Ask AI to suggest up to max_guesses candidate answers for a clue definition."""
+    resolved_model = _resolve_model_name(model)
     prompt = _build_verify_prompt(
         definition,
         answer_length,
         word_type=word_type,
         max_guesses=max_guesses,
+        model_id=resolved_model,
     )
 
     last_candidates: list[str] = []
@@ -436,7 +444,6 @@ def verify_definition_candidates(
         default_temperature=0.1,
     )
     for attempt_temperature in attempt_temperatures:
-        resolved_model = _resolve_model_name(model)
         max_tokens = min(chat_max_tokens(resolved_model), VERIFY_MAX_TOKENS)
         response = _chat_completion_create(
             client,
@@ -514,6 +521,7 @@ def rate_definition(
     signaling that the definition should be treated as unrated.
     """
     display_word = original if original else word.lower()
+    resolved_model = _resolve_model_name(model)
     prompt = _build_rate_prompt(
         display_word,
         word,
@@ -521,8 +529,8 @@ def rate_definition(
         answer_length,
         word_type=word_type,
         dex_definitions=dex_definitions,
+        model_id=resolved_model,
     )
-    resolved_model = _resolve_model_name(model)
     system_prompt = (
         load_system_prompt("rate", model_id=resolved_model)
         .replace("{answer_length}", str(answer_length))

@@ -118,9 +118,10 @@ def _build_generate_prompt(
     length: int,
     word_type: str = "",
     dex_definitions: str = "",
+    model_id: str | None = None,
 ) -> str:
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
-    prompt = load_user_template("generate").format(
+    prompt = load_user_template("generate", model_id=model_id).format(
         display_word=display_word,
         word=word,
         length=length,
@@ -184,6 +185,7 @@ def _build_rewrite_prompt(
     word_type: str = "",
     dex_definitions: str = "",
     failure_history: list[tuple[str, list[str]]] | None = None,
+    model_id: str | None = None,
 ) -> str:
     required_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     label = WORD_TYPE_LABELS.get(word_type)
@@ -196,7 +198,7 @@ def _build_rewrite_prompt(
             for i, (defn, guesses) in enumerate(recent, 1)
         ]
         history_text = "\nÎncercări anterioare eșuate:\n" + "\n".join(lines) + "\n"
-    prompt = load_user_template("rewrite").format(
+    prompt = load_user_template("rewrite", model_id=model_id).format(
         display_word=display_word,
         word=word,
         word_type_line=word_type_line,
@@ -241,9 +243,10 @@ def _build_verify_prompt(
     answer_length: int,
     word_type: str = "",
     max_guesses: int = VERIFY_CANDIDATE_COUNT,
+    model_id: str | None = None,
 ) -> str:
     used_suffix = _extract_definition_usage_suffix(definition)
-    return load_user_template("verify").format(
+    return load_user_template("verify", model_id=model_id).format(
         word_type_line=_word_type_line(word_type),
         usage_label_line=_build_usage_label_line(used_suffix, purpose="verify"),
         definition=definition,
@@ -259,6 +262,7 @@ def _build_rate_prompt(
     answer_length: int,
     word_type: str = "",
     dex_definitions: str = "",
+    model_id: str | None = None,
 ) -> str:
     allowed_suffix = _extract_usage_suffix_from_dex(dex_definitions)
     used_suffix = _extract_definition_usage_suffix(definition)
@@ -278,7 +282,7 @@ def _build_rate_prompt(
             f"Eticheta permisă de DEX: {allowed_suffix}\n"
             "Definiția putea folosi această etichetă pentru a disambigua sensul marcat.\n"
         )
-    prompt = load_user_template("rate").format(
+    prompt = load_user_template("rate", model_id=model_id).format(
         display_word=display_word,
         word=word,
         answer_length=answer_length,

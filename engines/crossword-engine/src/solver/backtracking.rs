@@ -307,6 +307,8 @@ mod tests {
                     rarity_level: Some(5),
                     length: Some(word.len()),
                     word_type: None,
+                    clue_support_score: None,
+                    source: None,
                 })
                 .collect::<Vec<_>>(),
             8,
@@ -355,6 +357,8 @@ mod tests {
                 rarity_level: Some(5),
                 length: Some(3),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             },
             RawWord {
                 normalized: "AZA".to_string(),
@@ -362,6 +366,8 @@ mod tests {
                 rarity_level: Some(5),
                 length: Some(3),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             },
             RawWord {
                 normalized: "MAM".to_string(),
@@ -369,6 +375,8 @@ mod tests {
                 rarity_level: Some(5),
                 length: Some(3),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             },
             RawWord {
                 normalized: "NAN".to_string(),
@@ -376,6 +384,8 @@ mod tests {
                 rarity_level: Some(5),
                 length: Some(3),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             },
             RawWord {
                 normalized: "RAR".to_string(),
@@ -383,6 +393,8 @@ mod tests {
                 rarity_level: Some(5),
                 length: Some(3),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             },
             RawWord {
                 normalized: "SAS".to_string(),
@@ -390,6 +402,8 @@ mod tests {
                 rarity_level: Some(5),
                 length: Some(3),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             },
             RawWord {
                 normalized: "LAL".to_string(),
@@ -397,6 +411,8 @@ mod tests {
                 rarity_level: Some(5),
                 length: Some(3),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             },
         ];
         let filtered = filter_word_records(&raw_words, 7).0;

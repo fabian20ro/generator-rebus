@@ -52,6 +52,8 @@ pub struct SearchStats {
 pub struct OutputWord {
     pub slot_id: usize,
     pub normalized: String,
+    pub original: String,
+    pub source: String,
 }
 
 #[derive(Debug, Serialize)]

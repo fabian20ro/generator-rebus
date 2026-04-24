@@ -129,6 +129,8 @@ fn render_words(
         rendered.push(OutputWord {
             slot_id: slot.id,
             normalized: word.normalized.clone(),
+            original: word.original.clone(),
+            source: word.source.clone(),
         });
     }
     Ok(rendered)
@@ -898,6 +900,8 @@ mod tests {
                     rarity_level: Some(1),
                     length: Some(length),
                     word_type: None,
+                    clue_support_score: None,
+                    source: None,
                 });
             }
         }
@@ -910,6 +914,8 @@ mod tests {
                 rarity_level: Some(1),
                 length: Some(15),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             });
         }
 

@@ -24,7 +24,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["packages/rebus-generator/src/rebus_generator"]
-artifacts = ["packages/rebus-generator/src/rebus_generator/domain/short_word_clues.json"]
+artifacts = ["packages/rebus-generator/src/rebus_generator/domain/answer_supply.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

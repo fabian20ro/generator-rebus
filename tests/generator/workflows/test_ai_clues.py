@@ -1248,6 +1248,19 @@ class AiCluesTests(unittest.TestCase):
         self.assertIn("semem", prompt)
         self.assertIn("semnificație", prompt)
 
+    def test_generate_prompt_includes_answer_supply_plate_context(self):
+        prompt = _build_generate_prompt("TM", "TM", 2)
+        self.assertIn("curated_ro_plate", prompt)
+        self.assertIn("Indicativ auto pentru județul Timiș.", prompt)
+
+    def test_generate_prompt_passes_model_id_to_user_template_loader(self):
+        with mock.patch(
+            "rebus_generator.platform.llm.prompt_builders.load_user_template",
+            return_value="Cuvânt: {display_word}\nFormă normalizată: {word}\nLungime: {length}\n{usage_label_line}",
+        ) as loader:
+            _build_generate_prompt("tm", "TM", 2, model_id=PRIMARY_MODEL.model_id)
+        loader.assert_called_with("generate", model_id=PRIMARY_MODEL.model_id)
+
     def test_compute_rebus_score_formula(self):
         self.assertEqual(7, compute_rebus_score(6, 10))
         self.assertEqual(5, compute_rebus_score(5, 5))

@@ -13,6 +13,7 @@ pub struct WordQualityProfile {
     pub family_leak_risk: i32,
     pub foreign_risk: i32,
     pub abbreviation_like: bool,
+    pub clue_support_score: f64,
     pub definability_score: f64,
 }
 
@@ -36,7 +37,11 @@ pub fn is_toxic_short_loanword(normalized: &str) -> bool {
     FOREIGN_SHORTLIST_BLOCKLIST.contains(&normalized)
 }
 
-pub fn assess_word_quality(normalized: &str, min_rarity: i32) -> WordQualityProfile {
+pub fn assess_word_quality(
+    normalized: &str,
+    min_rarity: i32,
+    clue_support_score: f64,
+) -> WordQualityProfile {
     let length = normalized.chars().count();
     let short_fragility = if length <= 2 {
         4
@@ -72,12 +77,19 @@ pub fn assess_word_quality(normalized: &str, min_rarity: i32) -> WordQualityProf
     };
     let abbreviation_like = length <= 3 && normalized.chars().all(|ch| ch.is_ascii_uppercase());
     let rarity_penalty = min_rarity.clamp(1, 5) - 1;
+    let clue_support_score = clue_support_score.clamp(0.0, 8.0);
+    let support_credit = if length <= 3 {
+        clue_support_score
+    } else {
+        clue_support_score * 0.5
+    };
     let definability_score = (12.0
         - short_fragility as f64
         - ambiguity_risk as f64
         - family_leak_risk as f64
         - foreign_risk as f64
-        - rarity_penalty as f64)
+        - rarity_penalty as f64
+        + support_credit)
         .max(0.0);
     WordQualityProfile {
         short_fragility,
@@ -85,8 +97,17 @@ pub fn assess_word_quality(normalized: &str, min_rarity: i32) -> WordQualityProf
         family_leak_risk,
         foreign_risk,
         abbreviation_like,
+        clue_support_score,
         definability_score,
     }
+}
+
+fn supported_short_penalty(base_penalty: f64, word: &WordEntry) -> f64 {
+    let support = word.quality.clue_support_score.clamp(0.0, 8.0);
+    if support <= 0.0 {
+        return base_penalty;
+    }
+    (base_penalty - support * 4.0).max(base_penalty * 0.4)
 }
 
 pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
@@ -146,8 +167,16 @@ pub fn score_words(words: &[&WordEntry], size: usize) -> QualityReport {
     score += avg_definability * 9.0;
     score -= avg_rarity * 6.0;
     score -= high_rarity as f64 * 3.0;
-    score -= two_letter as f64 * two_letter_penalty;
-    score -= three_letter as f64 * three_letter_penalty;
+    score -= words
+        .iter()
+        .filter(|word| word.len() == 2)
+        .map(|word| supported_short_penalty(two_letter_penalty, word))
+        .sum::<f64>();
+    score -= words
+        .iter()
+        .filter(|word| word.len() == 3)
+        .map(|word| supported_short_penalty(three_letter_penalty, word))
+        .sum::<f64>();
     score -= uncommon as f64 * 10.0;
     score -= usize::saturating_sub(two_letter, extra_two_limit) as f64 * extra_two_penalty;
 
@@ -191,9 +220,41 @@ mod tests {
 
     #[test]
     fn quality_uses_min_rarity() {
-        let low = assess_word_quality("AER", 1);
-        let high = assess_word_quality("AER", 5);
+        let low = assess_word_quality("AER", 1, 0.0);
+        let high = assess_word_quality("AER", 5, 0.0);
         assert!(low.definability_score > high.definability_score);
+    }
+
+    #[test]
+    fn quality_credits_supported_short_words() {
+        let unsupported = assess_word_quality("TM", 3, 0.0);
+        let supported = assess_word_quality("TM", 3, 6.0);
+        assert!(supported.definability_score > unsupported.definability_score);
+    }
+
+    #[test]
+    fn scoring_penalizes_supported_two_letter_words_less() {
+        let unsupported_quality = assess_word_quality("TM", 3, 0.0);
+        let supported_quality = assess_word_quality("TM", 3, 6.0);
+        let unsupported = WordEntry {
+            normalized: "TM".to_string(),
+            original: "TM".to_string(),
+            chars: vec!['T', 'M'],
+            min_rarity: 3,
+            quality: unsupported_quality,
+            clue_support_score: 0.0,
+            source: String::new(),
+        };
+        let supported = WordEntry {
+            normalized: "TM".to_string(),
+            original: "TM".to_string(),
+            chars: vec!['T', 'M'],
+            min_rarity: 3,
+            quality: supported_quality,
+            clue_support_score: 6.0,
+            source: "curated_ro_plate".to_string(),
+        };
+        assert!(score_words(&[&supported], 7).score > score_words(&[&unsupported], 7).score);
     }
 
     #[test]

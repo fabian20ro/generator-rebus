@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rebus_generator.domain.answer_supply import augment_word_rows_for_answer_supply
 from rebus_generator.platform.io.markdown_io import write_filled_grid
 from rebus_generator.domain.quality import QualityReport
 from rebus_generator.platform.io.runtime_logging import log
@@ -66,6 +67,46 @@ def _normalize_metadata_pool(
         else:
             normalized[word] = [dict(value)]
     return normalized
+
+
+def _merge_metadata_pools(*pools: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    merged: dict[str, list[dict]] = {}
+    for pool in pools:
+        for word, entries in pool.items():
+            merged.setdefault(word, [])
+            seen = {
+                (
+                    entry.get("original", ""),
+                    entry.get("word_type", ""),
+                    entry.get("source", ""),
+                )
+                for entry in merged[word]
+            }
+            for entry in entries:
+                key = (
+                    entry.get("original", ""),
+                    entry.get("word_type", ""),
+                    entry.get("source", ""),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged[word].append(dict(entry))
+    return merged
+
+
+def _materialize_augmented_words(words_path: Path, raw_words: list[dict]) -> tuple[Path, list[dict]]:
+    augmented = augment_word_rows_for_answer_supply(raw_words)
+    if len(augmented) == len(raw_words) and all(
+        float(row.get("clue_support_score") or 0.0) <= 0.0 for row in augmented
+    ):
+        return words_path, raw_words
+    output_path = words_path.with_name(f"{words_path.stem}.answer_supply.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(augmented, ensure_ascii=False, indent=2)
+    if not output_path.exists() or output_path.read_text(encoding="utf-8") != payload:
+        output_path.write_text(payload, encoding="utf-8")
+    return output_path, augmented
 
 
 def _dictionary_profile_path(words_path: Path) -> Path:
@@ -266,12 +307,15 @@ def _best_candidate(
 ) -> Candidate:
     if words_path is None:
         raise ValueError("Rust phase-1 requires `words_path`.")
+    rust_words_path, augmented_words = _materialize_augmented_words(words_path, raw_words)
+    supplied_metadata = _normalize_metadata_pool(word_metadata)
+    augmented_metadata = _metadata_by_word(augmented_words)
     candidate = _best_candidate_rust(
         size,
         title,
-        words_path=words_path,
-        metadata=_normalize_metadata_pool(word_metadata)
-        or _metadata_by_word(raw_words),
+        words_path=rust_words_path,
+        metadata=_merge_metadata_pools(supplied_metadata, augmented_metadata)
+        or augmented_metadata,
         rng=rng,
         preparation_attempts=preparation_attempts,
         step_time_budget_ms=step_time_budget_ms,

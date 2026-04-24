@@ -15,14 +15,21 @@ pub struct RawWord {
     pub length: Option<usize>,
     #[serde(default)]
     pub word_type: Option<String>,
+    #[serde(default)]
+    pub clue_support_score: Option<f64>,
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct WordEntry {
     pub normalized: String,
+    pub original: String,
     pub chars: Vec<char>,
     pub min_rarity: i32,
     pub quality: WordQualityProfile,
+    pub clue_support_score: f64,
+    pub source: String,
 }
 
 impl WordEntry {
@@ -87,7 +94,29 @@ pub fn filter_word_records(
             .filter_map(|variant| variant.rarity_level)
             .min()
             .unwrap_or(3);
-        let quality = assess_word_quality(&normalized, min_rarity);
+        let clue_support_score = variants
+            .iter()
+            .filter_map(|variant| variant.clue_support_score)
+            .fold(0.0_f64, f64::max)
+            .clamp(0.0, 8.0);
+        let original = variants
+            .iter()
+            .find_map(|variant| {
+                let original = variant.original.trim();
+                if original.is_empty() {
+                    None
+                } else {
+                    Some(original.to_string())
+                }
+            })
+            .unwrap_or_else(|| normalized.to_lowercase());
+        let source = variants
+            .iter()
+            .filter_map(|variant| variant.source.as_ref())
+            .find(|source| !source.trim().is_empty())
+            .cloned()
+            .unwrap_or_default();
+        let quality = assess_word_quality(&normalized, min_rarity, clue_support_score);
         if quality.definability_score < 1.0 {
             stats.skipped_rows += variants.len();
             continue;
@@ -95,9 +124,12 @@ pub fn filter_word_records(
         let chars: Vec<char> = normalized.chars().collect();
         entries.push(WordEntry {
             normalized,
+            original,
             chars,
             min_rarity,
             quality,
+            clue_support_score,
+            source,
         });
     }
 

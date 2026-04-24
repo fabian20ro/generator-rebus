@@ -29,7 +29,7 @@ fn cli_emits_json() {
             .as_array()
             .unwrap_or(&Vec::new())
             .iter()
-            .all(|word| word.get("original").is_none())
+            .all(|word| word.get("original").and_then(|value| value.as_str()).is_some())
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("inward grid"), "stderr={stderr}");

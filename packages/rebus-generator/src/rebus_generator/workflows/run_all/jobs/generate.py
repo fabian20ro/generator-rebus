@@ -105,7 +105,7 @@ def _definition_rescue_candidates(
         )
     ]
     candidates.extend(
-        (clue.definition, "generate_rescue_overlay", "short_word_overlay")
+        (clue.definition, "generate_rescue_answer_supply", "answer_supply")
         for clue in valid_short_word_clues_for(word)
     )
     deduped: list[tuple[str, str, str]] = []

@@ -1395,6 +1395,11 @@ class RunAllSupervisorTests(unittest.TestCase):
             WorkingClue(row_number=1, word_normalized="IT", word_original="iț"),
             WorkingClue(row_number=2, word_normalized="IJE", word_original="ije"),
             WorkingClue(row_number=3, word_normalized="SEM", word_original="sem"),
+            WorkingClue(row_number=4, word_normalized="TM", word_original="TM"),
+            WorkingClue(row_number=5, word_normalized="MM", word_original="MM"),
+            WorkingClue(row_number=6, word_normalized="CJ", word_original="CJ"),
+            WorkingClue(row_number=7, word_normalized="PH", word_original="PH"),
+            WorkingClue(row_number=8, word_normalized="IR", word_original="IR"),
         ]
         for clue in clues:
             clue.current.definition = "[Definiție negenerată]"
@@ -1419,8 +1424,13 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertEqual("Domeniul web al țării cu Roma capitală.", clues[0].current.definition)
         self.assertEqual("A zecea literă a alfabetului chirilic.", clues[1].current.definition)
         self.assertEqual("Trăsătură distinctivă din structura înțelesului.", clues[2].current.definition)
-        self.assertTrue(all(clue.current.source == "generate_rescue_overlay" for clue in clues))
-        self.assertTrue(all(clue.current.generated_by == "short_word_overlay" for clue in clues))
+        self.assertEqual("Indicativ auto pentru județul Timiș.", clues[3].current.definition)
+        self.assertEqual("Indicativ auto pentru județul Maramureș.", clues[4].current.definition)
+        self.assertEqual("Indicativ auto pentru județul Cluj.", clues[5].current.definition)
+        self.assertEqual("Indicativ auto pentru județul Prahova.", clues[6].current.definition)
+        self.assertEqual("Ieșire jucăușă!", clues[7].current.definition)
+        self.assertTrue(all(clue.current.source == "generate_rescue_answer_supply" for clue in clues))
+        self.assertTrue(all(clue.current.generated_by == "answer_supply" for clue in clues))
         self.assertEqual("rewrite_initial_verify", job.stage)
 
     def test_redefine_persist_prepare_uses_run_all_rewrite_session_finish(self):

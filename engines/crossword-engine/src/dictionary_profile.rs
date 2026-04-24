@@ -283,6 +283,8 @@ mod tests {
                 rarity_level: Some(1),
                 length: Some(word.chars().count()),
                 word_type: None,
+                clue_support_score: None,
+                source: None,
             })
             .collect()
     }

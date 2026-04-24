@@ -1540,3 +1540,19 @@
 **Outcome:** success
 **Insight:** the Rust bridge had the critical original-form loss: it rendered `word.normalized` into the markdown “original” field, so downstream DEX/prompt paths could never see `iț` once phase-1 selected `IT`.
 **Promoted:** yes
+
+### [2026-04-24] — shared answer supply for curated short answers
+**Context:** user wanted extra two-letter answers managed separately from DEX, committed to git, fed into both Rust grid generation and Python definition prompts/rescue, plus a review-only playful reduction miner and prompt-eval roadmap.
+**Happened:** Migrated the short-word overlay to `answer_supply.json` and added `AnswerSupplyProvider` / compatibility wrappers. Seeded approved `curated_ro_plate` entries for the supplied 41 county codes with factual and colloquial variants, retained `IT/IJE/SEM`, and added approved playful `IR`. Rust now reads optional `clue_support_score`/`source`, preserves original/source in output, and scores supported short answers with lower penalties while keeping unsupported short words penalized. Python materializes a build-only augmented words file before Rust, adds source-labeled answer-supply prompt context, and rescues unresolved definitions as `answer_supply`. Added review-only playful miner and prompt-eval dataset/comparison helpers plus `ROADMAP.md`.
+**Verification:** `python3 -m pytest tests/generator/domain/test_answer_supply.py tests/generator/domain/test_short_word_clues.py tests/generator/platform/test_dex_cache.py tests/generator/platform/test_rust_bridge.py tests/generator/evaluation/test_short_word_benchmark.py tests/generator/evaluation/test_playful_reduction_miner.py tests/generator/evaluation/test_prompt_eval.py tests/generator/workflows/test_generate_define.py tests/generator/workflows/test_ai_clues.py tests/generator/cli/test_run_all.py -q` (`252 passed`, 2 warnings); `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`30 passed`); miner and prompt-eval script smoke tests wrote `/tmp/playful_short_candidates.json` and `/tmp/prompt_eval_dataset.json`; `git diff --check`.
+**Outcome:** success
+**Insight:** curated short-answer support needs to travel as word metadata into Rust, not just as Python prompt context; otherwise grids cannot benefit from the extra clue supply.
+**Promoted:** no
+
+### [2026-04-24] — ccTLD answer supply expansion
+**Context:** user wanted `answer_supply.json` to contain reusable internet country-code domains for all current ASCII ccTLDs, available to Rust grid generation and Python definition alternatives, plus generic ccTLD/domain-hack prompt alternatives.
+**Happened:** Expanded `answer_supply.json` with 247 approved factual `curated_cc_tld` entries from IANA current ASCII country-code rows, excluding unassigned/reserved codes and keeping `.bv`/`.sj` because IANA delegates them. Added 46 prompt-only `curated:tld` generic/domain-hack alternatives from Wikipedia's generic ccTLD section. Added `generic` tone ordering and tests locking exact ccTLD coverage, prompt-only generic behavior, prompt context, and Rust augmentation metadata.
+**Verification:** `python3 -m pytest tests/generator/domain/test_answer_supply.py tests/generator/platform/test_rust_bridge.py tests/generator/workflows/test_ai_clues.py -q` (`115 passed`); `git diff --check`.
+**Outcome:** success
+**Insight:** none
+**Promoted:** no
