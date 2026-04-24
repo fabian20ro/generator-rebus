@@ -1556,3 +1556,11 @@
 **Outcome:** success
 **Insight:** none
 **Promoted:** no
+
+### [2026-04-24] — roadmap gold corpus ingestion plan
+**Context:** user wanted the existing puzzle-quality roadmap integrated with current `run_all` findings and a concrete reusable format/pipeline for hundreds of real Romanian puzzle photos.
+**Happened:** Replaced the thin `ROADMAP.md` with a ranked quality roadmap that preserves DEX/answer-supply/prompt-eval rules, adds current `run_all` evidence, defines the two-photo input layout, approved JSONL corpus shape, artifact locations, local review UI workflow, promotion rules, and test plan for real-puzzle gold corpus ingestion.
+**Verification:** markdown-only change; reviewed `ROADMAP.md`.
+**Outcome:** success
+**Insight:** none
+**Promoted:** no
