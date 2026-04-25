@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import copy
 
 from rebus_generator.platform.config import VERIFY_CANDIDATE_COUNT
 from rebus_generator.platform.io.clue_logging import clue_label_from_working_clue, log_definition_event
 from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.io.runtime_logging import audit, log
-from rebus_generator.platform.llm.ai_clues import RewriteAttemptResult, generate_definition, rewrite_definition
+from rebus_generator.platform.llm.ai_clues import RewriteAttemptResult
 from rebus_generator.platform.llm.definition_referee import choose_better_clue_variant
 from rebus_generator.platform.llm.llm_dispatch import next_generation_model, run_single_model_call
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
@@ -20,12 +21,10 @@ from rebus_generator.domain.guards.definition_guards import (
 from rebus_generator.domain.score_helpers import (
     LOCKED_REBUS,
     LOCKED_SEMANTIC,
-    MAX_CONSECUTIVE_FAILURES,
     PLATEAU_LOOKBACK,
     _compact_log_text,
     _extract_rebus_score,
     _extract_semantic_score,
-    _is_locked_clue,
     _needs_rewrite,
     _synthesize_failure_reason,
     _update_best_clue_version,
@@ -111,7 +110,7 @@ def _rewrite_priority(clue: WorkingClue) -> tuple[object, ...]:
     )
 
 
-from dataclasses import dataclass, field
+
 
 @dataclass
 class _GenerationRequest:
@@ -160,7 +159,7 @@ def _build_pending_candidates(
         bad_example_reason=bad_example_reason,
     )
     
-    def _callback(model: ModelConfig):
+    def _callback(model: object):
         # We need to simulate the batch runner but for a single call
         # This is primarily for backward compatibility in tests
         from . import rewrite_engine as facade
@@ -416,7 +415,7 @@ def rewrite_session_prepare_round(session: RewriteSession) -> RewriteRoundState 
                 pending_models={session.current_model.model_id},
             ))
 
-        def _runner(item: WorkItem[_GenerationRequest, list[PendingCandidate]], model: ModelConfig) -> WorkVote[list[PendingCandidate]]:
+        def _runner(item: WorkItem[_GenerationRequest, list[PendingCandidate]], model: object) -> WorkVote[list[PendingCandidate]]:
             req = item.payload
             clue = req.clue
             pending: list[PendingCandidate] = []

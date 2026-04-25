@@ -179,7 +179,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         )
         generate_item = _item("generate", "generate:1", preferred_model_id=SECONDARY_MODEL.model_id)
         retitle_item = _item("retitle", "retitle:1")
-        build_job = lambda item: _StaticJob(item)
+        def build_job(item): return _StaticJob(item)
 
         with (
             patch.object(supervisor, "_poll_generate", return_value=generate_item),
@@ -859,8 +859,9 @@ class RunAllSupervisorTests(unittest.TestCase):
 
     @patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", return_value=SimpleNamespace())
     @patch("rebus_generator.workflows.run_all.jobs.generate.DexProvider.for_puzzle", return_value=SimpleNamespace())
+    @patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks")
     @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definition_for_working_clue", return_value="Gaz din atmosferă")
-    def test_generate_define_initial_injects_metadata_into_working_state(self, _mock_define, _mock_dex, _mock_session):
+    def test_generate_define_initial_injects_metadata_into_working_state(self, _mock_define, _mock_apply, _mock_dex, _mock_session):
         item = _item("generate", "generate:size:13:1", preferred_model_id=SECONDARY_MODEL.model_id)
         item.payload = {"size": 13, "index": 1}
         job = GenerateJobState(item)

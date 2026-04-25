@@ -7,8 +7,6 @@ from rebus_generator.domain.pipeline_state import ClueCandidateVersion, WorkingC
 from rebus_generator.domain.plateau import has_plateaued
 from rebus_generator.domain.diacritics import normalize
 from rebus_generator.domain.score_helpers import (
-    LOCKED_REBUS,
-    LOCKED_SEMANTIC,
     MAX_CONSECUTIVE_FAILURES,
     PLATEAU_LOOKBACK,
     _definition_missing_or_placeholder,
@@ -21,7 +19,6 @@ from rebus_generator.domain.score_helpers import (
     _update_best_clue_version,
 )
 from rebus_generator.domain.selection_engine import choose_clue_version, stable_tie_rng
-from rebus_generator.platform.io.clue_logging import clue_label_from_working_clue
 from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.io.runtime_logging import audit, log
 from rebus_generator.platform.llm.ai_clues import RewriteAttemptResult, generate_definition, rewrite_definition
