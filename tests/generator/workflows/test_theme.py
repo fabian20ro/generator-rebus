@@ -217,7 +217,7 @@ class RateTitleCreativityTests(unittest.TestCase):
     def test_system_prompt_demands_exact_json_without_markdown(self):
         prompt = load_system_prompt("title_rate")
         self.assertIn("EXACT un singur obiect JSON valid", prompt)
-        self.assertIn("Nu scrii markdown", prompt)
+        self.assertIn("Fără markdown.", prompt)
         self.assertIn('EXACT cheile "creativity_score" și "feedback"', prompt)
 
     def test_parses_json(self):

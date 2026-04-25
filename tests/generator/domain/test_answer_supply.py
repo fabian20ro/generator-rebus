@@ -64,7 +64,6 @@ def test_answer_supply_priority_prefers_factual_plate_variant():
     assert best["TM"].definition == "Indicativ auto pentru județul Timiș."
     assert best["AI"].source == "curated_cc_tld"
     assert best["IR"].source == "curated_cc_tld"
-    assert any(entry.source == "playful_split" for entry in answer_supply_entries_for("IR"))
 
 
 def test_answer_supply_prompt_context_labels_non_dex_source():

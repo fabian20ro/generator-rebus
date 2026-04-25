@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 import sys
-from supabase import create_client
 from rebus_generator.platform.config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from rebus_generator.platform.io.runtime_logging import log
-from rebus_generator.platform.persistence.supabase_ops import execute_logged_update
+from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_client, execute_logged_update
 
 
 def set_published(puzzle_id: str, published: bool) -> str:

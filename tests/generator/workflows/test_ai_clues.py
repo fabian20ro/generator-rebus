@@ -1241,12 +1241,10 @@ class AiCluesTests(unittest.TestCase):
         self.assertIn("Cuvânt scurt", prompt)
         self.assertIn("at", prompt)
 
-    def test_generate_prompt_includes_short_word_overlay_and_sem_guards(self):
-        prompt = _build_generate_prompt("sem", "SEM", 3)
-        self.assertIn("Trăsătură distinctivă", prompt)
-        self.assertIn("semantic", prompt)
-        self.assertIn("semem", prompt)
-        self.assertIn("semnificație", prompt)
+    def test_generate_prompt_includes_short_word_overlay_and_plate_context(self):
+        prompt = _build_generate_prompt("TM", "TM", 2)
+        self.assertIn("Indicativ auto", prompt)
+        self.assertIn("curated_ro_plate", prompt)
 
     def test_generate_prompt_includes_answer_supply_plate_context(self):
         prompt = _build_generate_prompt("TM", "TM", 2)

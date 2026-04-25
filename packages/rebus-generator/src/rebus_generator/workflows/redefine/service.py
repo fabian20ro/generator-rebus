@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-from supabase import create_client as create_supabase_client
+from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_supabase_client
 
 from rebus_generator.domain.puzzle_metrics import evaluate_puzzle_state, score_puzzle_state
 from rebus_generator.platform.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT

@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
-from supabase import create_client
+import httpx
+from supabase import create_client, ClientOptions
 
 from ..config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from rebus_generator.platform.io.runtime_logging import log
 
 
+def create_rebus_client(url: str, key: str):
+    """Factory to create a Supabase client with explicit httpx configuration to avoid warnings."""
+    options = ClientOptions(
+        httpx_client=httpx.Client(timeout=30.0)
+    )
+    return create_client(url, key, options=options)
+
+
 def create_service_role_client():
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return create_rebus_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
 def execute_logged_update(

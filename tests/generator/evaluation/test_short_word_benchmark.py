@@ -15,5 +15,5 @@ def test_short_word_prompt_benchmark_dataset_shape():
 
 def test_short_word_prompt_benchmark_seeds_overlay_context():
     rows = build_short_word_prompt_benchmark_dataset(runs=1)
-    sem = next(row for row in rows if row["word"] == "SEM")
-    assert "Trăsătură distinctivă" in sem["dex_definitions"]
+    it = next(row for row in rows if row["word"] == "IT")
+    assert "Domeniul web" in it["dex_definitions"]

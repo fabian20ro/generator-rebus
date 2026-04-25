@@ -672,8 +672,8 @@ class PromptAutoresearchTests(unittest.TestCase):
             prompt_file = prompts / "system.md"
             seed_file.write_text(seed_text, encoding="utf-8")
             leaked_text = seed_text.replace(
-                "- Max 15 cuvinte.\n",
-                "- Pentru OF, păstrezi interjecția de durere ori regret și excluzi exclamația vagă de tip AH.\n- Max 15 cuvinte.\n",
+                "- max 15 cuvinte\n",
+                "- Pentru OF, păstrezi interjecția de durere ori regret și excluzi exclamația vagă de tip AH.\n- max 15 cuvinte\n",
                 1,
             )
             incumbent_file.write_text(leaked_text, encoding="utf-8")

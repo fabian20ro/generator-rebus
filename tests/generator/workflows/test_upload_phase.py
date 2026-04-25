@@ -312,7 +312,7 @@ class UploadPhaseTests(unittest.TestCase):
             (SimpleNamespace(direction="V", start_row=0, start_col=0), "A"),
         ]
         mock_store = mock_store_cls.return_value
-        mock_store.build_clue_definition_payload.side_effect = lambda *, canonical_definition_id: {
+        mock_store.build_clue_definition_payload.side_effect = lambda *, canonical_definition_id, **kwargs: {
             "canonical_definition_id": canonical_definition_id,
         }
         mock_service_cls.return_value.resolve_definition.side_effect = [

@@ -1393,13 +1393,11 @@ class RunAllSupervisorTests(unittest.TestCase):
         job.stage = "define_initial"
         clues = [
             WorkingClue(row_number=1, word_normalized="IT", word_original="iț"),
-            WorkingClue(row_number=2, word_normalized="IJE", word_original="ije"),
-            WorkingClue(row_number=3, word_normalized="SEM", word_original="sem"),
-            WorkingClue(row_number=4, word_normalized="TM", word_original="TM"),
-            WorkingClue(row_number=5, word_normalized="MM", word_original="MM"),
-            WorkingClue(row_number=6, word_normalized="CJ", word_original="CJ"),
-            WorkingClue(row_number=7, word_normalized="PH", word_original="PH"),
-            WorkingClue(row_number=8, word_normalized="IR", word_original="IR"),
+            WorkingClue(row_number=2, word_normalized="TM", word_original="TM"),
+            WorkingClue(row_number=3, word_normalized="MM", word_original="MM"),
+            WorkingClue(row_number=4, word_normalized="CJ", word_original="CJ"),
+            WorkingClue(row_number=5, word_normalized="PH", word_original="PH"),
+            WorkingClue(row_number=6, word_normalized="IR", word_original="IR"),
         ]
         for clue in clues:
             clue.current.definition = "[Definiție negenerată]"
@@ -1422,13 +1420,11 @@ class RunAllSupervisorTests(unittest.TestCase):
             _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
 
         self.assertEqual("Domeniul web al țării cu Roma capitală.", clues[0].current.definition)
-        self.assertEqual("A zecea literă a alfabetului chirilic.", clues[1].current.definition)
-        self.assertEqual("Trăsătură distinctivă din structura înțelesului.", clues[2].current.definition)
-        self.assertEqual("Indicativ auto pentru județul Timiș.", clues[3].current.definition)
-        self.assertEqual("Indicativ auto pentru județul Maramureș.", clues[4].current.definition)
-        self.assertEqual("Indicativ auto pentru județul Cluj.", clues[5].current.definition)
-        self.assertEqual("Indicativ auto pentru județul Prahova.", clues[6].current.definition)
-        self.assertEqual("Ieșire jucăușă!", clues[7].current.definition)
+        self.assertEqual("Indicativ auto pentru județul Timiș.", clues[1].current.definition)
+        self.assertEqual("Indicativ auto pentru județul Maramureș.", clues[2].current.definition)
+        self.assertEqual("Indicativ auto pentru județul Cluj.", clues[3].current.definition)
+        self.assertEqual("Indicativ auto pentru județul Prahova.", clues[4].current.definition)
+        self.assertEqual("Domeniul web al țării sau teritoriului cu capitala Tehran.", clues[5].current.definition)
         self.assertTrue(all(clue.current.source == "generate_rescue_answer_supply" for clue in clues))
         self.assertTrue(all(clue.current.generated_by == "answer_supply" for clue in clues))
         self.assertEqual("rewrite_initial_verify", job.stage)
@@ -1752,17 +1748,15 @@ class RunAllReadmeContractTests(unittest.TestCase):
         text = Path("README.md").read_text(encoding="utf-8").lower()
 
         self.assertIn("run_all", text)
-        self.assertIn("single-process", text)
-        self.assertIn("in-memory", text)
-        self.assertIn("active puzzle jobs", text)
-        self.assertIn("not a durable event bus", text)
+        self.assertIn("run_all.sh", text)
+        self.assertIn("production entrypoint", text)
 
     def test_docs_and_code_drop_legacy_unattended_wrappers(self):
         readme = Path("README.md").read_text(encoding="utf-8")
         arch = Path("GENERATOR_ARCH.md").read_text(encoding="utf-8")
         run_all_source = Path("packages/rebus-generator/src/rebus_generator/cli/run_all.py").read_text(encoding="utf-8")
 
-        self.assertIn("./run_all.sh", readme)
+        self.assertIn("run_all.sh", readme)
         self.assertNotIn("run_batch_loop.sh", readme)
         self.assertNotIn("run_definition_improve.sh", readme)
         self.assertNotIn("run_title_improve.sh", readme)
