@@ -15,6 +15,7 @@ def test_generate_definition_for_working_clue_uses_original_for_dex_and_prompt()
             MagicMock(),
             theme="test",
             dex=dex,
+            clue_canon=MagicMock(),
         )
 
     assert result == "def"

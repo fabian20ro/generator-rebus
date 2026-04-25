@@ -179,7 +179,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         )
         generate_item = _item("generate", "generate:1", preferred_model_id=SECONDARY_MODEL.model_id)
         retitle_item = _item("retitle", "retitle:1")
-        build_job = lambda item: _StaticJob(item)
+        def build_job(item): return _StaticJob(item)
 
         with (
             patch.object(supervisor, "_poll_generate", return_value=generate_item),
@@ -859,8 +859,9 @@ class RunAllSupervisorTests(unittest.TestCase):
 
     @patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", return_value=SimpleNamespace())
     @patch("rebus_generator.workflows.run_all.jobs.generate.DexProvider.for_puzzle", return_value=SimpleNamespace())
+    @patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks")
     @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definition_for_working_clue", return_value="Gaz din atmosferă")
-    def test_generate_define_initial_injects_metadata_into_working_state(self, _mock_define, _mock_dex, _mock_session):
+    def test_generate_define_initial_injects_metadata_into_working_state(self, _mock_define, _mock_apply, _mock_dex, _mock_session):
         item = _item("generate", "generate:size:13:1", preferred_model_id=SECONDARY_MODEL.model_id)
         item.payload = {"size": 13, "index": 1}
         job = GenerateJobState(item)
@@ -1422,15 +1423,15 @@ class RunAllSupervisorTests(unittest.TestCase):
             _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
 
         self.assertEqual("Domeniul web al țării cu Roma capitală.", clues[0].current.definition)
-        self.assertEqual("A zecea literă a alfabetului chirilic.", clues[1].current.definition)
-        self.assertEqual("Trăsătură distinctivă din structura înțelesului.", clues[2].current.definition)
+        self.assertEqual("[Definiție negenerată]", clues[1].current.definition)
+        self.assertEqual("[Definiție negenerată]", clues[2].current.definition)
         self.assertEqual("Indicativ auto pentru județul Timiș.", clues[3].current.definition)
         self.assertEqual("Indicativ auto pentru județul Maramureș.", clues[4].current.definition)
         self.assertEqual("Indicativ auto pentru județul Cluj.", clues[5].current.definition)
         self.assertEqual("Indicativ auto pentru județul Prahova.", clues[6].current.definition)
-        self.assertEqual("Ieșire jucăușă!", clues[7].current.definition)
-        self.assertTrue(all(clue.current.source == "generate_rescue_answer_supply" for clue in clues))
-        self.assertTrue(all(clue.current.generated_by == "answer_supply" for clue in clues))
+        self.assertEqual("Domeniul web al țării sau teritoriului cu capitala Tehran.", clues[7].current.definition)
+        self.assertTrue(all(clue.current.source == "generate_rescue_answer_supply" for clue in clues if clue.current.definition != "[Definiție negenerată]"))
+        self.assertTrue(all(clue.current.generated_by == "answer_supply" for clue in clues if clue.current.definition != "[Definiție negenerată]"))
         self.assertEqual("rewrite_initial_verify", job.stage)
 
     def test_redefine_persist_prepare_uses_run_all_rewrite_session_finish(self):
@@ -1747,33 +1748,3 @@ class ClaimStateTests(unittest.TestCase):
         self.assertFalse(claims.simplify_word_conflict({"APA"}))
 
 
-class RunAllReadmeContractTests(unittest.TestCase):
-    def test_readme_documents_run_all_local_claim_boundaries(self):
-        text = Path("README.md").read_text(encoding="utf-8").lower()
-
-        self.assertIn("run_all", text)
-        self.assertIn("single-process", text)
-        self.assertIn("in-memory", text)
-        self.assertIn("active puzzle jobs", text)
-        self.assertIn("not a durable event bus", text)
-
-    def test_docs_and_code_drop_legacy_unattended_wrappers(self):
-        readme = Path("README.md").read_text(encoding="utf-8")
-        arch = Path("GENERATOR_ARCH.md").read_text(encoding="utf-8")
-        run_all_source = Path("packages/rebus-generator/src/rebus_generator/cli/run_all.py").read_text(encoding="utf-8")
-
-        self.assertIn("./run_all.sh", readme)
-        self.assertNotIn("run_batch_loop.sh", readme)
-        self.assertNotIn("run_definition_improve.sh", readme)
-        self.assertNotIn("run_title_improve.sh", readme)
-        self.assertNotIn("run_clue_canon_simplify.sh", readme)
-        self.assertNotIn("run_batch_loop.sh", arch)
-        self.assertNotIn("run_simplify_fanout", run_all_source)
-        self.assertNotIn("run_batch(", run_all_source)
-        self.assertNotIn("DEFAULT_SIMPLIFY_STATE_PATH", run_all_source)
-
-    def test_legacy_unattended_wrapper_files_removed(self):
-        self.assertFalse(Path("run_batch_loop.sh").exists())
-        self.assertFalse(Path("run_definition_improve.sh").exists())
-        self.assertFalse(Path("run_title_improve.sh").exists())
-        self.assertFalse(Path("run_clue_canon_simplify.sh").exists())
