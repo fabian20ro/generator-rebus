@@ -7,11 +7,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from supabase import create_client as create_supabase_client
+from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_supabase_client
 
 from rebus_generator.platform.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from rebus_generator.platform.llm.llm_client import create_client as create_ai_client
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
+from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, CanonicalInput
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.io.clue_logging import clue_label, clue_label_from_row, log_canonical_event, log_definition_event
 from rebus_generator.domain.clue_rating import extract_creativity_score, extract_rebus_score, extract_semantic_score
@@ -180,71 +181,85 @@ def _persist_clues(
         client=ai_client,
         runtime=runtime,
     )
-    clue_store = clue_canon.store
-    row_by_key = {
-        ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row
-        for row in clue_rows
-    }
+    planner = CanonicalPersistencePlanner(resolver=clue_canon, builder=clue_canon.store)
+    
+    inputs = []
     key_to_id = {
         ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row["id"]
         for row in clue_rows
     }
+    row_by_key = {
+        ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row
+        for row in clue_rows
+    }
+    
     for direction, clues in (("H", puzzle.horizontal_clues), ("V", puzzle.vertical_clues)):
         for clue in clues:
             clue_id = key_to_id.get((direction, clue.start_row, clue.start_col))
             if not clue_id:
                 continue
-            row = row_by_key.get((direction, clue.start_row, clue.start_col), {})
             active = clue.active_version()
             verify_note = render_verify_note(active.assessment)
-            decision = clue_canon.resolve_definition(
-                word_normalized=clue.word_normalized,
-                word_original=clue.word_original,
-                definition=active.definition,
-                word_type=clue.word_type,
-                verified=bool(active.assessment.verified),
-                semantic_score=extract_semantic_score(verify_note),
-                rebus_score=extract_rebus_score(verify_note),
-                creativity_score=extract_creativity_score(verify_note),
-            )
-            if not decision.canonical_definition_id:
-                raise RuntimeError(
-                    f"Canonical clue resolution produced no canonical_definition_id for {clue.word_normalized}"
-                )
-            clue_ref = clue_label(
-                word=clue.word_normalized,
-                direction=direction,
-                clue_number=getattr(clue, "row_number", None),
-                start_row=clue.start_row,
-                start_col=clue.start_col,
-            )
-            log_canonical_event(
-                decision.action,
-                puzzle_id=puzzle_id,
-                clue_ref=clue_ref,
-                candidate_definition=active.definition,
-                canonical_definition=decision.canonical_definition,
-                detail=decision.decision_note or None,
-            )
-            if row:
-                log_definition_event(
-                    "repair-persist",
-                    puzzle_id=puzzle_id,
-                    clue_ref=clue_label_from_row(row),
-                    before=str(row.get("definition") or ""),
-                    after=decision.canonical_definition,
-                    detail=f"verified={bool(active.assessment.verified)}",
-                )
-            execute_logged_update(
-                supabase,
-                "crossword_clues",
-                clue_store.build_clue_definition_payload(
-                    canonical_definition_id=decision.canonical_definition_id,
-                    verify_note=verify_note,
+            inputs.append(
+                CanonicalInput(
+                    word_normalized=clue.word_normalized,
+                    word_original=clue.word_original,
+                    definition=active.definition,
+                    word_type=clue.word_type,
+                    clue_id=clue_id,
                     verified=bool(active.assessment.verified),
-                ),
-                eq_filters={"id": clue_id, "puzzle_id": puzzle_id},
+                    semantic_score=extract_semantic_score(verify_note),
+                    rebus_score=extract_rebus_score(verify_note),
+                    creativity_score=extract_creativity_score(verify_note),
+                    verify_note=verify_note,
+                )
             )
+            
+    plan = planner.plan(inputs)
+    
+    for persistence in plan.clue_persistences:
+        key = next(k for k, v in key_to_id.items() if v == persistence.clue_id)
+        row = row_by_key.get(key, {})
+        clue_ref = clue_label(
+            word=row.get("word_normalized", ""),
+            direction=key[0],
+            clue_number=row.get("clue_number"),
+            start_row=key[1],
+            start_col=key[2],
+        )
+        
+        log_canonical_event(
+            persistence.action,
+            puzzle_id=puzzle_id,
+            clue_ref=clue_ref,
+            candidate_definition=persistence.candidate_definition,
+            canonical_definition=persistence.canonical_definition,
+            detail=persistence.detail,
+        )
+        
+        if row:
+            log_definition_event(
+                "repair-persist",
+                puzzle_id=puzzle_id,
+                clue_ref=clue_label_from_row(row),
+                before=str(row.get("definition") or ""),
+                after=persistence.canonical_definition,
+                detail=f"verified={bool(persistence.payload.get('verified'))}",
+            )
+            
+        execute_logged_update(
+            supabase,
+            "crossword_clues",
+            persistence.payload,
+            eq_filters={"id": persistence.clue_id, "puzzle_id": puzzle_id},
+        )
+        
+    if plan.touched_canonical_ids:
+        deleted = ClueCanonStore(client=supabase).delete_redundant_unreferenced_canonicals_by_ids(
+            plan.touched_canonical_ids
+        )
+        if deleted:
+            log(f"  [{puzzle_id}] removed redundant unreferenced canonical definitions: {deleted}")
 
 
 def repair_puzzle(

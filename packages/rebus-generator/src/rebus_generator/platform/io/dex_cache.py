@@ -8,8 +8,8 @@ Architecture (4 cache layers):
 
 Usage::
 
-    from supabase import create_client
-    sb = create_client(url, key)
+    from ..persistence.supabase_ops import create_rebus_client
+    sb = create_rebus_client(url, key)
     dex = DexProvider(sb)
 
     # Prefetch all puzzle words (batch L2 query, then L3 for missing)
@@ -812,11 +812,11 @@ def create_provider() -> DexProvider:
     Returns a provider with no Supabase backend if credentials are missing.
     """
     try:
-        from supabase import create_client as _create_sb
+        from ..persistence.supabase_ops import create_rebus_client
         from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
             return DexProvider()
-        sb = _create_sb(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        sb = create_rebus_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         return DexProvider(sb)
     except BaseException:
         return DexProvider()

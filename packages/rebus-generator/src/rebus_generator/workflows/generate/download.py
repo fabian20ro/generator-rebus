@@ -3,7 +3,7 @@
 from __future__ import annotations
 import json
 import sys
-from supabase import create_client
+from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_client
 from rebus_generator.platform.config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from rebus_generator.domain.diacritics import normalize
 from rebus_generator.platform.io.runtime_logging import log

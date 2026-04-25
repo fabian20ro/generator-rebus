@@ -16,7 +16,6 @@ from rebus_generator.workflows.redefine.load import build_working_puzzle, fetch_
 from rebus_generator.workflows.redefine.persist import (
     apply_redefined_puzzle_persistence,
     plan_redefined_puzzle_persistence,
-    resolve_redefined_puzzle_canonicals,
 )
 from rebus_generator.workflows.redefine.runtime import apply_scored_canonical_fallbacks
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
@@ -334,18 +333,8 @@ class RedefineJobState(JobState):
         return None
 
     def _resolve_canonicals(self, ctx):
-        self.canonical_decisions = resolve_redefined_puzzle_canonicals(
-            ctx.supabase,
-            self.puzzle_row,
-            self.clue_rows,
-            self.candidate_puzzle,
-            ctx.ai_client,
-            runtime=ctx.runtime,
-            multi_model=False,
-            touched_canonical_ids=self.touched_canonical_ids,
-        )
-        self._progress("persist_prepare", detail=f"resolved={len(self.canonical_decisions)}")
-        return self.canonical_decisions
+        self._progress("persist_prepare")
+        return None
 
     def _persist_prepare(self, ctx):
         assert self.rewrite_session is not None
@@ -357,7 +346,6 @@ class RedefineJobState(JobState):
             self.baseline_puzzle,
             self.candidate_puzzle,
             ctx.ai_client,
-            decisions=self.canonical_decisions,
             dry_run=ctx.dry_run,
             multi_model=ctx.multi_model,
             runtime=ctx.runtime,

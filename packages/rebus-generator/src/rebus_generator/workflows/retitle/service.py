@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-from supabase import create_client as create_supabase_client
+from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_supabase_client
 
 from rebus_generator.platform.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from rebus_generator.platform.llm.llm_client import create_client as create_ai_client

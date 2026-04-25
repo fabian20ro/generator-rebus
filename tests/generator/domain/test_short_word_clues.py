@@ -7,7 +7,7 @@ from rebus_generator.domain.short_word_clues import (
 
 
 def test_seed_short_word_clues_pass_definition_guard():
-    for word in ("IT", "IJE", "SEM"):
+    for word in ("IT", "TM"):
         clues = valid_short_word_clues_for(word)
         assert clues
         for clue in clues:
@@ -15,8 +15,8 @@ def test_seed_short_word_clues_pass_definition_guard():
 
 
 def test_short_word_prompt_context_contains_overlay_definition():
-    context = short_word_prompt_context("SEM")
-    assert "Trăsătură distinctivă" in context
+    context = short_word_prompt_context("TM")
+    assert "Indicativ auto" in context
 
 
 def test_sem_forbidden_terms_include_semantic_family():

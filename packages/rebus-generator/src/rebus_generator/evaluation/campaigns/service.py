@@ -363,10 +363,10 @@ VERIFY_FIRST_EXAMPLE = "Definiție: Domeniul online al Austriei\nRăspuns: AT\n"
 VERIFY_EXAMPLES_HEADER = "Exemple:"
 DEFINITION_EXAMPLES_HEADER = "Exemple corecte:"
 DEFINITION_COUNTEREXAMPLES_HEADER = "Contra-exemple (GREȘIT - sensuri englezești):"
-RATE_FEEDBACK_MARKER = "- feedback-ul este exclusiv în română, scurt și concret"
+RATE_FEEDBACK_MARKER = "- feedback exclusiv în română, scurt și concret; menționezi explicit orice problemă de \"acord\" (gen, număr, timp)"
 RATE_JSON_MARKER = "Răspunzi STRICT cu un singur obiect JSON, fără text înainte sau după:"
-REWRITE_MAX_WORDS_MARKER = "- Max 15 cuvinte."
-REWRITE_NECLAR_MARKER = "- Dacă termenul este obscur și nu poți scrie onest, răspunzi exact: [NECLAR]"
+REWRITE_MAX_WORDS_MARKER = "- max 15 cuvinte"
+REWRITE_NECLAR_MARKER = "- termen obscur și fără variantă onestă: [NECLAR]"
 USER_VERIFY_RESPONSE_HEADER = "Răspunsuri:"
 
 
@@ -449,7 +449,7 @@ _exp(
 _exp(
     "remove alternate-valid-sense sentence from rewrite user",
     USR_REWRITE,
-    "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+    "Rescrie mai precis și mai scurt. Mai multe sensuri valide: poți alege sensul mai exact.",
     "Rescrie definiția mai precis și mai scurt.",
 )
 _exp(
@@ -473,7 +473,7 @@ _exp(
 _exp(
     "replace rewrite more-precise-than-old line with exact",
     SYS_REWRITE,
-    "- Fă definiția mai precisă decât cea veche.\n",
+    "- definiția mai precisă decât cea veche\n",
     "- Fă definiția mai exactă.\n",
 )
 
@@ -1028,8 +1028,8 @@ V2_EXPERIMENTS.append(
         "near_neighbor_exclusion",
         [_edit(
             USR_REWRITE,
-            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
-            "Rescrie definiția mai precis și mai scurt. Dacă primul candidat e aproape corect, excluzi doar acel concurent și nu lărgești definiția. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie mai precis și mai scurt. Mai multe sensuri valide: poți alege sensul mai exact.",
+            "Rescrie mai precis și mai scurt. Dacă primul candidat e aproape corect, excluzi doar acel concurent și nu lărgești definiția. Mai multe sensuri valide: poți alege sensul mai exact.",
         )],
     )
 )
@@ -1054,7 +1054,7 @@ for name, desc, edits, targets in [
         "user rewrite blank output becomes object place part role action",
         [_edit(
             USR_REWRITE,
-            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie mai precis și mai scurt. Mai multe sensuri valide: poți alege sensul mai exact.",
             "Rescrie definiția mai precis și mai scurt. Dacă verificatorul nu propune nimic, fă definiția mai concretă: obiect, loc, parte, rol sau acțiune vizibilă. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
         )],
         (),
@@ -1094,7 +1094,7 @@ for name, desc, edits, targets in [
         "user rewrite replaces dictionary formula with visible trait",
         [_edit(
             USR_REWRITE,
-            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie mai precis și mai scurt. Mai multe sensuri valide: poți alege sensul mai exact.",
             "Rescrie definiția mai precis și mai scurt. Dacă totul sună ca o formulă de dicționar, schimbă spre o trăsătură, poziție sau funcție vizibilă. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
         )],
         (),
@@ -1199,7 +1199,7 @@ V3_EXPERIMENTS = [
         "verify_minimal_procedural",
         [_edit(
             SYS_VERIFY,
-            "- Gândești și răspunzi numai în română.\n- Dacă primul cuvânt care îți vine este în engleză, îl traduci mental și răspunzi în română.\n",
+            "- numai în română\n- dacă primul cuvânt vine în engleză, îl traduci mental și răspunzi în română\n",
             "- Lucrezi doar în română.\n",
         )],
     ),
@@ -1209,7 +1209,7 @@ V3_EXPERIMENTS = [
         "verify_minimal_procedural",
         [_edit(
             SYS_VERIFY,
-            "- Definiția poate folosi un sens figurat sau o referință din alt domeniu. Gândește flexibil.\n",
+            "- definiția poate folosi sens figurat sau referință din alt domeniu; gândește flexibil\n",
             "",
         )],
     ),
@@ -1219,7 +1219,7 @@ V3_EXPERIMENTS = [
         "verify_minimal_procedural",
         [_edit(
             SYS_VERIFY,
-            "Proces de rezolvare:\n1. Citește definiția atent.\n2. Gândește la 1-3 cuvinte românești care se potrivesc.\n3. Verifică pentru fiecare: are exact lungimea cerută?\n4. Păstrează doar variantele care respectă lungimea.\n",
+            "Proces de rezolvare:\n1. Citește definiția atent\n2. Gândește la 1-3 cuvinte românești potrivite\n3. Verifică pentru fiecare: are exact lungimea cerută?\n4. Păstrează doar variantele care respectă lungimea\n",
             "Proces de rezolvare:\n1. Propui 1-3 variante românești.\n2. Elimini formele cu lungime sau flexiune incompatibilă.\n3. Păstrezi doar variantele care se potrivesc exact.\n",
         )],
     ),
@@ -1229,7 +1229,7 @@ V3_EXPERIMENTS = [
         "verify_minimal_procedural",
         [_edit(
             SYS_VERIFY,
-            "Exemple:\nDefiniție: Domeniul online al Austriei\nRăspuns: AT\nDefiniție: Țesut dur al scheletului\nRăspuns: OS\nDefiniție: Formă a verbului a avea\nRăspuns: AI\nDefiniție: Substanță gazoasă pe care o respirăm\nRăspuns: AER\nDefiniție: Se trage un semnal de pericol\nRăspuns: ALARMA\n",
+            "Exemple:\nDefiniție: Domeniul online al Austriei\nRăspuns: AT\nDefiniție: Țesut dur al scheletului\nRăspuns: OS\nDefiniție: Formă a verbului a avea\nRăspuns: AI\nDefiniție: Substanță gazoasă pe care o respirăm\nRăspuns: AER\nDefiniție: Pronume personal de persoana I singular (arh.)\nRăspuns: AZ\nDefiniție: Se trage un semnal de pericol\nRăspuns: ALARMA",
             "Exemple:\nDefiniție: Domeniul online al Austriei\nRăspuns: AT\nDefiniție: Țesut dur al scheletului\nRăspuns: OS\n",
         )],
     ),
@@ -1257,7 +1257,7 @@ V3_EXPERIMENTS = [
         "rewrite_generic_exclusion",
         [_edit(
             USR_REWRITE,
-            "Rescrie definiția mai precis și mai scurt. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
+            "Rescrie mai precis și mai scurt. Mai multe sensuri valide: poți alege sensul mai exact.",
             "Rescrie definiția mai precis și mai scurt. Dacă apare un concurent apropiat, îl excluzi printr-un singur detaliu, fără să lărgești definiția. Dacă există mai multe sensuri valide ale răspunsului, poți alege sensul mai exact.",
         )],
     ),
@@ -1267,7 +1267,7 @@ V3_EXPERIMENTS = [
         "prompt_dedup_cleanup",
         [_edit(
             SYS_DEFINITION,
-            "Ești autor de definiții de rebus în limba română.\nIMPORTANT: Toate cuvintele sunt exclusiv în limba ROMÂNĂ. Chiar dacă arată ca un cuvânt englezesc, definește-l DOAR cu sensul românesc.\n",
+            "Ești autor de definiții de rebus în limba română.\nIMPORTANT: Toate cuvintele, doar română. Dacă pare engleză, sens românesc only.\n",
             "Ești autor de definiții de rebus în limba română.\nIMPORTANT: Lucrezi doar cu sensuri românești reale, nu englezești.\n",
         )],
     ),
@@ -1277,7 +1277,7 @@ V3_EXPERIMENTS = [
         "prompt_dedup_cleanup",
         [_edit(
             SYS_DEFINITION,
-            "- Pentru cuvinte scurte, abrevieri și forme gramaticale fii literal și exact (dar creativ dacă e posibil).\n- Dacă există risc de confuzie de gen, număr sau flexiune, formulează definiția pentru forma exactă cerută.\n",
+            "- pentru cuvinte scurte, abrevieri și forme gramaticale: literal și exact, dar creativ dacă se poate\n- risc de confuzie gen/număr/flexiune: formulezi pentru forma exactă cerută\n",
             "- Pentru cuvinte scurte sau forme gramaticale, formulezi exact forma cerută.\n",
         )],
     ),
@@ -1287,7 +1287,7 @@ V3_EXPERIMENTS = [
         "prompt_dedup_cleanup",
         [_edit(
             SYS_REWRITE,
-            "- Dacă termenul are mai multe sensuri românești valide, poți trece la un alt sens DEX mai exact sau mai ghicibil; nu rămâi blocat pe sensul cel mai comun.\n- Nu rescrie definiția spre un alt cuvânt mai uzual; rescrie spre același răspuns, chiar dacă sensul lui bun este mai rar.\n",
+            "- mai multe sensuri românești valide: poți trece la sensul DEX mai exact sau mai ghicibil; nu rămâi blocat pe sensul cel mai comun\n- nu rescrii spre un alt cuvânt mai uzual; rescrii spre același răspuns, chiar dacă sensul bun e mai rar\n",
             "- Dacă există mai multe sensuri românești valide, alegi sensul care duce mai exact la același răspuns.\n",
         )],
     ),
@@ -1297,7 +1297,7 @@ V3_EXPERIMENTS = [
         "prompt_dedup_cleanup",
         [_edit(
             SYS_REWRITE,
-            "IMPORTANT: Definește cuvintele DOAR cu sensul lor românesc, nu englezesc.\nReguli:\n- Răspunzi doar cu definiția finală.\n- Tot textul este exclusiv în română. Nu folosești engleză.\n- Nu incluzi răspunsul și nici derivate evidente ale lui.\n- Sunt interzise forme din aceeași familie lexicală cu răspunsul.\n",
+            "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- doar definiția finală\n",
             "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- Răspunzi doar cu definiția finală.\n",
         )],
     ),
@@ -1310,7 +1310,7 @@ V4_EXPERIMENTS = [
     Experiment(
         "v4exp001",
         "rewrite add positive Romanian-register line",
-        [_edit_after(SYS_REWRITE, "- Răspunzi doar cu definiția finală.", "- Formulezi definiția în română firească, de dicționar și rebus.")],
+        [_edit_after(SYS_REWRITE, "- doar definiția finală", "- română firească, de dicționar și rebus")],
         family="rewrite_rule_readditions",
         priority=_family_priority("rewrite_rule_readditions", "v4"),
         tags=("rewrite_rule_readditions",),
@@ -1318,7 +1318,7 @@ V4_EXPERIMENTS = [
     Experiment(
         "v4exp002",
         "rewrite add referent-first line instead of answer-ban",
-        [_edit_after(SYS_REWRITE, "- Răspunzi doar cu definiția finală.", "- Descrii referentul prin rol, efect, loc, parte sau context distinctiv.")],
+        [_edit_after(SYS_REWRITE, "- doar definiția finală", "- Descrii referentul prin rol, efect, loc, parte sau context distinctiv.")],
         family="rewrite_rule_readditions",
         priority=_family_priority("rewrite_rule_readditions", "v4"),
         tags=("rewrite_rule_readditions",),
@@ -1326,7 +1326,7 @@ V4_EXPERIMENTS = [
     Experiment(
         "v4exp003",
         "rewrite add positive out-of-family periphrasis line",
-        [_edit_after(SYS_REWRITE, "- Răspunzi doar cu definiția finală.", "- Alegi o perifrază din afara familiei lexicale a termenului.")],
+        [_edit_after(SYS_REWRITE, "- doar definiția finală", "- Alegi o perifrază din afara familiei lexicale a termenului.")],
         family="rewrite_rule_readditions",
         priority=_family_priority("rewrite_rule_readditions", "v4"),
         tags=("rewrite_rule_readditions",),
@@ -1336,8 +1336,8 @@ V4_EXPERIMENTS = [
         "rewrite positive header with sense-first and referent-first rules",
         [_edit(
             SYS_REWRITE,
-            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- Răspunzi doar cu definiția finală.\n",
-            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Livrezi un indiciu românesc natural, orientat strict spre sensul corect.\nReguli:\n- Răspunzi doar cu definiția finală.\n- Descrii referentul prin rol, efect, loc, parte sau context distinctiv.\n- Alegi o perifrază din afara familiei lexicale a termenului.\n",
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- doar definiția finală\n",
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Livrezi un indiciu românesc natural, orientat strict spre sensul corect.\nReguli:\n- doar definiția finală\n- Descrii referentul prin rol, efect, loc, parte sau context distinctiv.\n- Alegi o perifrază din afara familiei lexicale a termenului.\n",
         )],
         family="rewrite_header_variants",
         priority=_family_priority("rewrite_header_variants", "v4"),
@@ -1348,8 +1348,8 @@ V4_EXPERIMENTS = [
         "rewrite positive header with Romanian-register and lexical-distance lines",
         [_edit(
             SYS_REWRITE,
-            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- Răspunzi doar cu definiția finală.\n",
-            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Livrezi o definiție românească firească, centrată pe sensul bun.\nReguli:\n- Răspunzi doar cu definiția finală.\n- Formulezi definiția în română firească, de dicționar și rebus.\n- Păstrezi distanță lexicală față de termen prin perifrază.\n",
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.\nReguli:\n- doar definiția finală\n",
+            "Ești editor de definiții de rebus în limba română.\nIMPORTANT: Livrezi o definiție românească firească, centrată pe sensul bun.\nReguli:\n- doar definiția finală\n- română firească, de dicționar și rebus\n- Păstrezi distanță lexicală față de termen prin perifrază.\n",
         )],
         family="rewrite_header_variants",
         priority=_family_priority("rewrite_header_variants", "v4"),
@@ -1400,7 +1400,7 @@ V5_EXPERIMENTS = [
     Experiment(
         "v5exp002",
         "rewrite add soft context-distinctive line",
-        [_edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Descrii sensul prin rol, efect, loc sau context distinctiv.")],
+        [_edit_after(SYS_REWRITE, "- română firească, de dicționar și rebus", "- Descrii sensul prin rol, efect, loc sau context distinctiv.")],
         family="header_signal_isolation",
         priority=_family_priority("header_signal_isolation", "v5"),
         tags=("header_signal_isolation",),
@@ -1408,7 +1408,7 @@ V5_EXPERIMENTS = [
     Experiment(
         "v5exp003",
         "rewrite add short out-of-family periphrasis line",
-        [_edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Alegi o perifrază scurtă din afara familiei lexicale a termenului.")],
+        [_edit_after(SYS_REWRITE, "- română firească, de dicționar și rebus", "- Alegi o perifrază scurtă din afara familiei lexicale a termenului.")],
         family="header_signal_isolation",
         priority=_family_priority("header_signal_isolation", "v5"),
         tags=("header_signal_isolation",),
@@ -1422,7 +1422,7 @@ V5_EXPERIMENTS = [
                 "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.",
                 "IMPORTANT: Livrezi un indiciu românesc natural, orientat strict spre sensul corect.",
             ),
-            _edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Descrii sensul prin rol, efect, loc sau context distinctiv."),
+            _edit_after(SYS_REWRITE, "- română firească, de dicționar și rebus", "- Descrii sensul prin rol, efect, loc sau context distinctiv."),
         ],
         family="header_signal_blends",
         priority=_family_priority("header_signal_blends", "v5"),
@@ -1437,7 +1437,7 @@ V5_EXPERIMENTS = [
                 "IMPORTANT: Rescrii doar cu sens românesc, în română, fără răspuns și fără familie lexicală.",
                 "IMPORTANT: Livrezi un indiciu românesc natural, orientat strict spre sensul corect.",
             ),
-            _edit_after(SYS_REWRITE, "- Formulezi definiția în română firească, de dicționar și rebus.", "- Alegi o perifrază scurtă din afara familiei lexicale a termenului."),
+            _edit_after(SYS_REWRITE, "- română firească, de dicționar și rebus", "- Alegi o perifrază scurtă din afara familiei lexicale a termenului."),
         ],
         family="header_signal_blends",
         priority=_family_priority("header_signal_blends", "v5"),
@@ -1446,7 +1446,7 @@ V5_EXPERIMENTS = [
     Experiment(
         "v5exp006",
         "rewrite add explicit flexion-form precision line",
-        [_edit_after(SYS_REWRITE, "- Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.", "- Pentru forme flexionare, fixezi persoana, numărul, timpul sau funcția cerută.")],
+        [_edit_after(SYS_REWRITE, "- gen/număr/formă flexionară greșite: corectezi înainte de stil", "- Pentru forme flexionare, fixezi persoana, numărul, timpul sau funcția cerută.")],
         family="precision_support",
         priority=_family_priority("precision_support", "v5"),
         tags=("precision_support",),
@@ -1454,7 +1454,7 @@ V5_EXPERIMENTS = [
     Experiment(
         "v5exp007",
         "rewrite add rare-or-technical specificity line",
-        [_edit_after(SYS_REWRITE, "- Fă definiția mai precisă decât cea veche.", "- Când sensul bun este rar sau tehnic, păstrezi detaliul distinctiv și nu-l generalizezi.")],
+        [_edit_after(SYS_REWRITE, "- definiția mai precisă decât cea veche", "- Când sensul bun este rar sau tehnic, păstrezi detaliul distinctiv și nu-l generalizezi.")],
         family="precision_support",
         priority=_family_priority("precision_support", "v5"),
         tags=("precision_support",),
@@ -1463,8 +1463,8 @@ V5_EXPERIMENTS = [
         "v5exp008",
         "rewrite combine flexion precision with rare-sense specificity",
         [
-            _edit_after(SYS_REWRITE, "- Dacă definiția veche sugerează alt gen, alt număr sau altă formă flexionară, corectează forma înainte de stil.", "- Pentru forme flexionare, fixezi persoana, numărul, timpul sau funcția cerută."),
-            _edit_after(SYS_REWRITE, "- Fă definiția mai precisă decât cea veche.", "- Când sensul bun este rar sau tehnic, păstrezi detaliul distinctiv și nu-l generalizezi."),
+            _edit_after(SYS_REWRITE, "- gen/număr/formă flexionară greșite: corectezi înainte de stil", "- Pentru forme flexionare, fixezi persoana, numărul, timpul sau funcția cerută."),
+            _edit_after(SYS_REWRITE, "- definiția mai precisă decât cea veche", "- Când sensul bun este rar sau tehnic, păstrezi detaliul distinctiv și nu-l generalizezi."),
         ],
         family="precision_support",
         priority=_family_priority("precision_support", "v5"),
@@ -1481,7 +1481,7 @@ V6_EXPERIMENTS = [
         "verify replace translation fallback with Romanian-only line",
         [_edit(
             SYS_VERIFY,
-            "- Gândești și răspunzi numai în română.\n- Dacă primul cuvânt care îți vine este în engleză, îl traduci mental și răspunzi în română.\n",
+            "- numai în română\n- dacă primul cuvânt vine în engleză, îl traduci mental și răspunzi în română\n",
             "- Lucrezi cap-coadă în română.\n",
         )],
         family="verify_romanian_only",
@@ -1493,7 +1493,7 @@ V6_EXPERIMENTS = [
         "verify compress resolution steps around exact-form elimination",
         [_edit(
             SYS_VERIFY,
-            "Proces de rezolvare:\n1. Citește definiția atent.\n2. Gândește la 1-3 cuvinte românești care se potrivesc.\n3. Verifică pentru fiecare: are exact lungimea cerută?\n4. Păstrează doar variantele care respectă lungimea.\n",
+            "Proces de rezolvare:\n1. Citește definiția atent\n2. Gândește la 1-3 cuvinte românești potrivite\n3. Verifică pentru fiecare: are exact lungimea cerută?\n4. Păstrează doar variantele care respectă lungimea\n",
             "Proces de rezolvare:\n1. Propui 1-3 variante românești.\n2. Elimini imediat formele cu lungime, gen, număr sau flexiune incompatibilă.\n3. Păstrezi doar varianta care se potrivește exact definiției.\n",
         )],
         family="verify_resolution_compaction",
@@ -1505,7 +1505,7 @@ V6_EXPERIMENTS = [
         "verify add targeted fragile-word examples ETAN and FERMENT",
         [_edit_before(
             SYS_VERIFY,
-            "Definiție: Se trage un semnal de pericol\nRăspuns: ALARMA\n",
+            "Definiție: Se trage un semnal de pericol\nRăspuns: ALARMA",
             _block(
                 _verify_example("Hidrocarbură saturată cu doi atomi de carbon", "ETAN"),
                 _verify_example("Agent al fermentării", "FERMENT"),
@@ -1520,8 +1520,8 @@ V6_EXPERIMENTS = [
         "verify user makes exact-length and exact-form filtering explicit",
         [_edit(
             USR_VERIFY,
-            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nExcluzi orice variantă care nu are exact {answer_length} litere.\nScrie fiecare variantă pe un rând separat, fără explicații sau confirmări. Maxim 3 rânduri în total.\n",
-            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nVerifici mai întâi lungimea exactă, apoi sensul.\nElimini din start orice formă cu altă lungime, alt gen, alt număr sau altă flexiune.\nScrie fiecare variantă pe un rând separat, fără explicații sau confirmări. Maxim 3 rânduri în total.\n",
+            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nExcluzi orice variantă care nu are exact {answer_length} litere.\nScrie fiecare variantă pe un rând separat. Maxim 3 rânduri în total.\n",
+            "Lungime răspuns: EXACT {answer_length} litere\nNumăr variante: maximum {max_guesses}\nVerifici mai întâi lungimea exactă, apoi sensul.\nElimini din start orice formă cu altă lungime, alt gen, alt număr sau altă flexiune.\nScrie fiecare variantă pe un rând separat. Maxim 3 rânduri în total.\n",
         )],
         family="verify_user_exactness",
         priority=_family_priority("verify_user_exactness", "v6"),
@@ -1532,7 +1532,7 @@ V6_EXPERIMENTS = [
         "rate tighten guessability around exact answer at this length",
         [_edit(
             SYS_RATE,
-            "- guessability_score: dacă un rezolvitor ar citi definiția și ar avea {answer_length} căsuțe de completat, ar scrie exact cuvântul-răspuns? 9-10 = un singur cuvânt posibil la această lungime, 7-8 = probabil corect, 5-6 = mai multe opțiuni, 1-3 = ar scrie altceva cu certitudine.\n",
+            "- guessability_score: cu {answer_length} căsuțe, scrie exact răspunsul? 9-10 = un singur cuvânt posibil; 7-8 = probabil corect; 5-6 = mai multe opțiuni; 1-3 = altceva sigur\n",
             "- guessability_score: dacă un rezolvitor ar vedea definiția și exact {answer_length} căsuțe, ar scrie chiar răspunsul cerut? 9-10 = răspunsul exact iese clar la această lungime, 7-8 = probabil corect, 5-6 = rămân mai multe opțiuni, 1-3 = ar scrie alt cuvânt cu certitudine\n",
         )],
         family="rate_exact_answer_calibration",
@@ -1564,18 +1564,18 @@ V6_EXPERIMENTS = [
         [
             _edit(
                 SYS_DEFINITION,
-                "IMPORTANT: Toate cuvintele sunt exclusiv în limba ROMÂNĂ. Chiar dacă arată ca un cuvânt englezesc, definește-l DOAR cu sensul românesc.\n",
+                "IMPORTANT: Toate cuvintele, doar română. Dacă pare engleză, sens românesc only.\n",
                 "IMPORTANT: Lucrezi numai cu sensuri românești reale și formulezi totul în română firească.\n",
             ),
             _edit(
                 SYS_DEFINITION,
-                "- Tot textul este exclusiv în română. Nu folosești engleză.\n",
-                "- Formulezi definiția în română firească, de dicționar și rebus.\n",
+                "- doar română, fără engleză\n",
+                "- română firească, de dicționar și rebus\n",
             ),
             _edit(
                 SYS_DEFINITION,
-                "- Dacă sensul îți vine doar în engleză sau altă limbă, răspunzi [NECLAR].\n",
-                "- Dacă nu găsești un sens românesc real, răspunzi [NECLAR].\n",
+                "- dacă sensul vine doar în engleză sau altă limbă, răspunzi [NECLAR]\n",
+                "- dacă nu găsești un sens românesc real, răspunzi [NECLAR]\n",
             ),
         ],
         family="definition_positive_romanian_sense",
