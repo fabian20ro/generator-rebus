@@ -1,6 +1,6 @@
 # Prompt Research Program
 
-Goal: improve exact multistep benchmark performance under the reset regime, not by chasing old pre-reset highs.
+Goal: improve exact multistep benchmark performance under the reset regime, not chase old pre-reset highs.
 
 Rules:
 - mutate prompt files only during autonomous prompt trials

@@ -1564,3 +1564,43 @@
 **Outcome:** success
 **Insight:** none
 **Promoted:** no
+
+### [2026-04-25] — architecture deepening candidate scan
+**Context:** user requested the improve-codebase-architecture skill: explore architectural friction and present deep-module refactor candidates before designing interfaces.
+**Happened:** Read lessons and architecture docs, inspected Python generator, Rust engine, TS frontend/worker seams, and used focused explorer agents for LLM/workflows, canonicals/persistence, Rust bridge/search, and frontend/worker. Synthesized candidate clusters around rewrite candidate generation, canonical persistence planning, pair assessment, generate attempt orchestration, Rust search policy, frontend puzzle session, and LLM task ports.
+**Verification:** read-only architecture pass; no tests run.
+**Outcome:** pending user candidate selection
+**Insight:** `rewrite_engine.py` is mostly a compatibility patch surface while real rewrite behavior spans `rewrite_session.py` and `rewrite_rounds.py`; this is now a high-signal deepening candidate because tests patch the facade while bugs live in round/session orchestration.
+**Promoted:** no
+
+### [2026-04-25] — rewrite candidate generation interface design
+**Context:** user selected the rewrite candidate generation architecture candidate for deeper interface design.
+**Happened:** Framed constraints for a deeper rewrite-candidate boundary, then ran four parallel designs: minimal interface, flexible strategy interface, common-caller round interface, and ports/adapters interface. Designs converged on extracting hydrated request/result types plus a candidate generator that hides generate-vs-rewrite, hybrid fresh generation, guard validation/audit, duplicate filtering, and LLM dispatch, while leaving scoring/finalization and model alternation outside.
+**Verification:** design-only architecture pass; no tests run.
+**Outcome:** user accepted hybrid Design 1 + ports Design 4; RFC issue created: https://github.com/fabian20ro/generator-rebus/issues/25
+**Insight:** the safest deepening boundary is "hydrated clue context + active model -> valid pending candidates/rejections"; moving scoring into the same interface would make the module too broad and couple it to pair-evaluation state.
+**Promoted:** no
+
+### [2026-04-25] — canonical persistence planning interface design
+**Context:** user asked for the next architecture recommendation's interface design: canonical persistence planning across upload, redefine, and repair.
+**Happened:** Inspected duplicated canonical write paths in `generate/upload.py`, `redefine/persist.py`, `redefine/repair.py`, and `canonicals/domain_service.py`; framed constraints around pre-insert upload resolution, redefine dry-run planning, repair reuse, explicit runtime/client threading, and touched-canonical cleanup. Ran four parallel interface designs. Designs converged on a canonical clue input -> planned clue persistence boundary with resolver/payload/logging/cleanup ports and DB writes left outside.
+**Verification:** design-only architecture pass; no tests run.
+**Outcome:** user accepted Design 3 + ports Design 4; RFC issue created: https://github.com/fabian20ro/generator-rebus/issues/26
+**Insight:** canonical resolution is already effectful because it can create canonical rows before clue writes; the planner should expose touched ids and keep upload/redefine apply semantics outside rather than pretending the whole operation is transactional.
+**Promoted:** no
+
+### [2026-04-25] — triage TDD issues for rewrite/canonical RFCs
+**Context:** user asked to use triage-issue workflow for GitHub issues #25 then #26.
+**Happened:** Investigated rewrite candidate generation and canonical persistence paths with explorer agents plus local code reads. Filed TDD implementation issues: #27 for shared rewrite candidate generation boundary, #28 for shared canonical persistence planner. Root causes found: rewrite candidate semantics drift between standalone and unattended paths; canonical persistence model-mode/touched-id behavior drifts across repair/run_all/redefine/upload.
+**Verification:** read-only triage; explorer for #25 ran `pytest tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_aggressive_rewrite_regression.py -q` (`14 passed`). No local tests run by main agent.
+**Outcome:** success
+**Insight:** repair canonical persistence currently has concrete contract drift: it can ignore `multi_model=False` during canonical resolution and lacks touched-canonical cleanup after successful apply, unlike redefine.
+**Promoted:** no
+
+### [2026-04-25] — markdown telegraph rewrite
+**Context:** user asked to rewrite tracked markdown into telegraph style and keep prompt placeholders intact.
+**Happened:** Tightened prose across docs, agent guidance, prompt files, roadmap, and review notes. Preserved code fences, placeholders, paths, links, and Romanian prompt language.
+**Verification:** prompt placeholder scan passed; `git diff --name-only` shows Markdown-only tracked changes.
+**Outcome:** success
+**Insight:** none
+**Promoted:** no

@@ -1,9 +1,6 @@
 # Generator Architecture — Pseudocode & Randomness Map
 
-This document traces the full pipeline from shell entry point to published puzzle,
-annotating every source of randomness, every quality gate, and the bounds each
-component oscillates within. Use it to understand *where* a change will have
-effect before proposing code modifications.
+Full pipeline map: shell entry point to published puzzle. Sources of randomness, quality gates, component bounds. Use it to see *where* a change will land before proposing code modifications.
 
 ---
 

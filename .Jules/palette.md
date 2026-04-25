@@ -1,5 +1,5 @@
-# Palette's Journal
+# Palette Journal
 
 ## 2025-04-06 - [Aria-live attributes]
-**Learning:** Adding aria-live="polite" to dynamic notification containers (toasts, points, puzzle lists) makes state changes inherently accessible without requiring complex JavaScript focus management.
-**Action:** Always verify that dynamic content containers that don't receive focus automatically have aria-live attributes.
+**Learning:** `aria-live="polite"` on dynamic notification containers (`toasts`, `points`, puzzle lists) makes state changes accessible without complex focus management.
+**Action:** Dynamic content containers without automatic focus: verify `aria-live`.

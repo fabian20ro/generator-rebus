@@ -3,4 +3,4 @@ Formă normalizată: {word}
 Lungime: {length}
 {usage_label_line}
 
-Scrie o definiție de rebus scurtă și exactă. Răspunde doar cu definiția.
+Definiție scurtă, exactă. Răspunde doar cu definiția.

@@ -1,1 +1,1 @@
-Read AGENTS.md asap
+Read AGENTS.md first

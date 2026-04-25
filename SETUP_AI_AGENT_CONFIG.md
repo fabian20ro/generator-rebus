@@ -1,13 +1,13 @@
 # AI Agent Config Setup Guide
 
 > Two roles: (1) setup from scratch, (2) periodic maintenance - hand to agent, it audits + cleans all files.
-> Use when: new project, existing project onboard, periodic hygiene (weekly/monthly/yearly).
+> Use when: new project, existing project onboarding, periodic hygiene (weekly/monthly/yearly).
 
 ---
 
 ## Research Context
 
-- **[Evaluating AGENTS.md](https://arxiv.org/abs/2602.11988)** - LLM-generated context files (`/init`): -3% task success, +20% cost. Developer-provided: +4% marginal. Context files -> broader but less focused exploration.
+- **[Evaluating AGENTS.md](https://arxiv.org/abs/2602.11988)** - LLM-generated context files (`/init`): -3% task success, +20% cost. Developer-provided: +4% marginal. Context files = broader, less focused exploration.
 - **[SkillsBench](https://arxiv.org/abs/2602.12670)** - Curated focused skills (2-3 modules) outperform comprehensive docs. Self-generated skills: zero benefit. Smaller models + good skills ~= larger models without.
 - **[Yu et al. 2026](https://arxiv.org/abs/2602.12670)** - Multi-agent memory as computer architecture problem. Three-layer hierarchy. Cache sharing + access control = critical protocol gaps. Memory consistency = hardest open challenge.
 

@@ -1,25 +1,25 @@
 # generator-rebus
 
-Romanian rebus (crossword) generator. Pipeline CLI that creates puzzles from a Scrabble dictionary, generates definitions with a local LLM, and publishes them to a web frontend.
+Romanian rebus (crossword) generator. Pipeline CLI: build puzzles from Scrabble dictionary, generate definitions with local LLM, publish to web frontend.
 
 ## Current map
 
 - `packages/rebus-generator/src/rebus_generator/workflows/generate/service.py`
-  Main generation workflow. prepares candidate grids, runs definition/rewrite/title passes, publishes.
+  Main generation workflow. Candidate grids, definition/rewrite/title passes, publish.
 - `packages/rebus-generator/src/rebus_generator/domain/`
   Puzzle/clue state, scoring, selection, text rules, shared business logic.
 - `packages/rebus-generator/src/rebus_generator/platform/llm/`
-  LM Studio client/runtime/model registry and prompt-facing helpers.
+  LM Studio client/runtime/model registry, prompt-facing helpers.
 - `packages/rebus-generator/src/rebus_generator/evaluation/`
   Assessment runs, datasets, campaign policy, reports, prompt-lab tooling.
 - `engines/crossword-engine/`
-  Rust crossword fill engine, split by generation/solver/template/model/quality capability.
+  Rust crossword fill engine. Split by generation, solver, template, model, quality capability.
 - `apps/frontend/`
-  Static client app that reads published puzzles from the worker API.
+  Static client app. Reads published puzzles from the worker API.
 - `apps/worker/`
-  Cloudflare Worker that exposes puzzle endpoints to the frontend.
+  Cloudflare Worker. Exposes puzzle endpoints to the frontend.
 - `tests/`
-  Unit coverage for clue prompts, selection behavior, quality filters, title generation, and verification.
+  Unit coverage for clue prompts, selection behavior, quality filters, title generation, verification.
 - `run_all.sh`
   Only unattended production entrypoint. One active slot each for `generate`, `redefine`, `retitle`, `simplify`.
 
@@ -44,7 +44,7 @@ engines/crossword-engine + Supabase + LM Studio + apps/worker + apps/frontend
 
 ## Setup
 
-All generator commands run from the repo root.
+All generator commands run from repo root.
 
 ```bash
 # Install Python dependencies and create .venv
@@ -64,7 +64,7 @@ LMSTUDIO_BASE_URL=http://127.0.0.1:1234
 
 ### Database setup
 
-Fresh install: run [schema.sql](/Users/fabian/git/generator-rebus/db/schema.sql) in Supabase SQL Editor. It creates:
+Fresh install: run [schema.sql](/Users/fabian/git/generator-rebus/db/schema.sql) in Supabase SQL Editor. Creates:
 - `crossword_puzzles`
 - `crossword_clues`
 - canonical clue library tables
@@ -108,14 +108,14 @@ For unattended generation + improvement, use:
 
 **`-` as input/output.** `download` uses `-` for no input. `upload` uses `-` for no output because it prints the puzzle id.
 
-**Artifacts go under `build/`.** Word caches, batch runs, assessments, and logs should not live inside source packages.
+**Artifacts go under `build/`.** Word caches, batch runs, assessments, logs: outside source packages.
 
-**LM Studio models.** The pipeline uses a two-model workflow via LM Studio's OpenAI-compatible API. The active pair defaults to `gemma-4` + `eurollm-22b`; registry/policy live in [models.py](/Users/fabian/git/generator-rebus/packages/rebus-generator/src/rebus_generator/platform/llm/models.py) and LM Studio REST helpers in [lm_studio_api.py](/Users/fabian/git/generator-rebus/packages/rebus-generator/src/rebus_generator/platform/llm/lm_studio_api.py).
+**LM Studio models.** Two-model workflow via LM Studio's OpenAI-compatible API. Default pair: `gemma-4` + `eurollm-22b`; registry/policy in [models.py](/Users/fabian/git/generator-rebus/packages/rebus-generator/src/rebus_generator/platform/llm/models.py), REST helpers in [lm_studio_api.py](/Users/fabian/git/generator-rebus/packages/rebus-generator/src/rebus_generator/platform/llm/lm_studio_api.py).
 
-**You can skip phases.** The markdown format is human-readable and editable. You can:
+**You can skip phases.** Markdown is human-readable and editable. You can:
 - Write definitions manually instead of using `define`
 - Skip `verify` and use `--force` on upload
-- Edit any intermediate `.md` file in a text editor between phases
+- Edit any intermediate `.md` file between phases
 
 ## Canonical clue maintenance
 
@@ -131,9 +131,9 @@ uv run python -m rebus_generator.workflows.canonicals.service simplify-fanout --
 ```
 
 Notes:
-- `audit` checks pointer integrity, superseded links, duplicate active canonicals, oversized fanout, and effective-view coverage
-- `simplify-fanout` prefers the best existing canonical survivor; it only rewrites a new survivor when same-sense inputs are all weak
-- unattended simplify now runs only through `./run_all.sh --topics simplify`
+- `audit` checks pointer integrity, superseded links, duplicate active canonicals, oversized fanout, effective-view coverage
+- `simplify-fanout` prefers the best existing canonical survivor; rewrites a new survivor only when same-sense inputs are all weak
+- unattended simplify runs only through `./run_all.sh --topics simplify`
 
 ## `run_all` supervisor
 
@@ -152,7 +152,7 @@ Current shape:
 - `simplify` is excluded from words currently owned by active puzzle jobs
 
 Current limitation:
-- protection is local to one supervisor process
+- protection local to one supervisor process
 - manual legacy entrypoints or a second process can still race because claims are in-memory, not DB-backed
 
 Architecture note:
@@ -207,7 +207,7 @@ npm run dev     # local dev server
 npm run build   # production build → dist/
 ```
 
-The frontend needs `VITE_API_BASE` set to the Cloudflare Worker URL. For local dev, either point it at `wrangler dev` in `apps/worker` or use the deployed worker URL.
+The frontend needs `VITE_API_BASE` set to the Cloudflare Worker URL. For local dev, point it at `wrangler dev` in `apps/worker` or the deployed worker URL.
 
 ### GitHub Pages deploy
 

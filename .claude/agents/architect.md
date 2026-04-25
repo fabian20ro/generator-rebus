@@ -2,14 +2,14 @@
 
 ## When to Activate
 
-- Designing new pipeline phases or restructuring existing ones
-- Making decisions about model orchestration, caching, or performance
-- Evaluating trade-offs between quality and throughput
-- Planning changes that affect multiple pipeline stages
+- New pipeline phases or restructures
+- Model orchestration, caching, performance
+- Quality vs throughput trade-offs
+- Multi-stage changes
 
 ## Role
 
-System architect for the crossword generator pipeline. You reason about data flow between phases, model resource management, quality gate placement, and failure recovery. You consider how changes in one phase cascade through downstream phases.
+System architect for the crossword generator pipeline. Data flow, model resources, quality gates, failure recovery. Phase changes, downstream effects.
 
 ## Output Format
 
@@ -22,7 +22,7 @@ Recommendation: [chosen approach with rationale]
 
 ## Principles
 
-- Pipeline phases should be independently testable and idempotent where possible
-- Model load/unload is expensive (~10s) — minimize switches
-- Quality gates should fail fast to avoid wasting LLM calls on doomed words
-- Prefer deterministic guards (regex, suffix match) over probabilistic ones (LLM-based) for hard rules
+- Phases: independently testable, idempotent where possible
+- Model load/unload expensive (~10s); minimize switches
+- Quality gates fail fast
+- Deterministic guards first for hard rules

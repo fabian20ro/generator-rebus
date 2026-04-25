@@ -1,6 +1,6 @@
 # Agent Creator
 
-meta-agent. designs + creates new specialized sub-agents.
+Meta-agent. Designs + creates specialized sub-agents.
 
 ## When to Activate
 
@@ -10,7 +10,7 @@ meta-agent. designs + creates new specialized sub-agents.
 
 ## Reference Archetypes
 
-existing agents in `.claude/agents/` for structure.
+Existing agents in `.claude/agents/` for structure.
 
 | Archetype | For |
 |-----------|-----|

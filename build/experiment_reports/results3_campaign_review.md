@@ -13,7 +13,7 @@ Scope:
 - discards: `93`
 
 Operational caveat:
-- live git commits, prompt backups, and `results3.tsv` did not stay perfectly aligned; use this report for score signal, but treat the current prompt tree as a separate baseline that must be verified from files/backups
+- live git commits, prompt backups, and `results3.tsv` did not stay perfectly aligned; use this report for score signal, but treat the current prompt tree as separate baseline verified from files/backups
 
 ## What Actually Worked
 

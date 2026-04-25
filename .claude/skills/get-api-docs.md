@@ -1,14 +1,13 @@
 ---
 name: get-api-docs
 description: >
-  Use this skill when you need documentation for a third-party library, SDK, or API
-  before writing code that uses it. Fetch the docs with chub before answering.
+  Use when you need docs for a third-party library, SDK, or API before writing code.
+  Fetch docs with `chub` before answering.
 ---
 
 # Get API Docs via chub
 
-When you need documentation for a library or API, fetch it with the `chub` CLI
-rather than guessing from training data.
+Need library/API docs, fetch with `chub` CLI. No guessing from training data.
 
 ## Step 1 — Find the right doc ID
 
