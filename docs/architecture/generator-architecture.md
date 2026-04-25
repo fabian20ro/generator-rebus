@@ -1,6 +1,6 @@
 # Generator Architecture — Pseudocode & Randomness Map
 
-Full pipeline map: shell entry point to published puzzle. Sources of randomness, quality gates, component bounds. Use it to see *where* a change will land before proposing code modifications.
+Pipeline map: shell entry to publication. Randomness sources, quality gates, component bounds. Reference for impact analysis before modification.
 
 ---
 
@@ -71,7 +71,7 @@ redefine.main(--date | --puzzle-id | --all | --dry-run | --rounds=7)
 
 ---
 
-## Batch Publish Pipeline (one invocation)
+## Batch Publish Pipeline (Single Invocation)
 
 ```
 batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
@@ -147,7 +147,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
               │    │        pick first non-empty response
 ```
 
-### Phase 3 — Rewrite Loop (the heart of quality)
+### Phase 3 — Rewrite Loop (Quality Core)
 
 ```
               │  state = working_puzzle_from_puzzle(puzzle)
@@ -333,93 +333,35 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
 
 ## Non-Obvious Design Choices
 
-### Why two models alternate instead of using a single better one
+### Dual-Model Alternation Rationale
+Cross-validation. High scores across models ensure quality, avoid single-model bias. Default: gemma-4 + eurollm-22b (config: `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`). Writer (temp 0.2-0.3) vs. Scorer/Verifier (temp 0.0). Catch hallucinations + self-rating inflation. Round-based alternation (not per clue) amortizes LM Studio switch overhead (~5-15s).
 
-Cross-validation. A definition that scores well on both active models is more likely to
-be genuinely good than one that only satisfies a single model's biases. The default pair
-is `gemma-4` + `eurollm-22b`, but the active pair is centrally selected in
-`packages/rebus-generator/src/rebus_generator/platform/llm/models.py`. The writing model generates at temp=0.2-0.3, then the
-*other* model verifies at temp=0.0 and rates at temp=0.0. This catches model-specific
-hallucinations and inflated self-ratings. The alternation happens per rewrite round
-(not per clue) to amortize the expensive model load/unload via LM Studio REST API
-(~5-15 seconds per switch).
+### Title Temp 0.9 vs. Rating Temp 0.1
+Creativity vs. Stability. High temp ensures round-to-round diversity, avoids "safe" convergence. Low temp ensures rating consistency for reliable accept/reject loop. Split maximizes exploration while maintaining quality gate.
 
-### Why title generation uses temp=0.9 but rating uses temp=0.1
+### Progressive Rewrite Bar (`current_min + 1`)
+Floor-lifting dynamic. Initial focus: baseline (rebus ≥ 5). Bar rises as weakest clues improve. Convergence on uniform quality, prevents over-polishing good clues while ignoring weak ones. Plateau detector (7 rounds) halts loops on difficult words.
 
-Titles need genuine creativity — the same prompt should produce diverse candidates across
-rounds, not converge on a single "safe" answer. The rating, however, must be stable:
-if the same title is rated twice it should get a similar score, otherwise the
-accept/reject loop would be unreliable. The 0.9/0.1 split maximizes exploration in
-generation while keeping the quality gate consistent.
+### First Solved Candidate Strategy
+Cost optimization. CSP expensive (500K backtracks for 12×12). `build_relaxed_variants` cascade handles constraints. Rarity-filtered index ensures first solution adequacy. `preparation-attempts` loop (1-40) provides diversity. Full define→rewrite→title pipeline makes definition quality primary.
 
-### Why the rewrite bar is progressive (`current_min + 1`)
+### Random Fallback Titles
+Pattern avoidance. Deterministic hashing (e.g. on word lists) causes repetitive titles. `random.choice` from 20-title pool ensures even distribution across batches.
 
-Early rounds focus on getting *any* acceptable definition (rebus ≥ 5). Once the weakest
-clue improves, the bar rises. This creates a "lift the floor" dynamic where the rewrite
-loop converges on uniform quality rather than perfecting already-good clues while
-ignoring weak ones. The plateau detector (7 rounds without improvement) prevents
-infinite loops when a word is genuinely hard to define.
+### Definition (0.2) vs. Rewrite (0.3) Temps
+Precision vs. Iteration. First-pass: factual precision. Rewrites: feedback-guided creativity ("wrong answer X", "vague"). Higher temp escapes local minima; feedback constrains search space.
 
-### Why grid generation returns the first solved candidate (not the best of N)
+### Incremental `max_blacks` Cap (`target_blacks + 4`)
+Solver call reduction. Capping prevents excessive expensive CSP calls. Aligns with most relaxed variant ceiling. Covers all procedural randomization (±2) and variant offsets (+2/+4).
 
-Constraint solving is expensive (up to 500K backtracks for 12×12). The quality scoring
-(`score_words`) runs on the solved grid and the `build_relaxed_variants` cascade
-ensures progressively looser constraints. Within a variant, the first solved grid is
-usually good enough because the word index is already filtered by rarity. The
-preparation-attempts loop at a higher level (1-40 attempts depending on size) provides
-the grid diversity, while each attempt goes through the full define→rewrite→title
-pipeline — so grid quality is less important than definition quality.
+### `min_solver_step` Optimization
+Avoidance of guaranteed failures. Sparse black placement (early steps) creates unfillable slots. 12×12 (effective_max=24) fails steps 1-17. `min_solver_step = max(1, effective_max - 6)` restricts solver to final ~7 steps. Eliminates ~16 wasted calls (500K backtracks each).
 
-### Why `_fallback_title()` uses `random.choice` instead of a deterministic hash
+### `probe_backtracks` (1/3 max)
+Solvability probing. Incremental phase only checks feasibility. High-backtrack templates produce poor word selection. `max_backtracks // 3` (~166K for 12×12) saves 3× time. Full budget reserved for final `_generate_candidate`.
 
-Deterministic fallbacks (e.g. hashing the word list) would mean the same puzzle always
-gets the same fallback title, creating visible patterns in the published set. Random
-selection from the 20-title pool means fallbacks are evenly distributed even when
-multiple puzzles in the same batch hit the fallback path.
+### Lazy Candidate Evaluation
+Avoidance of redundant scans. Lazy evaluation replaces full-list shuffle ([0] pick). Distribution identical. Skips `_is_connected` BFS and `_creates_single_letter` scans on ~90% of unused cells.
 
-### Why definitions use temp=0.2 but rewrites use temp=0.3
-
-First-pass definitions should be factually precise — the LLM is defining a Romanian word
-from scratch. Rewrites are guided by specific feedback ("leads to wrong answer X",
-"too vague") so the model has more context to be creative with. The slightly higher
-temperature gives rewrites room to escape the local minimum of the previous definition
-while the feedback constrains the search space.
-
-### Why incremental template `max_blacks` is capped at `target_blacks + 4`
-
-The incremental builder calls the full CSP solver after every black square placement.
-With the old default of `3 * size` (33 for 11×11, 36 for 12×12), it could attempt
-dozens of expensive solver calls before finding a solvable configuration or giving up.
-Capping at `target_blacks + 4` (the same ceiling as the most relaxed variant) limits
-the number of solver calls while still covering the full range of black counts that
-any variant might produce. The ±2 randomization on procedural templates plus the +2/+4
-relaxed variants mean no variant ever needs more than `target_blacks + 4` blacks.
-
-### Why incremental template skips solver calls before `min_solver_step`
-
-Early steps (few blacks) produce grids with full-width slots that are impossible to fill.
-For 12×12 with `effective_max=24`, steps 1-17 are guaranteed to fail: the CSP solver
-exhausts its entire backtrack budget on each call. `min_solver_step = max(1, effective_max - 6)`
-limits solver calls to the last ~7 steps, eliminating ~16 wasted calls × 500K backtracks each.
-
-### Why incremental template uses `probe_backtracks` (1/3 of max)
-
-The incremental solver only probes solvability — it doesn't need to find optimal solutions.
-Templates requiring 300K+ backtracks produce poor word selections anyway. Using
-`max_backtracks // 3` (~166K for 12×12) as a fast solvability probe saves ~3× per call.
-The final solve in `_generate_candidate` uses the full backtrack budget.
-
-### Why incremental template uses lazy candidate evaluation
-
-The old code built a list of ALL valid cells (~100+), shuffled, and picked `[0]`. Since
-shuffling all cells upfront and taking the first valid cell gives the same uniform
-distribution, lazy evaluation skips expensive `_is_connected` BFS and `_creates_single_letter`
-scans on ~90% of cells that would never be selected.
-
-### Why `_sanitize_title` rejects at 2+ matching puzzle words, not 1
-
-A title like "Sub Munte" (containing one puzzle word) can be evocative and thematic.
-But "Munte și Plimbare" (two puzzle words) is just a word list disguised as a title.
-The threshold of 2 balances creativity (allowing the LLM to riff on a word) against
-quality (rejecting lazy concatenations). Only words of length ≥ 4 count, so short
-function words like "ZI" or "FOC" don't trigger false rejections.
+### Title Rejection Threshold (2+ Word Match)
+Balance creativity vs. quality. Single word match (e.g. "Sub Munte") allows evocative riffing. Dual match (e.g. "Munte și Plimbare") deemed "lazy list". Only length ≥ 4 words count; prevents false positives on function words (e.g. "ZI", "FOC").

@@ -1,75 +1,72 @@
 # AGENTS.md
 
-work style: telegraph; noun-phrases ok; drop grammar; min tokens.
+Style: telegraph. Noun-phrases OK. No grammar. Min tokens.
 
-> bootstrap context only
-- discoverable from codebase → don't put here.
-> corrections + patterns → LESSONS_LEARNED.md.
-> development:
-- correctness first
-- smallest good change
-- preserve behavior / interfaces / invariants unless task says otherwise
-- simple, explicit code
-- KISS
-- YAGNI
-- DRY; rule of three; temp duplication ok during migration
-- high cohesion; low coupling
-- follow repo patterns unless intentionally replacing with better consistent one
-- refactor when patch would raise future complexity
-- for broad changes: optimize for coherent end-state; stage changes; each step verifiable
-- no unrelated churn
-- leave code better
-> validation:
-- fastest relevant proof
-- targeted tests first
-- typecheck / build / lint as needed
-- smoke tests for affected flows when useful
-- update tests when behavior intentionally changes
-> ambiguity:
-- cannot decide from code -> explain; ask; no assume
-- otherwise choose most reversible reasonable path; state assumption
+> Bootstrap context only
+- Discoverable from codebase → omit.
+> Corrections/patterns → `LESSONS_LEARNED.md`.
+> Development:
+- Correctness first
+- Smallest good change
+- Preserve behavior/interfaces/invariants
+- Simple, explicit code
+- KISS; YAGNI; DRY
+- Temp duplication OK during migration
+- High cohesion; low coupling
+- Follow repo patterns
+- Refactor if patch adds complexity
+- Broad changes: Coherent end-state; staged; verifiable
+- No unrelated churn
+- Leave code better
+> Validation:
+- Fast proof
+- Targeted tests first
+- Typecheck/build/lint
+- Smoke tests if useful
+- Update tests on intentional change
+> Ambiguity:
+- Code unclear -> Explain; ask; no assume
+- Choose reversible path; state assumption
 
 ## Constraints
 
-<!-- non-obvious, needed BEFORE exploring. keep minimal. -->
-- **never blocklist Romanian words** — softer alternatives (quality scoring, definability thresholds, rarity penalties). blocklisting = slippery slope.
-- **dev server**: LM Studio running locally `http://localhost:1234`.
-- **two-model workflow**: gemma-4 + eurollm-22b active default. alternate rewrite rounds. models loaded/unloaded via LM Studio REST API. central pair config in `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`. never assume single model.
+- **Never blocklist Romanian words**: Use quality scoring, thresholds, penalties. Blocklist = risk.
+- **Dev server**: LM Studio local `http://localhost:1234`.
+- **Two-model workflow**: gemma-4 + eurollm-22b default. Alternate rewrites. Load via LM Studio REST API. Config: `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`.
 
 ## Legacy & Deprecated
 
-<!-- codebase parts that actively mislead. -->
+(Empty)
 
 ## Learning System
 
-Every session:
-1. start: read `LESSONS_LEARNED.md`
-2. during: note surprises
-3. end: append `ITERATION_LOG.md`
-4. reusable insight? → also add `LESSONS_LEARNED.md`
-5. same issue 2+ times in log? → promote to `LESSONS_LEARNED.md`
-6. surprise? → flag to developer (they decide: fix codebase / update LESSONS_LEARNED / adjust this file)
+Session:
+1. Start: Read `LESSONS_LEARNED.md`
+2. During: Note surprises
+3. End: Append `ITERATION_LOG.md`
+4. Reusable insight? → Add `LESSONS_LEARNED.md`
+5. Repeat issue? → Promote to `LESSONS_LEARNED.md`
+6. Surprise? → Flag to dev
 
 | File | Purpose | Write When |
 |------|---------|------------|
-| `LESSONS_LEARNED.md` | curated wisdom + corrections | reusable insight gained |
-| `ITERATION_LOG.md` | raw session journal, append-only | every iteration |
+| `LESSONS_LEARNED.md` | Wisdom + corrections | Reusable insight |
+| `ITERATION_LOG.md` | Session journal | Every iteration |
 
-Rules: never delete from ITERATION_LOG. Obsolete lessons → Archive in LESSONS_LEARNED. Date-stamp YYYY-MM-DD. When in doubt: log it.
+Rules: No delete from `ITERATION_LOG.md`. Obsolete lessons → Archive. Date-stamp YYYY-MM-DD.
 
 ### Periodic Maintenance
-Config files audited periodically via `SETUP_AI_AGENT_CONFIG.md`.
-See "Periodic Maintenance Protocol" section.
+Audit configs via `SETUP_AI_AGENT_CONFIG.md`.
 
 ## Sub-Agents
 
-`.claude/agents/`. Invoke proactively.
+Experts in `.claude/agents/`. Activate proactively.
 
 | Agent | File | When |
 |-------|------|------|
 | Romanian Crossword Expert | `.claude/agents/romanian-crossword-expert.md` | Romanian linguistics, morphology, definition quality |
-| Architect | `.claude/agents/architect.md` | system design, pipeline architecture, ADRs |
-| Planner | `.claude/agents/planner.md` | complex multi-step — plan before code |
-| UX Expert | `.claude/agents/ux-expert.md` | UI, interaction, a11y (frontend) |
-| Agent Creator | `.claude/agents/agent-creator.md` | new agent needed for recurring domain |
-| Prompt Engineer Expert | `.claude/agents/prompt-engineer-expert.md` | prompt optimization for definition pipeline (assessment-driven) |
+| Architect | `.claude/agents/architect.md` | System design, pipeline, ADRs |
+| Planner | `.claude/agents/planner.md` | Multi-step plans |
+| UX Expert | `.claude/agents/ux-expert.md` | UI, interaction, a11y |
+| Agent Creator | `.claude/agents/agent-creator.md` | New agent needed |
+| Prompt Engineer Expert | `.claude/agents/prompt-engineer-expert.md` | Prompt optimization |

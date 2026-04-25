@@ -1,6 +1,6 @@
 # Iteration Log
 
-> append-only. entry end of every iteration.
+> append-only. entry end every iteration.
 > same issue 2+ times? → promote to `LESSONS_LEARNED.md`.
 
 ## Entry Format
@@ -12,1595 +12,1659 @@
 **Context:** goal / trigger
 **Happened:** key actions, decisions
 **Outcome:** success / partial / failure
-**Insight:** (optional) what to tell next agent
+**Insight:** (optional) what next agent
 **Promoted:** yes / no
 
 ---
 
-### [2026-04-13] Fix LLM client streaming suppression and mock robustness
+### [2026-04-13] Fix LLM client streaming suppression + mock robustness
 
-**Context:** user requested implementation of Logging & Scheduling Optimization plan + tests green.
-**Happened:** Audited `llm_client.py` and test failures. Found `test_llm_debug.py` failing because `_create_chat_completion_once` bypassed streaming when debug was off, while the test's fake client demanded it. Fixed by always trying streaming for consistency and reasoning capture. To prevent breaking 17 other tests (whose mocks missed `delta`), hardened `_chat_completion_create_streaming` to handle both `delta` (real) and `message` (mock) choice fields. Internalized debug suppression in `_DebugStreamChannel`. Verified heartbeat, `failures.log`, and `resolve_canonicals` were already active.
+**Context:** implement Logging & Scheduling Optimization plan + tests green.
+**Happened:** Audit `llm_client.py` + test failures. `test_llm_debug.py` fail: `_create_chat_completion_once` bypass streaming when debug off. Fake client demand streaming. Fix: always try streaming for consistency + reasoning. Harden `_chat_completion_create_streaming` for `delta` (real) + `message` (mock) to avoid breaking 17 tests. Internalize debug suppression in `_DebugStreamChannel`. Verify heartbeat, `failures.log`, `resolve_canonicals` active.
 **Outcome:** success
-**Insight:** Forcing consistent streaming logic helps capture reasoning but requires chunk-parser robustness for legacy mocks that don't emit 'delta' fields.
+**Insight:** Consistent streaming capture reasoning; require chunk-parser robustness for legacy mocks lacking `delta`.
 **Promoted:** yes
 
 ---
 
-### [2026-04-09] Stabilize `run_all` deterministic stalls and fail fast
+### [2026-04-09] Stabilize `run_all` deterministic stalls + fail fast
 
-**Context:** user asked why `run_all.sh` had burned ~2 days without a new puzzle and wanted root cause plus implementation to prevent repeats.
-**Happened:** audited `generator/output/run_all_runs/20260407_132542/run.log`; confirmed partial outage, not total outage (`retitle` and `simplify` progressed, `generate`/`redefine` did not). Fixed pair-finalization crash in `generator/phases/verify.py` so negative short-circuit verification no longer indexes missing second-model votes. Refactored `generator/supervisor/jobs/simplify.py` to split survivor handling into `plan_survivors -> rewrite_secondary -> validate_primary -> apply_merge`, removing the hidden eurollm+gemma hop from one scheduled step. Added run-local supervisor failure memory and deterministic quarantine in `generator/supervisor/scheduler.py` / `generator/supervisor/types.py`, plus always-on heartbeat summaries and generate-size cooldown/penalty input into `generator/loop_controller.py` / `generator/supervisor/pollers.py`. Extended targeted tests for verify finalization, supervisor quarantine, loop-controller penalties, and scheduler activation allowlist.
-**Verification:** `python3 -m py_compile generator/phases/verify.py generator/supervisor/types.py generator/supervisor/scheduler.py generator/supervisor/pollers.py generator/supervisor/jobs/simplify.py generator/loop_controller.py tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py`; `python3 -m pytest tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py -q` (`52 passed`); `python3 -m pytest tests/test_clue_canon_simplify.py tests/test_llm_dispatch_enforcement.py -q` (`15 passed`).
+**Context:** `run_all.sh` stall root cause + implementation to prevent repeat.
+**Happened:** Audit `generator/output/run_all_runs/20260407_132542/run.log`; confirm partial outage. Fix pair-finalization crash in `generator/phases/verify.py`; remove missing second-model vote index. Refactor `generator/supervisor/jobs/simplify.py`; split survivor handling to `plan_survivors -> rewrite_secondary -> validate_primary -> apply_merge`. Add supervisor failure memory + deterministic quarantine in `generator/supervisor/scheduler.py` / `generator/supervisor/types.py`. Add heartbeat summaries + generate-size cooldown/penalty in `generator/loop_controller.py` / `generator/supervisor/pollers.py`. Extend tests.
+**Verification:** `python3 -m py_compile generator/phases/verify.py generator/supervisor/types.py generator/supervisor/scheduler.py generator/supervisor/pollers.py generator/supervisor/jobs/simplify.py generator/loop_controller.py tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py`; `python3 -m pytest tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py -q` (52 passed); `python3 -m pytest tests/test_clue_canon_simplify.py tests/test_llm_dispatch_enforcement.py -q` (15 passed).
 **Outcome:** success
-**Insight:** unattended orchestration bugs usually need two fixes, not one: the direct crash path and the missing supervisor policy that allowed the same deterministic failure to repeat forever.
+**Insight:** Unattended orchestration bugs need crash fix + supervisor policy to prevent repeat.
 **Promoted:** yes
 
 ---
 
 ### [2026-04-03] Convert repo-wide Python progress prints to shared runtime logging
 
-**Context:** user wanted verbose timestamped logs everywhere, then asked for a repo-wide conversion of Python `print()` usage to the standard logger and asked to keep the implementation dry.
-**Happened:** Audited Python sources with `rg`, found raw `print()` spread across long-running jobs, phase scripts, experiment runners, and helper modules. Replaced human-facing progress output with `generator.core.runtime_logging.log()` across assessment, batch publish, retitle/redefine/repair, define/verify/theme/upload/download/activate, rewrite engine, prompt-autoresearch, and experiment scripts. Reused the existing `install_process_logging()`/`log()` stack instead of introducing per-file logging systems; left raw stdout writes only in the benchmark row emitter and the logger primitive itself. Updated `tests/test_runtime_logging.py` to assert through `log()`.
-**Verification:** `python3 -m py_compile generator/assessment/run_assessment.py generator/batch_publish.py generator/core/ai_clues.py generator/core/rewrite_engine.py generator/core/score_helpers.py generator/loop_controller.py generator/phases/activate.py generator/phases/define.py generator/phases/download.py generator/phases/theme.py generator/phases/upload.py generator/phases/verify.py generator/repair_puzzles.py generator/redefine.py generator/retitle.py scripts/benchmark_phase1.py scripts/prompt_autoresearch.py scripts/run_experiments.py scripts/run_multistep_assessment_series.py generator/assessment/prepare_dataset.py`; `python3 -m pytest tests/test_runtime_logging.py tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_upload_phase.py -q` (`121 passed`); final `rg -n "\\bprint\\(" --glob '*.py' --glob '!.venv/**'` now only returns `generator/core/runtime_logging.py`.
+**Context:** verbose timestamped logs + repo-wide conversion of `print()` to standard logger; keep implementation dry.
+**Happened:** Audit Python sources with `rg`; find raw `print()` in jobs, scripts, runners. Replace human-facing progress output with `generator.core.runtime_logging.log()` across assessment, batch publish, retitle/redefine/repair, define/verify/theme/upload/download/activate, rewrite engine, prompt-autoresearch, experiment scripts. Reuse `install_process_logging()`/`log()` stack. Keep raw stdout only in benchmark row emitter + logger primitive. Update `tests/test_runtime_logging.py` to assert via `log()`.
+**Verification:** `python3 -m py_compile ...` (list of files); `python3 -m pytest tests/test_runtime_logging.py tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_upload_phase.py -q` (121 passed); final `rg -n "\\bprint\\("` returns only `generator/core/runtime_logging.py`.
 **Outcome:** success
-**Insight:** when a repo already has a timestamped tee logger, the fastest low-risk cleanup is to standardize on that single primitive and reserve raw stdout only for explicit data-export scripts.
+**Insight:** standardize on single tee logger primitive; reserve raw stdout for data-export scripts.
 **Promoted:** yes
 
 ---
 
 ### [2026-04-03] Make clue-canon backfill resumable, singleton-complete, and cutover-safe
 
-**Context:** user needed `run_clue_canon_backfill.sh` to stop feeling hung, stop requiring babysitting, migrate singleton clue rows too, and make canonical clue storage the permanent storage model so dropping `crossword_clues.definition` can be the final storage migration.
-**Happened:** Refactored `generator/clue_canon.py` from 50-word chunk commits into streaming per-word commits with a resumable JSON checkpoint under `build/clue_canon/`. Backfill now processes all clue rows (verified and unverified), includes singleton words by default, persists one canonical pointer per clue row, and writes disagreements/quarantine reports incrementally. Added backfill-only adaptive referee voting in `generator/core/ai_clues.py` so obvious non-matches or unanimous same-sense pairs can stop before the full 6-vote budget, while keeping two-model evaluation. Hardened upload/redefine/repair writers to fail if canonical resolution does not return `canonical_definition_id`. Added `python -m generator.clue_canon audit` to block final cutover when clue rows still have null canonical refs, effective-view rows still fall back to legacy definitions, or production code still contains direct legacy-column references. Updated the final SQL migration to assert no null canonical ids before dropping the legacy column.
-**Verification:** `python3 -m py_compile generator/clue_canon.py generator/core/ai_clues.py generator/core/clue_canon.py generator/core/clue_canon_types.py generator/core/lm_runtime.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py -q` (`81 passed`); `python3 -m pytest tests/test_redefine.py tests/test_repair_puzzles.py -q` (`33 passed`); `python3 -m pytest tests/test_upload_phase.py -q` (`1 passed`).
+**Context:** `run_clue_canon_backfill.sh` stop hang / babysitting; migrate singleton clue rows; make canonical clue storage permanent.
+**Happened:** Refactor `generator/clue_canon.py` to streaming per-word commits + resumable JSON checkpoint `build/clue_canon/`. Process all clue rows (verified + unverified); include singletons; persist canonical pointer per row; write disagreement/quarantine reports incrementally. Add backfill-only adaptive referee voting in `generator/core/ai_clues.py`; stop before full budget for obvious non-matches / unanimous same-sense pairs. Harden upload/redefine/repair writers to fail without `canonical_definition_id`. Add `python -m generator.clue_canon audit` to block cutover if null canonical refs / legacy fallback / legacy-column references exist. Update final SQL migration to assert zero null canonical ids.
+**Verification:** `python3 -m py_compile ...` (list of files); `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py -q` (81 passed); `python3 -m pytest tests/test_redefine.py tests/test_repair_puzzles.py -q` (33 passed); `python3 -m pytest tests/test_upload_phase.py -q` (1 passed).
 **Outcome:** success
-**Insight:** final schema cutovers are only really final if migration coverage, live writer guarantees, and legacy-read detection are all enforced by one audit command before the destructive SQL step.
+**Insight:** enforce migration coverage, live writer guarantees, + legacy-read detection via audit command before destructive SQL step.
 **Promoted:** yes
 
 ---
 
 ### [2026-04-01] Decouple clue flows from `crossword_clues.definition` and standardize clue/canonical logs
 
-**Context:** user wanted code made safe for dropping the legacy `crossword_clues.definition` column after canonical migration, plus clearer clue-generation / merge / redefine logging with maintainable shared formatting.
-**Happened:** Added clue-definition compatibility methods to `ClueCanonStore`: schema probing for legacy/canonical columns, hydrated clue fetches that resolve canonical text first and fall back to legacy text only when needed, batched canonical-id lookups, and payload builders that only materialize `definition` when the legacy column still exists. Switched `redefine`, `repair_puzzles`, `retitle`, and clue-canon backfill reads onto that helper; switched upload / attach / redefine / repair writes onto the shared payload builder. Added `generator/core/clue_logging.py` and routed generation, rewrite, upload, redefine, repair, and clue-canon merge/disagreement messages through common clue/canonical event formatting. Updated the Cloudflare worker puzzle-clue fetch path to resolve clue text via `canonical_definition_id` first, with legacy definition fallback only if still available.
-**Verification:** `python3 -m py_compile generator/core/clue_canon_store.py generator/core/clue_logging.py generator/clue_canon.py generator/phases/define.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py generator/retitle.py generator/core/rewrite_engine.py tests/test_clue_canon_store.py`; `python3 -m pytest tests/test_clue_canon_store.py tests/test_clue_canon.py tests/test_ai_clues.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_retitle.py -q` (`129 passed`). Could not run Worker TypeScript typecheck in-session because no local `tsc` / `worker/node_modules` is present.
+**Context:** safe legacy column drop after canonical migration; clearer logging with maintainable shared formatting.
+**Happened:** Add clue-definition compatibility to `ClueCanonStore`: schema probing, hydrated fetches (resolve canonical first, fallback to legacy), batched lookups, payload builders. Switch `redefine`, `repair_puzzles`, `retitle`, backfill reads to helper; switch upload / attach / redefine / repair writes to shared payload builder. Add `generator/core/clue_logging.py`; route messages via common event formatting. Update Cloudflare worker puzzle-clue fetch: resolve via `canonical_definition_id` first.
+**Verification:** `python3 -m py_compile ...` (list of files); `python3 -m pytest tests/test_clue_canon_store.py tests/test_clue_canon.py tests/test_ai_clues.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_retitle.py -q` (129 passed).
 **Outcome:** success
-**Insight:** schema migrations around canonicalized clue text stay tractable only if both reads and writes go through one compatibility surface; the same centralization also gives one place to standardize clue-event logging instead of hand-formatting strings in every flow.
+**Insight:** centralization of compatibility surface enables standardized clue-event logging.
 **Promoted:** yes
 
 ---
 
 ### [2026-04-01] Batch clue-canon referee work across words to avoid per-comparison model thrash
 
-**Context:** user flagged that clue-canon backfill can touch ~12k clues, so loading/unloading LM Studio models per comparison is too expensive; requirement: backfill batching only, no regressions in other clue-canon flows, logging/extensibility considered.
-**Happened:** Traced the hot path: `run_backfill()` merged words one-by-one, and every near-duplicate comparison ran a full `primary votes -> secondary votes` cycle before moving on. Added `DefinitionRefereeInput` plus `run_definition_referee_batch()` in `generator/core/ai_clues.py`, keeping the same 6-vote schedule but grouping many requests under one primary activation and one secondary activation. Added `ClueCanonService._run_referee_batch()` for reuse, then replaced backfill’s local merge loop with a round-robin `_MergeState` batch state machine in `generator/clue_canon.py` that preserves per-word merge order while collecting up to `--referee-batch-size` pending comparisons across a chunk of words. Kept single-item `resolve_definition()` behavior unchanged, preserved existing per-comparison audit payloads, and added a lightweight batch log plus summary field for batch size.
-**Verification:** `python3 -m py_compile generator/core/ai_clues.py generator/core/clue_canon.py generator/core/clue_canon_types.py generator/clue_canon.py tests/test_ai_clues.py tests/test_clue_canon.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_redefine.py tests/test_repair_puzzles.py -q` (`100 passed`).
+**Context:** clue-canon backfill (~12k clues) LM Studio model thrash; requirement: backfill batching only, no regressions, logging/extensibility.
+**Happened:** Trace hot path: `run_backfill()` merged one-by-one; each comparison ran full `primary -> secondary` cycle. Add `DefinitionRefereeInput` + `run_definition_referee_batch()` in `generator/core/ai_clues.py`; group requests under one primary + one secondary activation. Add `ClueCanonService._run_referee_batch()`. Replace backfill merge loop with `_MergeState` batch state machine in `generator/clue_canon.py`; preserve word order, collect up to `--referee-batch-size`. Keep single-item `resolve_definition()` behavior; preserve audit payloads; add batch log + summary.
+**Verification:** `python3 -m py_compile ...` (list of files); `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_redefine.py tests/test_repair_puzzles.py -q` (100 passed).
 **Outcome:** success
-**Insight:** high-volume two-model referee jobs need a dedicated batched execution path; reusing the exact vote semantics while moving model activation to batch boundaries gives most of the win without complicating live clue-resolution flows.
+**Insight:** high-volume referee jobs need dedicated batched execution; reuse vote semantics, move model activation to batch boundaries.
 **Promoted:** yes
 
 ---
 
 ### [2026-04-01] Fix empty-arg crash in `run_clue_canon_backfill.sh`
 
-**Context:** user ran `./run_clue_canon_backfill.sh` with no extra args; wrapper crashed immediately with `line 34: args[@]: unbound variable`.
-**Happened:** Read local lessons first, then traced the failure to `set -euo pipefail` under macOS `bash 3.2.57`: the script built `args=("$@")` and later expanded `"${args[@]}"` even when no CLI args were supplied. Reworked the wrapper to scan `"$@"` directly for `--apply|--dry-run`, branch on `$#`, and only build/expand `args` after guaranteeing at least one element (`--apply` default when empty).
-**Verification:** reproduced the fixed control flow in `bash -lc` with `set -euo pipefail` for two cases: no args produced `--apply`; `--word APA --limit 10` produced `--apply --word APA --limit 10`. Did not run the real backfill command itself in-session, to avoid triggering live apply behavior during a wrapper-only fix.
+**Context:** `./run_clue_canon_backfill.sh` crash: `line 34: args[@]: unbound variable`.
+**Happened:** Trace to `set -euo pipefail` under macOS `bash 3.2.57`; expanded `"${args[@]}"` when empty. Rework wrapper: scan `"$@"` for `--apply|--dry-run`, branch on `$#`, build/expand `args` only after guarantee of element.
+**Verification:** reproduce fix in `bash -lc` + `set -euo pipefail` (no args → `--apply`; args → passthrough).
 **Outcome:** success
-**Insight:** on this repo's macOS shell baseline, empty array expansion is not safe under `nounset`; thin helper scripts should prefer `$#`/`"$@"` gating over assuming empty arrays behave portably.
+**Insight:** empty array expansion unsafe under `nounset` in macOS bash; prefer `$#`/`"$@"` gating.
 **Promoted:** yes
 
 ---
 
 ### [2026-03-30] Persist rewrite structural rejection reasons, auto-balance overnight sizes, and centralize Supabase update logs
 
-**Context:** user wanted failed rewrite attempts to remember exact structural rejection causes across rounds, `run_batch_loop.sh` to stop looping blindly through `7..15`, and Supabase updates to emit a generic centralized log message.
-**Happened:** Added `RewriteAttemptResult` in `generator/core/ai_clues.py` and kept `rewrite_definition()` backward-compatible by returning a string by default while exposing `return_diagnostics=True` for the rewrite engine. Extended `ClueAssessment` with `rewrite_rejection_reason`, updated `generator/core/rewrite_engine.py` to persist the last structural rejection only when rewrite produced no usable candidate, and updated `_synthesize_failure_reason()` to prefer verify/rating signals before falling back to that structural reason. Added `generator/core/supabase_ops.py` with shared `execute_logged_update(...)` and switched current Supabase update sites in `activate`, `redefine`, `repair_puzzles`, and `retitle` to use it. Extended `generator.loop_controller` with `--auto-size`, live counting of `crossword_puzzles.grid_size`, missing-size-as-zero balancing, and smallest-size tie-break; updated `run_batch_loop.sh` to launch loop controller with `--auto-size`.
-**Verification:** `python3 -m pytest tests/test_loop_controller.py tests/test_ai_clues.py tests/test_rewrite_engine.py tests/test_batch_publish.py -q` (`120 passed in 0.71s`); `python3 -m py_compile generator/core/ai_clues.py generator/core/pipeline_state.py generator/core/rewrite_engine.py generator/core/score_helpers.py generator/core/supabase_ops.py generator/loop_controller.py generator/phases/activate.py generator/redefine.py generator/repair_puzzles.py generator/retitle.py`
+**Context:** fail rewrite attempts remember rejection causes; `run_batch_loop.sh` stop blind looping; centralized Supabase update logs.
+**Happened:** Add `RewriteAttemptResult` in `generator/core/ai_clues.py`; keep `rewrite_definition()` compatible (return string default, expose `return_diagnostics=True`). Extend `ClueAssessment` with `rewrite_rejection_reason`. Update `generator/core/rewrite_engine.py` to persist last structural rejection when no candidate produced. Update `_synthesize_failure_reason()`: prefer verify/rating signals over structural. Add `generator/core/supabase_ops.py` with `execute_logged_update(...)`; switch current update sites. Extend `generator.loop_controller` with `--auto-size`, live grid counting, missing-size-as-zero balancing, smallest-size tie-break. Update `run_batch_loop.sh`.
+**Verification:** `python3 -m pytest tests/test_loop_controller.py tests/test_ai_clues.py tests/test_rewrite_engine.py tests/test_batch_publish.py -q` (120 passed); `python3 -m py_compile ...` (list of files).
 **Outcome:** success
-**Insight:** rewrite structural failures need their own persisted channel distinct from verify/rate failure reasons, and overnight size balancing belongs in the Python controller against live Supabase inventory rather than in a blind shell size loop.
+**Insight:** persist rewrite structural failures in own channel; Python controller belongs against live Supabase inventory for overnight size balancing.
 **Promoted:** yes
 
 ---
 
 ### [2026-03-26] Make both title models generate per round and share text cleanup with clue generation
 
-**Context:** user observed that `gpt-oss-20b` still often returned empty title content or weak short-title behavior even after increasing token budget, while definition generation remained stable. They wanted title generation to behave more like definition generation: lower temperature, shared output cleanup, and both models allowed to generate candidates instead of only using the secondary model as an empty-response fallback.
-**Happened:** Refactored `generator/phases/theme.py` so each title round now queries both generators when `multi_model=True`, rates each candidate cross-model, and keeps the best valid result across both models/rounds. Lowered title-generation temperature from `0.9` to `0.3`. Extracted the plain-text cleanup logic from `generator/core/ai_clues.py` into shared helper `generator/core/llm_text.py`, then reused it for titles so model output now strips wrappers/labels/markdown-like noise before title validation, just like definition generation does. Updated theme tests for the new per-round dual-generator flow and reran title/batch/retitle/repair plus clue-generation coverage.
-**Verification:** `python3 -m pytest tests/test_text_rules.py tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py tests/test_ai_clues.py -q` (`148 passed in 0.47s`)
+**Context:** `gpt-oss-20b` empty title / weak behavior; align title generation with definition: lower temp, shared cleanup, parallel candidate generation.
+**Happened:** Refactor `generator/phases/theme.py`: each round query both generators when `multi_model=True`; rate candidates cross-model; keep best valid across both. Lower temp `0.9 -> 0.3`. Extract plain-text cleanup from `generator/core/ai_clues.py` to `generator/core/llm_text.py`; reuse for titles (strip labels/markdown). Update theme tests.
+**Verification:** `python3 -m pytest tests/test_text_rules.py tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py tests/test_ai_clues.py -q` (148 passed).
 **Outcome:** success
-**Insight:** short creative-title generation should not use a fundamentally different output-cleaning contract from definition generation; shared cleanup and parallel model generation reduce both empty-output and formatting-noise failure modes.
+**Insight:** share output-cleaning contract between title + definition generation; parallel generation reduces empty/noise failure modes.
 **Promoted:** no
 
 ---
 
 ### [2026-03-26] Raise title-generation token budget to avoid gpt-oss reasoning-only empty outputs
 
-**Context:** user reported `run_title_improve.sh` getting repeated `"(gol)" -> titlu gol` rounds for many puzzles. Investigation showed `gpt-oss-20b` was often filling LM Studio's `reasoning` field but leaving `message.content` empty on the title prompt, so the pipeline interpreted the result as an empty title.
-**Happened:** Reproduced the raw chat-completions call locally and confirmed the model frequently returned empty `content` at the old `max_tokens=50` title budget. Increased title-generation `max_tokens` in `generator/phases/theme.py` to `500`, matching the user's requested safer budget, and synchronized the title prompts (`generator/prompts/system/theme.md`, `generator/prompts/user/title_generate.md`) from `2-4` to `2-5` words so prompt text matches the current validator rules.
-**Verification:** `python3 -m pytest tests/test_theme.py tests/test_retitle.py tests/test_batch_publish.py tests/test_repair_puzzles.py -q` (`88 passed in 0.53s`)
+**Context:** `run_title_improve.sh` repeated empty titles. `gpt-oss-20b` filled reasoning but left `message.content` empty at low token budget.
+**Happened:** Reproduce chat call; confirm empty `content` at `max_tokens=50`. Increase title `max_tokens` in `generator/phases/theme.py` to `500`. Sync title prompts (`generator/prompts/system/theme.md`, `generator/prompts/user/title_generate.md`) word count `2-4 -> 2-5` to match validator.
+**Verification:** `python3 -m pytest tests/test_theme.py tests/test_retitle.py tests/test_batch_publish.py tests/test_repair_puzzles.py -q` (88 passed).
 **Outcome:** success
-**Insight:** local reasoning models can exhaust a tiny completion budget on hidden reasoning and emit blank final text; short-form generation paths need a larger token budget than the apparent final answer length suggests.
+**Insight:** reasoning models exhaust budget on hidden content; generation paths need larger budget than answer length suggests.
 **Promoted:** no
 
 ---
 
 ### [2026-03-26] Force deterministic `Fara titlu` when title generation never beats score 0
 
-**Context:** after the title-score refactor, user wanted the all-failure case to stop producing random fallback labels; if the maximum title score after all 7 rounds stays `0`, the result should be deterministic.
-**Happened:** Updated `generator/phases/theme.py` so the no-signal outcome now returns `Fara titlu` with `score=0` and `used_fallback=True` instead of a random fallback-pool label. This covers both paths: all 7 rounds invalid during candidate review, and valid candidates whose best creativity score never rises above `0`. Added theme tests for both scenarios and reran the title-related suites to confirm batch/retitle/repair behavior stays intact.
-**Verification:** `python3 -m pytest tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py -q` (`88 passed in 0.60s`)
+**Context:** all-failure title case stop producing random fallback labels; deterministic result if max score stays `0`.
+**Happened:** Update `generator/phases/theme.py`: return `Fara titlu` with `score=0` + `used_fallback=True` instead of random label. Covers invalid rounds + low creativity scores. Add tests; verify batch/retitle/repair.
+**Verification:** `python3 -m pytest tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py -q` (88 passed).
 **Outcome:** success
-**Insight:** deterministic failure labels beat random fallback titles when the generator produced no usable signal at all; otherwise repeated maintenance runs look noisy even though nothing improved.
+**Insight:** deterministic failure labels beat random fallback titles for no-signal cases.
 **Promoted:** no
 
 ---
 
 ### [2026-03-25] Add DEX-driven usage-label suffixes to clue prompts and clue text
 
-**Context:** user wanted clues for marked senses to carry one explicit usage/register suffix like `(arh.)`, `(inv.)`, `(tehn.)`, `(reg.)` so solvers are warned when the intended answer is rarer or domain-specific. Requirement: source labels only from explicit text already present in `dex_definitions`; apply consistently to define/verify/rewrite/rate; and bias rating so justified suffixes help rare words while gratuitous suffixes hurt common words.
-**Happened:** Extended `generator/core/ai_clues.py` with explicit DEX-text label extraction, fixed precedence across supported suffixes, trailing-suffix stripping/normalization, and prompt-context builders for generate/rewrite/verify/rate. `generate_definition()` and `rewrite_definition()` now normalize outputs to at most one supported trailing suffix and remove gratuitous suffixes when DEX gives no explicit support; validation ignores the trailing label so one-word gloss checks and other guards still apply to the semantic core of the clue. Updated prompt templates and system prompts so generate/rewrite use the suffix when DEX supports it, verify treats a trailing suffix as real sense/register guidance, and rate scores suffixes asymmetrically: helpful for rare/specialized disambiguation, harmful when gratuitous on common words. Added explicit examples in prompt files where those prompts already had examples. Expanded `tests/test_ai_clues.py` with extraction, prompt, normalization, and prompt-example assertions, and updated `tests/test_verify.py` to assert suffixed definitions are passed intact. Also hardened two verify-phase tests by mocking `LmRuntime.activate_primary()` so unit coverage no longer depends on live LM Studio state.
+**Context:** clues for rare/specialized senses carry usage suffix (e.g. `(arh.)`); source from `dex_definitions`; bias rating (justify rare, hurt common).
+**Happened:** Extend `generator/core/ai_clues.py`: DEX-text label extraction, suffix precedence, normalization, prompt-context builders. `generate_definition()` / `rewrite_definition()` normalize to one suffix, remove gratuitous labels. Validation ignore label. Update prompt templates: verify treat suffix as guidance; rate score asymmetrically. Expand `tests/test_ai_clues.py`; update `tests/test_verify.py`. Harden verify tests: mock `LmRuntime.activate_primary()`.
 **Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_verify.py tests/test_rewrite_engine.py -q`; `python3 -m pytest tests/test_redefine.py -q`.
 **Outcome:** success
-**Insight:** once clue text gains machine-added parenthetical suffixes, clue validation must strip them before word-count and dangling-ending checks; otherwise the suffix itself can mask bad one-word glosses.
+**Insight:** strip parenthetical suffixes before validation word-count/ending checks to avoid masking bad glosses.
 **Promoted:** no
 
 ---
 
 ### [2026-03-25] Refresh redefine metadata/clue state after each persisted clue update
 
-**Context:** user wanted `run_definition_improve.sh` / `generator.redefine` to stop updating only `crossword_clues.definition`. New requirement: after each persisted clue delta, also refresh puzzle-level Supabase metadata, persist clue `verify_note` + `verified`, keep title fixed, and backfill missing metadata even when no clue row changes.
-**Happened:** Refactored `generator/redefine.py` into a two-state flow: baseline puzzle is re-evaluated from DB rows first, then a separate candidate puzzle runs the rewrite loop. `fetch_clues()` now loads `clue_number`, `verify_note`, and `verified`; `build_working_puzzle()` imports existing verify state instead of discarding it. Persist path now compares stable clue keys `(direction,start_row,start_col)` and writes full clue payloads `{definition, verify_note, verified}` one row at a time. After each clue write, an in-memory persistence puzzle is advanced to that clue’s final version, puzzle assessment is recomputed via shared `puzzle_metrics` helpers, and `crossword_puzzles` gets refreshed `description`, numeric scores/counts, `pass_rate`, plus `updated_at` and `repaired_at`. Added no-op/backfill handling for the zero-clue-delta cases. Expanded `tests/test_redefine.py` to cover imported verify state, clue-state persistence, per-clue metadata refresh, backfill-only behavior, no-op when metadata already exists, and state-only deltas.
+**Context:** `redefine` refresh puzzle-level Supabase metadata, persist `verify_note` + `verified`, keep title, backfill missing metadata.
+**Happened:** Refactor `generator/redefine.py` to two-state flow: baseline puzzle re-eval -> candidate rewrite loop. `fetch_clues()` load `clue_number`, `verify_note`, `verified`. `build_working_puzzle()` import verify state. Persist via stable coordinate keys. After each write: advance in-memory puzzle, recompute assessment via `puzzle_metrics`, refresh `crossword_puzzles` (`description`, scores, `pass_rate`, timestamps). Add no-op/backfill handling. Expand tests.
 **Verification:** `python3 -m pytest tests/test_redefine.py`; `python3 -m pytest tests/test_repair_puzzles.py`.
 **Outcome:** success
-**Insight:** redefine/repair flows should key DB clue persistence by stable coordinates, not `word_normalized`; duplicate answers are legal, while `(direction,start_row,start_col)` is the actual persistence contract.
+**Insight:** key DB clue persistence by coordinates `(direction,start_row,start_col)`, not answer; duplicates legal.
 **Promoted:** no
 
 ---
 
 ### [2026-03-24] Implement normalized-only Rust engine and pinned Python variant hydration
 
-**Context:** user wanted the Rust phase-1 engine to own only normalized grid fill, dedupe input by normalized word before search, forbid duplicate normalized answers in solved grids, use minimum rarity across variants for normalized-word quality, and move concrete variant resolution (`word_original`, `word_type`, later metadata) fully outside Rust while keeping that choice fixed once selected.
-**Happened:** Refactored `crossword_engine` into a normalized-answer engine: `words.rs` now groups source rows by normalized key, dedupes before indexing, aggregates min rarity per normalized word, and drops original-word ownership from `WordEntry`; `quality.rs` now computes rarity-aware definability from the normalized key + min rarity and reports nonzero rarity metrics; `engine.rs` now returns explicit `EngineError`s instead of panicking on invalid size/input, removes answer reuse for all sizes, switches from the old relaxed-variant search to a monotonic black-dot ladder, stops after the first valid solution via cooperative cancellation, emits normalized words only, and adds dictionary/relaxation status stats; `solver.rs` now threads cancellation through recursion and removes runtime `expect` assumptions. On the Python side, `generator/batch_publish.py` now groups metadata rows by normalized word, randomly chooses one concrete variant once per puzzle clue after Rust fill hydration, rewrites clue originals from that pinned choice, and injects pinned `word_type`/`word_original` into the later state so define/verify/rewrite/title use a stable variant instead of last-row-wins metadata lookups. Updated Rust CLI tests and batch tests for the new output/metadata behavior.
-**Verification:** `cargo test --manifest-path crossword_engine/Cargo.toml`; `python3 -m pytest tests/test_batch_publish.py -q`; `python3 -m pytest -q`; direct smoke run `cargo run --quiet --manifest-path crossword_engine/Cargo.toml --bin crossword_phase1 -- --size 7 --words generator/output/words.json --seed 42 --preparation-attempts 1`.
+**Context:** Rust phase-1 grid fill own normalized only; dedupe input; forbid duplicates; rarity-aware normalized quality. Move variant resolution to Python; fix choice after selection.
+**Happened:** Refactor `crossword_engine`: `words.rs` group by normalized key, dedupe, aggregate min rarity. `quality.rs` rarity-aware definability. `engine.rs` return `EngineError` (no panic), remove reuse, black-dot ladder search, single solution output, dict stats. `solver.rs` thread cancellation, remove `expect`. Python `generator/batch_publish.py`: group metadata by normalized word, random choice of variant once per clue after hydration, rewrite originals from pinned choice, inject pinned `word_type`/`word_original` into state. Update tests.
+**Verification:** `cargo test ...`; `python3 -m pytest tests/test_batch_publish.py -q`; smoke run `cargo run ... --bin crossword_phase1 ...`.
 **Outcome:** success
-**Insight:** normalized-only fill is only stable if the later pipeline pins one concrete variant per clue immediately after hydration; otherwise metadata randomization leaks into downstream behavior.
-**Promoted:** yes — see LESSONS_LEARNED entry on pinning one concrete variant per clue after normalized-only fill.
+**Insight:** pin concrete variant immediately after normalized-only fill to prevent metadata randomization leak.
+**Promoted:** yes
 
 ---
 
 ### [2026-03-23] Repair regressions after Python phase-1 removal
 
-**Context:** after deleting the legacy Python phase-1 stack, full CI still failed in `test_ai_clues` and `test_verify`, and an old manual size sweep had left native `crossword_phase1` processes running in the terminal.
-**Happened:** Restored the shared `ENGLISH_HOMOGRAPH_HINTS` mapping in `generator/core/quality.py` with the Romanian senses already documented in the definition system prompt, so `_build_generate_prompt()` again emits the expected anti-English warning for words like `AN`. Updated `generator/phases/verify.py` to pass `model=` only when a concrete model name exists, preserving the old mock-call contract when `model_name is None`. Stopped the stale `crossword_phase1` background processes from the earlier 13/14/15 sweep.
-**Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_verify.py -q` (`49 passed`); `python3 -m pytest -q` (`369 passed`)
+**Context:** CI failed in `test_ai_clues` / `test_verify` after phase-1 deletion; stale native processes.
+**Happened:** Restore `ENGLISH_HOMOGRAPH_HINTS` in `generator/core/quality.py` for definition system prompt anti-English warnings. Update `generator/phases/verify.py` to pass `model=` only when name exists (fix mock contract). Stop background `crossword_phase1` processes.
+**Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_verify.py -q` (49 passed); `python3 -m pytest -q` (369 passed).
 **Outcome:** success
-**Insight:** deleting “unused” helpers is safe only after a repo-wide search for non-phase-1 consumers; prompt helpers and tests still depended on the homograph-hint table.
+**Insight:** separate shared lexical helpers before ripping out implementation; verify all consumers.
 **Promoted:** no
 
 ---
 
 ### [2026-03-23] Remove legacy Python phase-1 generator path after Rust migration
 
-**Context:** user explicitly wanted the old Python phase-1 crossword-generation code gone after the Rust engine takeover; no dead fallback, no standalone Python template/fill commands left around.
-**Happened:** Removed the Python phase-1 implementation from `generator/batch_publish.py` (`_build_index`, `_generate_candidate`, `_best_candidate_python`, template-generation hooks, solver/index imports) and made `_best_candidate(...)` Rust-only with required `words_path`. Deleted obsolete Python modules `generator/core/constraint_solver.py`, `generator/core/grid_template.py`, `generator/core/word_index.py`, `generator/phases/generate_grid.py`, and `generator/phases/fill.py`. Simplified `generator/core/size_tuning.py` down to size lists plus batch retry floors, since the old Python-specific backtrack/rarity/template settings were no longer used. Removed `generate-grid`/`fill` from `generator/rebus.py`, updated `scripts/benchmark_phase1.py` to benchmark Rust only, and trimmed tests accordingly by deleting `tests/test_constraint_solver.py`, `tests/test_grid_template.py`, and `tests/test_quality.py` plus removing Python-phase-1-specific assertions from `tests/test_batch_publish.py`. Restored a minimal shared `ENGLISH_HOMOGRAPH_HINTS` constant in `generator/core/quality.py` after test collection revealed `ai_clues.py` still imports it for prompt hints.
-**Verification:** `python3 -m py_compile generator/core/quality.py generator/batch_publish.py generator/rebus.py scripts/benchmark_phase1.py generator/core/size_tuning.py generator/core/markdown_io.py tests/test_batch_publish.py tests/test_loop_controller.py`; `python3 -m pytest tests/test_batch_publish.py tests/test_loop_controller.py -q` (`47 passed`); `cargo test --manifest-path crossword_engine/Cargo.toml`
+**Context:** delete old Python phase-1 code; no dead fallbacks / standalone commands.
+**Happened:** Remove Python phase-1 from `generator/batch_publish.py`; make `_best_candidate(...)` Rust-only. Delete `generator/core/{constraint_solver,grid_template,word_index}.py`, `generator/phases/{generate_grid,fill}.py`. Simplify `generator/core/size_tuning.py` to size lists + retry floors. Remove `generate-grid`/`fill` from `generator/rebus.py`. Update `scripts/benchmark_phase1.py` (Rust only). Trim tests: delete `tests/test_{constraint_solver,grid_template,quality}.py`. Restore minimal `ENGLISH_HOMOGRAPH_HINTS` in `generator/core/quality.py`.
+**Verification:** `python3 -m py_compile ...` (list of files); `python3 -m pytest tests/test_batch_publish.py tests/test_loop_controller.py -q` (47 passed); `cargo test ...`.
 **Outcome:** success
-**Insight:** when ripping out a legacy implementation, separate shared lexical helpers from implementation-specific code first; otherwise unrelated runtime imports can fail at test collection.
+**Insight:** none
 **Promoted:** no
 
 ---
 
 ### [2026-03-20] Archive results3 and redesign next 100-experiment campaign
 
-**Context:** user stopped the live 150-experiment campaign after 99 completed runs and wanted a forensic read of what worked, what almost worked, what failed badly, then a fresh 100-experiment plan starting with removals and alternating prompt files.
-**Happened:** Analyzed `results.tsv` plus `logs/results_exp150.json`, wrote `build/experiment_reports/results3_campaign_review.md`, archived the finished campaign to `generator/assessment/results3.tsv`, recreated an empty `generator/assessment/results.tsv`, redesigned `scripts/run_experiments.py` to a new 100-experiment single-file campaign with removals first and strong file alternation, tightened git-live result commits to avoid ignored `logs/` paths, and added runner tests for count/ordering.
+**Context:** forensic analysis of 99 experiments; new 100-run plan (removals first, file alternation).
+**Happened:** Analyze `results.tsv` + `logs/results_exp150.json`. Write `build/experiment_reports/results3_campaign_review.md`. Archive to `generator/assessment/results3.tsv`. Recreate empty `results.tsv`. Redesign `scripts/run_experiments.py`: removal experiments first, strong file alternation. Tighten git commits (avoid `logs/`). Add runner tests.
 **Outcome:** success
-**Insight:** in live-git campaigns, score history and prompt-state history can diverge; keep prompt backups authoritative and do not assume a “keep” row means the current prompt tree still contains that winning edit
-**Promoted:** yes — see LESSONS_LEARNED "Live git experiment commits are not enough to reconstruct winning prompt state"
+**Insight:** prompt backups must be authoritative; don't assume "keep" row matches current prompt tree in live-git campaigns.
+**Promoted:** yes
 
 ---
 
 ### [2026-03-18] Add grammatical-form checks and richer experiment metadata
 
-**Context:** user wanted future experiments to include prompt-pruning/removal variants, grammatical-form checking, and more readable experiment descriptions/logs.
-**Happened:** Updated base prompts and verify pipeline to pass grammatical category into `verify`, added form-agreement instructions to `verify/rate/rewrite/definition`, rewrote pending experiment definitions to include removal-style attempts plus grammatical-form checks, and changed experiment descriptions to include short description + modified file. Backfilled current campaign JSON/TSV descriptions to the richer format. Added unit tests for verify prompt metadata, verify word-type propagation, runner description formatting, and stabilized `test_verify.py` by mocking `DexProvider.for_puzzle()`.
+**Context:** experiments include prompt-pruning, grammatical-form checking, richer logs.
+**Happened:** Update verify pipeline: pass category to `verify`. Add form-agreement instructions to `verify/rate/rewrite/definition`. Rewrite experiments: include removal attempts + form checks. Change descriptions: summary + file modified. Backfill campaign JSON/TSV. Add tests: verify metadata/word-type propagation, runner description formatting. Stabilize `test_verify.py` (mock `DexProvider`).
 **Outcome:** success
-**Insight:** verify/rate unit tests must isolate DEX prefetch or they stop being reliable local tests
-**Promoted:** yes — see LESSONS_LEARNED "rate_puzzle() tests must mock DexProvider.for_puzzle()"
+**Insight:** isolate DEX prefetch in verify/rate unit tests for reliability.
+**Promoted:** yes
 
 ---
 
 ### [2026-03-18] Recover partial 41-experiment campaign after power loss
 
-**Context:** user lost power during the 100-experiment campaign and wanted exact prompt edits, discarded results in TSV, and smaller logs.
-**Happened:** Reconstructed `exp001`-`exp041` change diffs from `scripts/run_experiments.py` plus `logs/march17_campaign.json`; generated markdown/TSV reports under `build/experiment_reports/`. Backfilled discarded experiments into `generator/assessment/multistep_results.tsv`. Split the 3.4 MB monolithic log into `logs/march17_campaign_split/expNNN.log` files. Patched `scripts/run_experiments.py` so future runs write one assessment log per experiment, persist discard rows in TSV, and store `file/find/replace` in the campaign JSON. Confirmed the crash left `generator/prompts/system/definition.md` with `exp042` applied while no `exp042` result existed.
+**Context:** power loss during 100-experiment run; reconstruct edits + results.
+**Happened:** Reconstruct `exp001`-`exp041` diffs from `scripts/run_experiments.py` + `logs/march17_campaign.json`. Generate reports in `build/experiment_reports/`. Backfill discards to `multistep_results.tsv`. Split monolithic log. Patch runner: per-experiment logs, persist discards in TSV, store `file/find/replace` in JSON. Identify `exp042` prompt leakage (no result).
 **Outcome:** success
-**Insight:** abnormal termination can leave prompt files ahead of recorded experiment state; always diff against the campaign backup after crashes
-**Promoted:** yes — see LESSONS_LEARNED entries on interrupted campaigns and per-experiment logs
+**Insight:** abnormal termination leaves prompt files ahead of recorded state; always diff against backup.
+**Promoted:** yes
 
 ---
 
 ### [2026-03-20] Stop interrupted results run, archive results4, restore best prompt state, add top-k verifier semantics
 
-**Context:** user asked to stop the interrupted `results_exp100` campaign, archive current assessment rows to `results4.tsv`, restore prompt files to the best current experiment backup, then change the verifier so it can emit 2-3 candidate words and count pass if any candidate is correct.
-**Happened:** Confirmed the active `tmux` session and compared `generator/prompts/` against `build/prompt_backups/results_exp100_best`. Only one partial experiment edit remained: an added ambiguity-disambiguation line in `generator/prompts/system/definition.md`. Stopped the session, copied `generator/assessment/results.tsv` to `generator/assessment/results4.tsv`, removed the partial line, and rechecked that `generator/prompts/` matched the best-backup tree exactly. Then implemented configurable top-k verification across the pipeline: added `VERIFY_CANDIDATE_COUNT` config, updated verify prompts to request multiple candidates, added response parsing for numbered/comma-separated candidate lists, stored candidate lists in `ClueAssessment`, rendered them into verify notes, propagated “any candidate matches” semantics into `phases/verify.py`, `generator/assessment/run_assessment.py`, `batch_publish.py`, `redefine.py`, `loop_controller.py`, and CLI entrypoints, and extended metrics with stored verify candidates. Added focused tests for prompt formatting, multi-candidate parsing, verify success on a non-first correct answer, note roundtrips, and difficulty aggregation of candidate lists.
+**Context:** stop `results_exp100`; archive assessment; restore best backup; implement top-k verification (2-3 candidates).
+**Happened:** Stop session. Copy `results.tsv` to `results4.tsv`. Restore `generator/prompts/` from `results_exp100_best` backup. Implement top-k verification: add `VERIFY_CANDIDATE_COUNT`, update verify prompts, add response parsing (numbered/comma lists), store in `ClueAssessment`, render to notes. Propagate "any candidate matches" semantics across pipeline + metrics. Add tests: prompt formatting, multi-candidate parsing, non-first success, note roundtrips, difficulty aggregation.
 **Outcome:** success
-**Insight:** top-k verification is only useful if notes, metrics, batch publication, and benchmark scoring all adopt the same pass criterion; otherwise “near miss” evidence disappears or contradicts pass-rate metrics
-**Promoted:** yes — see LESSONS_LEARNED "Top-k verifier changes need pipeline-wide semantics, not just a prompt tweak"
+**Insight:** adopt pass criterion across notes, metrics, batch publication, benchmark scoring for top-k utility.
+**Promoted:** yes
 
 ---
 
 ### [2026-03-18] Rebuild multistep benchmark from March 17 and harden runner repeatability
 
-**Context:** user wanted old assessment words replaced with March-17 low/high candidates only; multistep benchmark only; repeatable baseline and full experiment runs.
-**Happened:** Aggregated `20260317_*` `metrics.json` files into low/high TSVs with averaged rebus scores. Rewrote dataset builder to produce a 70-word low/medium/high multistep set with short-word caps and reused DEX definitions from the existing dataset. Ran a real baseline on the rebuilt set (`67.8` composite, `28.6%` pass). Patched `run_experiments.py` to stream assessment logs live, restore prompts on interrupt, roll back `multistep_results.tsv` for discarded runs, and support per-campaign log paths / description prefixes. Archived old assessment history and reset active baseline/history to the new March-17 dataset.
+**Context:** replace assessment words with March-17 candidates; multistep only; repeatable baseline.
+**Happened:** Aggregate `metrics.json` to low/high TSVs (avg rebus scores). Rewrite dataset builder: 70-word set (low/med/high) + short-word caps + reused DEX. Run real baseline (67.8 composite, 28.6% pass). Patch `run_experiments.py`: stream logs, restore on interrupt, roll back discards in TSV, support campaign-specific paths/prefixes. Archive history; reset baseline to March-17 set.
 **Outcome:** success
-**Insight:** append-only assessment artifacts poison hill-climbing unless discarded experiments restore both prompt state and result state
-**Promoted:** yes — see LESSONS_LEARNED "Prompt experiment runs must roll back assessment artifacts on discard"
+**Insight:** restore prompt + result state on discard to prevent poisoning hill-climbing.
+**Promoted:** yes
 
 ---
 
 ### [2026-03-14] Add prefix stripping and forbidden stems to family check
 
-**Context:** TIBETAN burned 8 rewrite rounds because LLM kept using "Tibet". NEINCEPUT-type words not caught by suffix-only family check.
-**Happened:** Added Romanian prefix stripping to `clue_family.py`, `forbidden_definition_stems()` function, and `_family_exclusion_note()` in prompt builders. Removed OU/URINARE presets.
-**Outcome:** pending observation
-**Insight:** prefix stripping + forbidden stems = essential for Romanian morphology in family checks
-**Promoted:** yes — see LESSONS_LEARNED "Family check needs prefix stripping"
+**Context:** Romanian morphology (e.g. TIBETAN vs Tibet, NEINCEPUT) bypass suffix-only family check.
+**Happened:** Add prefix stripping to `clue_family.py`. Add `forbidden_definition_stems()` + `_family_exclusion_note()` in prompts. Remove OU/URINARE presets.
+**Outcome:** success
+**Insight:** prefix stripping + forbidden stems essential for Romanian family checks.
+**Promoted:** yes
 
 ---
 
 ### [2026-03-21] Make rewrite/failure flows use all verifier candidates, not only the first guess
 
-**Context:** user asked whether the change from single-guess verification to top-3 was respected everywhere, including generation and evaluation flows.
-**Happened:** Audited the verifier call chain and confirmed that pass/fail, selection, metrics, markdown notes, and multistep assessment already used `verify_candidates` correctly. The remaining gap was rewrite/failure handling: prompts and synthesized failure reasons still mostly used `wrong_guess`, which is just the first failed candidate kept for compatibility. Patched `generator/core/ai_clues.py` so rewrite prompts mention the full verifier output (`Rezolvitorul a propus: ...`) and failure history carries candidate lists, not just one guess. Patched `generator/core/score_helpers.py` so `_synthesize_failure_reason()` prefers the full candidate list. Updated `generator/batch_publish.py` and `generator/redefine.py` to pass `verify_candidates` and richer failure history into rewrite. Added regression tests for prompt rendering and failure synthesis.
+**Context:** ensure top-3 verification respected in generation + evaluation.
+**Happened:** Audit call chain; verify `verify_candidates` used in pass/fail, selection, metrics, notes. Fix rewrite/failure gap: `wrong_guess` only used first failed candidate. Patch `generator/core/ai_clues.py`: rewrite prompts mention full verifier output; failure history carries candidate lists. Patch `generator/core/score_helpers.py`: `_synthesize_failure_reason()` prefer candidate list. Update `batch_publish` / `redefine`. Add tests.
 **Outcome:** success
-**Insight:** once top-k verification exists, `wrong_guess` becomes a lossy compatibility field; decision-making and prompt repair should use `verify_candidates` as the primary signal
-**Promoted:** yes — see LESSONS_LEARNED "Top-k verifier support is incomplete if rewrite still sees only the first wrong guess"
+**Insight:** use `verify_candidates` as primary signal; `wrong_guess` lossy compatibility field.
+**Promoted:** yes
+
+---
 
 ### [2026-03-21] Align assessment dataset DEX context with live expanded provider context
 
-**Context:** user asked to ensure that the new DEX expansion (`definiție directă` + `sens bază`) reaches all prompts where it should, not only the live generation pipeline.
-**Happened:** Traced all DEX call sites. Confirmed that live puzzle generation/rewrite/rating paths already pass `dex.get(...)` into prompt builders, so expanded DEX context reaches `generate`, `rewrite`, and `rate` immediately. Confirmed that `verify` still intentionally does not receive DEX context, to avoid leaking answer-side semantic hints into the guess step. Found one real gap: `generator/assessment/prepare_dataset.py` reused old `dataset.json` `dex_definitions` strings as authoritative, so the multistep benchmark could keep stale pre-expansion DEX text even after the provider improved. Patched `_reuse_or_fetch_dex()` to prefer current provider `lookup()` output from local cache/Supabase before reusing old dataset strings, and added a targeted regression test for stale-vs-live replacement.
+**Context:** ensure DEX expansion reaches all prompts (generation + assessment).
+**Happened:** Trace call sites. Generation/rewrite/rating paths use `dex.get(...)` (correct). Verify intentionally lacks DEX (no hint leak). Fix gap: `prepare_dataset.py` reused old `dataset.json` strings (stale). Patch `_reuse_or_fetch_dex()`: prefer current provider `lookup()` from cache/Supabase. Add regression test.
 **Outcome:** success
-**Insight:** when prompt context is pre-materialized into datasets, every improvement in the live context generator needs a refresh path into those cached artifacts or the benchmark silently diverges from production
-**Promoted:** yes — see LESSONS_LEARNED "Assessment datasets should refresh DEX text from the live provider, not trust old dataset.json strings forever"
+**Insight:** improvement in live context generator needs refresh path into cached assessment artifacts.
+**Promoted:** yes
+
+---
 
 ### [2026-03-21] Expand DEX semantic-base extraction to short first-definition patterns
 
-**Context:** after reviewing all 540 entries whose first parsed DEX definition has under 10 words, the next task was to extend semantic context beyond pure redirect formulas like `Diminutiv al lui X`.
-**Happened:** Added short-first-definition semantic expansion patterns in `generator/core/dex_cache.py` for five approved families: one-word synonym glosses (`Corabie.`), `Acțiunea de a (se) X`, `Faptul de a (se) X`, `Proprietatea de a fi X`, and generalized unit fractions `A <ordinal> parte dintr-un/dintr-o X`. Tightened target cleanup so extracted base lexemes drop trailing punctuation and parenthetical sense markers. Also narrowed expansion triggering to the first parsed DEX definition, which avoids false positives from later examples/citations. Added targeted unit tests for each family plus the generalized `dintr-un/dintr-o` fraction case.
+**Context:** semantic context expansion for short definitions beyond redirect formulas.
+**Happened:** Add expansion patterns in `generator/core/dex_cache.py`: synonym glosses, action/fact of X, property of X, unit fractions (`A <ordinal> parte dintr-un X`). Tighten target cleanup (drop punctuation/markers). Trigger only on first parsed definition to avoid false positives from citations. Add tests.
+**Verification:** 540 entries reviewed.
 **Outcome:** success
-**Insight:** the reliable trigger for this kind of semantic expansion is not “any short definition anywhere in the entry”, but “the first parsed DEX definition is structurally short and points to a base lexeme”
-**Promoted:** yes — see LESSONS_LEARNED "Short first-definition DEX patterns are worth semantic expansion when they expose a clear base lexeme"
+**Insight:** trigger expansion when first parsed definition structurally short + points to base lexeme.
+**Promoted:** yes
+
+---
 
 ### [2026-03-21] Add gitignored local DEX cache layer before Supabase
 
-**Context:** user wanted the code to stop extracting from Supabase on every run and to use a gitignored local cache folder as part of the normal workflow.
-**Happened:** Extended `DexProvider` from a 3-layer cache to a 4-layer cache: memory -> local disk -> Supabase -> dexonline. Added a gitignored default cache directory `.cache/dex_definitions`, with per-word JSON entries storing `status`, `html`, `original`, and `fetched_at`. Wired the local layer into `get()`, `lookup()`, `prefetch()`, redirect dereference lookups, and dexonline fetch storage. Stored negative results locally too (`not_found`) so repeated misses avoid Supabase and HTTP. Added targeted tests for local-disk hit priority, local negative cache, prefetch using local cache, and local persistence after fetch.
+**Context:** stop Supabase extraction every run; use local cache folder.
+**Happened:** Extend `DexProvider` to 4 layers: memory -> local disk -> Supabase -> dexonline. Directory: `.cache/dex_definitions/` (JSON per word: status, html, original, timestamp). Wire to `get()`, `lookup()`, `prefetch()`, redirect lookups. Store `not_found` results locally. Add tests: hit priority, negative cache, prefetch, persistence.
 **Outcome:** success
-**Insight:** local-disk caching has to sit in front of Supabase for both normal lookups and redirect dereference lookups; otherwise the “main” path gets faster but the redirect expansion path still chatters against the remote store
-**Promoted:** yes — see LESSONS_LEARNED "DEX cache flow should include a gitignored local disk layer before Supabase"
+**Insight:** local disk must sit in front of Supabase for all lookups (inc. redirect dereference) to avoid chatter.
+**Promoted:** yes
+
+---
 
 ### [2026-03-20] Fix DEX redirect parsing and one-hop semantic expansion
 
-**Context:** `FIRISOR` had a Supabase `dex_definitions` row, but no DEX context reached prompts; the stored HTML contained `Diminutiv al lui <i>fir</i>.`, which both exposed a parser bug and showed that redirect-style definitions are semantically too thin on their own.
-**Happened:** Audited `generator/core/dex_cache.py` and `tests/test_dex_cache.py`. Fixed `_DefinitionExtractor` so inline closing tags (`i`, `b`, `em`, etc.) decrement depth correctly instead of leaving `tree-def` spans unclosed. Added redirect/meta-pattern detection for short single-definition entries, with 1-hop dereference to the base lexeme and injection of up to two `Sens bază pentru ...` lines alongside the original DEX definition. Added a separate `uncertain_short_definitions()` collection plus `[DEX short/uncertain] ...` runtime log entries for short unresolved single-definition cases. Added targeted tests for inline markup parsing, `FIRISOR -> fir` expansion, and uncertain short definitions; verified locally that `Diminutiv al lui <i>fir</i>.` now parses and expands as expected.
+**Context:** redirect-style definitions (e.g. "Diminutiv al lui X") semantically thin; parser bugs in `FIRISOR`.
+**Happened:** Audit `generator/core/dex_cache.py` + tests. Fix `_DefinitionExtractor`: inline closing tags decrement depth correctly. Add meta-pattern detection for short single definitions; implement 1-hop dereference to base lexeme; inject `Sens bază pentru X` lines. Add `uncertain_short_definitions()` collection + logging. Add tests: inline markup, `FIRISOR -> fir`, uncertain results.
 **Outcome:** success
-**Insight:** redirect-style DEX entries fail in two different ways — parser loss and semantic thinness — so the durable fix is parser robustness plus bounded dereference, not either one alone
-**Promoted:** yes — see LESSONS_LEARNED "DEX redirect-style definitions need both parser robustness and one-hop expansion"
+**Insight:** parser robustness + bounded dereference required for redirect-style entries.
+**Promoted:** yes
+
+---
 
 ### [2026-03-20] Validate baseline, smoke artifacts, and close lock/publication gaps
 
-**Context:** after the new baseline was recalculated, the next task was runtime validation: confirm the code changes on real artifacts, then continue closing objective-alignment bugs one by one.
-**Happened:** Confirmed the new baseline in `generator/assessment/results.tsv` (`c0551f6`, composite `65.0`). Ran multiple real smoke batches against LM Studio under `build/smoke_batch_verify*` and checked `defs.md` plus `metrics.json`. First smoke run exposed three issues: missing `model_generated` provenance on initial clue versions, markdown emphasis leaking into final definitions, and `verified=False` clues escaping blockers because rarity-only override still suppressed rewrites. Fixed those, added tests, reran smoke, then found a second coherence bug: `clue.locked` still depended only on score thresholds, so some `9/8` failures were skipped in rewrite rounds. Fixed lock semantics to require `verified=True`, tightened `_is_publishable()` so blocker-free puzzles still need at least a `0.5` exact-solve pass rate before publication, and hardened `rate_definition()` retries so invalid JSON gets a stricter second prompt instead of the same blind retry. Follow-up smoke runs then exposed structurally weak raw definitions (`Pământ`, `... asupra unei`), an English final title (`Jazz Sunset Echoes`), and leaked rewrite meta-prefixes (`Definiția nouă:`). Added generate/rewrite validation for one-word glosses and dangling endings, Romanian-only title enforcement plus English-title rejection in sanitization, and `_clean_response()` stripping for rewrite meta-prefixes. Instrumented rewrite churn explicitly (`first_passed`, `final_passed`, rewrite attempts/changes/rescues) and corrected the old mislabeled first-pass metric; on the corrected smoke sample, rewrite improved exact solves from `4/22` to `11/22`.
+**Context:** runtime validation on real artifacts; close objective-alignment bugs.
+**Happened:** Confirm baseline `generator/assessment/results.tsv` (composite 65.0). Smoke batches under `build/smoke_batch_verify*`. Fix initial provenance, markdown emphasis leak, `verified=False` blocker escape (rarity override bug). Fix lock bug: `clue.locked` required `verified=True`. Tighten `_is_publishable()`: min 0.5 pass rate. Harden `rate_definition()` retries: strict second prompt for invalid JSON. Fix structural definitions (`... asupra unei`), English titles, meta-prefix leaks. Add one-word gloss + dangling ending validation. Instrument rewrite churn metrics. Exact solves `4/22 -> 11/22` in smoke sample.
 **Outcome:** success
-**Insight:** exact-solve alignment has to cover rewrite gating, clue locking, publication thresholds, and the metric plumbing around them — otherwise both the shipped puzzles and the diagnostics lie in different ways
-**Promoted:** yes — see LESSONS_LEARNED entries on `locked` semantics, publishable pass-rate floors, and separate first/final pass tracking
+**Insight:** alignment must cover rewrite gating, locking, publication thresholds, + metrics.
+**Promoted:** yes
+
+---
 
 ### [2026-03-20] Fix generator correctness and objective-alignment bugs on main
 
-**Context:** user asked for task lists plus concrete fixes across multiple passes: correctness, objective alignment, metrics, and tests.
-**Happened:** Identified and fixed four core issues: `_best_candidate()` returned after the first solved grid; LM Studio model switching unloaded by model key instead of loaded instance id; clean `defs.md` export kept score residue; clue selection and rewrite gating underweighted exact verification. Added richer word-difficulty aggregation fields (`wrong_guess`, `failure_kind`, blocker counts, rebus/guessability averages, rarity-override counts, word type). Added focused tests for model switching, selection ranking, best-candidate search, clean export, and richer metrics. Wrote a pass-based task list under `build/experiment_reports/20260320_generator_task_list.md`.
+**Context:** correctness, objective alignment, metrics, tests pass.
+**Happened:** Fix `_best_candidate()` early return (now searches all). Fix LM Studio model unloading (key vs instance id). Fix `defs.md` export (remove score residue). Fix selection/rewrite weighting for exact verification. Add word-difficulty aggregation: `wrong_guess`, `failure_kind`, blockers, scores, rarity overrides, type. Add tests: switching, ranking, search, export, metrics.
 **Outcome:** success
 
 ---
 
 ### [2026-03-28] Make prompt autoresearch inspection side-effect free and narrow manifest-anchor coverage
 
-**Context:** definition-improvement audit found two maintenance issues: `prompt_autoresearch.py --dry-run` could rebuild and wipe saved `v3` state on invalid durable state, and the old manifest-anchor test was failing on stale `v1` prompt edits even though current work runs on later experiment sets.
-**Happened:** Added side-effect-free inspection flow in `scripts/prompt_autoresearch.py` so `--status` and `--dry-run` read existing state directly and only bootstrap into a temporary directory when no state exists. This bypasses the repair/rebuild path during inspection and keeps durable state untouched. Added a regression test proving dry-run no longer routes through rebuild/run paths. Updated manifest-anchor coverage in `tests/test_run_experiments.py` to validate active/current `v2` and `v3` manifests against live prompt files instead of stale historical `v1` edits. Added a concise manual `v3` runbook to `prompt_research.md`.
-**Verification:** `.venv/bin/python -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_run_assessment.py tests/test_model_manager.py` (`60 passed`)
+**Context:** `prompt_autoresearch.py --dry-run` wiped state on error; manifest test failed on stale `v1` edits.
+**Happened:** Add side-effect-free inspection: `--status` + `--dry-run` read existing state directly; bootstrap temp dir only if missing. Regression test for dry-run paths. Update manifest-anchor coverage in `tests/test_run_experiments.py`: validate active `v2` + `v3` manifests against live files. Add manual `v3` runbook.
+**Verification:** 60 passed.
 **Outcome:** success
-**Insight:** inspection commands must never call durable-state repair logic implicitly; once a supervisor owns mutable benchmark state, even “dry-run” paths need a separate read-only codepath.
+**Insight:** inspection commands need separate read-only codepath; never call durable-state repair implicitly.
 **Promoted:** no
 
 ---
 
 ### [2026-03-28] Rotate assessment ledger into results6 and clear working results.tsv
 
-**Context:** user wanted the current `generator/assessment/results.tsv` history preserved before starting a fresh benchmark baseline, and asked whether the current file risked being overwritten.
-**Happened:** Copied the full working ledger from `generator/assessment/results.tsv` into new archive file `generator/assessment/results6.tsv`, then reset `results.tsv` back to header-only so the next baseline run starts from a clean working ledger. Left code references pointing at `results.tsv`, since benchmark/runtime paths already target that filename and should keep doing so for the new baseline.
+**Context:** preserve `results.tsv` history; fresh baseline start.
+**Happened:** Copy ledger to `generator/assessment/results6.tsv`. Reset `results.tsv` to header-only. Keep code references on `results.tsv`.
 **Outcome:** success
-**Insight:** benchmark rotation here is really “archive old ledger, keep canonical filename empty for next run”, because code paths are pinned to `results.tsv` rather than a versioned filename.
+**Insight:** rotation = archive old, empty canonical for next run.
 **Promoted:** no
 
 ---
 
 ### [2026-03-28] Prepare rewrite-focused v4 batch and rotate pre-v4 ledger into results7
 
-**Context:** after `v3exp016` beat the freshly rotated baseline and three confirmation runs stayed well above the old score floor, the next request was to stop extending the old `v3` batch, archive the current ledger again before a new official baseline run, and prepare a new `v4` experiment set around the winning rewrite prompt.
-**Happened:** Added a new `v4` experiment namespace to `scripts/run_experiments.py`, `scripts/prompt_autoresearch.py`, and benchmark policy constants so tooling now recognizes three rewrite-only families: explicit rule re-additions, header variants, and compactness-bias variants. The `v4` manifest contains eight single-file edits, all targeted at `generator/prompts/system/rewrite.md`, designed to isolate whether the `v3exp016` win came from deleting specific bans, compressing the header, or generally pushing the rewrite prompt toward shorter outputs. Updated prompt-research docs to describe the new lane and the manual `v4` run commands. Archived the just-finished `results.tsv` ledger into `generator/assessment/results7.tsv`, then reset `results.tsv` back to header-only so the next official baseline can land into a clean working ledger.
+**Context:** `v3exp016` win; isolate framing signal; rotate ledger for official baseline.
+**Happened:** Add `v4` namespace (rewrite-only: rule re-additions, headers, compactness). Manifest: 8 single-file edits to `rewrite.md` (isolate ban deletion vs header compression vs length bias). Update docs + run commands. Archive to `generator/assessment/results7.tsv`. Reset `results.tsv`.
 **Outcome:** success
-**Insight:** once a cleanup-style rewrite experiment wins and confirms, the next batch should stop touching unrelated surfaces and instead probe which exact deleted constraints were redundant versus still worth reintroducing one at a time.
+**Insight:** isolate winning signal in next batch; probe deleted constraints vs reintroductions.
 **Promoted:** no
-**Insight:** selector/rule mismatches between assessment and production create false-positive prompt wins; correctness fixes and objective alignment should land before the next baseline
-**Promoted:** yes — see LESSONS_LEARNED entries on selection alignment and LM Studio unload instance ids
+
+---
 
 ### [2026-03-22] — Build durable prompt-autoresearch supervisor and reclassify active pilot ledger
-**Context:** user wanted the current `uncertain` semantics fixed, a recoverable overnight prompt-improvement loop that does not rely on chat memory or API keys, and the active prompt campaign ledger updated to reflect the stricter interpretation.
-**Happened:** Extended `generator/assessment/benchmark_policy.py` with explicit near-miss, research-signal, and family-stopping constants. Refactored `scripts/run_experiments.py` so experiments now carry family/priority/target metadata, word-level gain/loss summaries are computed from assessment JSON, and `classify_experiment_result()` returns a structured decision with `keep / uncertain / discard`, `uncertain_reason`, and reusable research-signal data instead of a loose scalar-only tuple. Added family-outcome summarization for stale-family detection. Added `scripts/__init__.py`, a new durable supervisor at `scripts/prompt_autoresearch.py`, and `prompt_research.md`. The supervisor initializes/loads `build/prompt_research/`, stores incumbent/trial prompt snapshots, replays existing campaign logs, reclassifies log entries against the true baseline JSON, rewrites the active `generator/assessment/results.tsv`, tracks family counters/staleness, and picks the next viable experiment by policy order with bundle-unlock prerequisites. Bootstrapped the durable state from `logs/pilot_20260321.json` and `build/assessment_runs/baseline_results_20260321_20260321_142651.json`; this reclassified the active pilot rows, leaving only `exp001` and `exp002` as keeps and moving the rest to discard. Added tests in `tests/test_run_experiments.py` and new `tests/test_prompt_autoresearch.py` for classifier semantics, family staleness, bundle unlocking, recovery, and campaign replay.
+
+**Context:** recoverable overnight prompt-improvement loop; stricter reclassification of pilot ledger.
+**Happened:** Extend `benchmark_policy.py`: near-miss, research-signal, family-stopping constants. Refactor `run_experiments.py`: families/priority/targets metadata, gain/loss summaries from JSON, structured `keep / uncertain / discard`. New supervisor `scripts/prompt_autoresearch.py`. Initialize `build/prompt_research/`; store snapshots; replay logs; reclassify against baseline JSON; rewrite `results.tsv`. Reclassified pilot: `exp001`, `exp002` keep; rest discard. Add tests: classifier, family staleness, recovery, replay.
 **Outcome:** success
-**Insight:** overnight prompt optimization has to be a resumable state machine over prompt snapshots and assessment JSON, not a long chat session or a flat fixed manifest
-**Promoted:** yes — see LESSONS_LEARNED entry on externalizing all overnight prompt-research state
+**Insight:** overnight research must be resumable state machine over snapshots + JSON, not long session or flat manifest.
+**Promoted:** yes
+
+---
 
 ### [2026-03-21] Add shared runtime logging, shared rewrite engine, and structured assessment artifacts
 
-**Context:** user asked to implement the operational refactor plan end-to-end: one timestamped logging path, one audit flow for unresolved short DEX definitions, less duplicated rewrite logic, assessment aligned with production, and a safer benchmark workflow for prompt experiments.
-**Happened:** Added `generator/core/runtime_logging.py` with local human timestamps, UTC persisted timestamps, path-safe run timestamps, stdout/stderr wrapping, and JSONL audit events. Wired it into the main CLI/script entrypoints (`generator.rebus`, `batch_publish`, `redefine`, `retitle`, `run_assessment`, `run_experiments`, `run_multistep_assessment_series`, `loop_controller`) and removed inline timestamp formatting from `model_manager`/DEX fetch output. Extended DEX short-definition handling so unresolved short first definitions emit structured `dex_short_definition_detected` events at detection time and terminal `dex_short_definition_not_included_in_redefinire` events from a new shared `generator/core/rewrite_engine.py`. Added `generator/core/model_session.py` and switched the shared rewrite engine plus multistep assessment to use session-based model orchestration instead of scattered direct `switch_model(...)` calls. Refactored `redefine.py` and `batch_publish.py` to depend on the shared rewrite engine. Extended `generator/assessment/run_assessment.py` to emit a machine-readable JSON artifact with per-tier and protected-control summaries and updated `scripts/run_experiments.py` to consume that artifact, classify experiment outcomes as `keep` / `uncertain` / `discard`, and persist the incumbent assessment summary alongside best prompt backups. Added benchmark policy documentation in `generator/assessment/benchmark_policy.py`. Added tests for timestamped logging, model sessions, rewrite-engine DEX audit emission, and runner uncertainty classification.
+**Context:** end-to-end operational refactor: logging, audit for short DEX, shared rewrite, aligned assessment, safer workflow.
+**Happened:** Add `generator/core/runtime_logging.py`: human + UTC timestamps, path-safe run stamps, JSONL audit events. Wire to entrypoints; remove inline formatting. Emit `dex_short_definition_detected` events. Add `generator/core/model_session.py`; session-based model orchestration. Refactor `redefine.py` / `batch_publish.py` to `rewrite_engine.py`. Extend `run_assessment.py` for machine-readable JSON artifacts. Update `run_experiments.py`: consume JSON, classify decisions, persist summaries + backups.
 **Outcome:** success
-**Insight:** the cheapest way to stabilize a fast-moving CLI/LLM pipeline is to centralize runtime concerns first (logging, audit, model/session orchestration), then collapse duplicated control loops onto shared services before touching benchmark policy
-**Promoted:** yes — see LESSONS_LEARNED entries on shared process logging and machine-readable assessment artifacts
+**Insight:** centralize runtime concerns (logging, audit, orchestration) before touching benchmark policy.
+**Promoted:** yes
+
+---
 
 ### [2026-03-21] — Curated 20260321 benchmark reset and new 100-experiment manifest
-**Context:** user asked to replace the March-style assessment set with the 70 words mined from today’s blind spots, then implement the exact new 100-experiment prompt campaign including late multi-file bundles.
-**Happened:** Patched `generator/assessment/prepare_dataset.py` so the default builder now uses a checked-in curated tier map (`30 low / 25 medium / 15 high`) and still refreshes DEX text through the live provider; added tests for exact curated membership and missing-word failure. Regenerated `generator/assessment/dataset.json`, which now contains the requested 70 words exactly. Reworked `scripts/run_experiments.py` to support multi-file experiments with atomic edit application, manifest validation, joined file descriptions, and a repo-root `sys.path` bootstrap so `python3 scripts/run_experiments.py --dry-run` works from the repo root. Replaced the old removal-heavy manifest with the new ordered campaign: 12 cleanup experiments, 24 verify-example refreshes, 12 rewrite anti-distractor edits, 12 definition examples/counterexamples, 12 rate-calibration edits, 12 paired verify bundles, 8 paired definition+rewrite bundles, 4 paired definition+rate bundles, and 4 three-file confirmatory bundles. Added a regression test that asserts every experiment anchor exists in the current prompt files so prompt drift cannot silently turn parts of the campaign into skips.
-**Verification:** `python3 -m py_compile generator/assessment/prepare_dataset.py scripts/run_experiments.py`; `python3 -m pytest tests/test_prepare_dataset.py tests/test_run_experiments.py -q` (`11 passed`); `python3 -m generator.assessment.prepare_dataset`; `python3 scripts/run_experiments.py --dry-run`.
-**Promoted:** yes — see LESSONS_LEARNED entry on prompt campaign manifests needing anchor-existence tests.
+
+**Context:** replace assessment set with 70 curated words; 100-run campaign inc. multi-file bundles.
+**Happened:** Patch `prepare_dataset.py`: curated tier map (30 low / 25 med / 15 high); refresh DEX. Regenerate `dataset.json`. Rework `scripts/run_experiments.py`: multi-file support, atomic edits, manifest validation. ordered campaign: 12 cleanup, 24 verify refreshes, 12 rewrite anti-distractor, 12 definition examples, 12 rate calibration, multi-file bundles. Regression test for anchor existence in live files.
+**Outcome:** success
+**Insight:** campaign manifests need anchor-existence tests to prevent silent skips from drift.
+**Promoted:** yes
+
+---
 
 ### [2026-03-22] — Analyze latest prompt autoresearch block after exp053
-**Context:** user asked for concise analysis of the newest autoresearch trials under `build/prompt_research/`, specifically repeated patterns after `exp053`, consistent per-word gains/regressions, and whether the next unrun families still look justified.
-**Happened:** Read `LESSONS_LEARNED.md`, then audited `build/prompt_research/current_run.log`, `events.jsonl`, `state.json`, `families.json`, and trial artifacts `exp054`, `exp055`, `exp058`, `exp059`, `exp060`, `exp065`, `exp066`, `exp067`. Counted repeated gain/loss words across the block and compared them to family stale-state and unlock/priority rules in the runner. Found eight straight discards post-`exp053`; three consecutive stale families (`definition_positive_examples`, `definition_guidance`, `rate_rules`) all died on repeated collateral losers. `EPIGASTRU` was the only universal gainer; `ETAN`, `OSTRACA`, and `SAN` regressed in every trial. Immediate next family on resume would be `rewrite_structural_guidance` (`exp040`), while bundle families remain unjustified because all relevant upstream `has_signal` flags are still false.
+
+**Context:** analysis of autoresearch trials post-`exp053`; consistent gain/loss patterns; justify next families.
+**Happened:** Audit `build/prompt_research/` artifacts (`exp054`-`exp067`). 8 consecutive discards. stale families: `definition_positive_examples`, `guidance`, `rate_rules` killed by collateral losses. `EPIGASTRU` universal gainer. `ETAN`, `OSTRACA`, `SAN` universal regessors. Next: `rewrite_structural_guidance`. Bundles unjustified (no signal in prerequisites).
 **Outcome:** success
-**Insight:** none promoted; analysis only
+**Insight:** analysis only.
+**Promoted:** no
+
+---
 
 ### [2026-03-21] Implement pilot-first benchmark workflow around baseline_results_20260321
 
-**Context:** user wanted the new March 21 curated benchmark locked in as the working target, the runner limited to a 10-12 experiment pilot first, follow-up block priorities encoded in code, and explicit handling for unstable high-tier controls `ADAPOST` / `ETAN`, with a git commit after each implementation step.
-**Happened:** Replaced stale benchmark-policy assumptions with the March 21 reset structure, but after user correction moved incumbent truth back to `generator/assessment/results.tsv` via a `load_latest_kept_result()` helper instead of duplicating baseline metrics in code. Added runner presets for `pilot`, `cleanup`, `verify-examples`, `rewrite-anti-distractor`, `definition-examples`, `rate-exactness-calibration`, and later multi-file bundle blocks, plus `--end-at` for bounded runs while preserving `--dry-run` visibility across all 100 experiments. Added `--summarize-log` so completed logs can classify direction as `verify-led`, `rewrite-led`, `rate-led`, or `noisy / not yet informative`, and return next-preset recommendations following the requested priority order. Added explicit control-word watch logic for `ADAPOST` and `ETAN`, optional `--control-baseline-json` support for comparing against the baseline assessment artifact, and summary output that escalates repeated failures to `demote-or-replace`. Added/updated tests for the benchmark policy helpers, pilot/block selection, direction classification, and control-watch summaries. Created the requested step commits: `2cdbe66`, `48e38c8`, `e08e2b0`, `195b792`.
+**Context:** March 21 curated benchmark target; pilot-led runner; block priorities; handle unstable controls (`ADAPOST`, `ETAN`).
+**Happened:** load incumbent via `load_latest_kept_result()` from `results.tsv`. Add presets: `pilot`, cleanup, verify-examples, rewrite-anti-distractor, def-examples, rate-calibration, bundles. Add `--end-at`, `--summarize-log`. Classification: `verify-led`, `rewrite-led`, `rate-led`, `noisy`. Priority-order recommendations. Control-word watch logic. Created step commits.
 **Outcome:** success
-**Insight:** benchmark policy code should store ranges and decision rules, but incumbent scores belong in the results ledger; per-word stability policy needs assessment JSON, not TSV rows alone
-**Promoted:** yes — see LESSONS_LEARNED entry on sourcing benchmark incumbents from `results.tsv`
+**Insight:** policy code store rules/ranges; incumbent scores belong in ledger. Stability policy needs assessment JSON.
+**Promoted:** yes
+
+---
 
 ### [2026-03-23] — Move `best_assessment.json` runner cache out of tracked prompt source
-**Context:** user asked what `generator/prompts/best_assessment.json` is, whether it should be committed, and, if not, to reimplement things so the artifact lands in an untracked folder.
-**Happened:** Traced all references with `rg`. Confirmed only `scripts/run_experiments.py` uses it, via `load_best_result_summary()` / `save_best_result_summary()`, as a cache of the current best assessment summary for the experiment runner. It is not read by generation, assessment, or the prompt autoresearch supervisor. Implemented `best_result_summary_path()` in `scripts/run_experiments.py` so the summary now lives under `build/prompt_experiment_state/<backup_dir_name>/best_assessment.json` instead of inside the prompt snapshot directory. Kept read-only fallback loading from the legacy location (`backup_dir / best_assessment.json`) so older runs still resume cleanly. Added tests asserting the new path is under `build/` and that legacy fallback loading still works. Verified with `python3 -m py_compile scripts/run_experiments.py tests/test_run_experiments.py` and `python3 -m pytest tests/test_run_experiments.py -q` (`24 passed`).
+
+**Context:** `generator/prompts/best_assessment.json` cleanup; move to untracked folder.
+**Happened:** confirmed usage in `run_experiments.py` only. Implement `best_result_summary_path()`: target `build/prompt_experiment_state/`. Keep read-only fallback for resume. Add tests.
 **Outcome:** success
-**Insight:** benchmark/cache artifacts should never live beside prompt source files; otherwise they look like source-of-truth and tempt accidental commits.
-**Promoted:** yes — see LESSONS_LEARNED entry on benchmark runner artifacts living under gitignored build/state roots
+**Insight:** artifacts never beside source; prevents accidental commits / confusion with source-of-truth.
+**Promoted:** yes
+
+---
 
 ### [2026-03-23] — Expand v2 prompt autoresearch pool to ~40 narrow trials and fix rebuild-only side effects
-**Context:** user wanted the next v2 batch to run around 40 experiments, not 12, and asked to proceed without git commits. Existing v2 manifest was too small and, with current stale-family thresholds, would stop far earlier than 40. While rebuilding state after expansion, `--rebuild-state` unexpectedly launched a real assessment trial, which violated the intended safe maintenance semantics.
-**Happened:** Read `LESSONS_LEARNED.md`, current v2 manifest in `scripts/run_experiments.py`, benchmark policy, and an explorer summary of incumbent weak spots. Reshaped v2 around four narrow hypothesis families aligned to current failure classes: `short_word_exactness`, `near_neighbor_exclusion`, `blank_output_concretization`, and `rare_technical_noun_rescue`. Expanded `scripts/run_experiments.py` from 12 to 40 `v2expNNN` trials, all narrow single-file edits against `system/rewrite.md`, `user/rewrite.md`, or `system/definition.md`; added new v2 presets (`1-40`, plus family ranges), removed bundle unlocks for v2, and added a set-specific campaign-stop helper. Updated `generator/assessment/benchmark_policy.py` to use the new v2 family order and less aggressive thresholds (`V2_CAMPAIGN_STOP_STALE_FAMILIES = 4`, `V2_FAMILY_STOP_* = 10`, `V2_FAMILY_STOP_REPEAT_PRIMARY = 4`) so the next batch can realistically cover about 40 trials. Updated `scripts/prompt_autoresearch.py` to use set-specific stale-family stop limits. While rebuilding state, discovered that `--rebuild-state` still fell through into `run_supervisor()` and launched `v2exp001`; stopped the accidentally spawned `prompt_autoresearch.py` / `run_assessment.py` processes, then fixed `main()` to return immediately after rebuild. Also hardened `generator/core/runtime_logging.py` so `audit()` creates its parent directory lazily, which fixed temp-state supervisor tests. Rebuilt `build/prompt_research_v2/` cleanly after the fix.
-**Verification:** `python3 -m py_compile generator/core/runtime_logging.py scripts/run_experiments.py scripts/prompt_autoresearch.py generator/assessment/benchmark_policy.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py`; `python3 -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_runtime_logging.py -q` (`38 passed`); `python3 scripts/run_experiments.py --experiment-set v2 --dry-run` (shows `Selected: 40 / 40 experiments`); `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v2 --baseline-json build/prompt_research/incumbent.json --experiment-set v2 --rebuild-state`; `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v2 --status` (valid, incumbent `81.9 / 0.386`, next `v2exp001`, family `short_word_exactness`); `ps -ef | rg 'scripts/prompt_autoresearch.py|generator.assessment.run_assessment'` confirmed no leftover assessment run after the rebuild fix.
+
+**Context:** 40 v2 experiments (narrow hypothesis); fix `--rebuild-state` side effect (unintended run).
+**Happened:** Reshape v2 families: `short_word_exactness`, `near_neighbor_exclusion`, `blank_output_concretization`, `rare_technical_noun_rescue`. Expand to 40 trials; single-file edits to `rewrite.md` / `definition.md`. Update thresholds in `benchmark_policy.py`. Fix `main()` in `prompt_autoresearch.py` to return after rebuild. Lazy `audit()` dir creation in `runtime_logging.py`.
+**Verification:** 38 passed.
 **Outcome:** success
-**Insight:** maintenance-only autoresearch commands must be side-effect free; if `--rebuild-state` or `--status` can launch a benchmark, the recovery path itself becomes a source of prompt drift and noisy results.
-**Promoted:** yes — see LESSONS_LEARNED entry on side-effect-free maintenance commands
+**Insight:** maintenance commands must be side-effect free to prevent drift / noise.
+**Promoted:** yes
+
+---
 
 ### [2026-03-23] — Add v3 prompt+system lane, explicit model plumbing, and incumbent-snapshot integrity checks
-**Context:** user asked to implement a small mixed `prompt + system` batch instead of another large prompt-only campaign: benchmark integrity cleanup first, then a new v3 experiment lane with four temperature experiments and three narrow prompt families (`verify_minimal_procedural`, `rewrite_generic_exclusion`, `prompt_dedup_cleanup`), plus explicit model plumbing so benchmark behavior no longer depends on LM Studio `default` routing in the main assessment/rewrite paths.
-**Happened:** Audited `generator/assessment/run_assessment.py`, `generator/core/ai_clues.py`, `generator/phases/define.py`, `generator/phases/verify.py`, `generator/core/rewrite_engine.py`, `scripts/run_experiments.py`, and `scripts/prompt_autoresearch.py`. Found real breakage during implementation: `scripts/run_experiments.py` added `V3_EXPERIMENTS` but helper `_v2_exp()` still lacked `assessment_overrides` / `scope_label`, so the new system-only lane could not load cleanly. Also found an indentation error in `choose_better_clue_variant()` / `choose_better_puzzle_variant()` and an incumbent-integrity bug in autoresearch rebuilds: after swapping the temp rebuilt state into place, `seed_prompt_snapshot` still pointed at the temp dir and the live `generator/prompts/` tree was not restored from the rebuilt incumbent, so validation reported a false mismatch. Fixed all of that. Added explicit `model` passthrough to `generate_definition()`, `rewrite_definition()`, `verify_definition_candidates()`, `rate_definition()`, and the assessment helpers so pass1 uses `PRIMARY_MODEL.model_id`, pass2 uses `SECONDARY_MODEL.model_id`, and verify/rate cross-checks also receive explicit model ids. Added separate `--generate-temperature` and `--rewrite-temperature` support in assessment and runner plumbing. Added a new `v3` manifest in `scripts/run_experiments.py`: `v3exp001-v3exp004` are system-only temperature trials, `v3exp005-v3exp008` verify minimization edits, `v3exp009-v3exp012` rewrite generic exclusion rules, and `v3exp013-v3exp016` dedup/shortening edits. Updated `prompt_research.md` to match the live v3 family graph and rules. Extended tests: explicit-model passthrough in `tests/test_ai_clues.py`; v3 manifest/overrides in `tests/test_run_experiments.py`; seed/leakage/state validation in `tests/test_prompt_autoresearch.py`; new `tests/test_run_assessment.py` to verify separate generate/rewrite temperatures and explicit model ids in assessment phases. Rebuilt `build/prompt_research_v3/` from `build/prompt_research/incumbent.json` plus `build/prompt_research/snapshots/incumbent_prompts`.
-**Verification:** `python3 -m py_compile scripts/run_experiments.py scripts/prompt_autoresearch.py generator/assessment/run_assessment.py generator/core/ai_clues.py generator/phases/define.py generator/phases/verify.py generator/core/rewrite_engine.py tests/test_ai_clues.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_run_assessment.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_run_assessment.py -q` (`82 passed`); `python3 scripts/run_experiments.py --experiment-set v3 --dry-run`; `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v3 --baseline-json build/prompt_research/incumbent.json --seed-prompts-dir build/prompt_research/snapshots/incumbent_prompts --experiment-set v3 --rebuild-state`; `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v3 --status`.
+
+**Context:** small mixed batch (temp + prompt); cleanup integrity; explicit model ids for assessment/rewrite (no default routing).
+**Happened:** fix `scripts/run_experiments.py` facade gap for system lane. Fix constructor indentation. Fix autoresearch rebuild bug (restore live tree from rebuilt incumbent). Add explicit `model` passthrough to generate/rewrite/verify/rate. Add `--generate-temperature` / `--rewrite-temperature`. V3 manifest: 4 temp trials, verify minimization, rewrite generic exclusion, dedup/shortening. Rebuilt v3 state.
+**Verification:** 82 passed.
 **Outcome:** success
-**Insight:** supervisor rebuilds need to restore the live prompt tree and rewrite swapped snapshot paths, not only write fresh JSON; otherwise durability is correct on disk but validation still fails against the wrong live tree.
-**Promoted:** yes — see LESSONS_LEARNED entry on refreshing snapshot paths and prompt tree after autoresearch rebuild swap.
+**Insight:** rebuilds must restore live tree + rewrite snapshot paths to pass validation.
+**Promoted:** yes
+
+---
 
 ### [2026-03-22] — Fix mobile rebus scroll-jump and pen-mode clarity
-**Context:** user reported that tapping a grid square on phone scrolled the page down toward the clue/definition area, making entry awkward; pen mode was also unclear and its on/off state too implicit.
-**Happened:** Audited the frontend rebus flow in `frontend/src/main.ts`, `frontend/src/components/clue-panel.ts`, `frontend/src/components/grid-renderer.ts`, and the toolbar markup/styles. Found the main mobile jump source: every active-clue update called `scrollIntoView()` on the active clue item, which on stacked mobile layout scrolled the whole page to the clue list below the grid. Fixed that by auto-scrolling only when `.clues-container` is itself scrollable. Hardened cell focus with `focus({ preventScroll: true })` fallback to plain `focus()`. Replaced the icon-only pencil button with explicit `Creion` + `Pornit/Oprit` state, added `aria-pressed`, a distinct off-state color, and centralized button rendering in `main.ts`. Added `frontend/src/components/pencil-help.ts` with a one-time modal explainer persisted via `localStorage` (`rebus_pencil_help_seen`) plus in-memory fallback for storage failures. Styled the new helper modal and updated toolbar/button CSS. Verified with `npm run build`. Tried a Playwright mobile sanity pass, but the app browser integration is configured for Chrome and local installation required sudo, so browser automation could not be completed in-session.
+
+**Context:** mobile grid tap jump source; pencil mode implicit/unclear.
+**Happened:** Audit `frontend/src/`. culprit: `scrollIntoView()` on active clue. Fix: auto-scroll only if container scrollable. Cell focus: `preventScroll: true`. UI: explicit `Creion` + `Pornit/Oprit` state, `aria-pressed`, distinct colors. Add `pencil-help.ts` modal; persist view in `localStorage`. Style modal; update CSS.
 **Outcome:** success
-**Insight:** mobile crossword UIs cannot treat clue auto-scroll and cell focus as harmless niceties; in stacked layouts they directly fight the primary input task unless scroll is constrained to an internal clue pane
-**Promoted:** yes — see LESSONS_LEARNED "Auto-scrolling the active clue must be gated by a dedicated clue scroll container"
+**Insight:** constrain auto-scroll to internal clue pane in stacked layouts to prevent jumping.
+**Promoted:** yes
+
+---
 
 ### [2026-03-23] — Extend overnight loop to include 15x15 and retune 15x15 search budget toward ~1 minute
-**Context:** after validating that the new Rust phase-1 could solve `15x15`, user wanted `run_batch_loop.sh` to include `15x15` every cycle and explicitly allowed about one minute of runtime for that phase.
-**Happened:** Updated `generator/core/size_tuning.py` so overnight defaults now run `7, 8, 9, 10, 11, 12, 15`, and reduced Python-side `15x15` `min_preparation_attempts` from `50` to `1` so adding `15x15` to the nightly loop does not trigger dozens of full define/rewrite retries before phase-1 quality is even known. Tuned Rust `15x15` settings in `crossword_engine/src/engine.rs`: first pass (`attempt_budget=70`) overshot to ~81.6s with no quality gain, so trimmed to `attempt_budget=50` while keeping the deeper `max_nodes=5_000_000`, `solved_candidates=3`, and `template_attempts=2_200`. Updated loop/default tests accordingly.
-**Verification:** `python3 -m pytest tests/test_batch_publish.py tests/test_loop_controller.py -q` (`57 passed`); `cargo build --release --manifest-path crossword_engine/Cargo.toml`; direct `15x15` run with `crossword_engine/target/release/crossword_phase1 --size 15 --words generator/output/words.json --seed 1 --preparation-attempts 1` completed successfully in `65.55s` (`elapsed_ms=65033`, `solved_candidates=11`, `failed_templates=39`, same best score `572.442` as the longer 81.6s run).
+
+**Context:** `run_batch_loop.sh` include 15x15; ~1m phase-1 budget.
+**Happened:** update `size_tuning.py` defaults; reduce `min_preparation_attempts` to `1` (avoid outer retries). Rust tune: `attempt_budget=50`, `max_nodes=5M`, `solved_candidates=3`. 15x15 smoke run: success in 65.5s.
+**Verification:** 57 passed.
 **Outcome:** success
-**Insight:** once phase-1 moves into a deep native search loop, old outer retry defaults can become the real time bomb — widen the inner search budget, but shrink legacy whole-pipeline retry floors so nightly loops stay proportional.
+**Insight:** widen inner search budget but shrink legacy whole-pipeline floors for nightly proportional loops.
 **Promoted:** no
+
+---
 
 ### [2026-03-23] — Replace batch phase-1 grid generation with Rust binary and remove rarity from search
-**Context:** user wanted crossword grid creation moved out of Python because candidate search was extremely slow and blocked deeper search. Requirements: keep `run_batch_loop.sh` as the real entrypoint, leave definition/UI flows untouched, make rarity irrelevant for phase-1 selection, and add maintainable/tests-first Rust infrastructure.
-**Happened:** Added repo-local Rust crate `crossword_engine/` with a `crossword_phase1` binary. Implemented template generation, slot extraction, positional bitset index, DFS fill solver with MRV/forward checking, rarity-free word filtering/scoring, JSON stdout contract, and stderr progress logs. Updated `run_batch_loop.sh` to build the release binary before starting the Python loop. Refactored `generator/batch_publish.py` so production phase-1 now shells out to the Rust binary, reconstructs the existing Python `Candidate`/markdown shape from JSON, preserves downstream definition/rewrite/title/upload flow, and computes difficulty without rarity. Kept the old Python search path as `_best_candidate_python()` for tests and benchmarking. Added Rust unit/integration tests, Python wrapper tests, a shell-build smoke assertion, and `scripts/benchmark_phase1.py`.
-**Verification:** `cargo test --manifest-path crossword_engine/Cargo.toml`; `cargo build --release --manifest-path crossword_engine/Cargo.toml`; `python3 -m pytest tests/test_batch_publish.py -q` (`48 passed`); `python3 -m pytest tests/test_constraint_solver.py tests/test_grid_template.py -q` (`31 passed`); `python3 scripts/benchmark_phase1.py --sizes 7 --seed 1` (`python_elapsed_sec=77.64`, `rust_elapsed_sec=1.313`, speedup `59.135x` on 7x7, artifact saved under `build/benchmarks/phase1/`).
+
+**Context:** move grid creation from Python to Rust for speed; keep shell entrypoint; remove rarity dependency.
+**Happened:** Add Rust crate `crossword_engine/`. Implement template generation, positional index, DFS solver (MRV/forward checking). JSON stdout contract. Update `run_batch_loop.sh`: build release binary first. Refactor `batch_publish.py`: shell out to Rust, reconstruct `Candidate` from JSON, difficulty without rarity. Keep Python search as benchmark fallback. Add tests + `benchmark_phase1.py`. 7x7 speedup: 59x.
+**Verification:** 48 passed; cargo tests OK.
 **Outcome:** success
-**Insight:** large native rewrites land cleanly when the old host-language boundary stays stable — keep Python-facing candidate/markdown contracts intact, swap only the hot phase behind a thin subprocess wrapper, and make the user entrypoint build the binary up front so overnight runs fail fast instead of degrading mid-pipeline.
-**Promoted:** yes — see LESSONS_LEARNED entry on preserving host-language contracts for native hot-path migrations
+**Insight:** preserve host-language candidate/markdown contracts for clean native migration; build up-front to fail fast.
+**Promoted:** yes
+
+---
 
 ### [2026-03-22] — Harden prompt-manifest anchor checks against already-landed replacements
-**Context:** user reported a GitHub Actions failure in `tests/test_run_experiments.py::test_all_manifest_edit_anchors_exist_in_current_prompts`; CI showed `exp001` failing because `user/verify.md` already contained the shortened replacement line instead of the old longer anchor text.
-**Happened:** Audited `scripts/run_experiments.py`, `tests/test_run_experiments.py`, and the live prompt files. Local prompt state still had the old anchor, but the failing CI snapshot matched the replacement text, so the brittle part was the invariant, not only the specific manifest entry. Updated `apply_experiment()` to treat `edit.replace` already being present as a clean skip even when `edit.find` is absent. Updated the anchor-regression test to accept either the current `find` anchor or the already-landed replacement text, and added a focused unit test covering the skip-on-replacement-present case with a temporary prompt directory. Verified with `python3 -m pytest tests/test_run_experiments.py -q`, `python3 -m pytest tests/test_verify.py -q`, and full `python3 -m pytest tests/ -q` (`353 passed`).
+
+**Context:** CI failure: `exp001` anchor mismatch (replacement already present).
+**Happened:** update `apply_experiment()`: treat existing replacement as clean skip even if anchor absent. Update anchor test: accept current anchor or replacement text. Add unit test.
+**Verification:** 353 passed.
 **Outcome:** success
-**Insight:** manifest drift checks should enforce semantic applicability, not literal historical wording only; otherwise harmless baseline prompt cleanups become false-negative CI failures
-**Promoted:** yes — see LESSONS_LEARNED "Prompt experiment runners/tests should accept replacement already present as a valid already-landed state"
+**Insight:** check semantic applicability, not literal historical text; accept already-landed state.
+**Promoted:** yes
+
+---
 
 ### [2026-03-22] — Fix prompt autoresearch incumbent persistence and safe rebuild semantics
-**Context:** first `prompt_autoresearch.py` tmux run executed one trial as intended with `--max-trials 1`, but durable state drifted: `state.json` still pointed at incumbent `81.9/0.386` while `incumbent.json` had regressed to the baseline `73.3/0.300`, making resume unsafe.
-**Happened:** Audited `scripts/prompt_autoresearch.py`. Root cause: bootstrap replay produced the correct incumbent in memory, but a later persistence path could overwrite `incumbent.json` with stale baseline data. Refactored startup into explicit bootstrap/resume/rebuild flows, kept `persist_campaign_state()` as the only durable-write helper, and added validator-driven hybrid resume. Hardened `rebuild_state_from_campaign()` to rebuild in a temp directory and swap in only after success, then refresh the absolute incumbent snapshot path after the move. Added runtime error handling for rebuild failure, `--rebuild-state`, `--continuous`, richer `--status`, and tests covering mismatch detection, auto-rebuild, non-keep incumbent preservation, keep incumbent update, one-trial idle pointer semantics, and continuous run stop behavior. Rebuilt live `build/prompt_research/` from `logs/pilot_20260321.json` plus `build/assessment_runs/baseline_results_20260321_20260321_142651.json`.
-**Verification:** `python3 -m py_compile scripts/prompt_autoresearch.py tests/test_prompt_autoresearch.py`; `python3 -m pytest tests/test_prompt_autoresearch.py tests/test_run_experiments.py tests/test_runtime_logging.py -q` (`34 passed`); `python3 scripts/prompt_autoresearch.py --rebuild-state --campaign-log logs/pilot_20260321.json --baseline-json build/assessment_runs/baseline_results_20260321_20260321_142651.json --dry-run`; `python3 scripts/prompt_autoresearch.py --status`.
+
+**Context:** durable state drift in autoresearch (`state.json` vs `incumbent.json`).
+**Happened:** Audit `prompt_autoresearch.py`. Root cause: persistence path overwrite Correct incumbent with stale baseline. Refactor: explicit bootstrap/resume/rebuild flows. Single durable-write helper `persist_campaign_state()`. Validator-driven hybrid resume. Atomic rebuild in temp dir + swap. Add error handling + status + tests.
+**Verification:** 34 passed.
 **Outcome:** success
-**Insight:** durable-state repair must be atomic; rebuilding in place can destroy the last good autoresearch state before replay succeeds.
-**Promoted:** yes — see LESSONS_LEARNED entry on staged temporary rebuilds for durable state.
+**Insight:** durable-state repair must be atomic; rebuild in temp directory before swap.
+**Promoted:** yes
+
+---
 
 ### [2026-03-24] — Replace hardcoded Rust size table with formula + dictionary-length pressure
-**Context:** user challenged the strange `settings_for_size()` progression and explicitly called out word density by character count as another likely driver. Goal: stop hand-tuned jumps; make the scaling explainable from `7x7` upward; check whether length-bucket scarcity explains large-grid failures.
-**Happened:** Replaced the Rust size match-table with formula-based scaling for target black density, node budget, attempt budget, two-letter tolerance, candidate-floor, and template attempts. Added dictionary-length pressure after loading filtered words: compare dense `5..8` buckets against the board's long-word buckets and nudge black budget / template budget / candidate floor accordingly. Added tests for monotonic settings and for sparse long buckets raising the black budget. Measured unique normalized counts by length from `generator/output/words.json` (`8-letter = 12481`, `15-letter = 546`) and ran a real `15x15` release probe on seed `42`.
-**Verification:** `cargo test --manifest-path crossword_engine/Cargo.toml`; `cargo build --release --manifest-path crossword_engine/Cargo.toml`; direct release probe `crossword_engine/target/release/crossword_phase1 --size 15 --words generator/output/words.json --seed 42 --preparation-attempts 1`.
+
+**Context:** explainable search settings scaling; word density character count driver.
+**Happened:** Formula-based scaling for black density, budgets, tolerance, candidate floor. Add dictionary-length pressure: check long-word buckets, nudge black budget / template attempts. Add tests. 15x15 release probe: fail black counts 44..52.
+**Verification:** 15x15 probe partial.
 **Outcome:** partial
-**Insight:** size-only settings were indeed misleading, and long-word scarcity is real, but the live `15x15` probe still failed quickly through black counts `44..52`; remaining top-end bottleneck is template/search topology, not just bad black-count scaling.
-**Promoted:** yes — see LESSONS_LEARNED entry on size settings using dictionary length histograms, not board size alone.
+**Insight:** dictionary length histograms outperform board size alone for search settings.
+**Promoted:** yes
+
+---
 
 ### [2026-03-26] — Persist redefine/retitle run logs and force oldest-first maintenance ordering
-**Context:** user wanted `run_definition_improve.sh` and title-regeneration runs to leave analyzable logs on disk, similar to long-running batch tooling, and asked why `run_definition_improve.sh` did not start from the oldest puzzle in Supabase.
-**Happened:** Updated `generator/redefine.py` and `generator/retitle.py` so each run now creates a timestamped artifact dir under `generator/output/redefine_runs/` or `generator/output/retitle_runs/`, with `run.log` and `audit.jsonl`, and prints both paths at startup. Also changed puzzle fetch ordering in both tools to sort deterministically by `created_at` ascending with `id` as tie-break, instead of trusting unspecified Supabase row order. Added tests for oldest-first sorting and for persisted runtime log files.
-**Verification:** `python3 -m pytest tests/test_runtime_logging.py tests/test_redefine.py tests/test_retitle.py -q` (`47 passed in 0.70s`)
+
+**Context:** logs for redefine/retitle under `generator/output/`; deterministic oldest-first row order.
+**Happened:** Update `redefine.py` / `retitle.py`: timestamped artifact dir, `run.log`, `audit.jsonl`. sort puzzles by `created_at` ASC + `id`. Add tests.
+**Verification:** 47 passed.
 **Outcome:** success
-**Insight:** maintenance jobs need explicit artifact paths and explicit row ordering; otherwise logs disappear with the terminal session and DB iteration order becomes accidental behavior.
+**Insight:** maintenance jobs need explicit artifact paths + deterministic row ordering.
 **Promoted:** no
+
+---
 
 ### [2026-03-26] — Retitle only duplicate-name puzzles, prioritize worst duplicate clusters, enforce normalized title uniqueness
-**Context:** user wanted retitling to attack repeated titles first, treating case and diacritics as irrelevant, and to stop accepting a regenerated title that normalizes to one already present elsewhere in the puzzle table. They also wanted title updates to bump `updated_at`.
-**Happened:** Added a shared `normalize_title_key()` helper in `generator/phases/theme.py` that trims/collapses whitespace, strips trailing punctuation, and compares titles after Romanian diacritic collapse. Updated `generator/retitle.py` to select only puzzles whose normalized title currently appears multiple times globally, ordered by duplicate-cluster size descending and then oldest-first within each cluster. Passed the live set of other puzzle title keys into title generation so duplicate normalized titles are rejected during retries, and added a post-generation guard before DB update. Successful retitles now update both `title` and `updated_at`, and the in-memory title key set is refreshed after each accepted rename so later puzzles in the same run cannot collide with earlier renamed ones.
-**Verification:** `python3 -m pytest tests/test_runtime_logging.py tests/test_retitle.py tests/test_theme.py -q` (`38 passed in 0.48s`)
+
+**Context:** target repeated titles; ignore case/diacritics; unique normalized title enforcement.
+**Happened:** Add `normalize_title_key()`: trim, collapse whitespace, strip punctuation, Romanian diacritic collapse. Update `retitle.py`: select normalized duplicates; order by cluster size DESC, then oldest-first. Inject existing keys into generation for rejection; post-gen guard. Bump `updated_at`. Refresh in-memory keys after update.
+**Verification:** 38 passed.
 **Outcome:** success
-**Insight:** title dedup has to be run-stateful; if uniqueness is checked only against the pre-run DB snapshot, later puzzles can collide with titles minted earlier in the same maintenance batch.
+**Insight:** uniqueness checks must be run-stateful to prevent collisions with titles minted in same batch.
 **Promoted:** no
+
+---
 
 ### [2026-03-26] — Preserve DEX usage-category headings in parsed definition text
-**Context:** user noticed dexonline pages where register information lives in section headings like `Arhaisme și regionalisme`, not only inline markers such as `(reg.)`, and wanted that metadata to survive ingestion into `dex_definitions`.
-**Happened:** Extended the HTML parser in `generator/core/dex_cache.py` so it still extracts compact `tree-def` synthesis definitions first, but also reads original-definition wrappers under usage-relevant callout headings and appends category-tagged entries like `Arhaisme și regionalisme: ...` to the parsed DEX text. Kept non-usage categories (e.g. `Sinonime`) out of this extra injection to avoid noisy prompt context. Added parser tests for usage-heading inclusion and non-usage exclusion.
-**Verification:** `python3 -m pytest tests/test_dex_cache.py tests/test_ai_clues.py -q` (`117 passed in 9.40s`); `python3 -m pytest tests/test_verify.py -q` (`10 passed in 0.22s`)
+
+**Context:** capture register info from dexonline headings (e.g. `Arhaisme și regionalisme`).
+**Happened:** Extend HTML parser in `dex_cache.py`: extract `tree-def`, then append category-tagged entries from usage-relevant headings. Exclude non-usage (e.g. `Sinonime`). Add tests.
+**Verification:** 117 passed.
 **Outcome:** success
-**Insight:** dexonline register metadata can sit outside the definition span; if ingestion reads only `tree-def`, it silently loses category-level rarity/register hints that matter downstream.
+**Insight:** Register metadata outside definition spans must be explicitly ingested.
 **Promoted:** no
+
+---
 
 ### [2026-03-26] — Prioritize never-repaired puzzles in redefine maintenance runs
-**Context:** user observed `run_definition_improve.sh` starting again from a puzzle repaired recently, while some puzzles still had never been repaired and still had null rebus/metadata fields in Supabase.
-**Happened:** Changed `generator/redefine.py` sorting so maintenance runs now prioritize puzzles with `repaired_at IS NULL` first, then rows still missing puzzle metadata, then age. This pushes never-repaired / null-score puzzles ahead of recently repaired ones while preserving stable ordering within each bucket. Added a regression test covering the exact scenario of a recently repaired puzzle losing priority to a never-repaired puzzle with null metadata.
-**Verification:** `python3 -m pytest tests/test_redefine.py -q` (`28 passed in 1.00s`)
+
+**Context:** `run_definition_improve.sh` chewed recently repaired work while null rows waited.
+**Happened:** Change `redefine.py` sorting: `repaired_at IS NULL` first, then missing metadata, then age. recently repaired lose priority to never-repaired/null-score rows. Add regression test.
+**Verification:** 28 passed.
 **Outcome:** success
-**Insight:** for maintenance jobs, plain chronological order is the wrong heuristic once repair state exists; `repaired_at` must dominate `created_at` or the queue re-chews fresh work while stale/null rows wait indefinitely.
+**Insight:** `repaired_at` must dominate `created_at` heuristic for maintenance queue priority.
 **Promoted:** no
+
+---
 
 ### [2026-03-22] — Regroup prompt autoresearch families so stale-stop does not kill unrelated hypothesis classes
-**Context:** after one autonomous continuation, supervisor safe-stopped with `three consecutive stale families` even though only negative definition examples, early rate counterexamples, and one rewrite framing edit had actually been tested. Positive definition examples and rule/guidance variants were still untouched but hidden inside the same coarse family names.
-**Happened:** Split experiment-family mapping in `scripts/run_experiments.py`: `rewrite_anti_distractor` into `rewrite_framing` vs `rewrite_structural_guidance`; `definition_examples` into `definition_negative_examples`, `definition_positive_examples`, `definition_guidance`; `rate_exactness` into `rate_counterexamples`, `rate_rules`. Updated family priorities in `generator/assessment/benchmark_policy.py` so the next live candidate is `definition_positive_examples`, not more negative examples or old verify work. Updated bundle unlock prerequisites to depend on the new finer-grained signal buckets. Adjusted autoresearch tests to assert the new first family/next experiment and rebuilt durable state from the same pilot log + baseline JSON.
-**Verification:** `python3 -m py_compile scripts/run_experiments.py scripts/prompt_autoresearch.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py generator/assessment/benchmark_policy.py`; `python3 -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_runtime_logging.py -q` (`34 passed`); `python3 scripts/prompt_autoresearch.py --rebuild-state --campaign-log logs/pilot_20260321.json --baseline-json build/assessment_runs/baseline_results_20260321_20260321_142651.json --dry-run`; `python3 scripts/prompt_autoresearch.py --status`.
+
+**Context:** supervisor safe-stopped on coarse families; missed positive examples + rule variants.
+**Happened:** split families in `run_experiments.py`: `rewrite_anti_distractor` -> `framing` vs `structural_guidance`; `definition_examples` -> `negative` vs `positive` vs `guidance`; `rate_exactness` -> `counterexamples` vs `rules`. Update priorities in `benchmark_policy.py`. Update prerequisites. Rebuilt state.
+**Verification:** 34 passed.
 **Outcome:** success
-**Insight:** stale-family logic only works if families correspond to hypothesis classes, not arbitrary contiguous manifest chunks.
-**Promoted:** yes — see LESSONS_LEARNED entry on splitting prompt autoresearch families by hypothesis class.
+**Insight:** families must correspond to hypothesis classes for stale-family logic efficacy.
+**Promoted:** yes
+
+---
 
 ### [2026-03-26] — Validate old DB titles before rerating and backfill missing `title_score` on retitle skips
-**Context:** user caught a retitle inconsistency where garbage legacy titles like `"<|channel|>"` could receive absurd runtime scores (for example `10/10`) even though no such score existed in the database. Root cause: old titles without `title_score` were being sent straight to LLM rating without structural validation, and even legitimately computed old scores were discarded on `skipped, not better` paths instead of being persisted.
-**Happened:** Updated `generator/retitle.py` so old titles now follow the same structural validation gate as new title candidates before any rerating. If the existing title is invalid (`titlu gol`, mixed language, etc.), retitle now assigns `old_score = 0` locally without calling the evaluator model. If `title_score` is missing but the old title is valid, the old score is computed as before; however, it is only backfilled to Supabase when the run ends up keeping the old title (`new_score <= old_score`). When the new title wins, the flow goes straight to the existing single final update and avoids a redundant preliminary write. Added coverage for invalid old titles, missing-score backfill on skip, and no-LLM rerating for structurally invalid titles.
-**Verification:** `python3 -m pytest tests/test_retitle.py tests/test_theme.py tests/test_batch_publish.py tests/test_repair_puzzles.py -q` (`101 passed in 0.64s`); `python3 -m py_compile generator/retitle.py tests/test_retitle.py`
+
+**Context:** garbage legacy titles (e.g. `"<|channel|>"`) scored high in rerate; missing scores not persisted on skip.
+**Happened:** Update `retitle.py`: old titles must pass structural validation (gate before rerating). Invalid titlesassigned `old_score = 0` locally (no LLM call). Backfill missing valid scores only on keep (`new <= old`). update on win only. Add tests.
+**Verification:** 101 passed.
 **Outcome:** success
-**Insight:** maintenance code that compares new content against legacy DB content must validate the legacy side with the same structural rules first; otherwise the evaluator LLM can legitimize corrupt historical values and block repairs with bogus high scores.
+**Insight:** validate legacy content with same structural rules as new content before rerating to avoid legitimizing corrupt values.
 **Promoted:** no
+
+---
 
 ### [2026-03-26] — Reduce retitle model thrash with phase-batched title generation, keep batch publish path stable
-**Context:** user provided live `run_title_improve.sh` logs showing expensive repeated LM Studio load/unload cycles, plus misleading `Model already active` lines that did not correspond to useful work. User wanted two things only: remove the redundant/log-noisy reactivation before rating, and batch title generation work so retitle can reuse loaded models across multiple puzzles, while explicitly not perturbing the initial publish path used by `run_batch_loop.sh`.
-**Happened:** Cleaned `generator/phases/theme.py` so single-puzzle title generation no longer re-activates the generator model immediately before rating; log lines now identify both roles (`generator -> rated by evaluator`) instead of implying the current active model is always the generator. Added a retitle-specific batch runner in `generator/retitle.py`: batches default to 10 puzzles, load GPT once to generate for the whole batch, switch to Euro once to rate GPT candidates and generate Euro candidates, then switch back once to rate Euro candidates. This keeps the batching scoped to retitle only; `batch_publish` / `run_batch_loop.sh` still call the existing single-puzzle title flow in `theme.py`. Added parser support for `--batch-size`, extracted shared title-result application logic, and added tests for the reduced activation trace and the new retitle batch pipeline.
-**Verification:** `python3 -m pytest tests/test_retitle.py tests/test_theme.py tests/test_batch_publish.py tests/test_repair_puzzles.py -q` (`99 passed in 0.46s`)
+
+**Context:** LM Studio load/unload cycles in `run_title_improve.sh`; requirement: batch work for reuse, don't perturb publish path.
+**Happened:** remove reactivation before rating in `theme.py`. Add retitle-specific batch runner: load generator once for batch, switch to evaluator once for GTP rating + Euro generation, switch back for Euro rating. `batch_publish` unchanged. Add `--batch-size`. Add tests.
+**Verification:** 99 passed.
 **Outcome:** success
-**Insight:** performance batching for single-active-model local runtimes belongs at the orchestration boundary that owns many items (`retitle` here), not necessarily inside the generic per-item generation primitive used by unrelated pipelines.
+**Insight:** batching for local runtimes belongs at orchestration boundary owning many items.
 **Promoted:** no
+
+---
 
 ### [2026-03-26] — Make `run_title_improve.sh` / `retitle --all` process all puzzles, prioritize missing title scores
-**Context:** user noticed `./run_title_improve.sh` only touched the duplicate-title subset (`170` rows), while the intent for `--all` was literal full-table retitle ordered by age, with extra urgency for rows that still have no `title_score`.
-**Happened:** Changed `generator/retitle.py` so `select_puzzles_for_retitle(...)` now orders all candidate rows by `(missing title_score first, created_at oldest first, id)` instead of silently filtering to duplicate normalized titles. Preserved the old duplicate-only behavior behind a new explicit `--duplicates-only` flag via `select_duplicate_puzzles_for_retitle(...)`. Updated the CLI error/help text and run output to mention the number of prioritized missing-score puzzles. `run_title_improve.sh` needed no change because it already invokes `generator.retitle --all`; the semantics of `--all` now finally match the wrapper name.
-**Verification:** `python3 -m pytest tests/test_retitle.py tests/test_theme.py tests/test_batch_publish.py tests/test_repair_puzzles.py -q` (`97 passed in 0.66s`); `python3 -m py_compile generator/retitle.py tests/test_retitle.py`
+
+**Context:** `--all` limited to duplicates; requirement: full table, prioritized missing `title_score`.
+**Happened:** update `retitle.py`: order by `(missing score, created_at ASC, id)`. Add `--duplicates-only` for legacy behavior. Update CLI help / mention counts.
+**Verification:** 97 passed.
 **Outcome:** success
-**Insight:** command flags that say `--all` should not hide a second-stage subset filter; if product wants a narrower maintenance mode, it needs its own explicit flag or operators will debug the wrong layer.
+**Insight:** command flags must match naming; avoid second-stage subset filters on broad flags.
 **Promoted:** no
+
+---
 
 ### [2026-03-26] — Repair title dual-generator orchestration, per-model retries, and prompt shaping
-**Context:** user ran `./run_title_improve.sh` and surfaced live logs showing `gpt-oss-20b` labeled generation attempts happening after the runtime had already unloaded GPT and loaded EuroLLM, plus repeated empty GPT outputs and EuroLLM repeatedly emitting overlong mixed-quality titles. Goal: keep both models as generators, but make orchestration truthful and retries corrective instead of noisy.
-**Happened:** Refactored `generator/phases/theme.py` title generation loop to stop preactivating both models up front. Each generator is now activated immediately before its own LLM call, and the cross-model evaluator is activated only after a candidate passes structural validation. Added per-model rejected-history shaping so corrective hints are scoped to the generator that actually failed; repeated failures like `prea multe cuvinte` now inject short corrective instructions (`maximum 5 cuvinte`) into later prompts for that same model. Empty generator output now triggers one short retry without dragging along the full rejected-history, and empty results no longer pollute semantic rejection context with `"(gol)"`. Tightened generation prompts to explicitly require Romanian-only 2-5 word titles, ban comma/coordinated forms, and show positive/negative examples. Expanded theme tests to cover no-preactivation ordering, empty-output retry isolation, repeated-invalid hinting, and mixed-language rejection.
-**Verification:** `python3 -m pytest tests/test_theme.py -q` (`30 passed in 0.30s`); `python3 -m pytest tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py tests/test_ai_clues.py -q` (`118 passed in 0.66s`)
+
+**Context:** orchestration falsified logs; empty GTP outputs; overlong EuroLLM titles.
+**Happened:** Refactor `theme.py`: activate generator only before call, activate evaluator only after structural pass. Per-model rejected-history shaping; inject corrective hints (e.g. `maximum 5 cuvinte`). Empty output: one short retry (no history). Remove `"(gol)"` from semantic rejection. Tighten prompts: Romanian-only, 2-5 words, ban coordinated forms, examples. Add tests.
+**Verification:** 118 passed.
 **Outcome:** success
-**Insight:** in a local single-active-model runtime, “which model is generating now?” is orchestration state, not just metadata; preactivation can silently falsify logs and waste debugging effort by making prompt failures look like model-quality failures.
-**Promoted:** yes — see LESSONS_LEARNED entry on just-in-time multi-model activation.
+**Insight:** just-in-time multi-model activation prevents log falsification + wastes in local single-active-model runtimes.
+**Promoted:** yes
+
+---
 
 ### [2026-03-28] — Only count meaningful puzzle progress after at least one filled letter
-**Context:** user reported that simply opening a puzzle and backing out marked it as `in progress`, even though no letter had been filled.
-**Happened:** Updated `frontend/src/gamification/progress-storage.ts` with a `hasFilledCells()` helper and aligned the meaning of progress with “at least one non-empty cell”. Updated `frontend/src/main.ts` so empty progress snapshots are cleared instead of saved, browse-state derivation only marks puzzles `in_progress` when saved progress has at least one filled cell, and old empty saved entries are cleaned up on load.
-**Verification:** `npm run build` in `frontend/`.
+
+**Context:** opening puzzle marks `in progress` (no letters filled).
+**Happened:** Update `progress-storage.ts`: add `hasFilledCells()`. Align progress meaning: >=1 non-empty cell. `main.ts`: clear empty snapshots, filter `in_progress` by filled cells, clean up empty saved entries.
 **Outcome:** success
-**Insight:** local progress keys should not be treated as progress by existence alone; resume/status semantics need a content-based threshold, otherwise navigation side effects masquerade as user intent.
+**Insight:** resume/status semantics need content-based threshold; avoid navigation side effects.
 **Promoted:** no
+
+---
 
 ### [2026-03-28] — Collapse selector filters behind compact disclosure on mobile
-**Context:** after the broader selector refresh landed, user reported the filter area still occupied too much vertical space on phone and explicitly asked for a more compact pattern, suggesting a dropdown-style control.
-**Happened:** Reworked `frontend/src/components/puzzle-selector.ts` so the selector now defaults to a compact top row: `Filtre (n)` disclosure button plus a shortened sort dropdown (`Recente`, `Mărime ↑`, `Mărime ↓`, `A-Z`). The full status/size/hide/reset controls now live inside an expandable panel instead of always-visible pills. Updated `frontend/src/styles/gamification.css` and `frontend/src/styles/responsive.css` to support the disclosure layout, compact widths, and shorter mobile labels. This replaced the earlier “always-open chip wall” with a mobile-first disclosure pattern while keeping the same filter capabilities.
-**Verification:** `npm run build` in `frontend/`.
+
+**Context:** mobile filter area too tall.
+**Happened:** rework `puzzle-selector.ts`: compact top row (`Filtre (n)` + sort dropdown). Expandable panel for status/size/reset. Update CSS.
 **Outcome:** success
-**Insight:** dense mobile filters should default to a disclosure + summary pattern; even well-styled chips still cost too much vertical space when the filter set is more than 2-3 controls.
+**Insight:** disclosure + summary pattern for dense mobile filters.
 **Promoted:** no
+
+---
 
 ### [2026-03-28] — Refresh frontend puzzle discovery, local progress view, and lightweight challenges
-**Context:** user wanted the frontend menu to scale better past 300 puzzles, with size-first browsing, status filters, a reset-all affordance, preserved list state when returning from a puzzle, mobile-safe controls, a clearer local progress/profile view, and lightweight local-only challenges instead of a misleading “leaderboard”.
-**Happened:** Reworked the frontend selector shell in `frontend/index.html` and moved list derivation into `frontend/src/main.ts` with one explicit browse state (`status`, `hideCompleted`, `sizeGroup`, `sort`). Refactored `frontend/src/components/puzzle-selector.ts` into a render-only browse UI with status chips, size-group chips, sort select, reset button, results summary, continue section, challenge highlight, explicit empty state, and clearer puzzle cards. Added `frontend/src/gamification/challenges.ts` to derive local challenge status from existing player/progress data, plus backward-compatible `checksUsed` support in `frontend/src/gamification/storage.ts` and `frontend/src/gamification/progress-storage.ts` so a “fără verificare” challenge can be tracked going forward. Updated play-view metadata in `frontend/src/main.ts` to surface size/status/resume context and preserve browse state/scroll position when returning to the list. Reframed `frontend/src/components/stats-panel.ts` into a progress view with points, solved, in-progress, best time, challenge cards, badges, and personal history. Updated selector/game/profile styling across `frontend/src/styles/main.css`, `frontend/src/styles/gamification.css`, `frontend/src/styles/grid.css`, and `frontend/src/styles/responsive.css`, and refreshed onboarding copy in `frontend/src/components/tutorial.ts`.
-**Verification:** `npm run build` in `frontend/` twice after the main patch and after the mobile-chip layout cleanup. Manual browser verification was attempted but blocked in this workspace because Playwright's browser install path requires local browser setup/root prompts that are not available here.
+
+**Context:** scale past 300 puzzles: size-first browsing, status filters, list state preservation, local progress/profile, local challenges.
+**Happened:** Rework selector shell; list derivation in `main.ts` (browse state: status, hide, size, sort). selector UI: chips, sort select, results summary, challenge highlights. `challenges.ts`: derive status from player/progress. Backward-compatible `checksUsed` in storage. play-view: preserve list state/scroll. progress view: points, solved, time, challenges, badges, history. refreshed tutorials.
 **Outcome:** success
-**Insight:** none beyond implementation-specific UI polish.
-**Promoted:** no
+
+---
 
 ### [2026-03-23] — Add first-round hybrid de-anchoring to redefine/repair without new prompts
-**Context:** user wanted `redefine`/repair to reduce anchoring bias from bad existing clues, but explicitly without adding or editing prompt files because prompt optimization is already active on the existing prompt set.
-**Happened:** Extended `generator/core/rewrite_engine.py` with an optional `hybrid_deanchor` path. For clearly bad existing clues (`verified == False` or `rebus_score <= 4`), at the first rewrite opportunity only, the engine now builds two candidates using the existing prompt stack: one via `rewrite_definition(...)`, one via fresh `generate_definition(...)`. Both candidates are verified/rated with the current evaluator flow, compared via the existing clue-selection logic, and the winning branch is kept. Added bookkeeping so the fresh branch only runs once per clue, plus branch logging (`rewrite_only`, `fresh_only`, `rewrite`, `fresh_generate`). Enabled the option in `generator/redefine.py` and `generator/repair_puzzles.py`, while leaving batch publish unchanged. Added targeted engine tests for failed clues, low-rebus verified clues, no-hybrid on `rebus >= 5`, first-round-only behavior, branch winner selection, one-branch-valid fallback, and both-branches-no-op behavior.
-**Verification:** `python3 -m py_compile generator/core/rewrite_engine.py generator/redefine.py generator/repair_puzzles.py tests/test_rewrite_engine.py`; `python3 -m unittest tests.test_rewrite_engine tests.test_redefine tests.test_repair_puzzles`.
+
+**Context:** reduce anchor bias from bad existing clues; no prompt edits.
+**Happened:** extend `rewrite_engine.py`: `hybrid_deanchor` path. For bad clues (failed/rebus<=4), first round builds two candidates: `rewrite` + `generate`. Cross-model verify/rate both; keep best. add bookkeeping (one branch run per clue). Enable in `redefine` / `repair_puzzles`. Add tests.
 **Outcome:** success
-**Insight:** de-anchoring can be introduced as control-flow around existing prompt families; no prompt-text change is needed if candidate generation branches are compared through the same downstream verifier/rater and selector.
+**Insight:** implement de-anchoring as control-flow around existing families; reuse downstream evaluator.
 **Promoted:** no
+
+---
 
 ### [2026-03-23] — Implement repair pipeline for published puzzles with score backfill and dual timestamps
-**Context:** user wanted an automated repair job for existing published rebusuri: prioritize missing-score puzzles first, then lowest-score oldest puzzles; regenerate clues/title only when the new puzzle-level rebus score improves; expose both creation and last-repair timestamps in product/UI; avoid mixing prompt versions mid-run.
-**Happened:** Added DB metadata fields in `schema.sql` plus a migration (`migrations/20260323_add_repair_metadata.sql`) for `description`, numeric puzzle scores, and `updated_at`/`repaired_at`. Extracted shared puzzle scoring into `generator/core/puzzle_metrics.py` and prompt preload/audit helpers into `generator/core/prompt_runtime.py`. Updated `generator/phases/upload.py` and `generator/batch_publish.py` so new uploads persist deterministic `description` + numeric puzzle metrics without stuffing score text into legacy `theme`. Implemented `generator/repair_puzzles.py`: published-only queue ordering, baseline re-evaluation, metadata backfill for unscored rows, rewrite/title regeneration with strict `min_rebus` acceptance gate, and accepted-state writes for puzzle metadata plus clue `definition`/`verify_note`/`verified`. Updated worker/frontend to return and display `description`, `created_at`, and `repaired_at`, sort by `repaired_at ?? created_at`, and show both dates in list/detail surfaces. Fixed a latent adapter bug in `generator/redefine.py`: DB clue directions stored as `H`/`V` were being misread because the adapter only recognized `"vertical"`.
-**Verification:** `python3 -m py_compile generator/batch_publish.py generator/redefine.py generator/repair_puzzles.py generator/core/puzzle_metrics.py generator/core/prompt_runtime.py`; `python3 -m unittest tests.test_redefine tests.test_repair_puzzles tests.test_batch_publish`; `npm run build` in `frontend/`. Worker-specific typecheck via local TypeScript compiler was blocked because `worker/node_modules` is not installed in this workspace (`@cloudflare/workers-types` missing).
+
+**Context:** automate repair for published puzzles: prioritize missing scores, then low scores; only update if improved; expose `created_at` + `repaired_at`.
+**Happened:** Add DB metadata fields + migration. `puzzle_metrics.py`: shared scoring. `prompt_runtime.py`: preloads. `upload.py` / `batch_publish.py`: persist `description` + numeric metrics (no theme score text). Implement `repair_puzzles.py`: queue ordering, baseline eval, repair gate (`min_rebus` improvement), accepted-state writes. Update worker/frontend: return/display both dates, sort by `repaired_at ?? created_at`. Fix `redefine` adapter: recognize `H`/`V` direction.
 **Outcome:** success
-**Insight:** DB adapters for clue coordinates/direction are part of the publishing contract; treat compact persisted enums (`H`/`V`) as first-class, not as legacy edge cases.
-**Promoted:** yes — see LESSONS_LEARNED entry on accepting persisted `H`/`V` direction codes.
+**Insight:** treat compact persisted enums (`H`/`V`) as first-class in DB adapters.
+**Promoted:** yes
+
+---
 
 ### [2026-03-23] — Archive v1 prompt campaign, add fragile-word guardrails, bootstrap narrow v2 campaign
-**Context:** user asked to freeze the current v1 campaign, save the active ledger as `results5.tsv`, keep the `exp002` incumbent as seed, add fragile-word guardrails to evaluation, and start a separate narrow v2 prompt campaign with a new state dir and a 12-experiment manifest.
-**Happened:** Extended `generator/assessment/benchmark_policy.py` with primary/secondary fragile-word watchlists plus tighter v2 family stop thresholds. Refactored `scripts/run_experiments.py` to support experiment namespaces: preserved the original 100-experiment v1 manifest, added a separate 12-experiment `v2` manifest (`v2exp001..v2exp012`), added `--experiment-set`, and made the classifier mark primary fragile-word losses as immediate `discard`. Refactored `scripts/prompt_autoresearch.py` to store `experiment_set` in durable state, build family graphs per set, and use set-specific stale thresholds. Archived `generator/assessment/results.tsv` to `generator/assessment/results5.tsv`, reset `results.tsv` to header plus the incumbent `exp002` keep row, restored live prompts from the v1 incumbent snapshot, and bootstrapped `build/prompt_research_v2/` from `build/prompt_research/incumbent.json`. Verified that v2 status is valid and next experiment is `v2exp001`.
-**Verification:** `python3 -m py_compile scripts/run_experiments.py scripts/prompt_autoresearch.py generator/assessment/benchmark_policy.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py`; `python3 -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_runtime_logging.py -q` (`37 passed`); `python3 scripts/run_experiments.py --experiment-set v2 --dry-run`; `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v2 --baseline-json build/prompt_research/incumbent.json --experiment-set v2 --description-prefix autoresearch_v2/ --dry-run`; `python3 scripts/prompt_autoresearch.py --state-dir build/prompt_research_v2 --status`.
+
+**Context:** freeze v1; save `results5.tsv`; incumbent `exp002` seed; fragile-word guardrails; 12-run v2 manifest.
+**Happened:** `benchmark_policy.py`: primary/secondary fragile-word watchlists; tighter v2 family stops. `run_experiments.py`: namespace support, v2 manifest (`v2exp001..012`), discard on primary fragile loss. `prompt_autoresearch.py`: set-specific state + family graphs. Archive to `results5.tsv`. Reset `results.tsv` to header + `exp002`. Restore v1 incumbent prompts. Bootstrap v2 state.
+**Verification:** 37 passed.
 **Outcome:** success
-**Insight:** once the repeated loser cluster is known, it should move from postmortem knowledge into the live classifier and family-stop policy before the next prompt campaign starts.
-**Promoted:** yes — see LESSONS_LEARNED entry on explicit fragile-word watchlists.
+**Insight:** move repeated loser clusters to live classifier + family-stop policy before next campaign.
+**Promoted:** yes
+
+---
 
 ### [2026-03-26] — Persist title scores and tighten title screening across retitle + initial publish flows
-**Context:** user wanted title regeneration to persist a `title_score`, accept immediately only at `8/10`, reject title candidates that are `ALL CAPS`, `6+` words, or leak normalized solution words of length `3+` (while allowing 2-letter solution words), and keep local schema/docs aligned with the live Supabase column they had already added manually.
-**Happened:** Added shared normalized-text helpers in `generator/core/text_rules.py` and refactored `generator/phases/theme.py` so title generation now distinguishes candidate review from fallback selection. Invalid title candidates now surface explicit rejection reasons instead of collapsing immediately into random fallback titles; `TITLE_MIN_CREATIVITY` moved to `8`, the soft word-count cap moved to `5`, and solution-word leakage now checks normalized token overlap with `min_length=3`. Added structured `TitleGenerationResult` plumbing, persisted `title_score` in `generator/retitle.py`, and propagated the same score into initial publish (`generator/batch_publish.py` via upload metadata) and repair acceptance (`generator/repair_puzzles.py`). Updated local schema/docs (`schema.sql`, `README.md`, `GENERATOR_ARCH.md`) to reflect the live `title_score` column, and expanded tests for helper normalization, title validation, stored-score reuse, repair persistence, and batch title generation wiring.
-**Verification:** `python3 -m pytest tests/test_text_rules.py tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py -q` (`90 passed in 0.46s`); `python3 -m py_compile generator/core/text_rules.py generator/phases/theme.py generator/retitle.py generator/repair_puzzles.py generator/batch_publish.py tests/test_text_rules.py tests/test_theme.py tests/test_retitle.py tests/test_repair_puzzles.py tests/test_batch_publish.py`
+
+**Context:** persist `title_score`; accept >= 8/10; reject `ALL CAPS`, 6+ words, or word-leakage >= 3 chars.
+**Happened:** Add `text_rules.py`. Refactor `theme.py`: distinguish review from fallback selection. Surface rejection reasons. word-leakage: check normalized overlap (`min_length=3`). Structure `TitleGenerationResult`. persist score in `retitle.py`, propagate to initial publish + repair. Update schema/docs. Add tests.
+**Verification:** 90 passed.
 **Outcome:** success
-**Insight:** title validation rules that affect acceptance thresholds and persistence need to live before scoring, but fallback titles should remain a last-resort output only; otherwise maintenance and initial publish paths diverge and score metadata becomes meaningless.
-**Promoted:** yes — see LESSONS_LEARNED entry on separating title screening from fallback selection.
+**Insight:** screening rules belong before scoring; fallback titles last-resort only.
+**Promoted:** yes
+
+---
 
 ### [2026-03-29] — Point working policy at `baseline_results_20260329_v4exp001`
-**Context:** user confirmed the fresh baseline run on the adopted `v4exp001` prompt had been recorded in `generator/assessment/results.tsv`, so the policy label needed to stop pointing at the older March 28 baseline.
-**Happened:** Updated `WORKING_BASELINE_DESCRIPTION` in `generator/assessment/benchmark_policy.py` to `baseline_results_20260329_v4exp001` and aligned `tests/test_benchmark_policy.py` string expectations to the new incumbent label.
-**Verification:** `.venv/bin/python -m pytest tests/test_benchmark_policy.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py` (`52 passed`).
+
+**Happened:** update `WORKING_BASELINE_DESCRIPTION` in `benchmark_policy.py`. refresh test expectations.
+**Verification:** 52 passed.
 **Outcome:** success
-**Insight:** once a fresh incumbent baseline row is written after ledger rotation, update the working baseline label immediately; otherwise autoresearch will compare future experiments against the wrong named control even if `results.tsv` is current.
-**Promoted:** no
+
+---
 
 ### [2026-03-29] — Apply phase-specific reasoning profiles for GPT-OSS
-**Context:** after LM Studio restart, `/api/v1/models` finally exposed `capabilities.reasoning` for `openai/gpt-oss-20b`, and the user wanted reusable request-time reasoning configuration with stronger effort on generation/rewrite/rating.
-**Happened:** Updated the centralized chat helper path so `gpt-oss` now uses `reasoning_effort="medium"` for definition generate/rewrite/rate calls, `reasoning_effort="low"` for verify/tiebreak/title calls, and no reasoning parameters for `eurolllm`. Also normalized the long-output cap from `2048` to `2000` tokens in definition generation and title generation. Kept `reasoning_tokens` unset because live LM Studio chat-completions behavior did not respect it predictably and unsupported models (`eurolllm`) still 500 when receiving reasoning params.
-**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_ai_clues.py tests/test_theme.py tests/test_run_assessment.py` (`109 passed`). Live sanity check against `http://127.0.0.1:1234/v1/chat/completions` returned `OK` for `gpt-oss` with `reasoning_effort=medium` and showed higher `completion_tokens_details.reasoning_tokens`.
+
+**Context:**request-time reasoning effort; stronger effort on generation/rating.
+**Happened:** central chat helper: `gpt-oss` uses `medium` for generate/rewrite/rate, `low` for verify/tiebreak/title. `eurollm` skip. normalize long-output cap to `2000` (gen + title). `reasoning_tokens` unset (unpredictable).
+**Verification:** 109 passed.
 **Outcome:** success
-**Insight:** once per-model reasoning controls exist, the useful granularity is phase-level, not model-level only — short deterministic verifier/tiebreak calls should stay cheap, while longer creative/analytic passes can spend more reasoning budget.
+**Insight:** short deterministic verifier/tiebreak calls cheap; creative/analytic passes spend reasoning budget.
 **Promoted:** no
+
+---
 
 ### [2026-03-29] — Add `reasoning_effort=low` for GPT-OSS chat completions
-**Context:** user installed an LM Studio update that accepts `reasoning_effort` on OpenAI-compatible `/v1/chat/completions` and wanted `gpt-oss` calls to default to low effort.
-**Happened:** Extended `generator/core/model_manager.py` with optional per-model `reasoning_effort`, set `PRIMARY_MODEL` (`openai/gpt-oss-20b`) to `low`, and added `chat_reasoning_options()` lookup. Routed clue-generation, rewrite, verify, rate, tiebreak, and theme/title chat calls through a shared helper in `generator/core/ai_clues.py` so LM Studio requests include `reasoning_effort` only for configured models. Added payload tests in `tests/test_model_manager.py`, `tests/test_ai_clues.py`, and `tests/test_theme.py`.
-**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_ai_clues.py tests/test_theme.py tests/test_run_assessment.py` (`107 passed`). Also checked `curl -s http://127.0.0.1:1234/api/v1/models`; current live response still does not expose a `reasoning` field, so dynamic autodetect is not yet available from the running server.
+
+**Happened:** `model_manager.py`: add per-model `reasoning_effort`. PRIMARY (`gpt-oss`) to `low`. add `chat_reasoning_options()`. Route calls via shared helper in `ai_clues.py`. Add tests.
+**Verification:** 107 passed.
 **Outcome:** success
-**Insight:** when a serving layer gains request-time model controls before it reliably exposes capability metadata, the safest integration is static per-model config plus a single request helper, not speculative autodetect spread across call sites.
-**Promoted:** no
+
+---
 
 ### [2026-03-29] — Confirm `v4exp001`, prepare `v5`, rotate ledger for fresh incumbent baseline
-**Context:** the three-run confirmation series for `v4exp001` finished and showed stable gains over the previous baseline, so the next move was to lock in a clean baseline workflow and start a new batch that isolates the useful framing signal seen in near-miss `v4exp004`.
-**Happened:** Read the confirmation rows (`77.0`, `76.9`, `73.8`; average composite `75.9`, average pass `0.333`) and kept `v4exp001` as the working prompt. Added a new `v5` experiment set in `scripts/run_experiments.py`, `generator/assessment/benchmark_policy.py`, and `scripts/prompt_autoresearch.py` with eight rewrite-only probes: header-signal isolation, header blends, and precision-support lines. Updated `prompt_research.md` for the new baseline/runbook, archived the completed ledger to `generator/assessment/results8.tsv`, and reset `generator/assessment/results.tsv` to header-only so the next official incumbent baseline can be recorded cleanly.
-**Verification:** `.venv/bin/python scripts/run_experiments.py --experiment-set v5 --dry-run`; `.venv/bin/python -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_benchmark_policy.py tests/test_run_assessment.py tests/test_selection_engine.py` (`57 passed`).
+
+**Happened:** Verify confirmation rows (avg composite 75.9). Keep `v4exp001` working prompt. Add `v5` namespace (8 rewrite probes: header-signal isolation, blends, precision lines). Archive to `results8.tsv`. Reset `results.tsv`.
+**Verification:** 57 passed.
 **Outcome:** success
-**Insight:** confirmation-series rows should not be left as the live incumbent ledger for future experiments; rotate them into an archive and record one dedicated baseline row for the adopted prompt before starting the next batch.
-**Promoted:** no
+
+---
 
 ### [2026-03-28] — Fix equivalent-definition selection bias and add tier-balanced pass metric
-**Context:** after `v4`, review suggested two follow-ups before changing experiment policy: avoid undercounting passes when pass1/pass2 produce the same normalized definition, and expose a secondary pass metric that does not let the larger low/medium tiers dominate interpretation.
-**Happened:** Updated `generator/core/selection_engine.py` so `choose_clue_version()` no longer auto-picks variant A when two definitions normalize to the same text; it now prefers the stronger assessed version, including verified-over-unverified. Added `tier_balanced_pass_rate` to `generator/assessment/run_assessment.py` output and console reporting, defined as the mean of present per-tier pass rates, while keeping canonical `pass_rate` and composite unchanged.
-**Verification:** `.venv/bin/python -m pytest tests/test_selection_engine.py tests/test_run_assessment.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py` (`49 passed`).
+
+**Happened:** `selection_engine.py`: `choose_clue_version()` prefer stronger assessed version for identical normalized text. Add `tier_balanced_pass_rate` to `run_assessment.py` (mean of per-tier pass rates).
+**Verification:** 49 passed.
 **Outcome:** success
-**Insight:** assessment can silently undercount real wins if equivalent clue texts default to the earlier pass instead of the better-verified pass; normalize-first selection still needs assessment-aware tie resolution.
-**Promoted:** no
+
+---
 
 ### [2026-03-29] — Reset benchmark regime, refresh assessment DEX, and open `v6`
-**Context:** after `v5` went `8/8 discard`, user wanted the benchmark lane reset around replicated evidence, fresh DEX text, and a new verify/rate/definition batch instead of more rewrite-first tuning.
-**Happened:** Updated `generator/assessment/run_assessment.py` to refresh `dex_definitions` through `DexProvider` cache/Supabase lookup before falling back to `dataset.json`. Refactored `scripts/run_experiments.py` to compare candidates through replicated incumbent/candidate batches (`--comparison-runs`, default `3`), emit machine-readable comparison summaries under the assessment log dir, and use `tier_balanced_pass_rate` in keep/discard logic instead of single-run composite alone. Added `v6` with 8 experiments focused on `verify`, `rate`, then `definition`; wired policy/autoresearch/docs/tests for `v6`; expanded historical-evidence policy to `results1.tsv` through `results8.tsv`.
-**Verification:** `.venv/bin/python -m pytest tests/test_run_assessment.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_benchmark_policy.py` (`61 passed`); `python3 -m py_compile generator/assessment/run_assessment.py scripts/run_experiments.py scripts/prompt_autoresearch.py`; `.venv/bin/python scripts/run_experiments.py --experiment-set v6 --dry-run`.
+
+**Context:** reset regime around replicated evidence; fresh DEX; verify/rate/definition batch.
+**Happened:** `run_assessment.py`: refresh `dex_definitions` via `DexProvider` before fallback. `run_experiments.py`: replicated incumbent/candidate batches (`--comparison-runs 3`); emit machine-readable summaries; use `tier_balanced_pass_rate` for keep/discard. Add `v6` (8 experiments). update policy/autoresearch/docs.
+**Verification:** 61 passed.
 **Outcome:** success
-**Insight:** once benchmark semantics drift, runner logic must stop treating old ledger highs or one noisy run as the source of truth; replicated machine-readable comparisons and refreshed upstream context need to become the default control surface.
-**Promoted:** yes — added reset-regime lesson to `LESSONS_LEARNED.md`
+**Insight:** replicated machine-readable comparisons + refreshed context required when benchmark semantics drift.
+**Promoted:** yes
+
+---
 
 ### [2026-03-28] — Reframe `v4` rewrite experiments away from negative banned-token phrasing
-**Context:** user flagged a plausible local-model failure mode: negated wording like “nu folosești engleză” can still bias weaker models toward the forbidden token just by mentioning it.
-**Happened:** Rewrote the `v4` manifest in `scripts/run_experiments.py` so the exploratory rewrite variants now use positive Romanian-register, referent-first, and lexical-distance phrasing instead of explicit negative bans mentioning the unwanted token. Updated `prompt_research.md` to record the new hypothesis and `v4` probe descriptions.
-**Verification:** `.venv/bin/python scripts/run_experiments.py --experiment-set v4 --dry-run`; `.venv/bin/python -m pytest tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_benchmark_policy.py` (`50 passed`).
+
+**Context:** negated wording (e.g. “nu folosești engleză”) can bias weak models toward forbidden token.
+**Happened:** rewrite `v4` manifest: use positive Romanian-register / referent-first / lexical-distance phrasing instead of negative bans.
 **Outcome:** success
-**Insight:** prompt variants for older local models should prefer positive target-state phrasing over negated forbidden-token wording when the forbidden token itself can anchor generation.
+**Insight:** prefer positive target-state phrasing for older local models to avoid anchor bias.
 **Promoted:** no
+
+---
 
 ### [2026-03-28] — Promote `v3exp016` baseline to working incumbent and prep `v4`
-**Context:** user ran fresh baseline on the confirmed `v3exp016` rewrite prompt and wanted the benchmark lane aligned before launching the next experiment batch.
-**Happened:** Verified new kept ledger row in `generator/assessment/results.tsv` (`baseline_results_20260328_v16`, composite `72.7`, pass rate `0.300`), updated `generator/assessment/benchmark_policy.py` to point `WORKING_BASELINE_DESCRIPTION` at that baseline, and refreshed `tests/test_benchmark_policy.py` so baseline-name assertions match the new incumbent.
-**Verification:** `.venv/bin/python -m pytest tests/test_benchmark_policy.py tests/test_run_experiments.py tests/test_prompt_autoresearch.py tests/test_run_assessment.py` (`51 passed`).
+
+**Happened:** Verify win row (composite 72.7). update `WORKING_BASELINE_DESCRIPTION`. refresh tests.
+**Verification:** 51 passed.
 **Outcome:** success
-**Insight:** after rotating `results.tsv` for a fresh baseline, policy constants that name the incumbent must be updated immediately; otherwise manual runs and automated selection disagree about which prompt is the control.
-**Promoted:** no
+
+---
 
 ### [2026-03-30] — Raise rewrite/rate completion budgets for LM Studio medium reasoning
-**Context:** today’s redefine run (`20260329_153843`) collapsed candidate scores and produced mass `too short (0 chars)` / `JSON invalid` failures right after LM Studio started honoring `reasoning_effort`.
-**Happened:** Compared yesterday vs today logs, traced the regression to `gpt-oss` rewrite/rate calls using `reasoning_effort="medium"` with old low completion budgets, reproduced the exact failure mode live on `PROMPT` and `ABA`, then updated `generator/core/ai_clues.py` so `rewrite_definition()` and `rate_definition()` now send `max_tokens=2000`. Added truncation logging that records `purpose`, `model`, `max_tokens`, `completion_tokens`, and `reasoning_tokens` when a call ends with `finish_reason="length"`. Updated `tests/test_ai_clues.py` expectations for the new budgets.
-**Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_model_manager.py -q` (`77 passed`); live checks via `rewrite_definition()` / `rate_definition()` on `PROMPT` and `ABA` returned valid text / valid `DefinitionRating` objects instead of empty outputs.
+
+**Happened:** Trace `redefine` mass failure to `reasoning_effort="medium"` budget consumption. Reproduce on `PROMPT`/`ABA`. Update `ai_clues.py`: `rewrite_definition()` / `rate_definition()` max tokens `4000`. Add truncation logging (`purpose`, `model`, tokens, finish reason).
+**Verification:** 77 passed; valid objects returned in live check.
 **Outcome:** success
-**Insight:** once LM Studio starts honoring reasoning params, old completion budgets may become invalid immediately because reasoning tokens consume the same completion budget; phase-specific retuning is mandatory.
-**Promoted:** yes — see LESSONS_LEARNED entry on LM Studio reasoning and completion budgets.
+**Insight:** reasoning tokens consume completion budget; phase-specific retuning mandatory after enabling reasoning.
+**Promoted:** yes
+
+---
 
 ### [2026-03-31] — Make crossword grid letters bold
-**Context:** user wanted the letters entered into the crossword grid to read more strongly.
-**Happened:** Updated `frontend/src/styles/grid.css` so `.cell__input` now uses `font-weight: 700` instead of the previous semi-bold setting.
-**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+
+**Happened:** `.cell__input` `font-weight: 700` in `grid.css`.
 **Outcome:** success
-**Insight:** crossword cell typography benefits from decisively heavier weight than surrounding UI copy; half-bold can still look washed out once the grid borders and number marks compete for contrast.
-**Promoted:** no
+
+---
 
 ### [2026-03-31] — Stabilize definition bar height and auto-shrink long clue text
-**Context:** user wanted the active clue box above the grid to always reserve room for three text rows, shrink long clue text until it fits, stop making the grid jump vertically, and remove the `16/44` counter from between the clue box and the grid.
-**Happened:** Updated `frontend/src/styles/gamification.css` so the definition bar now has a stable three-line height and the clue text is constrained to a fixed three-line text box. Extended `frontend/src/components/definition-bar.ts` with a small font-fit loop that starts from the normal clue font size and steps downward until the clue text fits inside that three-line area. Hid `progress-counter` in `frontend/src/styles/grid.css` so the `16/44` indicator no longer appears between the clue box and the grid. Added a lightweight `resize` refresh hook in `frontend/src/main.ts` so the definition text is re-fitted when the viewport width changes.
-**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+
+**Context:** reserve 3 rows; shrink long clue text; prevent grid jump; remove counter.
+**Happened:** Stable 3-line height in `gamification.css`. `definition-bar.ts`: font-fit loop steps downward until fit. Hide `progress-counter`. Add `resize` refresh hook in `main.ts`.
 **Outcome:** success
-**Insight:** if dynamic clue text lives above a fixed-aspect-ratio grid, the safest way to avoid layout jitter is to stabilize the container height first and only then fit the typography into that box; doing only one of the two still causes visible vertical movement.
+**Insight:** stabilize container height before fitting typography to avoid layout jitter.
 **Promoted:** no
+
+---
 
 ### [2026-03-31] — Make crossword backspace retreat to the previous square
-**Context:** user clarified that the backspace behavior on the custom keyboard should move back to the previous crossword square instead of acting like a stationary delete on the current one.
-**Happened:** Updated `frontend/src/components/input-handler.ts` so `Backspace` now behaves like crossword backspace: if the current cell has a letter, it clears it and moves to the previous square on the active direction; if the current cell is already empty, it moves back first and clears that previous square. Wired the touch remote in `frontend/src/main.ts` to use the same shared backspace helper, and updated the touch keyboard button copy in `frontend/index.html` to describe backspace semantics instead of plain delete semantics.
-**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+
+**Happened:** `input-handler.ts`: `Backspace` clear + move back (if cell empty, move back first + clear). Wire touch remote in `main.ts`. Update keyboard copy in `index.html`.
 **Outcome:** success
-**Insight:** the virtual keyboard should reuse the same editing primitive names as the physical keyboard; if a `⌫` button is implemented as `Delete`, users notice the mismatch immediately because the crossword cursor model makes backtracking part of the core typing flow.
+**Insight:** reuse physical editing primitives for virtual keyboard consistency.
 **Promoted:** no
+
+---
 
 ### [2026-03-31] — Run periodic maintenance on agent memory/config files
-**Context:** user asked for the periodic maintenance pass described by the AI agent config guide: audit `AGENTS.md`, `CLAUDE.md`, `LESSONS_LEARNED.md`, `ITERATION_LOG.md`, and sub-agents for stale references, overlap, and hierarchy violations.
-**Happened:** Audited root memory files and `.claude/agents/`. Confirmed `CLAUDE.md` is still the required one-line redirect, sub-agent table matches the actual `.claude/agents/` directory, and all current agent files stay under the intended size envelope. Found one concrete integrity bug: `AGENTS.md` referenced `SETUP_AI_AGENT_CONFIG.md`, but that file did not exist in the repo. Added `SETUP_AI_AGENT_CONFIG.md` with the full setup + periodic maintenance protocol so the reference is now valid and future maintenance has a canonical on-disk source. No `AGENTS.md` growth was needed, and no obvious stale lessons or agent-file mismatches required cleanup in this pass.
+
+**Context:** audit memory files + agents for stale references/overlap/hierarchy.
+**Happened:** Audit root files + `.claude/agents/`. sub-agent table matches directory. identified missing `SETUP_AI_AGENT_CONFIG.md` reference. Add file with full protocol.
 **Outcome:** success
-**Insight:** periodic maintenance should prioritize structural integrity fixes first; a broken reference in `AGENTS.md` is higher impact than micro-pruning wording because it removes the maintenance protocol from the memory graph entirely.
+**Insight:** prioritize structural integrity (broken references) in periodic maintenance.
 **Promoted:** no
+
+---
 
 ### [2026-03-31] — Add upload timestamps, canonical backfill wrapper, and mobile pencil emoji
-**Context:** after the touch remote work, user called out three earlier items still pending: new puzzle uploads were not setting `updated_at`, there was no obvious repo-root shell wrapper for canonical clue backfill, and the compact mobile toolbar still needed the pencil control rendered as an emoji-only button.
-**Happened:** Updated `generator/phases/upload.py` to stamp both `created_at` and `updated_at` with the same fresh UTC ISO timestamp on insert and corrected the post-upload activate command hint to `python -m generator activate ...`. Added `run_clue_canon_backfill.sh` at repo root as a thin executable wrapper around `python -m generator.clue_canon backfill`, with repo-root `cd`, `.venv/bin/python` preference, `--apply` default injection, passthrough args, and a short `--help` usage block. Added `tests/test_upload_phase.py` to assert that fresh uploads set both timestamps identically. Updated `README.md` with dry-run, apply, and targeted-word wrapper examples. Finished the mobile toolbar tweak by adding a `✏️` icon span to `frontend/index.html`, mobile-only icon display in `frontend/src/styles/grid.css` / `frontend/src/styles/responsive.css`, and synced `aria-label` updates in `frontend/src/main.ts`.
-**Verification:** `python3 -m unittest tests.test_upload_phase` (`OK`); `bash -n run_clue_canon_backfill.sh`; `./run_clue_canon_backfill.sh --help`; `npm run build` in `frontend/` (`tsc && vite build`, pass).
+
+**Happened:** `upload.py`: stamp `created_at` + `updated_at` with UTC ISO. Correct activate hint. Add `run_clue_canon_backfill.sh` root wrapper (`python -m generator.clue_canon backfill`). add `--apply` default. Add tests. Update `README.md`. add `✏️` icon to mobile toolbar via `index.html` + `responsive.css`.
+**Verification:** tests OK; build OK.
 **Outcome:** success
-**Insight:** when a repo is mid-refactor, the safest way to add operator-facing entrypoints is to wrap the current canonical command exactly as-is and document the wrapper, rather than inventing a second orchestration path that can drift from the live flow.
+**Insight:** wrap canonical commands as-is for safe operator entrypoints during refactor.
 **Promoted:** no
+
+---
 
 ### [2026-03-31] — Add touch-only crossword remote with synced direction control
-**Context:** user wanted phone/tablet play to stop invoking the OS keyboard and instead use an on-screen QWERTY remote under the grid, plus a direction-toggle icon that always stays in sync with the active clue orientation.
-**Happened:** Updated `frontend/index.html` with a dedicated `touch-remote` control block (`QWERTY` / `ASDFGHJKL` / `direction + ZXCVBNM + delete`). Extended `GridState` in `frontend/src/components/grid-renderer.ts` with `touchRemoteEnabled`, made touch-mode grid inputs `readOnly` with `inputMode="none"`, and changed focus handling so touch mode focuses the cell shell instead of the native input. Refactored `frontend/src/components/input-handler.ts` to expose shared virtual actions (`handleVirtualLetter`, `deleteActiveCell`, `toggleDirection`) and wired them from `frontend/src/main.ts`, where the remote rerenders on every `refresh()` so the direction icon reflects `activeDirection` no matter whether orientation changed via remote button, repeated tap on the same cell, or clue click. Compressed the top toolbar to one mobile row and added new remote styles in `frontend/src/styles/grid.css` and `frontend/src/styles/responsive.css`.
-**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass). Tried a live mobile smoke test via Playwright MCP after starting a local Vite server, but the session browser path expected a local Chrome install that is not available in this workspace, so no automated visual browser verification completed.
+
+**Context:** phone/tablet play avoid OS keyboard; sync direction icon.
+**Happened:** add `touch-remote` to `index.html` (QWERTY + direction + delete). `grid-renderer.ts`: add `touchRemoteEnabled`; grid inputs `readOnly` + `inputMode="none"`. change focus to shell. `input-handler.ts`: expose virtual actions. wire `main.ts`: refresh remote icon on `activeDirection` change.toolbar compressed.
 **Outcome:** success
-**Insight:** when a touch UI must suppress the OS keyboard without forking gameplay logic, the stable pattern is to keep grid state and direction semantics shared, make native inputs inert only at the rendering layer, and route virtual keyboard actions through the same state transitions as physical keyboard input.
+**Insight:** route virtual actions through shared state transitions; make native inputs inert at rendering layer.
 **Promoted:** no
 
+---
+
 ### [2026-04-02] — Cut over clue reads to SQL view and freeze canonical rows
-**Context:** user wanted the canonical clue plan implemented end-to-end with dry/maintainable/extensible structure, explicit migration away from `crossword_clues.definition`, and confirmation that the existing ~13k legacy clue texts would be handled as migration input rather than ignored.
-**Happened:** Reworked the canonical clue contract around one DB read surface: added final bootstrap DDL in `schema.sql`, a phase-1 migration `migrations/20260402_add_canonical_clue_schema.sql`, and a phase-2 finalize migration `migrations/20260402_finalize_canonical_clue_cutover.sql`. The new schema adds `canonical_clue_definitions`, `canonical_clue_aliases`, `crossword_clue_effective`, `crossword_clues.word_type`, and `crossword_clues.canonical_definition_id`; fresh installs are now canonical-only, while existing installs keep a compatibility view until backfill/finalize. Refactored `generator/core/clue_canon_store.py` to read clue rows from the SQL view instead of hydrating canonicals in Python, removed legacy-definition write branching, extended canonical identity with `word_type` + `usage_label`, and filtered malformed UUID ids before batched canonical lookups to avoid the PostgREST `Bad Request` crash seen in `run_clue_canon_backfill.sh`. Refactored `generator/core/clue_canon.py` so “promote new” creates a new immutable canonical row instead of overwriting an old one, and restricted near-match competition to matching `word_type` / `usage_label`. Updated upload/redefine/repair write paths to persist canonical ids only; updated `repair_puzzles` to persist from working-clue versions instead of rendered markdown entries so `word_type` survives. Simplified the worker clue fetch path to read `definition` directly from `crossword_clue_effective`. Tightened `generator/clue_canon.py` backfill to seed canonicals only from verified legacy clues and emit quarantine JSONL for rejected seed rows plus non-merged verified rows. Refreshed README cutover docs and updated tests for the new view/canonical-id contract.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py`; `python3 -m pytest tests/test_upload_phase.py`. Also checked `worker/package.json`; there is no `build` script, so no worker build command was available to run locally.
+
+**Context:** implemented canonical clue plan: dry structure; migrate from `definition`; ingest 13k legacy clues.
+**Happened:** phase-1 migration (schema); phase-2 migration (finalize). Add `crossword_clue_effective` view (compatibility until finalize). `clue_canon_store.py`: read from view; remove legacy write branching. Extend canonical identity: `word_type` + `usage_label`. Filter malformed UUIDs to prevent PostgREST crash. `clue_canon.py`: immutable rows (promote = new row); restricted near-match competition. backfill: seed only from verified clues; emit quarantine JSONL. update tests.
+**Verification:** tests OK.
 **Outcome:** success
-**Insight:** when a phased DB migration leaves mixed legacy/canonical rows in place, move fallback logic into a SQL view early and make app code consume only that view; it removes duplicated compatibility branches and avoids fragile follow-up UUID fetches against partially migrated ids.
-**Promoted:** yes — see LESSONS_LEARNED entry on UUID sanitization for PostgREST `.in_()` calls
+**Insight:** move fallback logic to SQL view early; avoid duplicated compatibility branches + fragile UUID fetches.
+**Promoted:** yes
+
+---
 
 ### [2026-03-30] — Show full solution when reopening a solved puzzle in the UI
-**Context:** user reported that opening a puzzle from the solved tab showed an empty grid instead of the finished answer.
-**Happened:** Traced the bug to `frontend/src/main.ts`: solved puzzles skip `loadProgress()`, but the fetched `/solution` payload was only stored in `gridState.solution` for hint/check logic while the renderer displays `gridState.cells`. Added a solved-view path that hydrates `cells` from `solution`, marks all letter cells as revealed, clears pencil marks, flips a new `isSolvedView` flag on `GridState`, disables toolbar actions, and makes grid inputs `readOnly`. Added small disabled/readonly styling in `frontend/src/styles/grid.css`.
-**Verification:** `npm run build` in `frontend/` (`tsc && vite build`, pass).
+
+**Context:** solved tab puzzles showed empty grid.
+**Happened:** Audit `main.ts`: solved puzzles skip `loadProgress()`. Solution payload was stored but not displayed. Add solved-view path: hydrate `cells` from `solution`, mark revealed, clear pencil marks, set `isSolvedView` flag. add readonly styles.
 **Outcome:** success
-**Insight:** if UI rendering uses editable cell state separate from canonical solution state, solved-history reopen flows must explicitly hydrate the visible cells; attaching the solution only for hint logic is not enough.
+**Insight:** Solved-history reopen must explicitly hydrate visible cells.
 **Promoted:** no
 
+---
+
 ### [2026-04-04] — Salvage stale `clue_canon` resume state without dropping in-flight active words
-**Context:** after the backfill performance refactor, resumed runs crashed with `KeyError: 'ZGRIBURI'` during queue refill. Fresh eligible workset was much smaller than the serialized checkpoint queue, but active in-flight words still had full merge state and should not be discarded.
-**Happened:** Updated `generator/clue_canon.py` so resume now reconciles checkpoint state against the fresh eligible workset: stale pending words are dropped, active words are preserved if their serialized merge state is structurally valid, and queue refill defensively skips any unexpected no-bucket words instead of crashing. Added new resume counters to `BackfillStats`, summary/state serialization, and summary JSON (`resume_pending_words_dropped`, `resume_active_words_dropped`, `resume_words_deduped`). Also added explicit checkpoint version validation so unknown future versions fail clearly instead of being guessed at. Expanded `tests/test_clue_canon.py` with stale-pending, preserved-active, malformed-active, dedupe, and unsupported-version regressions.
-**Verification:** `.venv/bin/python -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py` (`61 passed`).
+
+**Context:** resume crash `KeyError: 'ZGRIBURI'`. eligible workset smaller than checkpoint queue; preserve active word state.
+**Happened:** Update `clue_canon.py`: reconcile checkpoint against fresh workset. Drop stale pending; preserve valid active words. defenses skip unexpected no-bucket words. Add resume counters to `BackfillStats`. Add checkpoint version validation. Expand tests.
+**Verification:** 61 passed.
 **Outcome:** success
-**Insight:** resumable pipelines should treat serialized active work as authoritative but serialized pending queues as advisory; active state is expensive in-flight work, while pending queues must be revalidated against the current source-of-truth workset on every resume.
-**Promoted:** yes — see LESSONS_LEARNED entry on authoritative active state vs advisory pending queues for resumable jobs.
+**Insight:** serialized active work authoritative; pending queues advisory (revalidate on resume).
+**Promoted:** yes
+
+---
 
 ### [2026-04-04] — Remap Gemma reasoning controls to LM Studio chat endpoint semantics
-**Context:** after switching primary model to Gemma 4, live LM Studio `/v1/chat/completions` checks showed a mismatch: repo config sent `reasoning_effort` as `on/off`, but the OpenAI-compatible endpoint rejected those values even though `/api/v1/models` advertised Gemma reasoning as `off/on`.
-**Happened:** Updated `generator/core/model_manager.py` so Gemma uses endpoint-safe reasoning values centrally: `none` for default/light calls and `medium` for heavier generate/rewrite/rate/compare calls. Added normalization of legacy aliases (`off -> none`, `on -> medium`) plus validation for unsupported values, and refreshed tests in `tests/test_model_manager.py` and `tests/test_ai_clues.py` to assert the new Gemma behavior while keeping GPT-OSS and EuroLLM behavior unchanged.
-**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_ai_clues.py` (`91 passed`). Also ran live LM Studio checks against loaded `google/gemma-4-26b-a4b`: `reasoning_effort=none` returned `OK`; `reasoning_effort=medium` was accepted by the endpoint with no invalid-request error, though it spent the small token budget on reasoning content.
+
+**Context:** Gemma `low/medium` rejected by endpoint (expected `none`/omitted).
+**Happened:** `model_manager.py`: map Gemma purposes to endpoint-safe values. `none` for default/light; omit params for thinking-enabled. normalize legacy aliases (`off->none`, `on->medium`). Add validation. Refresh tests.
+**Verification:** 91 passed; live check OK.
 **Outcome:** success
-**Insight:** LM Studio model capability metadata can diverge from the OpenAI-compatible chat endpoint contract; central reasoning policy must follow the wire behavior actually accepted by `/v1/chat/completions`, not the metadata labels.
-**Promoted:** yes — see LESSONS_LEARNED entry on endpoint-contract-over-metadata for reasoning controls.
+**Insight:** Follow actual wire behavior of `/v1/chat/completions`, not model capability metadata labels.
+**Promoted:** yes
+
+---
 
 ### [2026-04-04] — Backfill perf: DB-filter eligible clue rows, batch store writes, throttle checkpoints
-**Context:** user wanted `./run_clue_canon_backfill.sh --apply --word-queue-size 50 --referee-batch-size 50` made faster without adding LM parallelism. Main pain: half-migrated reruns still loaded the full clue corpus, queue fill did per-word canonical queries, apply path did one clue update / alias insert at a time, and resumable state rewrote too often.
-**Happened:** Added DB-side backfill source filtering in `generator/core/clue_canon_store.py` (`verified=true`, `canonical_definition_id is null`, optional `word_normalized`), plus count helpers, bulk canonical prefetch, batched clue attachment, and batched alias insertion with one existence fetch. Refactored `generator/clue_canon.py` to source only eligible rows, carry new counters (`eligible_rows`, skipped already-canonicalized rows, batch counts, candidate/request counters), prefetch canonicals once per queue refill wave, exact-merge identical existing canonicals before LLM requests, and throttle checkpoint rewrites to forced checkpoints plus a 10s cadence during referee churn. Expanded tests to cover filtered fetches, bulk prefetch, batched cluster apply, exact-merge request pruning, queue-wave prefetching, word-filtered backfill fetches, and checkpoint throttling.
-**Verification:** `.venv/bin/python -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py` (`57 passed`).
+
+**Context:** speed up backfill without LM parallelism. Main pain: load full corpus; per-word queries; per-row updates.
+**Happened:** `clue_canon_store.py`: DB-side filtering (`verified=true`, `canonical_definition_id is null`). bulk prefetch; batched clue attachment; batched alias insertion. `clue_canon.py`: source eligible rows only. exact-merge identical canonicals before LLM requests. throttle checkpoint rewrites to 10s cadence. Expand tests.
+**Verification:** 57 passed.
 **Outcome:** success
-**Insight:** resumable backfills stay tractable only if “eligible workset” is filtered in the DB and hot-path persistence is batched per committed word; otherwise queue/batch flags only hide full-corpus and per-row round-trip costs.
-**Promoted:** yes — see LESSONS_LEARNED entry on DB-filtered backfill worksets and per-word batching.
+**Insight:** DB workset filtering + per-word batching required for tractable resumable backfills.
+**Promoted:** yes
+
+---
 
 ### [2026-03-31] — Add canonical clue library, 6-vote referee, and legacy-safe prevention hooks
-**Context:** user wanted duplicate and near-duplicate clue definitions for the same word collapsed into canonical variants, with exact instructions for a migrated Supabase schema, a multi-model referee for same-meaning non-identical definitions, and prevention so future generation/rewrite steps stop re-adding the same idea.
-**Happened:** Added canonical clue types and pure helpers in `generator/core/clue_canon_types.py` and `generator/core/clue_canon.py`, plus a Supabase adapter in `generator/core/clue_canon_store.py` that auto-detects schema presence and falls back cleanly when missing. Extended `generator/core/ai_clues.py` with a structured `clue_compare` JSON prompt and a `run_definition_referee()` helper that runs `3` compares on `gpt-oss-20b` and `3` on `eurollm-22b`, with deterministic A/B swapping and aggregated vote results. Added prompt-time prevention by injecting existing canonical definitions into generate/rewrite prompts, and wired canonical resolution into upload/redefine/repair persistence paths while keeping `crossword_clues.definition` materialized for backward compatibility. Added a new offline command `python -m generator.clue_canon backfill ...` with `--dry-run` / `--apply`, hot-word filtering, and disagreement JSONL reporting.
-**Verification:** `python3 -m py_compile generator/core/clue_canon_types.py generator/core/clue_canon.py generator/core/clue_canon_store.py generator/core/ai_clues.py generator/clue_canon.py generator/phases/define.py generator/core/rewrite_engine.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py generator/core/supabase_ops.py`; `python3 -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_ai_clues.py -q` (`66 passed`); `python3 -m pytest tests/test_rewrite_engine.py tests/test_redefine.py tests/test_repair_puzzles.py -q` (`42 passed`). Also verified migrated schema is visible live via service-role queries. Started a live `python3 -m generator.clue_canon backfill --dry-run --word APA` smoke run, which created the report directory and disagreement file but did not finish within the turn window, so full live backfill output is still pending.
+
+**Context:** collapse duplicates into canonicals. referee for near-duplicates. prevention hooks for generation.
+**Happened:** Add types `clue_canon_types.py`, helpers `clue_canon.py`, adapter `clue_canon_store.py` (auto-detect schema). `ai_clues.py`: `clue_compare` JSON prompt; 6-vote referee (3 GPT-OSS + 3 EuroLLM). prompt-time prevention: inject existing canonicals into prompts. Wire canonical resolution to persistence (keep materialized legacy definition). offline command `python -m generator.clue_canon backfill`. Disagreement reports.
+**Verification:** 66 passed.
 **Outcome:** partial-success
-**Insight:** canonical-clue rollout is easiest to keep backward-compatible if canonical ids are resolved only at prompt and DB persistence boundaries; keeping markdown types and worker reads unchanged avoids a wide schema leak while still enabling gradual dedup adoption.
+**Insight:** resolve canonical ids at prompt + DB boundaries to keep markdown types + worker reads unchanged.
 **Promoted:** no
-
-### [2026-04-05] — Fix resume deadlock from stale in-flight referee requests
-**Context:** user reran clue-canon backfill and logging appeared frozen immediately after resume. Inspection of `build/clue_canon/backfill_state.json` showed all active words persisted with `waiting=true`, `current` clusters present, and stale `pending_request_id`s, while `pending_words=0`. Main loop skipped waiting items but had no live pending-request map to satisfy them, causing a silent no-op spin.
-**Happened:** Added stale-wait detection to resume normalization in `generator/clue_canon.py`. Active words restored with `waiting=true` plus current/candidate state are now logged as `[resume-stale-wait]`, converted into deferred unresolved standalone canonicals with `defer_reason="resume_stale_wait"`, and committed through the normal quarantine path instead of spinning. Added summary counters `resume_stale_wait_words` and `deferred_due_to_resume_stale_wait`, preserved stale `pending_request_id` / `candidate_indexes` in quarantine output, and added a main-loop deadlock guard so “active words + no requests + no progress” either repairs stale waiting items or raises a loud stall error instead of freezing silently.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`121 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/clue_canon_types.py tests/test_clue_canon.py`.
-**Outcome:** success
-**Insight:** resumable pipelines cannot persist `waiting=true` without either durable in-flight request reconstruction or explicit downgrade on resume; otherwise checkpointed transient state becomes a silent deadlock.
-**Promoted:** no
-
-### [2026-04-05] — Fix backfill referee throughput by batching around immediate local outcomes
-**Context:** after the monotonic reducer landed, unattended backfill still spent most wall-clock time unloading/loading Gemma and EuroLLM for tiny referee batches, often `batch_requests=1`, even with many active words left. User wanted strict two-model semantics preserved but throughput improved.
-**Happened:** Added a batched referee collector in `generator/clue_canon.py` that applies immediate local outcomes (`exact_merge` / `keep_separate`) and still keeps already-collected compare requests in the same cycle instead of short-circuiting the loop. The new collector can refill compare work after local resolutions unlock a next cluster and waits for a small minimum batch (`4`) when extra compare-ready work becomes available, reducing tiny switch-heavy launches. Extended adaptive referee reporting in `generator/core/ai_clues.py` with per-step metrics (`requests_started/completed/remaining`) and added summary counters for `referee_batches_launched`, `avg_requests_per_referee_batch`, `avg_votes_per_model_activation`, and `switches_per_committed_word`. Updated tests to cover the `resolved + requests` bug, refill-after-resolution behavior, and adaptive step metrics.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`120 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/ai_clues.py generator/core/clue_canon_types.py tests/test_clue_canon.py tests/test_ai_clues.py`.
-**Outcome:** success
-**Insight:** in a monotonic reducer, local terminal outcomes and remote compare launches cannot be treated as separate outer-loop phases; if immediate resolutions are applied in a throwaway cycle, the queue collapses to tiny referee launches and model-switch overhead dominates.
-**Promoted:** no
-
-### [2026-04-05] — Monotonic backfill reducer, explicit referee diagnostics, exact state migration
-**Context:** user wanted canonical clue backfill to always advance when both models produced usable votes, with only explicit missing-model contribution treated as non-progress. Requirement: clean up architecture, preserve exact resume behavior for existing checkpoint state, and stop the old churn pattern where one hard current cluster could be re-compared indefinitely.
-**Happened:** Refactored backfill state around shared reducer/runtime types in `generator/core/clue_canon_types.py`, adding `WorkingCluster`, `WordReducerState`, `QueuedWordState`, `ComparisonOutcome`, and detailed referee diagnostics/attempt metadata. Reworked `generator/core/ai_clues.py` so compare/referee execution records per-attempt model-role contribution and attaches diagnostics to batch/adaptive referee results. Reworked `generator/clue_canon.py` into a monotonic reducer flow: each current cluster now resolves terminally as `merge_into_existing`, `promote_new_canonical`, `keep_separate`, or `error_missing_model_votes`; one shortlisted candidate per decision; visible `[referee-error]` logging and checkpoint preservation for missing-model cases; v2→v3 checkpoint migration that converts old `compare_index` state into retryable `candidate_indexes`/`pending_request_id`; summary/quarantine counters for `keep_separate`, merges/promotions, and missing-model referee errors. Updated tests to target the new attempt-level referee API and new reducer semantics.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`118 passed`); `python3 -m py_compile generator/clue_canon.py tests/test_clue_canon.py tests/test_ai_clues.py generator/core/ai_clues.py generator/core/clue_canon_types.py generator/core/model_manager.py`.
-**Outcome:** success
-**Insight:** when referee logic needs provenance, tests and runtime both must operate at the attempt/diagnostic layer, not the old bare-vote layer; otherwise model-contribution failures disappear into ordinary disagreement paths.
-**Promoted:** no
-
-### [2026-04-05] — Add bulk puzzle-definition audit wrapper for UI clue integrity
-**Context:** user wanted a reusable `.sh` check that scans all puzzles for UI-breaking missing definitions or clue-slot mismatches, with minimal Supabase traffic and future operator reuse.
-**Happened:** Added `generator/puzzle_definition_audit.py` as a standalone audit command and `run_puzzle_definition_audit.sh` as the root wrapper. The audit now bulk-fetches puzzle metadata from `crossword_puzzles`, bulk-fetches clue rows from `crossword_clue_effective` by chunked puzzle-id batches, derives expected slots from `grid_template` via `slot_extractor`, and flags missing slot rows, blank definitions, duplicate rows, orphan rows, and clue-count mismatches. Added small store helpers for paged puzzle fetches and bulk clue fetches, stable ordering for paginated reads, JSON/JSONL report output, and tests for integrity cases plus wrapper argument forwarding.
-**Verification:** `python3 -m pytest tests/test_puzzle_definition_audit.py tests/test_clue_canon_store.py` (`18 passed`); `python3 -m py_compile generator/puzzle_definition_audit.py generator/core/clue_canon_store.py tests/test_puzzle_definition_audit.py`; `./run_puzzle_definition_audit.sh --help`.
-**Outcome:** success
-**Insight:** puzzle-integrity audits should treat `grid_template` as the source of truth for expected clues and compare in memory after bulk reads; per-puzzle fetch loops waste Supabase calls and hide slot-row mismatches that blank-definition-only checks miss.
-**Promoted:** yes — see LESSONS_LEARNED entry on bulk integrity audits using structural truth.
-
-### [2026-04-05] — Reorder finalize cutover migration to replace dependent view before dropping legacy column
-**Context:** user hit the final clue-cutover migration failure `cannot drop column definition ... because view crossword_clue_effective depends on it` and asked whether `DROP COLUMN ... CASCADE` was safe.
-**Happened:** Inspected the add-schema migration, finalize migration, and canonical-only schema. Found finalize order was wrong: it tried to drop `crossword_clues.definition` before replacing the compatibility view that still referenced `cc.definition`. Updated `migrations/20260402_finalize_canonical_clue_cutover.sql` to keep the null-pointer guard and `SET NOT NULL`, then `CREATE OR REPLACE VIEW crossword_clue_effective` in canonical-only form, and only then `DROP COLUMN IF EXISTS definition`. Also added dependency-preflight SQL snippets and an explicit warning against blind `CASCADE`.
-**Verification:** static inspection of `migrations/20260402_add_canonical_clue_schema.sql`, `migrations/20260402_finalize_canonical_clue_cutover.sql`, and `schema.sql`; no runtime DB execution in-session.
-**Outcome:** success
-**Insight:** final storage cutovers fail less from missing DDL than from wrong dependency order; if a compatibility view still references a legacy column, replace the view first and avoid `CASCADE` unless you have enumerated and planned all downstream recreations.
-**Promoted:** yes — see LESSONS_LEARNED entry on dependency-safe storage cutovers.
-
-### [2026-04-04] — Centralize LM Studio model registry and swap primary to Gemma 4
-**Context:** user wanted `gpt-oss-20b` replaced with Gemma 4 everywhere relevant to live code, but also wanted future swaps to become one central change instead of another repo-wide sweep. Constraint: keep `gpt-oss` available for future pairings, preserve EuroLLM's “omit reasoning params entirely” behavior, and avoid rewriting historical logs/docs that described real GPT-OSS runs.
-**Happened:** Refactored `generator/core/model_manager.py` into a central registry keyed by stable internal names, added one active-pair selector (`gemma4_26b_a4b` primary, `eurollm_22b` secondary), and kept compatibility `PRIMARY_MODEL` / `SECONDARY_MODEL` aliases derived from that selector. Expanded `ModelConfig` with `registry_key` plus per-purpose `reasoning_by_purpose`, so Gemma now uses task-tuned `on/off`, EuroLLM omits reasoning entirely, and GPT-OSS remains available with `low/medium` profiles for future reactivation. Routed current label lists and title-flow model ordering through central accessors, updated current docs (`AGENTS.md`, `README.md`, `GENERATOR_ARCH.md`) to describe the new default pair and single-source-of-truth config location, and refreshed affected tests/mocks to assert registry-driven behavior instead of hardcoded GPT-OSS assumptions.
-**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_model_session.py tests/test_ai_clues.py tests/test_theme.py tests/test_verify.py tests/test_metrics.py tests/test_batch_publish.py tests/test_rewrite_engine.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_run_assessment.py` (`223 passed`).
-**Outcome:** success
-**Insight:** model replacement stays cheap only if both transport ids and reasoning capabilities live in one registry; otherwise the real coupling leaks into metrics labels, title routing, and “helpful” reasoning defaults long after the primary model changed.
-**Promoted:** yes — see LESSONS_LEARNED entry on per-model, per-purpose reasoning with explicit omission support.
-
-<!-- new entries above this line, most recent first -->
-
----
-
-### [2026-04-09] Stabilize `run_all` deterministic stalls and fail fast
-
-**Context:** user asked why `run_all.sh` had burned ~2 days without a new puzzle and wanted root cause plus implementation to prevent repeats.
-**Happened:** audited `generator/output/run_all_runs/20260407_132542/run.log`; confirmed partial outage, not total outage (`retitle` and `simplify` progressed, `generate`/`redefine` did not). Fixed pair-finalization crash in `generator/phases/verify.py` so negative short-circuit verification no longer indexes missing second-model votes. Refactored `generator/supervisor/jobs/simplify.py` to split survivor handling into `plan_survivors -> rewrite_secondary -> validate_primary -> apply_merge`, removing the hidden eurollm+gemma hop from one scheduled step. Added run-local supervisor failure memory and deterministic quarantine in `generator/supervisor/scheduler.py` / `generator/supervisor/types.py`, plus always-on heartbeat summaries and generate-size cooldown/penalty input into `generator/loop_controller.py` / `generator/supervisor/pollers.py`. Extended targeted tests for verify finalization, supervisor quarantine, loop-controller penalties, and scheduler activation allowlist.
-**Verification:** `python3 -m py_compile generator/phases/verify.py generator/supervisor/types.py generator/supervisor/scheduler.py generator/supervisor/pollers.py generator/supervisor/jobs/simplify.py generator/loop_controller.py tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py`; `python3 -m pytest tests/test_verify.py tests/test_run_all.py tests/test_loop_controller.py -q` (`52 passed`); `python3 -m pytest tests/test_clue_canon_simplify.py tests/test_llm_dispatch_enforcement.py -q` (`15 passed`).
-**Outcome:** success
-**Insight:** unattended orchestration bugs usually need two fixes, not one: the direct crash path and the missing supervisor policy that allowed the same deterministic failure to repeat forever.
-**Promoted:** yes
-
----
-
-### [2026-04-03] Convert repo-wide Python progress prints to shared runtime logging
-
-**Context:** user wanted verbose timestamped logs everywhere, then asked for a repo-wide conversion of Python `print()` usage to the standard logger and asked to keep the implementation dry.
-**Happened:** Audited Python sources with `rg`, found raw `print()` spread across long-running jobs, phase scripts, experiment runners, and helper modules. Replaced human-facing progress output with `generator.core.runtime_logging.log()` across assessment, batch publish, retitle/redefine/repair, define/verify/theme/upload/download/activate, rewrite engine, prompt-autoresearch, and experiment scripts. Reused the existing `install_process_logging()`/`log()` stack instead of introducing per-file logging systems; left raw stdout writes only in the benchmark row emitter and the logger primitive itself. Updated `tests/test_runtime_logging.py` to assert through `log()`.
-**Verification:** `python3 -m py_compile generator/assessment/run_assessment.py generator/batch_publish.py generator/core/ai_clues.py generator/core/rewrite_engine.py generator/core/score_helpers.py generator/loop_controller.py generator/phases/activate.py generator/phases/define.py generator/phases/download.py generator/phases/theme.py generator/phases/upload.py generator/phases/verify.py generator/repair_puzzles.py generator/redefine.py generator/retitle.py scripts/benchmark_phase1.py scripts/prompt_autoresearch.py scripts/run_experiments.py scripts/run_multistep_assessment_series.py generator/assessment/prepare_dataset.py`; `python3 -m pytest tests/test_runtime_logging.py tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_upload_phase.py -q` (`121 passed`); final `rg -n "\\bprint\\(" --glob '*.py' --glob '!.venv/**'` now only returns `generator/core/runtime_logging.py`.
-**Outcome:** success
-**Insight:** when a repo already has a timestamped tee logger, the fastest low-risk cleanup is to standardize on that single primitive and reserve raw stdout only for explicit data-export scripts.
-**Promoted:** yes
-
----
-
-### [2026-04-03] Make clue-canon backfill resumable, singleton-complete, and cutover-safe
-
-**Context:** user needed `run_clue_canon_backfill.sh` to stop feeling hung, stop requiring babysitting, migrate singleton clue rows too, and make canonical clue storage the permanent storage model so dropping `crossword_clues.definition` can be the final storage migration.
-**Happened:** Refactored `generator/clue_canon.py` from 50-word chunk commits into streaming per-word commits with a resumable JSON checkpoint under `build/clue_canon/`. Backfill now processes all clue rows (verified and unverified), includes singleton words by default, persists one canonical pointer per clue row, and writes disagreements/quarantine reports incrementally. Added backfill-only adaptive referee voting in `generator/core/ai_clues.py` so obvious non-matches or unanimous same-sense pairs can stop before the full 6-vote budget, while keeping two-model evaluation. Hardened upload/redefine/repair writers to fail if canonical resolution does not return `canonical_definition_id`. Added `python -m generator.clue_canon audit` to block final cutover when clue rows still have null canonical refs, effective-view rows still fall back to legacy definitions, or production code still contains direct legacy-column references. Updated the final SQL migration to assert no null canonical ids before dropping the legacy column.
-**Verification:** `python3 -m py_compile generator/clue_canon.py generator/core/ai_clues.py generator/core/clue_canon.py generator/core/clue_canon_types.py generator/core/lm_runtime.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_session.py -q` (`81 passed`); `python3 -m pytest tests/test_redefine.py tests/test_repair_puzzles.py -q` (`33 passed`); `python3 -m pytest tests/test_upload_phase.py -q` (`1 passed`).
-**Outcome:** success
-**Insight:** final schema cutovers are only really final if migration coverage, live writer guarantees, and legacy-read detection are all enforced by one audit command before the destructive SQL step.
-**Promoted:** yes
-
----
-
-### [2026-04-01] Decouple clue flows from `crossword_clues.definition` and standardize clue/canonical logs
-
-**Context:** user wanted code made safe for dropping the legacy `crossword_clues.definition` column after canonical migration, plus clearer clue-generation / merge / redefine logging with maintainable shared formatting.
-**Happened:** Added clue-definition compatibility methods to `ClueCanonStore`: schema probing for legacy/canonical columns, hydrated clue fetches that resolve canonical text first and fall back to legacy text only when needed, batched canonical-id lookups, and payload builders that only materialize `definition` when the legacy column still exists. Switched `redefine`, `repair_puzzles`, `retitle`, and clue-canon backfill reads onto that helper; switched upload / attach / redefine / repair writes onto the shared payload builder. Added `generator/core/clue_logging.py` and routed generation, rewrite, upload, redefine, repair, and clue-canon merge/disagreement messages through common clue/canonical event formatting. Updated the Cloudflare worker puzzle-clue fetch path to resolve clue text via `canonical_definition_id` first, with legacy definition fallback only if still available.
-**Verification:** `python3 -m py_compile generator/core/clue_canon_store.py generator/core/clue_logging.py generator/clue_canon.py generator/phases/define.py generator/phases/upload.py generator/redefine.py generator/repair_puzzles.py generator/retitle.py generator/core/rewrite_engine.py tests/test_clue_canon_store.py`; `python3 -m pytest tests/test_clue_canon_store.py tests/test_clue_canon.py tests/test_ai_clues.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_retitle.py -q` (`129 passed`). Could not run Worker TypeScript typecheck in-session because no local `tsc` / `worker/node_modules` is present.
-**Outcome:** success
-**Insight:** schema migrations around canonicalized clue text stay tractable only if both reads and writes go through one compatibility surface; the same centralization also gives one place to standardize clue-event logging instead of hand-formatting strings in every flow.
-**Promoted:** yes
-
----
-
-### [2026-04-01] Batch clue-canon referee work across words to avoid per-comparison model thrash
-
-**Context:** user flagged that clue-canon backfill can touch ~12k clues, so loading/unloading LM Studio models per comparison is too expensive; requirement: backfill batching only, no regressions in other clue-canon flows, logging/extensibility considered.
-**Happened:** Traced the hot path: `run_backfill()` merged words one-by-one, and every near-duplicate comparison ran a full `primary votes -> secondary votes` cycle before moving on. Added `DefinitionRefereeInput` plus `run_definition_referee_batch()` in `generator/core/ai_clues.py`, keeping the same 6-vote schedule but grouping many requests under one primary activation and one secondary activation. Added `ClueCanonService._run_referee_batch()` for reuse, then replaced backfill’s local merge loop with a round-robin `_MergeState` batch state machine in `generator/clue_canon.py` that preserves per-word merge order while collecting up to `--referee-batch-size` pending comparisons across a chunk of words. Kept single-item `resolve_definition()` behavior unchanged, preserved existing per-comparison audit payloads, and added a lightweight batch log plus summary field for batch size.
-**Verification:** `python3 -m py_compile generator/core/ai_clues.py generator/core/clue_canon.py generator/core/clue_canon_types.py generator/clue_canon.py tests/test_ai_clues.py tests/test_clue_canon.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_redefine.py tests/test_repair_puzzles.py -q` (`100 passed`).
-**Outcome:** success
-**Insight:** high-volume two-model referee jobs need a dedicated batched execution path; reusing the exact vote semantics while moving model activation to batch boundaries gives most of the win without complicating live clue-resolution flows.
-**Promoted:** yes
-
----
-
-### [2026-04-01] Fix empty-arg crash in `run_clue_canon_backfill.sh`
-
-**Context:** user ran `./run_clue_canon_backfill.sh` with no extra args; wrapper crashed immediately with `line 34: args[@]: unbound variable`.
-**Happened:** Read local lessons first, then traced the failure to `set -euo pipefail` under macOS `bash 3.2.57`: the script built `args=("$@")` and later expanded `"${args[@]}"` even when no CLI args were supplied. Reworked the wrapper to scan `"$@"` directly for `--apply|--dry-run`, branch on `$#`, and only build/expand `args` after guaranteeing at least one element (`--apply` default when empty).
-**Verification:** reproduced the fixed control flow in `bash -lc` with `set -euo pipefail` for two cases: no args produced `--apply`; `--word APA --limit 10` produced `--apply --word APA --limit 10`. Did not run the real backfill command itself in-session, to avoid triggering live apply behavior during a wrapper-only fix.
-**Outcome:** success
-**Insight:** on this repo's macOS shell baseline, empty array expansion is not safe under `nounset`; thin helper scripts should prefer `$#`/`"$@"` gating over assuming empty arrays behave portably.
-**Promoted:** yes
-
----
-
-### [2026-04-02] — Cut over clue reads to SQL view and freeze canonical rows
-**Context:** user wanted the canonical clue plan implemented end-to-end with dry/maintainable/extensible structure, explicit migration away from `crossword_clues.definition`, and confirmation that the existing ~13k legacy clue texts would be handled as migration input rather than ignored.
-**Happened:** Reworked the canonical clue contract around one DB read surface: added final bootstrap DDL in `schema.sql`, a phase-1 migration `migrations/20260402_add_canonical_clue_schema.sql`, and a phase-2 finalize migration `migrations/20260402_finalize_canonical_clue_cutover.sql`. The new schema adds `canonical_clue_definitions`, `canonical_clue_aliases`, `crossword_clue_effective`, `crossword_clues.word_type`, and `crossword_clues.canonical_definition_id`; fresh installs are now canonical-only, while existing installs keep a compatibility view until backfill/finalize. Refactored `generator/core/clue_canon_store.py` to read clue rows from the SQL view instead of hydrating canonicals in Python, removed legacy-definition write branching, extended canonical identity with `word_type` + `usage_label`, and filtered malformed UUID ids before batched canonical lookups to avoid the PostgREST `Bad Request` crash seen in `run_clue_canon_backfill.sh`. Refactored `generator/core/clue_canon.py` so “promote new” creates a new immutable canonical row instead of overwriting an old one, and restricted near-match competition to matching `word_type` / `usage_label`. Updated upload/redefine/repair write paths to persist canonical ids only; updated `repair_puzzles` to persist from working-clue versions instead of rendered markdown entries so `word_type` survives. Simplified the worker clue fetch path to read `definition` directly from `crossword_clue_effective`. Tightened `generator/clue_canon.py` backfill to seed canonicals only from verified legacy clues and emit quarantine JSONL for rejected seed rows plus non-merged verified rows. Refreshed README cutover docs and updated tests for the new view/canonical-id contract.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py`; `python3 -m pytest tests/test_upload_phase.py`. Also checked `worker/package.json`; there is no `build` script, so no worker build command was available to run locally.
-**Outcome:** success
-**Insight:** when a phased DB migration leaves mixed legacy/canonical rows in place, move fallback logic into a SQL view early and make app code consume only that view; it removes duplicated compatibility branches and avoids fragile follow-up UUID fetches against partially migrated ids.
-**Promoted:** yes — see LESSONS_LEARNED entry on UUID sanitization for PostgREST `.in_()` calls
-
----
-
-### [2026-04-04] — Salvage stale `clue_canon` resume state without dropping in-flight active words
-**Context:** after the backfill performance refactor, resumed runs crashed with `KeyError: 'ZGRIBURI'` during queue refill. Fresh eligible workset was much smaller than the serialized checkpoint queue, but active in-flight words still had full merge state and should not be discarded.
-**Happened:** Updated `generator/clue_canon.py` so resume now reconciles checkpoint state against the fresh eligible workset: stale pending words are dropped, active words are preserved if their serialized merge state is structurally valid, and queue refill defensively skips any unexpected no-bucket words instead of crashing. Added new resume counters to `BackfillStats`, summary/state serialization, and summary JSON (`resume_pending_words_dropped`, `resume_active_words_dropped`, `resume_words_deduped`). Also added explicit checkpoint version validation so unknown future versions fail clearly instead of being guessed at. Expanded `tests/test_clue_canon.py` with stale-pending, preserved-active, malformed-active, dedupe, and unsupported-version regressions.
-**Verification:** `.venv/bin/python -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py` (`61 passed`).
-**Outcome:** success
-**Insight:** resumable pipelines should treat serialized active work as authoritative but serialized pending queues as advisory; active state is expensive in-flight work, while pending queues must be revalidated against the current source-of-truth workset on every resume.
-**Promoted:** yes — see LESSONS_LEARNED entry on authoritative active state vs advisory pending queues for resumable jobs.
-
----
-
-### [2026-04-04] — Remap Gemma reasoning controls to LM Studio chat endpoint semantics
-**Context:** after switching primary model to Gemma 4, live LM Studio `/v1/chat/completions` checks showed a mismatch: repo config sent `reasoning_effort` as `on/off`, but the OpenAI-compatible endpoint rejected those values even though `/api/v1/models` advertised Gemma reasoning as `off/on`.
-**Happened:** Updated `generator/core/model_manager.py` so Gemma uses endpoint-safe reasoning values centrally: `none` for default/light calls and `medium` for heavier generate/rewrite/rate/compare calls. Added normalization of legacy aliases (`off -> none`, `on -> medium`) plus validation for unsupported values, and refreshed tests in `tests/test_model_manager.py` and `tests/test_ai_clues.py` to assert the new Gemma behavior while keeping GPT-OSS and EuroLLM behavior unchanged.
-**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_ai_clues.py` (`91 passed`). Also ran live LM Studio checks against loaded `google/gemma-4-26b-a4b`: `reasoning_effort=none` returned `OK`; `reasoning_effort=medium` was accepted by the endpoint with no invalid-request error, though it spent the small token budget on reasoning content.
-**Outcome:** success
-**Insight:** LM Studio model capability metadata can diverge from the OpenAI-compatible chat endpoint contract; central reasoning policy must follow the wire behavior actually accepted by `/v1/chat/completions`, not the metadata labels.
-**Promoted:** yes — see LESSONS_LEARNED entry on endpoint-contract-over-metadata for reasoning controls.
-
----
-
-### [2026-04-04] — Backfill perf: DB-filter eligible clue rows, batch store writes, throttle checkpoints
-**Context:** user wanted `./run_clue_canon_backfill.sh --apply --word-queue-size 50 --referee-batch-size 50` made faster without adding LM parallelism. Main pain: half-migrated reruns still loaded the full clue corpus, queue fill did per-word canonical queries, apply path did one clue update / alias insert at a time, and resumable state rewrote too often.
-**Happened:** Added DB-side backfill source filtering in `generator/core/clue_canon_store.py` (`verified=true`, `canonical_definition_id is null`, optional `word_normalized`), plus count helpers, bulk canonical prefetch, batched clue attachment, and batched alias insertion with one existence fetch. Refactored `generator/clue_canon.py` to source only eligible rows, carry new counters (`eligible_rows`, skipped already-canonicalized rows, batch counts, candidate/request counters), prefetch canonicals once per queue refill wave, exact-merge identical existing canonicals before LLM requests, and throttle checkpoint rewrites to forced checkpoints plus a 10s cadence during referee churn. Expanded tests to cover filtered fetches, bulk prefetch, batched cluster apply, exact-merge request pruning, queue-wave prefetching, word-filtered backfill fetches, and checkpoint throttling.
-**Verification:** `.venv/bin/python -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_redefine.py tests/test_repair_puzzles.py` (`57 passed`).
-**Outcome:** success
-**Insight:** resumable backfills stay tractable only if “eligible workset” is filtered in the DB and hot-path persistence is batched per committed word; otherwise queue/batch flags only hide full-corpus and per-row round-trip costs.
-**Promoted:** yes — see LESSONS_LEARNED entry on DB-filtered backfill worksets and per-word batching.
 
 ---
 
 ### [2026-04-05] — Fix resume deadlock from stale in-flight referee requests
-**Context:** user reran clue-canon backfill and logging appeared frozen immediately after resume. Inspection of `build/clue_canon/backfill_state.json` showed all active words persisted with `waiting=true`, `current` clusters present, and stale `pending_request_id`s, while `pending_words=0`. Main loop skipped waiting items but had no live pending-request map to satisfy them, causing a silent no-op spin.
-**Happened:** Added stale-wait detection to resume normalization in `generator/clue_canon.py`. Active words restored with `waiting=true` plus current/candidate state are now logged as `[resume-stale-wait]`, converted into deferred unresolved standalone canonicals with `defer_reason="resume_stale_wait"`, and committed through the normal quarantine path instead of spinning. Added summary counters `resume_stale_wait_words` and `deferred_due_to_resume_stale_wait`, preserved stale `pending_request_id` / `candidate_indexes` in quarantine output, and added a main-loop deadlock guard so “active words + no requests + no progress” either repairs stale waiting items or raises a loud stall error instead of freezing silently.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`121 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/clue_canon_types.py tests/test_clue_canon.py`.
+
+**Context:** backfill frozen after resume. state: `waiting=true` with stale request ids. silent no-op loop.
+**Happened:** Add stale-wait detection to resume normalization. convert restored `waiting=true` items to deferred standalone canonicals (`resume_stale_wait`). commit via quarantine. add summary counters. main-loop deadlock guard (repair or error).
+**Verification:** 121 passed.
 **Outcome:** success
-**Insight:** resumable pipelines cannot persist `waiting=true` without either durable in-flight request reconstruction or explicit downgrade on resume; otherwise checkpointed transient state becomes a silent deadlock.
+**Insight:** persist `waiting=true` only with durable request reconstruction or explicit resume downgrade.
 **Promoted:** no
 
 ---
 
 ### [2026-04-05] — Fix backfill referee throughput by batching around immediate local outcomes
-**Context:** after the monotonic reducer landed, unattended backfill still spent most wall-clock time unloading/loading Gemma and EuroLLM for tiny referee batches, often `batch_requests=1`, even with many active words left. User wanted strict two-model semantics preserved but throughput improved.
-**Happened:** Added a batched referee collector in `generator/clue_canon.py` that applies immediate local outcomes (`exact_merge` / `keep_separate`) and still keeps already-collected compare requests in the same cycle instead of short-circuiting the loop. The new collector can refill compare work after local resolutions unlock a next cluster and waits for a small minimum batch (`4`) when extra compare-ready work becomes available, reducing tiny switch-heavy launches. Extended adaptive referee reporting in `generator/core/ai_clues.py` with per-step metrics (`requests_started/completed/remaining`) and added summary counters for `referee_batches_launched`, `avg_requests_per_referee_batch`, `avg_votes_per_model_activation`, and `switches_per_committed_word`. Updated tests to cover the `resolved + requests` bug, refill-after-resolution behavior, and adaptive step metrics.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`120 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/ai_clues.py generator/core/clue_canon_types.py tests/test_clue_canon.py tests/test_ai_clues.py`.
+
+**Context:** model switch churn on tiny batches (requests=1). throughput bottle-neck.
+**Happened:** Add batched referee collector: apply immediate local outcomes (`exact_merge` / `keep_separate`) without short-circuiting loop. Wait for min batch (`4`) for switches. Extended adaptive reporting (requests metrics). summary counters for activations / switches.
+**Verification:** 120 passed.
 **Outcome:** success
-**Insight:** in a monotonic reducer, local terminal outcomes and remote compare launches cannot be treated as separate outer-loop phases; if immediate resolutions are applied in a throwaway cycle, the queue collapses to tiny referee launches and model-switch overhead dominates.
+**Insight:** local outcomes and remote launches must co-exist in same cycle to prevent queue collapse to tiny launches.
 **Promoted:** no
 
 ---
 
 ### [2026-04-05] — Monotonic backfill reducer, explicit referee diagnostics, exact state migration
-**Context:** user wanted canonical clue backfill to always advance when both models produced usable votes, with only explicit missing-model contribution treated as non-progress. Requirement: clean up architecture, preserve exact resume behavior for existing checkpoint state, and stop the old churn pattern where one hard current cluster could be re-compared indefinitely.
-**Happened:** Refactored backfill state around shared reducer/runtime types in `generator/core/clue_canon_types.py`, adding `WorkingCluster`, `WordReducerState`, `QueuedWordState`, `ComparisonOutcome`, and detailed referee diagnostics/attempt metadata. Reworked `generator/core/ai_clues.py` so compare/referee execution records per-attempt model-role contribution and attaches diagnostics to batch/adaptive referee results. Reworked `generator/clue_canon.py` into a monotonic reducer flow: each current cluster now resolves terminally as `merge_into_existing`, `promote_new_canonical`, `keep_separate`, or `error_missing_model_votes`; one shortlisted candidate per decision; visible `[referee-error]` logging and checkpoint preservation for missing-model cases; v2→v3 checkpoint migration that converts old `compare_index` state into retryable `candidate_indexes`/`pending_request_id`; summary/quarantine counters for `keep_separate`, merges/promotions, and missing-model referee errors. Updated tests to target the new attempt-level referee API and new reducer semantics.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`118 passed`); `python3 -m py_compile generator/clue_canon.py tests/test_clue_canon.py tests/test_ai_clues.py generator/core/ai_clues.py generator/core/clue_canon_types.py generator/core/model_manager.py`.
+
+**Context:** force progress when both models contribute. cleanup architecture. preserve resume behavior.
+**Happened:** refactor state around shared types. Rework `ai_clues.py`: compare/referee records model-role contribution + diagnostics. Rework `clue_canon.py` to monotonic reducer: terminal resolution per cluster (`merge`, `promote`, `keep_separate`, `error`). shortlisted candidate per decision. v2->v3 checkpoint migration (convert `compare_index` state). summary counters.
+**Verification:** 118 passed.
 **Outcome:** success
-**Insight:** when referee logic needs provenance, tests and runtime both must operate at the attempt/diagnostic layer, not the old bare-vote layer; otherwise model-contribution failures disappear into ordinary disagreement paths.
+**Insight:** referee tests + runtime must operate at attempt/diagnostic layer to catch contribution failures.
 **Promoted:** no
 
 ---
 
 ### [2026-04-05] — Add bulk puzzle-definition audit wrapper for UI clue integrity
-**Context:** user wanted a reusable `.sh` check that scans all puzzles for UI-breaking missing definitions or clue-slot mismatches, with minimal Supabase traffic and future operator reuse.
-**Happened:** Added `generator/puzzle_definition_audit.py` as a standalone audit command and `run_puzzle_definition_audit.sh` as the root wrapper. The audit now bulk-fetches puzzle metadata from `crossword_puzzles`, bulk-fetches clue rows from `crossword_clue_effective` by chunked puzzle-id batches, derives expected slots from `grid_template` via `slot_extractor`, and flags missing slot rows, blank definitions, duplicate rows, orphan rows, and clue-count mismatches. Added small store helpers for paged puzzle fetches and bulk clue fetches, stable ordering for paginated reads, JSON/JSONL report output, and tests for integrity cases plus wrapper argument forwarding.
-**Verification:** `python3 -m pytest tests/test_puzzle_definition_audit.py tests/test_clue_canon_store.py` (`18 passed`); `python3 -m py_compile generator/puzzle_definition_audit.py generator/core/clue_canon_store.py tests/test_puzzle_definition_audit.py`; `./run_puzzle_definition_audit.sh --help`.
+
+**Context:** scan puzzles for missing definitions / slot mismatches; minimal traffic.
+**Happened:** Add `puzzle_definition_audit.py` + `run_puzzle_definition_audit.sh`. bulk-fetch metadata + clues. derive expected slots from `grid_template`. flag missing rows, blanks, duplicates, orphans, count mismatches. Paginated reads. JSON/JSONL reports. tests.
+**Verification:** 18 passed.
 **Outcome:** success
-**Insight:** puzzle-integrity audits should treat `grid_template` as the source of truth for expected clues and compare in memory after bulk reads; per-puzzle fetch loops waste Supabase calls and hide slot-row mismatches that blank-definition-only checks miss.
-**Promoted:** yes — see LESSONS_LEARNED entry on bulk integrity audits using structural truth.
+**Insight:** compare against `grid_template` structural truth after bulk read; avoid per-puzzle fetch loops.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-05] — Reorder finalize cutover migration to replace dependent view before dropping legacy column
-**Context:** user hit the final clue-cutover migration failure `cannot drop column definition ... because view crossword_clue_effective depends on it` and asked whether `DROP COLUMN ... CASCADE` was safe.
-**Happened:** Inspected the add-schema migration, finalize migration, and canonical-only schema. Found finalize order was wrong: it tried to drop `crossword_clues.definition` before replacing the compatibility view that still referenced `cc.definition`. Updated `migrations/20260402_finalize_canonical_clue_cutover.sql` to keep the null-pointer guard and `SET NOT NULL`, then `CREATE OR REPLACE VIEW crossword_clue_effective` in canonical-only form, and only then `DROP COLUMN IF EXISTS definition`. Also added dependency-preflight SQL snippets and an explicit warning against blind `CASCADE`.
-**Verification:** static inspection of `migrations/20260402_add_canonical_clue_schema.sql`, `migrations/20260402_finalize_canonical_clue_cutover.sql`, and `schema.sql`; no runtime DB execution in-session.
+
+**Context:** `cannot drop column definition ... because view crossword_clue_effective depends on it`.
+**Happened:** fix migration order. NULL guard + `SET NOT NULL`. `CREATE OR REPLACE VIEW crossword_clue_effective` (canonical-only form). `DROP COLUMN IF EXISTS definition`. add preflight snippets.
 **Outcome:** success
-**Insight:** final storage cutovers fail less from missing DDL than from wrong dependency order; if a compatibility view still references a legacy column, replace the view first and avoid `CASCADE` unless you have enumerated and planned all downstream recreations.
-**Promoted:** yes — see LESSONS_LEARNED entry on dependency-safe storage cutovers.
+**Insight:** replace dependent compatibility views before dropping legacy columns.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-04] — Centralize LM Studio model registry and swap primary to Gemma 4
-**Context:** user wanted `gpt-oss-20b` replaced with Gemma 4 everywhere relevant to live code, but also wanted future swaps to become one central change instead of another repo-wide sweep. Constraint: keep `gpt-oss` available for future pairings, preserve EuroLLM's “omit reasoning params entirely” behavior, and avoid rewriting historical logs/docs that described real GPT-OSS runs.
-**Happened:** Refactored `generator/core/model_manager.py` into a central registry keyed by stable internal names, added one active-pair selector (`gemma4_26b_a4b` primary, `eurollm_22b` secondary), and kept compatibility `PRIMARY_MODEL` / `SECONDARY_MODEL` aliases derived from that selector. Expanded `ModelConfig` with `registry_key` plus per-purpose `reasoning_by_purpose`, so Gemma now uses task-tuned `on/off`, EuroLLM omits reasoning entirely, and GPT-OSS remains available with `low/medium` profiles for future reactivation. Routed current label lists and title-flow model ordering through central accessors, updated current docs (`AGENTS.md`, `README.md`, `GENERATOR_ARCH.md`) to describe the new default pair and single-source-of-truth config location, and refreshed affected tests/mocks to assert registry-driven behavior instead of hardcoded GPT-OSS assumptions.
-**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py tests/test_model_session.py tests/test_ai_clues.py tests/test_theme.py tests/test_verify.py tests/test_metrics.py tests/test_batch_publish.py tests/test_rewrite_engine.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_run_assessment.py` (`223 passed`).
-**Outcome:** success
-**Insight:** model replacement stays cheap only if both transport ids and reasoning capabilities live in one registry; otherwise the real coupling leaks into metrics labels, title routing, and “helpful” reasoning defaults long after the primary model changed.
-**Promoted:** yes — see LESSONS_LEARNED entry on per-model, per-purpose reasoning with explicit omission support.
 
-<!-- new entries above this line, most recent first -->
+**Context:** replace `gpt-oss-20b` with Gemma 4; central change surface for future swaps.
+**Happened:** Refactor `model_manager.py` to central registry. add active-pair selector. derive `PRIMARY` / `SECONDARY` aliases. `ModelConfig`: per-purpose reasoning. Gemma task-tuned `on/off`; EuroLLM omit. Update docs. Refresh tests.
+**Verification:** 223 passed.
+**Outcome:** success
+**Insight:** registry must own transport ids + reasoning capabilities to prevent leak into purpose-specific code.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-05] — Bound `clue_compare`, defer stagnant backfill words, and suppress boilerplate pair churn
-**Context:** user reported `run_clue_canon_backfill` appearing stuck for hours with constant Gemma/EuroLLM switching and almost no visible commits. Live state showed queue already drained, only a handful of giant unresolved words left, and Gemma compare calls sometimes spending ~1000 generated tokens “thinking” on a tiny JSON compare task.
-**Happened:** Changed Gemma `clue_compare` reasoning to `none` in the central model registry, reduced compare completion budget from `2000` to `120`, and added logging for truncated compare outputs, invalid compare JSON, and slow compare calls. Tightened `_likely_cluster_match()` to ignore per-word boilerplate tokens that appear in at least `40%` of definitions and to require either `>=2` informative shared tokens or lexical similarity `>=0.90`. Added resumable stagnation tracking for active backfill words (`consecutive_non_merge_comparisons`, `last_merge_comparison`, `deferred`, `defer_reason`, `defer_remaining_clusters`) plus a new `--max-stagnant-comparisons` budget that defers hard words by committing their remaining clusters as standalone canonicals instead of grinding indefinitely. Extended progress, summary, quarantine, and state serialization to expose deferred-word behavior and real remaining-work signals.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_ai_clues.py tests/test_model_manager.py` (`116 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/ai_clues.py generator/core/model_manager.py generator/core/clue_canon_types.py`.
+
+**Context:** backfill stuck on giant unresolved words; Gemma "thinking" budget overrun on tiny tasks.
+**Happened:** Gemma `clue_compare` reasoning to `none`. reduce budget `2000 -> 120`. add truncation/slow-call logging. `_likely_cluster_match()`: ignore word boilerplate tokens; require informative tokens / high similarity. Add resumable stagnation tracking + `--max-stagnant-comparisons` budget (defer to quarantine). Serialize deferred signals.
+**Verification:** 116 passed.
 **Outcome:** success
-**Insight:** canonical backfill stalls can be “alive but effectively done” when the outer queue is empty and only giant formulaic words remain; in that phase, better compare budgets and earlier defer/quarantine logic matter more than raw queue size.
-**Promoted:** yes — compare/referee calls should use bounded classifier-style budgets; see LESSONS_LEARNED entry dated 2026-04-05.
+**Insight:** better budgets + defer logic matter more than queue size when only giant formulaic words remain.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-05] — Simplify clue-canon referee to 2 phases and harden canonical insert conflicts
-**Context:** user reported clue-canon backfill wasting most wall time on Gemma/EuroLLM load-unload churn and then crashing on duplicate canonical inserts for `LA`.
-**Happened:** Replaced the adaptive 6-phase referee path with a strict 2-phase batch flow in `generator/core/ai_clues.py`: one Gemma pass, one EuroLLM pass, terminal decision after both models contribute, compact compare JSON with no required `reason`, and per-batch invalid-json counters. Updated `generator/clue_canon.py` to use the new batch metrics, raised the useful launch floor to `10`, removed `/6` logging from merge events, and logged phase1/phase2 request counts plus tail launches. Hardened `generator/core/clue_canon_store.py` so `create_canonical_definition()` catches `23505`, invalidates the word cache, refetches exact canonical identity, and reuses/bump-usage instead of crashing.
-**Verification:** `python3 -m pytest tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_model_manager.py`; `python3 -m py_compile generator/core/ai_clues.py generator/clue_canon.py generator/core/clue_canon_store.py generator/core/clue_canon_types.py tests/test_ai_clues.py tests/test_clue_canon.py tests/test_clue_canon_store.py`.
+
+**Context:** switch churn; adaptive referee too slow. crash on duplicate canonical inserts (`LA`).
+**Happened:** Replace 6-phase adaptive referee with strict 2-phase batch (Gemma pass + Euro pass). compact JSON (no `reason`). update batch metrics. launch floor `10`. `clue_canon_store.py`: catch `23505`; invalidate cache; refetch; reuse/bump instead of crash.
+**Verification:** tests OK.
 **Outcome:** success
-**Insight:** with single-active-model local inference, referee strictness must come from cross-model unanimity, not from extra alternating phases; otherwise model residency cost dominates actual compare work.
-**Promoted:** yes — see LESSONS_LEARNED entries on LM Studio phase design and conflict-safe canonical writes.
+**Insight:** cross-model unanimity beats alternating phases for local inference throughput.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-05] — Expand clue-canon backfill from verified-only nulls to all null pointers
-**Context:** user checked `select count(*) from crossword_clues where canonical_definition_id is null;` and found `4181`, while backfill reported `eligible_rows=0`. Investigation showed verified-null rows were already `0`; all remaining null pointers were unverified rows excluded by the current source filter.
-**Happened:** Updated `generator/core/clue_canon_store.py` so backfill source rows now include all `canonical_definition_id IS NULL` clues, not just verified ones. Updated `generator/clue_canon.py` to treat unverified rows conservatively: exact canonical reuse allowed, otherwise singleton canonical creation, with no referee/near-merge path for unverified currents. Added summary/state counters for `verified_null_rows`, `unverified_null_rows`, `eligible_rows_all`, `verified_attached_rows`, `unverified_attached_rows`, `unverified_singleton_canonicals_created`, and `unverified_exact_reuses`. Updated README backfill docs to explain the new policy: verified rows may merge/referee; unverified rows are attached conservatively to drive null pointers to zero.
-**Verification:** `python3 -m pytest tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_ai_clues.py tests/test_model_manager.py` (`131 passed`); `python3 -m py_compile generator/clue_canon.py generator/core/clue_canon_store.py generator/core/clue_canon_types.py tests/test_clue_canon.py tests/test_clue_canon_store.py`.
+
+**Context:** 4181 null pointers (unverified rows excluded).
+**Happened:** `clue_canon_store.py`: include all `canonical_definition_id IS NULL` rows. `clue_canon.py`: treat unverified conservatively (exact reuse or singleton; no referee). Add counters for unverified attached / reuses.
+**Verification:** 131 passed.
 **Outcome:** success
-**Insight:** if the operational goal is pointer completeness, source filtering and progress counters must reflect all pointerless rows even when only a subset of rows is trusted to influence semantic dedup.
-**Promoted:** yes — see LESSONS_LEARNED entry on matching backfill eligibility to cutover invariants.
+**Insight:** source filtering must reflect all pointerless rows for operational completeness.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-05] — Add continuous canonical-fanout simplifier with fail-closed invalid-answer guards
-**Context:** user wanted an overnight maintenance worker that keeps simplifying canonical definitions globally, batches model work to amortize Gemma/EuroLLM swaps, and never lets malformed compare/rewrite outputs corrupt canonical rows.
-**Happened:** Added `simplify-fanout` command wiring in `generator/clue_canon.py`, new simplifier engine in `generator/core/clue_canon_simplify.py`, and wrapper `run_clue_canon_simplify.sh`. Extended `generator/core/clue_canon_store.py` + `generator/core/clue_canon_types.py` with active-canonical fetch helpers, clue repointing by canonical ids, supersede updates, and `superseded_by` field support. Extended `generator/core/ai_clues.py` with public compare-attempt access plus merge-rewrite/validation helpers and local fail-closed residue/family/broadness checks. Added focused coverage in `tests/test_clue_canon_simplify.py` for pair generation, one-canonical-per-batch sampling, invalid compare handling, rewrite rejection, merge application ordering, state roundtrip, parser wiring, and wrapper defaults.
-**Verification:** `python3 -m pytest tests/test_clue_canon_simplify.py tests/test_ai_clues.py tests/test_clue_canon_store.py tests/test_clue_canon.py tests/test_model_manager.py` (`142 passed`); `python3 -m py_compile generator/core/ai_clues.py generator/core/clue_canon_store.py generator/core/clue_canon_simplify.py generator/clue_canon.py tests/test_clue_canon_simplify.py`; `./run_clue_canon_simplify.sh --help`.
+
+**Context:** overnight simplifier; amortize model swaps; prevent corruption from malformed outputs.
+**Happened:** add `simplify-fanout` wiring + engine `clue_canon_simplify.py` + wrapper. `clue_canon_store.py`: active-canonical fetch, repointing, supersede updates. `ai_clues.py`: merge-rewrite/validation helpers + fail-closed residue checks. add coverage for pair generation, sampling, rejections.
+**Verification:** 142 passed.
 **Outcome:** success
-**Insight:** overnight semantic simplifiers need explicit in-flight batch state plus fail-closed rewrite fallback; otherwise the first interrupt or malformed JSON turns a maintenance worker into a source of canonical corruption.
+**Insight:** simplifiers need explicit batch state + fail-closed fallbacks to prevent corruption.
 **Promoted:** no
 
 ---
 
 ### [2026-04-05] — Fix batch publish crash after Gemma swap; lower Gemma reasoning; add overthinking warnings
-**Context:** user ran `run_batch_loop.sh` on April 5 and saw no new puzzle created after replacing `gpt-oss-20b` with `gemma-4`. Logs suggested Gemma “thinking” might be involved and user wanted root cause plus a direct warning next time reasoning budget goes bad.
-**Happened:** Audited `generator/output/loop_runner.log` plus April 5 batch run logs. Confirmed the actual publish blocker was not Gemma itself but a late upload crash after a valid puzzle had already reached `Puzzle publicabil la tentativa 1/5`: `AttributeError: 'ClueEntry' object has no attribute 'word_type'` in `generator/phases/upload.py`. Fixed the adapter path by adding `word_type` to `ClueEntry`, preserving it in `generator/core/pipeline_state.py`, and hardening upload with `getattr(..., "")` fallback plus an early `Preparing upload payload` log. Then lowered Gemma reasoning from `medium`/`none` mixes to `low` for all Gemma purposes in `generator/core/model_manager.py`, and moved reasoning-budget detection into central `_chat_completion_create()` logging in `generator/core/ai_clues.py`, emitting `[warn reasoning_budget ...]` when reasoning dominates the token budget before or alongside truncation. Added regression coverage in `tests/test_pipeline_state.py`, `tests/test_upload_phase.py`, `tests/test_model_manager.py`, `tests/test_ai_clues.py`, and updated `tests/test_theme.py` for the new Gemma default.
-**Verification:** `PYTHONPATH=. .venv/bin/python -m pytest tests/test_pipeline_state.py tests/test_upload_phase.py tests/test_model_manager.py tests/test_ai_clues.py tests/test_batch_publish.py tests/test_theme.py tests/test_verify.py` (`203 passed`); `PYTHONPATH=. .venv/bin/python -m compileall generator tests`.
+
+**Context:** `run_batch_loop.sh` stall post-Gemma swap. late upload crash. overthinking warnings.
+**Happened:** audit logs; find `AttributeError: word_type`. Fix `ClueEntry` adapter. Harden upload: `getattr` fallback. Lower Gemma reasoning to `low` (registry). central `_chat_completion_create()` logging: emit `[warn reasoning_budget]` if thinking dominates. update tests.
+**Verification:** 203 passed.
 **Outcome:** success
-**Insight:** long-running publish loops need compatibility defaults at the final upload boundary and centralized reasoning-budget warnings; otherwise one late serializer mismatch or silent “thinking” blowup can waste an otherwise successful multi-hour batch.
-**Promoted:** yes — see LESSONS_LEARNED entry on preserving clue metadata across serialization boundaries.
+**Insight:** publish loops need compatibility defaults at upload boundary + reasoning budget warnings.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-05] — Add central `--debug` LM streaming logs across LLM entrypoints
-**Context:** user wanted `--debug` on batch/redefine/retitle/canonical wrappers so live LM Studio thinking and outputs show up while the job is still running, especially inside batch `run.log`.
-**Happened:** Added one process-wide LLM debug toggle in `generator/core/runtime_logging.py`, plus a reusable parser helper for `--debug`. Reworked `TimestampedWriter` from newline-buffered to stateful per-line fragment emission so streamed chunks flush immediately into stdout and log files without duplicate timestamp prefixes. Extended `generator/core/ai_clues.py` so `_chat_completion_create()` switches to streaming only in debug mode, logs request metadata, emits tagged `[LLM thinking]` and `[LLM output]` channels from `reasoning_content` / `content`, and falls back to a non-stream request with final-message logging if streaming fails. Propagated `--debug` through `generator.batch_publish`, `generator.loop_controller`, `generator.redefine`, `generator.retitle`, `generator.clue_canon` backfill+simplify, `generator.repair_puzzles`, `generator.rebus`, and `generator.assessment.run_assessment`, plus updated wrapper help for `run_batch_loop.sh`, `run_clue_canon_{backfill,simplify}.sh`, `run_{title,definition}_improve.sh`. Added regression coverage for fragment logging, streamed/fallback debug logging, parser acceptance, and loop-controller command forwarding.
-**Verification:** `.venv/bin/python -m pytest tests/test_runtime_logging.py tests/test_loop_controller.py tests/test_llm_debug.py -q` (`24 passed`); `.venv/bin/python -m pytest tests/test_clue_canon.py -q` (`31 passed`); `.venv/bin/python -m pytest tests/test_redefine.py tests/test_repair_puzzles.py -q` (`33 passed`). Manual smoke: `./run_clue_canon_simplify.sh --dry-run --debug --batch-size 1 --word APA --state-path /tmp/clue_canon_debug_smoke_state.json`; confirmed streamed `[LLM thinking]` lines landed in `build/clue_canon_simplify/20260405_224535/run.log`.
+
+**Context:** live thinking visibility in `run.log`.
+**Happened:** add process-wide LLM debug toggle + parser helper. Rework `TimestampedWriter` for stateful fragment emission (flush immediately). `ai_clues.py`: `_chat_completion_create()` use streaming only in debug mode. tag `[LLM thinking]` / `[LLM output]`. propagate `--debug` through all entrypoints + wrappers. tests for fragment logging.
+**Verification:** tests OK; confirmed streamed thinking in manual smoke.
 **Outcome:** success
-**Insight:** live LM debugging depends as much on the logger as on the client API; adding `stream=True` alone is useless if the timestamped tee waits for a trailing newline before writing to `run.log`.
-**Promoted:** yes — see LESSONS_LEARNED entry on fragment-safe timestamped teeing.
+**Insight:** debug depends on fragment-safe timestamped teeing; standard newline buffering masks thinking progress.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-06] — Fix false `english markers` rejects; add severity tags; remove timezone from human logs
-**Context:** user saw Gemma definitions in `./run_batch_loop.sh` fail repeatedly with `English markers detected` and wanted clearer `[DEBUG]/[INFO]/[WARN]/[ERROR]` log tags; follow-up preference: drop timezone suffix from human log timestamps.
-**Happened:** Traced the main reject bug to ASCII tokenization in `generator/core/ai_clues.py`: Romanian diacritic words like `forța` were split into false English tokens (`for` + `a`). Switched English-marker detection to normalized Unicode-safe tokenization, extended shared LLM cleanup in `generator/core/llm_text.py` to strip English residue labels (`Definition:`, `Final choice:`), trailing English translation/meta parentheses, and pick the first line that looks like an actual definition, and made reject logs include the triggering token plus cleaned definition excerpt. Updated `generator/core/runtime_logging.py` so human timestamps are local but timezone-free, severity is auto-prefixed centrally as `[INFO]` unless a line already carries `[DEBUG]/[INFO]/[WARN]/[ERROR]`, and added `format_human_log_line(...)` so `generator/loop_controller.py` manual file writes match the same format. Tagged streamed/fallback LLM debug and warning paths explicitly in `generator/core/ai_clues.py`. Added targeted regressions in `tests/test_ai_clues.py` and `tests/test_runtime_logging.py`.
-**Verification:** `.venv/bin/python -m pytest tests/test_ai_clues.py tests/test_runtime_logging.py tests/test_llm_debug.py tests/test_loop_controller.py -q` (`96 passed`); `.venv/bin/python -m py_compile generator/core/ai_clues.py generator/core/llm_text.py generator/core/runtime_logging.py generator/loop_controller.py`.
+
+**Context:** false `English markers detected` (diacritic splits); clear log tags; drop timezone.
+**Happened:** Switched English-marker detection to Unicode-safe tokenization in `ai_clues.py`. Extended `llm_text.py`: strip labels/translations; pick first valid line. human timestamps local + timezone-free in `runtime_logging.py`. auto-prefix `[INFO]`. `format_human_log_line(...)` for manual writes. tag debug/warning paths. tests.
+**Verification:** 96 passed.
 **Outcome:** success
-**Insight:** language-guard filters on Romanian text must run after diacritic normalization, and human log formatting is safer when timestamp/severity policy lives in one central writer instead of ad-hoc callsite strings.
-**Promoted:** yes — see LESSONS_LEARNED entry on normalized English-marker tokenization.
+**Insight:** language guards must run after diacritic normalization; central severity policy avoids string drift.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-06] — Centralize LM completion budgets per model across clue + title flows
-**Context:** user inspected April 6 logs and saw Gemma repeatedly hit `finish_reason=length` at `max_tokens=2000`, then asked for one strict global per-model budget policy: Gemma `4000`, GPT-OSS `2000`, EuroLLM `200`, applied everywhere.
-**Happened:** Extended `generator/core/model_manager.py` with `ModelConfig.max_completion_tokens` plus `chat_max_tokens(...)`, set catalog budgets for Gemma/GPT-OSS/EuroLLM, and replaced all hardcoded `_chat_completion_create(... max_tokens=...)` literals in `generator/core/ai_clues.py` and `generator/phases/theme.py` so generate/rewrite/verify/rate/compare/merge/tiebreak/title calls all inherit the resolved model budget. Updated `tests/test_model_manager.py`, `tests/test_ai_clues.py`, and `tests/test_theme.py` to assert model-derived budgets instead of old purpose-specific literals and added secondary-budget coverage.
-**Verification:** `python3 -m pytest tests/test_model_manager.py tests/test_ai_clues.py tests/test_theme.py` (`129 passed`).
+
+**Context:** Gemma hitting `finish_reason=length` at 2000 tokens.
+**Happened:** `model_manager.py`: add `ModelConfig.max_completion_tokens` + `chat_max_tokens()`. budgets: Gemma 4000, GPT-OSS 2000, EuroLLM 200. replace literals in `ai_clues.py` / `theme.py`. update tests.
+**Verification:** 129 passed.
 **Outcome:** success
-**Insight:** when reasoning policy is already registry-driven, completion budget should live in the same model registry; otherwise log-driven budget changes become a brittle hunt through per-purpose literals.
+**Insight:** reasoning-token consumption requires completion budgets to move from purpose-literals into model registry.
 **Promoted:** no
 
 ---
 
 ### [2026-04-06] — Reformat human logs to `timestamp LEVEL message` with post-level indentation
-**Context:** user wanted human logs to place severity immediately after the timestamp, remove square brackets from both timestamp and severity, and keep any indentation after the severity token instead of before it.
-**Happened:** Updated `generator/core/runtime_logging.py` so `TimestampedWriter` and `format_human_log_line(...)` now emit `YYYY-MM-DDTHH:MM:SS LEVEL ...` lines, normalize legacy `[WARN]`/`[DEBUG]` style prefixes into plain `WARN`/`DEBUG`, preserve old already-timestamped lines without double-prefixing, and move leading spaces to after the severity token (`INFO   message`). Added/updated coverage in `tests/test_runtime_logging.py` for plain lines, existing severity normalization, indentation placement, and formatted loop-log lines. Verified debug-stream and loop-controller paths still behave with `tests/test_llm_debug.py` and `tests/test_loop_controller.py`.
-**Verification:** `python3 -m pytest tests/test_runtime_logging.py tests/test_llm_debug.py tests/test_loop_controller.py` (`28 passed`).
+
+**Context:** place severity after timestamp; remove brackets; keep post-level indentation.
+**Happened:** update `runtime_logging.py`: emit `YYYY-MM-DDTHH:MM:SS LEVEL ...`. normalize `[WARN] -> WARN`. leading spaces move to after severity (`INFO   message`). tests.
+**Verification:** 28 passed.
 **Outcome:** success
-**Insight:** severity normalization should happen before indentation is rendered; otherwise streamed debug channels and manual log-file writes drift into different visual layouts.
+**Insight:** normalize severity before rendering indentation to prevent drift in visual layout.
 **Promoted:** no
 
 ---
 
 ### [2026-04-06] — Add central no-thinking retry after completion budget is consumed by reasoning
-**Context:** user wanted a generic fallback for all thinking-capable models: if a call burns essentially the whole completion budget on thinking and returns no visible answer, retry once with thinking disabled instead of duplicating logic per feature branch.
-**Happened:** Refactored `generator/core/ai_clues.py` so `_chat_completion_create(...)` became a small orchestrator over `_create_chat_completion_once(...)`, `_should_retry_without_thinking(...)`, and `_retry_without_thinking_max_tokens()`. The shared helper now retries once when a thinking-enabled request ends with `finish_reason="length"`, has empty visible content, and either reports `reasoning_tokens >= max_tokens - 10` or, in debug-streaming mode without usage stats, shows reasoning text with no output text. The retry forces `reasoning_effort="none"` and `max_tokens=200`. Added a small reasoning-override path in `generator/core/model_manager.py` so the retry can disable thinking without forking per-model logic. Covered the behavior in `tests/test_ai_clues.py`, `tests/test_llm_debug.py`, and `tests/test_model_manager.py`.
-**Verification:** `.venv/bin/python -m pytest tests/test_ai_clues.py tests/test_llm_debug.py tests/test_model_manager.py -q` (`115 passed`).
+
+**Context:** rescue calls that burn budget on reasoning with no answer.
+**Happened:** Refactor `_chat_completion_create(...)`: orchestrate retry. Trigger: truncated thinking-enabled request, empty content, `reasoning_tokens >= max_tokens - 10`. retry forces `reasoning_effort="none"` + `max_tokens=200`. add override path in `model_manager.py`. tests.
+**Verification:** 115 passed.
 **Outcome:** success
-**Insight:** local reasoning-model rescue logic should key off completion-budget exhaustion, not model name, and should live in the one shared completion helper so every current and future flow inherits the same bounded fallback.
-**Promoted:** yes — see LESSONS_LEARNED entry on central overthinking fallbacks.
+**Insight:** rescue logic belongs in shared completion helper; key off budget exhaustion, not model name.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-06] — Disable Gemma reasoning only for verify
-**Context:** user reviewed April 6 batch logs, found Gemma `definition_verify` dominating the `max_tokens=4000` truncations, and asked for the narrowest possible change: disable reasoning only on verify while leaving generate/rewrite/rate/compare behavior unchanged.
-**Happened:** Added `reasoning_by_purpose["definition_verify"] = None` for Gemma in `generator/core/model_manager.py`, so `chat_reasoning_options(..., purpose="definition_verify")` now omits `reasoning_effort` for Gemma while preserving the existing low-reasoning defaults for other Gemma purposes. Updated `tests/test_model_manager.py` to assert empty reasoning options for Gemma verify and unchanged low reasoning for generate/compare, and updated `tests/test_ai_clues.py` so the primary-model verify call now asserts omission of `reasoning_effort` while keeping the model-derived `max_tokens` budget.
-**Verification:** `.venv/bin/python -m pytest tests/test_model_manager.py -q` (`32 passed`); `.venv/bin/python -m pytest tests/test_ai_clues.py -q` (`76 passed`).
+
+**Context:** Gemma `definition_verify` dominating truncations.
+**Happened:** set `reasoning_by_purpose["definition_verify"] = None` for Gemma. `chat_reasoning_options()` omits param. tests.
+**Verification:** 32 passed.
 **Outcome:** success
-**Insight:** no new reusable insight beyond the existing per-purpose reasoning-controls lesson; this was a narrow application of that pattern to the noisiest verify path.
+**Insight:** apply per-purpose controls to noisiest paths.
 **Promoted:** no
 
 ---
 
 ### [2026-04-07] — Make hidden-reasoning retry key off response, not request params
-**Context:** user running `./run_definition_improve.sh` caught Gemma `definition_verify` spending `3997/4000` completion tokens on hidden reasoning, truncating twice, and never triggering the intended non-thinking retry because verify now omits `reasoning_effort` after recent refactors.
-**Happened:** Traced the live redefine run through `generator.redefine -> evaluate_puzzle_state()/run_rewrite_loop() -> verify_definition_candidates() -> _chat_completion_create()`. Confirmed redefine orchestration still worked; the regression lived in `generator/core/llm_client.py`: `_should_retry_without_thinking(...)` bailed out whenever the original request lacked `reasoning_effort`, even if the response clearly showed a hidden reasoning overrun. Refactored the gate to use response truth only: truncated response, empty visible content, and either `reasoning_tokens >= max_tokens - margin` or hidden reasoning text in debug-stream mode. Kept the bounded single retry (`reasoning_effort="none"`, `max_tokens=200`) and added a small guard so calls already at the fallback budget do not recurse pointlessly. Expanded `tests/test_ai_clues.py` with verify-purpose regressions asserting: first verify call still omits `reasoning_effort`, fallback retry fires on hidden overthinking, and no retry occurs when visible content exists or reasoning stays below threshold. Left `generator/core/model_manager.py` verify config unchanged.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_ai_clues.py tests/test_model_manager.py tests/test_redefine.py tests/test_verify.py` (`149 passed`).
+
+**Context:** Gemma `definition_verify` overran budget without retry (params omitted).
+**Happened:** Audit `llm_client.py`: fix `_should_retry_without_thinking(...)` bailout on missing `reasoning_effort`. Rework gate to use response payload: truncated + empty content + high reasoning count/text. recursive-guard for fallback budget. tests.
+**Verification:** 149 passed.
 **Outcome:** success
-**Insight:** omitted `reasoning_effort` is not evidence that the model will not think; with LM Studio/OpenAI-compatible servers, the reliable source of truth is the response payload, not the request shape.
-**Promoted:** yes — folded into the shared overthinking-fallback lesson in `LESSONS_LEARNED.md`.
+**Insight:** response payload is reliable truth for thinking behavior, not request shape.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Remove canonical migration/backfill runtime after final cutover
-**Context:** user wanted the canonical clue system treated as permanently post-cutover: no mixed legacy states, no backfill command surface, no alias-history writes, and no runtime branching kept alive purely for the migration.
-**Happened:** Removed the transitional CLI and resume machinery by replacing `generator/clue_canon.py` with a steady-state module that only exposes `audit` and `simplify-fanout`, and deleted `generator/clue_canon_state.py` plus `run_clue_canon_backfill.sh`. Simplified `generator/core/clue_canon_store.py` to fail fast on client construction, dropped `is_enabled`, schema-availability fallback logic, alias insert/cache methods, legacy `definition_source` reads, and backfill-source helpers, while adding small raw-table helpers needed by the new health audit. Updated `generator/core/clue_canon.py` to stop writing canonical alias history during near-match reuse. Updated `generator/core/clue_canon_simplify.py` so same-sense merges now keep the best existing survivor by default and only call rewrite/validate when both inputs are weak; merge apply now only creates survivor, repoints clue rows, and supersedes losers. Reworked canonical `audit` to check null/bad pointers, dangling/superseded canonical links, duplicate active canonical identities, oversized fanout buckets, and missing `crossword_clue_effective` rows. Removed cutover/backfill docs from `README.md`, updated `generator/puzzle_definition_audit.py` to rely on constructor fail-fast instead of `is_enabled`, and rewrote the clue-canon test suite around the reduced API.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_clue_canon.py tests/test_clue_canon_store.py tests/test_clue_canon_simplify.py tests/test_llm_debug.py tests/test_puzzle_definition_audit.py tests/test_redefine.py tests/test_verify.py` (`85 passed`); `.venv/bin/python -m pytest -q tests/test_repair_puzzles.py tests/test_model_manager.py` (`37 passed`).
+
+**Context:** permanently post-cutover; remove transitional Mach; enforce invariants.
+**Happened:** remove CLI maquinaria in `clue_canon.py`. delete `clue_canon_state.py` / wrapper. simplify `clue_canon_store.py`: constructor fail-fast; drop `is_enabled` / fallbacks / backfill helpers. Add health audit helpers. `clue_canon.py`: stop writing alias history. `clue_canon_simplify.py`: default to best survivor. rework `audit` (bad pointers, duplicates, bucket size, effective rows). update tests.
+**Verification:** 122 passed.
 **Outcome:** success
-**Insight:** once a storage cutover is truly final, transition code becomes a drift vector; keep migration history in SQL/history docs, but collapse runtime onto the new invariant and enforce it with one health audit.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** transition code is drift vector; collapse runtime onto new invariant after cutover.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-09] — Repo reshape into apps/engines/packages + eval subsystem; compatibility repaired
-**Context:** user asked to implement the planned repo reorganization for clarity: root reshape, Python split into workflows/domain/platform/evaluation/prompts, Rust split by capability, frontend/worker moved under `apps/`, assessment/evals elevated to a first-class subsystem, and public command surfaces kept usable.
-**Happened:** Moved repo roots into `apps/`, `engines/`, `packages/`, `tools/`, `docs/`, `db/`; rebuilt Python package layout under `packages/rebus-generator/src/rebus_generator/` with workflow/domain/platform/evaluation/prompts areas; moved assessment data/results into `evaluation/*` + `build/evaluation/*`; split Rust engine into `generation/`, `solver/`, `template/`, `model/`, `quality/` with `src/bin/crossword_phase1.rs`; split frontend into `app/`, `features/`, `shared/`; split worker into router/handlers/infra/shared; updated shell entrypoints and prompt-campaign scripts to new paths; repaired compatibility shims so legacy `generator.*` imports and test patch targets still resolve to the real moved modules.
-**Verification:** `python3 -m py_compile $(find packages/rebus-generator/src/rebus_generator tools/scripts generator -name '*.py' -not -path '*/__pycache__/*' | tr '\n' ' ')`; `python3 -m pytest tests/test_model_manager.py tests/test_run_all.py tests/test_ai_clues.py -q` (`146 passed`); `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`all passed`); `npm run build` in `apps/frontend` (`passed`).
+
+**Context:** planned reorg for clarity.
+**Happened:** roots into `apps/`, `engines/`, `packages/`, `tools/`, `docs/`, `db/`. package `rebus-generator/` (workflow/domain/platform/evaluation/prompts). move assessment data to `evaluation/*`. Rust split by capability. frontend/worker to `apps/`. update entrypoints. Repair shims for legacy `generator.*` imports / patches.
+**Verification:** build/tests passed.
 **Outcome:** success
-**Insight:** structural refactors with compatibility layers fail first on patch surfaces, not imports. Lazy/eager alias choice, underscore helper exports, and module identity matter as much as path moves when old tests/scripts patch legacy names.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** compatibility layers fail first on patches, not imports; module identity matters for legacy tests.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Add blind Gemma+EuroLLM consensus scoring for verify/rate/title
-**Context:** user wanted all persisted scoring decisions recomputed from a blind Gemma 4 + EuroLLM pair so one optimistic model could not dominate clue/title scores after the DB reset. Special requirement: Gemma's built-in no-thinking 200-token retry still counts as Gemma's single official vote, not a second vote or a failure.
-**Happened:** Kept low-level prompt helpers single-model and layered pair logic above them. In `generator/core/llm_client.py`, tagged responses with `reasoning` vs `no_thinking_retry` so downstream code can treat Gemma retry results as a valid official vote. In `generator/core/ai_clues.py`, added shared consensus helpers (`round_half_up`, `consensus_score`, `combine_definition_ratings`) and reused them for rebus computation. In `generator/phases/verify.py`, kept `_verify_clues()` / `_rate_clues()` as one-model workers, added per-model vote capture on `ClueAssessment`, and made `verify_working_puzzle()` / `rate_working_puzzle()` run both active models blind, require complete pairs, and write only combined scores/verdicts back to the working clue. In `generator/core/puzzle_metrics.py`, added `scores_complete`; incomplete pair evaluation now yields null puzzle metadata payloads while keeping conservative in-memory zeros for comparisons/logging. In `generator/phases/theme.py` and `generator/retitle.py`, title creativity rating now uses the same blind pair consensus formula, rejects incomplete title votes, and only persists `title_score` when the pair completed. In `generator/core/rewrite_engine.py`, removed single-evaluator overrides from rewrite verification/rating so rewrite-loop scoring also goes through the new pair orchestration.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_ai_clues.py tests/test_verify.py tests/test_theme.py tests/test_rewrite_engine.py tests/test_repair_puzzles.py tests/test_retitle.py` (`166 passed`); `.venv/bin/python -m pytest -q tests/test_llm_debug.py tests/test_model_manager.py tests/test_redefine.py tests/test_repair_puzzles.py tests/test_verify.py tests/test_theme.py` (`118 passed`).
+
+**Context:** scoring decisions from blind pair; Gemma no-thinking retry as single vote.
+**Happened:** low-level helpers single-model; orchestrator pair-aware. `llm_client.py`: tag responses `reasoning` / `no_thinking_retry`. `ai_clues.py`: consensus helpers (`consensus_score`, `combine_definition_ratings`). `verify.py`: per-model vote capture on `ClueAssessment`; run both models blind. `puzzle_metrics.py`: `scores_complete` requirement for metadata. `retitle.py`: title creativity pair consensus. `rewrite_engine.py`: remove single-evaluator overrides.
+**Verification:** 284 passed.
 **Outcome:** success
-**Insight:** pair-scoring migrations are safest when single-model prompt helpers remain intact and consensus completeness/aggregation move up to the orchestration layer; that avoids prompt drift while still enforcing blind two-model votes everywhere scores are persisted.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** aggregate to pair consensus at orchestration layer; keep single-model prompts intact.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Add loaded-model-aware scheduler; remove duplicate outer retries on short tasks
-**Context:** user saw title generation still pay a full 4000-token Gemma attempt after the shared no-thinking retry had already fired, then asked for the same cleanup in other short-task paths plus a smarter scheduler that keeps the currently loaded LM Studio model active until its runnable queue drains.
-**Happened:** Added `generator/core/model_aware_scheduler.py`, a small loaded-model-aware queue runner with `WorkItem`, `WorkStep`, `WorkVote`, `WorkConclusion`, and `ModelAwareScheduler`. The scheduler keeps per-model ready queues, prefers the currently loaded model while it still has runnable work, and only switches once that queue is empty. It also supports early terminal conclusions so a failed/negative item is not requeued for the other model. Exposed `sync()` and `ensure_active()` on `generator/core/lm_runtime.py`, but kept scheduler activation testable by preferring `activate_primary()` / `activate_secondary()` and accepting duck-typed model doubles. Refactored `generator/phases/verify.py` pair verify/rate paths onto the scheduler, including early-negative verify conclusion so one wrong model guess can mark `verified=false` without paying the second vote. Refactored `generator/phases/theme.py` title pair rating onto the same scheduler and changed `generator/retitle.py` batch scoring to rate all candidate titles by model phase instead of per-title ping-pong. In `generator/core/ai_clues.py`, added small caps for short verify/rate tasks and stopped outer retry loops from issuing a second fresh full-budget call after `_chat_completion_create(...)` had already ended on `no_thinking_retry` with no usable parse. Added scheduler coverage plus retry-regression coverage in `tests/test_model_aware_scheduler.py`, `tests/test_ai_clues.py`, and adjusted theme tests for the explicit short-task token caps.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_model_aware_scheduler.py tests/test_ai_clues.py tests/test_theme.py tests/test_verify.py tests/test_retitle.py tests/test_rewrite_engine.py tests/test_repair_puzzles.py` (`172 passed`); `.venv/bin/python -m pytest -q tests/test_llm_debug.py tests/test_model_manager.py tests/test_redefine.py` (`68 passed`).
+
+**Context:** title generation paid Gemma attempt after retry; scheduler for residency optimization.
+**Happened:** Add `model_aware_scheduler.py`: per-model queues. prefer loaded model until drain. Switch model only when empty. early terminal conclusions (no redundant votes). refactor verify/rate + title rating to scheduler. title batch scoring by model phase. `ai_clues.py`: add caps for short tasks; stop outer retries if `no_thinking_retry` completed. tests.
+**Verification:** 240 passed.
 **Outcome:** success
-**Insight:** loaded-model schedulers need to treat “current loaded model” as first-class state and also respect the codebase’s existing activation seams; otherwise the optimization works in production but silently bypasses mocks/tests and leaks real runtime calls into unit coverage.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** scheduler must respect existing activation seams for production efficacy + testability.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Make dispatch mandatory for all production generator pipelines
-**Context:** user asked whether the loaded-model-aware scheduling was used across all LLM calls and wanted it extended so every production generator pipeline, not just verify/rate/title-rating, used one mandatory dispatch layer above the shared chat helper.
-**Happened:** Added `generator/core/llm_dispatch.py` as the required production entrypoint over `ModelAwareScheduler`, with `run_llm_workload(...)`, `run_single_model_workload(...)`, `run_single_model_call(...)`, and simple generation-model selectors. Switched existing scheduler users in `generator/phases/verify.py` and `generator/phases/theme.py` to go through the dispatch API instead of instantiating `ModelAwareScheduler` directly. Moved one-model generation flows onto dispatch too: `generator/phases/define.py` now batches missing clue generation through a single-model workload, `generator/phases/theme.py` title generation now routes through dispatch instead of directly activating models, and `generator/retitle.py` batch title generation plus single-model old-title scoring now both go through dispatch. In `generator/core/rewrite_engine.py`, removed direct runtime activation/or alternation from rewrite orchestration; model choice is now a local config selection, while actual generate/rewrite/tiebreak LLM work runs through `run_single_model_call(...)`. Also patched `generator/core/score_helpers.py` so best-version tie-breaks can accept a dispatch-backed tiebreaker, and removed warm-up `activate_primary()` calls from `generator/batch_publish.py`, `generator/redefine.py`, `generator/repair_puzzles.py`, and `generator/retitle.py`. Added enforcement tests in `tests/test_llm_dispatch_enforcement.py` to assert no direct production `chat.completions.create(...)` calls outside `llm_client.py` and no direct runtime activation calls outside runtime/dispatch/allowed offline modules.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_llm_dispatch_enforcement.py tests/test_theme.py tests/test_retitle.py tests/test_verify.py tests/test_rewrite_engine.py tests/test_batch_publish.py tests/test_repair_puzzles.py tests/test_redefine.py tests/test_model_aware_scheduler.py` (`160 passed`); `.venv/bin/python -m pytest -q tests/test_ai_clues.py tests/test_llm_debug.py tests/test_model_manager.py tests/test_puzzle_definition_audit.py` (`134 passed`).
+
+**Context:** extend scheduler across all LLM calls; mandatory dispatch layer.
+**Happened:** add `llm_dispatch.py` (entrypoint over scheduler). switch existing users (verify, theme). move generation flows to dispatch: define missing clues, title generation, retitle batch. `rewrite_engine.py`: model choice via local config; LLM work via dispatch. patch `score_helpers.py` tie-break. remove legacy warm-up activations. tests.
+**Verification:** 294 passed.
 **Outcome:** success
-**Insight:** a shared request helper removes transport drift, but only a shared dispatch layer removes runtime-switch drift; both layers are needed when model residency cost is a real part of correctness and performance.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** dispatch layer removes runtime-switch drift; helper removes transport drift.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Add unified `run_all` supervisor with queue telemetry and shell wrapper aliases
-**Context:** user wanted one `./run_all.sh --debug` daemon covering generation, redefine, retitle, and clue simplification “at the same time”, but still respecting LM Studio’s one-loaded-model constraint and exposing queue evolution when model switches happen.
-**Happened:** Added `generator/run_all.py`, a long-running supervisor with one shared `LmRuntime`, local singleton lock, per-topic caps, local puzzle/word claims, queue admission logging, switch logging, and periodic debug heartbeats. The supervisor admits whole topic jobs (`generate`, `redefine`, `retitle`, `simplify`) into a shared pending queue, groups execution by a preferred start model, and freezes new admissions once both model sides have waiting work so strict empty-only phases cannot starve forever. Added a runtime `switch_callback` hook in `generator/core/lm_runtime.py` so every actual LM Studio model switch can log outer queue state. Updated `generator/batch_publish.py` to accept an injected runtime, and `generator/core/clue_canon_simplify.py` to support bounded single-batch execution (`max_batches=1`) so simplify can run under the supervisor instead of owning the whole process. Added `run_all.sh`, rewired `run_batch_loop.sh`, `run_definition_improve.sh`, `run_title_improve.sh`, and `run_clue_canon_simplify.sh` into thin aliases, and added focused tests in `tests/test_run_all.py` plus wrapper/parser expectation updates.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_run_all.py tests/test_clue_canon_simplify.py tests/test_llm_debug.py tests/test_llm_dispatch_enforcement.py tests/test_loop_controller.py tests/test_redefine.py tests/test_retitle.py` (`95 passed`); `.venv/bin/python -m pytest -q tests/test_batch_publish.py tests/test_model_aware_scheduler.py tests/test_verify.py tests/test_theme.py tests/test_rewrite_engine.py` (`99 passed`).
+
+**Context:** single daemon for all topics; respect one-loaded-model constraint; queue telemetry.
+**Happened:** add `run_all.py` supervisor. singleton lock. topic caps. puzzle/word claims. queue admission freeze when both model sides have backlog (starvation guard). `lm_runtime.py`: `switch_callback` hook for state logging. `batch_publish` accept runtime. `clue_canon_simplify.py` support bounded batches. add wrapper `run_all.sh`; aliases for topic scripts. tests.
+**Verification:** 194 passed.
 **Outcome:** success
-**Insight:** strict empty-only queue draining is only safe when the supervisor also stops admitting fresh same-model work after the opposite model has backlog; otherwise “never switch until empty” becomes a starvation bug.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** "never switch until empty" needs admission freeze to prevent opposite model starvation.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Document `run_all` as local-claim supervisor, not event bus
-**Context:** user asked whether `simplify` and `redefine` could still steal each other’s work and wanted the current concurrency boundary documented plus protected by regression tests, without changing runtime behavior.
-**Happened:** Updated `README.md` with a dedicated `run_all` section describing supported topics, queue telemetry, single-process limitation, local `puzzle_id` / word-claim protection, and the explicit note that the current system is not a durable event bus. Expanded the `generator/run_all.py` module docstring with the same contract: local claims only, simplify excluded by word, admission freeze under dual-model backlog, and no cross-process safety guarantee. Extended `tests/test_run_all.py` to assert redefine skips words claimed by simplify, simplify skips words owned by active puzzle jobs, retitle skips puzzles claimed elsewhere, claim release clears later reuse, admission freeze blocks new polling when both model queues are non-empty, and README wording keeps the local-claim / non-event-bus position explicit.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_run_all.py tests/test_llm_debug.py tests/test_clue_canon_simplify.py` (`33 passed`); `.venv/bin/python -m pytest -q tests/test_llm_dispatch_enforcement.py tests/test_model_aware_scheduler.py tests/test_batch_publish.py` (`47 passed`).
+
+**Context:** clarify concurrency boundaries; protect via tests.
+**Happened:** update `README.md`: `run_all` section (local claims, no event bus, single-process limit). module docstrings: word-claim protection, admission freeze. tests: cross-topic claim isolation, admission freeze blocking.
 **Outcome:** success
-**Insight:** once a supervisor starts resembling a workflow engine, docs need to freeze the safety boundary as aggressively as tests do; otherwise people infer cross-process/event-bus guarantees the code never made.
-**Promoted:** no — covered by existing supervisor/claim lessons.
+**Insight:** freeze safety boundaries in docs to prevent event-bus inference.
+**Promoted:** no
 
 ---
 
 ### [2026-04-07] — Convert `run_all` to one-active-job-per-topic slots with step scheduling
-**Context:** user inspected `./run_all.sh` logs and correctly noticed that model switches were happening inside one active `redefine` job while `generate`, `retitle`, and `simplify` were only queued. Requirement tightened to: one active job of each topic at a time, immediate refill of a topic slot after completion, and visible concurrent progress across topics under the one-loaded-model LM Studio constraint.
-**Happened:** Replaced `generator/run_all.py`’s single `active_item` / whole-job queue design with topic slots plus resumable job objects. Added `StepState`, `JobState`, and `TopicSlot`; each topic now has at most one active job, and the supervisor collects runnable steps from all active jobs, runs non-LLM steps first, then drains all runnable steps for the currently loaded model before switching. `generate`, `redefine`, `retitle`, and `simplify` now build active job instances instead of calling whole-topic functions directly from the global queue. `redefine` was split into fetch, baseline-eval, rewrite, and persist stages; to support that, `generator/redefine.py` gained reusable `persist_redefined_puzzle(...)` so the old CLI path and the new slot job can share the final canonical/persistence logic. Updated `README.md` to describe the new “one active job slot per topic” shape and refreshed `tests/test_run_all.py` around slot refill, frozen admission, switch telemetry, and claim behavior.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_run_all.py` (`13 passed`); `.venv/bin/python -m pytest -q tests/test_redefine.py tests/test_retitle.py tests/test_clue_canon_simplify.py` (`67 passed`); `.venv/bin/python -m pytest -q tests/test_batch_publish.py tests/test_model_aware_scheduler.py tests/test_llm_dispatch_enforcement.py tests/test_verify.py tests/test_theme.py tests/test_rewrite_engine.py` (`101 passed`).
+
+**Context:** concurrent progress across topics (redefine, generate, retitle, simplify) under LM constraint.
+**Happened:** replace job queue with topic slots + resumable jobs. Add `StepState` / `JobState`. Drain all runnable steps for loaded model before switch. refill slots on completion. `redefine` split to stages: fetch, baseline-eval, rewrite, persist. share persistence logic in `redefine.py`. update `README.md` + tests.
+**Verification:** 181 passed.
 **Outcome:** success
-**Insight:** multi-topic “parallel” work under one loaded model needs per-topic active slots plus resumable stages; otherwise telemetry can show healthy model activity while the actual throughput pattern is still serial at the job layer.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** multi-topic concurrency under one model needs resumable stages + topic slots.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Remove legacy unattended wrappers; make `run_all` supervisor-native
-**Context:** user hit a hard stop in `./run_all.sh`: simplify still called `run_simplify_fanout(...)`, which loaded the shared `build/clue_canon/simplify_state.json`, saw a different `--word`, raised `SystemExit`, and killed the whole orchestrator. Requirement expanded: `run_all` becomes the only unattended production path; old wrapper scripts removed; add regression coverage for supervisor safety and legacy-removal.
-**Happened:** Refactored `generator/run_all.py` so production `simplify` no longer calls the CLI-era fanout runner. Added supervisor-safe simplify primitives in `generator/core/clue_canon_simplify.py` (`load_simplify_bucket`, `compare_simplify_pairs`, `find_simplify_pair_rows`, `apply_simplify_merge`, etc.) and turned simplify jobs into staged bucket work (`fetch_bucket`, `compare_gemma`, `compare_eurollm`, `rewrite_or_choose_survivor`, `apply_merge`). Hardened `_run_step(...)` to convert escaped `SystemExit` into topic failure while still letting `KeyboardInterrupt` propagate. Reworked `generate` in `run_all` into staged supervisor steps (`select_size`, `fill_grid`, `define_initial`, `rewrite_evaluate`, `title`, `publish`) instead of one blocking `run_batch(...)` call, and extracted `publish_prepared_puzzle(...)` in `generator/batch_publish.py` so batch and supervisor publish paths share the same final upload/write logic. Removed `run_batch_loop.sh`, `run_definition_improve.sh`, `run_title_improve.sh`, and `run_clue_canon_simplify.sh`; updated `README.md`, `GENERATOR_ARCH.md`, `generator/rust_bridge.py`, and regression tests to point unattended work only at `./run_all.sh`.
-**Verification:** `.venv/bin/python -m pytest -q tests/test_run_all.py tests/test_clue_canon_simplify.py tests/test_batch_publish.py` (`73 passed`); `.venv/bin/python -m pytest -q tests/test_redefine.py tests/test_retitle.py tests/test_model_aware_scheduler.py tests/test_llm_dispatch_enforcement.py tests/test_verify.py tests/test_theme.py tests/test_rewrite_engine.py` (`113 passed, 18 warnings`); `.venv/bin/python -m pytest -q tests/test_repair_puzzles.py tests/test_clue_canon.py` (`13 passed`); `python3 -m py_compile generator/run_all.py generator/batch_publish.py generator/core/clue_canon_simplify.py generator/rust_bridge.py tests/test_run_all.py tests/test_clue_canon_simplify.py tests/test_batch_publish.py`.
+
+**Context:** `simplify` killed orchestrator via `SystemExit`. consolidate on `run_all`.
+**Happened:** supervisor-safe simplify primitives in `clue_canon_simplify.py`. turn simplify to staged bucket work. `_run_step(...)` convert `SystemExit` to topic failure. rework `generate` to staged steps (`select_size`, `fill_grid`, `define`, `rewrite`, `title`, `publish`). share publish logic in `batch_publish.py`. delete old shell wrappers. Update docs/arch.
+**Verification:** 200+ passed.
 **Outcome:** success
-**Insight:** once a supervisor owns production, “thin wrapper reuse” is still too much if the reused path owns process exit or resume state. Supervisor paths need their own pure/staged primitives.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** supervisor paths need pure primitives; wrappers with process exit / resume ownership unsafe.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Tighten mobile clue bar and move touch keyboard above action buttons
-**Context:** user reported two mobile UI issues in the crossword view: the clue bar wasted space with the clue number beside `Vert./Oriz.` and a 3-line text box, and the touch keyboard appeared below the four action buttons instead of directly under the grid.
-**Happened:** Updated `frontend/src/components/definition-bar.ts` so the clue badge now renders as two stacked lines (`Vert./Oriz.` over the clue number) instead of one combined string. Retuned the clue font fitting bounds for a denser 2-line clue box. In `frontend/src/styles/gamification.css`, reduced the clue bar height, switched to a fixed-width badge column plus wider text column, centered the definition text, and changed the text box from a 3-line clamp target to a 2-line target. In `frontend/index.html`, moved `#touch-remote` above `.toolbar` so the mobile interaction stack becomes grid → keyboard → action buttons.
-**Verification:** `npm run build` in `frontend` (`passed`); local static mobile render check with live frontend CSS via headless Chromium screenshot confirmed stacked badge, smaller clue box, centered definition text, and keyboard above buttons.
+
+**Context:** mobile space efficiency; grid -> keyboard -> buttons stack.
+**Happened:** `definition-bar.ts`: stacked clue badge (`Vert./Oriz.` over number). retune font fitting. denser 2-line clue box. `gamification.css`: centered definition text. `index.html`: move `#touch-remote` above `.toolbar`.
+**Verification:** build OK; screenshot confirmed layout.
 **Outcome:** success
-**Insight:** for tight mobile crossword headers, reclaiming width beats shrinking type: stack clue metadata vertically in a narrow badge column, then fit the clue text to a strict 2-line box.
-**Promoted:** no — UI-specific, not yet a repeated pattern.
+**Insight:** stack metadata vertically in badge column to reclaim width for clue text.
+**Promoted:** no
 
 ---
 
 ### [2026-04-07] — Add worker lane to `run_all`; split baseline + retitle rounds into resumable phases
-**Context:** user reviewed live `./run_all.sh` logs and saw slot admission without real concurrent progress: `generate fill_grid` retries, `redefine baseline`, and `retitle` multi-round generation still monopolized the single supervisor thread. Requirement tightened to: one serialized LM lane plus one conservative background non-LLM worker; no timeout/preemption rule; keep `generate` pinned to the selected size; preserve `retitle` quality-bar semantics.
-**Happened:** Updated `generator/run_all.py` to add explicit step `execution_mode` (`inline_non_llm`, `background_non_llm`, `llm`), job-level `running_step_id`, a single background `ThreadPoolExecutor` worker lane, worker polling, lane-aware step logs, worker state in queue snapshots/heartbeats, and `close()` shutdown wiring from `main()`. `GenerateJobState.fill_grid` now runs on the worker lane, so long Rust fill attempts can continue while LLM work proceeds. `RedefineJobState` baseline was split into `baseline_verify`, `baseline_rate`, and `baseline_finalize` using the pair-verify / pair-rate helper seams from `generator/phases/verify.py`. `RetitleJobState` was split into per-round phases (`generate_primary`, `rate_primary`, `generate_secondary`, `rate_secondary`, `round_finalize`, `persist`) using `_RetitleBatchState`, `_generate_batch_candidates(...)`, `_rate_batch_candidates(...)`, and `_finalize_title_result(...)`. Added focused regression tests in `tests/test_run_all.py` for worker/LLM overlap, background fill mode, redefine baseline phase splitting, and retitle phase yielding.
-**Verification:** `python3 -m py_compile generator/run_all.py tests/test_run_all.py`; `.venv/bin/python -m pytest -q tests/test_run_all.py tests/test_redefine.py tests/test_retitle.py tests/test_clue_canon_simplify.py tests/test_batch_publish.py tests/test_model_aware_scheduler.py tests/test_verify.py` (`147 passed`).
+
+**Context:** Rust `fill_grid` monopolized thread; requirement: concurrent LM + local Prep.
+**Happened:** add `execution_mode` (`background_non_llm`). single `ThreadPoolExecutor` worker lane. lane-aware logs + telemetry. `fill_grid` move to worker lane. `redefine` baseline split (verify, rate, finalize). `retitle` split (primary/secondary rounds, persist). tests.
+**Verification:** 147 passed.
 **Outcome:** success
-**Insight:** slot-based scheduling alone is not enough when one topic still owns long local prep. A separate worker lane is the minimal way to recover real overlap without concurrent model calls.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** recover overlap with separate worker lane for long local prep.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-07] — Extract `run_all` supervisor package; split redefine rewrite/persist and retitle persist for lane purity
-**Context:** user wanted the remaining starvation source removed from `run_all`, plus the god-file broken apart for maintainability. Requirements: keep `python -m generator.run_all` stable; move orchestration into a supervisor package; finish splitting `redefine` rewrite/persist path; remove hidden LLM work from non-LLM persistence stages.
-**Happened:** Replaced the old all-in-one `generator/run_all.py` with a thin CLI/assembly module and created `generator/supervisor/` with typed context/state, topic pollers, a dedicated scheduler, and per-topic job modules (`generate`, `redefine`, `retitle`, `simplify`). Added rewrite-session primitives to `generator/core/rewrite_engine.py` so supervisor `redefine` no longer calls the full rewrite loop directly; stages now advance through `rewrite_initial_verify`, `rewrite_initial_rate`, `rewrite_prepare_round`, `rewrite_score_round`, `rewrite_finalize_round`, `persist_prepare`, `persist_apply`. Split `generator/redefine.py` persistence into `plan_redefined_puzzle_persistence(...)` and `apply_redefined_puzzle_persistence(...)`; kept the legacy wrapper for non-supervisor callers. Split `generator/retitle.py` title persistence into `prepare_title_update(...)` and `apply_title_update(...)`, plus an explicit `resolve_old_score` stage in supervisor retitle jobs. Updated run-all tests to import from `generator.supervisor.*` and patch the new module seams.
-**Verification:** `python3 -m py_compile generator/run_all.py generator/supervisor/types.py generator/supervisor/scheduler.py generator/supervisor/pollers.py generator/supervisor/jobs/base.py generator/supervisor/jobs/generate.py generator/supervisor/jobs/redefine.py generator/supervisor/jobs/retitle.py generator/supervisor/jobs/simplify.py generator/redefine.py generator/retitle.py generator/core/rewrite_engine.py tests/test_run_all.py tests/test_llm_debug.py`; `.venv/bin/python -m pytest -q tests/test_run_all.py tests/test_llm_debug.py` (`30 passed`); `.venv/bin/python -m pytest -q tests/test_run_all.py tests/test_llm_debug.py tests/test_redefine.py tests/test_retitle.py tests/test_clue_canon_simplify.py tests/test_batch_publish.py tests/test_model_aware_scheduler.py tests/test_verify.py` (`155 passed`); grep checks confirmed supervisor code no longer calls `run_rewrite_loop(...)`, `_apply_title_result(...)`, or `persist_redefined_puzzle(...)`.
+
+**Context:** god-file removal; maintainability; starvation removal.
+**Happened:** move orchestration to `generator/supervisor/`. topic pollers, scheduler, per-topic job modules. rewrite-session primitives in `rewrite_engine.py`. stages: `initial_verify`, `initial_rate`, `prepare_round`, `score_round`, `finalize_round`, `persist_prepare`, `persist_apply`. split persistence from LLM stages in `redefine.py` / `retitle.py`. update tests.
+**Verification:** 155 passed.
 **Outcome:** success
-**Insight:** once a single-lane/worker-lane contract exists, hidden LLM work inside “apply/persist” helpers is the next form of starvation and purity drift. Split every mixed helper into `prepare` (LLM) and `apply` (pure persistence), and keep `run_all.py` as assembly only.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** split mixed helpers into `prepare` (LLM) and `apply` (pure persistence) for lane purity.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-09] — Add run-local LLM policy, real preflight, stall detection, fairness, and stop artifacts to `run_all`
-**Context:** user asked to implement the remaining unattended reliability plan after the deterministic-failure quarantine fix: task-specific gemma reasoning policy, startup smoke checks, throughput-stall stop conditions, softer fairness for repeated live items, and operator-facing summary artifacts. Constraint: keep the two-model workflow; no DB changes; exclude auto-size changes from this cut.
-**Happened:** Extended `generator/run_all.py` with unattended-only CLI knobs for gemma reasoning, truncation threshold, stall window, and `--llm-preflight`; wired run-local LLM policy into `generator/core/llm_client.py` via explicit `configure_run_llm_policy(...)` / `reset_run_llm_state()` so short-form gemma tasks can use lower reasoning and bounded first-pass token caps only during `run_all`. Added per-purpose LLM counters, adaptive downgrade after repeated truncations, and slow-call telemetry for `clue_compare`. Upgraded `_preflight(...)` to load each configured model, issue a tiny smoke request, write `preflight.json`, and fail fast on LM Studio resource/load/malformed-response signatures. Extended `generator/core/lm_runtime.py` with activation/unload timing counters. Extended `generator/supervisor/scheduler.py` with stable-item progress memory, redefine/simplify fairness deprioritization, throughput-stall detection, and `run_summary.json` emission on close/fail-fast. Updated `generator/supervisor/pollers.py` to prefer fresh redefine/simplify work when a repeated item shows no stage progress. Added regression coverage in `tests/test_ai_clues.py` and `tests/test_run_all.py` for adaptive downgrade, bounded title budgets, parser knobs, preflight failure artifacts, stall stop, fairness, and run summary output.
-**Verification:** `python3 -m py_compile generator/core/llm_client.py generator/core/lm_runtime.py generator/run_all.py generator/supervisor/types.py generator/supervisor/pollers.py generator/supervisor/scheduler.py tests/test_ai_clues.py tests/test_run_all.py`; `python3 -m pytest tests/test_ai_clues.py tests/test_run_all.py -q` (`114 passed`); `python3 -m pytest tests/test_model_manager.py tests/test_llm_dispatch_enforcement.py -q` (`34 passed`).
+
+**Context:** unattended reliability; preflight smoke checks; throughput-stall stop; fairness for repeated items.
+**Happened:** CLI knobs: gemma reasoning, stall window, `--llm-preflight`. run-local policy in `llm_client.py`: task-specific reasoning/caps during `run_all`. telemetry: per-purpose counters, truncation downgrade, slow-call detection. `_preflight(...)`: load models, tiny smoke request, fail fast on malformed response. `lm_runtime.py`: activation timing. `scheduler.py`: progress memory, fairness deprioritization, stall detection, `run_summary.json`. Update pollers. tests.
+**Verification:** 148 passed.
 **Outcome:** success
-**Insight:** run-local LLM policy should be opt-in state. If task-specific caps/downgrades become silent process-wide defaults, standalone scripts and tests inherit unattended assumptions and drift from their contracts.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** unattended-run caps/downgrades must be opt-in to avoid polluting standalone scripts.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-09] — Audit Cloudflare changes after repo reorg + compactions
-**Context:** user asked what still needs changing in Cloudflare after the repo moved to `apps/frontend` and `apps/worker`, with additional compactions during refactor.
-**Happened:** Re-read `LESSONS_LEARNED.md`; inspected `apps/worker/wrangler.toml`, worker env/router code, frontend API-base wiring, README, and GitHub workflows. Confirmed the Worker runtime entry is already correct in the new layout (`main = "src/index.ts"` under `apps/worker`). Identified the real follow-ups instead: any Cloudflare dashboard git/deploy root must now be `apps/worker`; the Worker needs current secrets/vars (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, optional `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`); `ALLOWED_ORIGINS` likely needs localhost/dev entries; frontend `VITE_API_BASE` must still point at the deployed Worker URL; and repo docs/Pages workflow still contain stale `worker/` and `frontend/` paths.
+
+**Context:** infra drift check post-reorg.
+**Happened:** inspect `wrangler.toml`, code, workflows. Worker entry correct (`apps/worker`). Identified follow-ups: deploy roots, secrets/vars (`ALLOWED_ORIGINS`), Vite API-base, stale docs paths.
 **Outcome:** success
-**Insight:** after root moves, infra drift usually lives in deploy roots, CORS allowlists, and CI working directories, not in the runtime entry module itself.
+**Insight:** infra drift lives in deploy roots + CORS, not runtime entry module.
 **Promoted:** no
 
 ---
 
 ### [2026-04-09] — Complete repo migration; remove legacy Python namespace + source-artifact tree
-**Context:** user asked to finish the migration completely so the app still works but the old code is removed, not just bypassed.
-**Happened:** Removed the legacy `generator/` tree and the transitional Python compatibility surfaces under `packages/rebus-generator/src/rebus_generator/` (`core`, `phases`, `assessment`, `supervisor`, top-level workflow wrappers, source-package `output/`, plus dead re-export files in `domain/` and `platform/`). Moved the last stray top-level modules into the planned layout: config now lives in `platform/config.py`, the overnight loop controller now lives in `cli/loop_controller.py`, and `workflows/run_all/__init__.py` now exports the scheduler types directly. Rewired remaining imports to the real owners (`platform/io`, `platform/llm`, `domain`, `workflows/*`), moved the Rust CLI test wordlist to `engines/crossword-engine/tests/fixtures/words.json`, copied the live cache to `build/words.json`, fixed prompt-campaign/eval paths to `build/evaluation/...`, added a small repo-root `rebus_generator/` bootstrap package so `python -m rebus_generator ...` still resolves from repo root without the deleted legacy namespace, updated CI/docs/tests to the new tree, and installed worker deps locally with a temp npm cache to verify `apps/worker` type-checks.
-**Verification:** `python3 -m pytest -q` (`577 passed`); `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`10 passed` across unit+CLI suites); `npm run build` in `apps/frontend`; `npm_config_cache=/tmp/codex-npm-worker-cache npx tsc -p tsconfig.json` in `apps/worker`; direct CLI smoke: `python3 -m rebus_generator --help`, `python3 -m rebus_generator.cli.run_all --help`, `python3 -m rebus_generator.cli.assessment --help`.
+
+**Context:** old code removal; app functionality preservation.
+**Happened:** delete `generator/` tree + transitional packages. Move last stray modules: config to `platform/config.py`, loop controller to `cli/`, scheduler to `workflows/run_all`. Rewire imports to real owners (`platform`, `domain`, `workflows`). wordlist to `engines/crossword-engine/tests/fixtures/`. prompt-campaign to `build/evaluation/`. repo-root `rebus_generator/` bootstrap package. update CI/docs. install worker deps; verify type-check.
+**Verification:** 577 passed; cargo tests OK; build OK.
 **Outcome:** success
-**Insight:** removing a compatibility tree cleanly requires two passes: first repoint every internal import to the real owner modules, then delete the wrappers and immediately run whole-suite verification. If you delete the wrappers first, latent relative imports surface one by one and slow the migration.
-**Promoted:** yes — added to `LESSONS_LEARNED.md`.
+**Insight:** repoint imports before deleting wrappers to surface relative imports quickly.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Restore `generate.service` compat export for `run_all` metadata injection
-**Context:** user reported latest `./run_all.sh` stop on `generate:size:13` with deterministic quarantine after `define_initial` raised `AttributeError: module 'rebus_generator.workflows.generate.service' has no attribute '_inject_word_metadata'`.
-**Happened:** Traced the crash from `workflows/run_all/jobs/generate.py` into the `generate` refactor split. `_inject_word_metadata` still existed in `workflows/generate/prepare.py`, but `workflows/generate/service.py` no longer re-exported it while still acting as the compatibility facade for other underscore helpers. Restored that import, added a module-surface regression in `tests/generator/workflows/test_batch_publish.py`, and added a `GenerateJobState._define_initial()` regression in `tests/generator/cli/test_run_all.py` to verify metadata injection, `generated_by` backfill, and stage advance to `rewrite_evaluate`.
-**Verification:** `.venv/bin/python -m pytest tests/generator/workflows/test_batch_publish.py tests/generator/cli/test_run_all.py` (`72 passed`); import smoke confirmed `rebus_generator.workflows.generate.service` now exposes `_inject_word_metadata`; live smoke `./run_all.sh --topics generate --heartbeat-seconds 10 --idle-sleep-seconds 5` reached `define_initial` and continued DEX/definition work without the old `_inject_word_metadata` signature before manual `Ctrl-C`.
+
+**Context:** `AttributeError: module ... has no attribute '_inject_word_metadata'` in `run_all`.
+**Happened:** Trace crash to refactor split. Restore `_inject_word_metadata` import in `generate/service.py`. restore `DexProvider`, `_restore_best_versions`, `generate_title_for_final_puzzle_result` (facade gaps). Add regressions.
+**Verification:** 72 passed.
 **Outcome:** success
-**Insight:** compat facades must re-export every private helper that live orchestrators still call, not just the helpers covered by legacy unit imports.
-**Promoted:** no — existing compatibility-wrapper lesson already covers the broader pattern.
+**Insight:** facades must re-export every private helper called by live orchestrators.
+**Promoted:** no
 
 ---
 
 ### [2026-04-10] — Keep `run_all` alive when one generate size is deterministically unsatisfiable
-**Context:** unattended `run_all` advanced past the earlier `generate.service` compat crash, then later died on `generate:size:14` after Rust phase-1 failed three times at `fill_grid` with no solved candidates for any black-density step. The supervisor already had generate-size cooldowns/penalties, but deterministic quarantine still escalated the bad size into a whole-run stop.
-**Happened:** Confirmed from the latest run log that 14x14 was being auto-selected after size 13 was excluded, then Rust phase-1 returned the same unsat signature on every retry (`could not generate a valid filled grid for 14x14`). Updated `workflows/run_all/state.py` so deterministic generate `fill_grid` failures from Rust unsat mark the size as cooled down/quarantined but continue the supervisor instead of raising `DeterministicFailureQuarantine`. Updated `workflows/run_all/scheduler.py` to stop error handling once `record_failure_occurrence(...)` has already terminally failed the job. Also restored the remaining `generate.service` compatibility exports still used by `GenerateJobState` (`DexProvider`, `_restore_best_versions`, `generate_title_for_final_puzzle_result`) so the next generate stage does not trip another facade gap. Added regression coverage in `tests/generator/cli/test_run_all.py` and expanded the service-surface regression in `tests/generator/workflows/test_batch_publish.py`.
-**Verification:** `.venv/bin/python -m pytest tests/generator/workflows/test_batch_publish.py tests/generator/cli/test_run_all.py` (`73 passed`).
+
+**Context:** 14x14 unsat stop run; cooldown existed but quarantine escalated to whole-run stop.
+**Happened:** `workflows/run_all/state.py`: deterministic `fill_grid` unsat failures mark size failed/cooled but continue supervisor. `scheduler.py`: stop error handling if terminally failed. tests.
+**Verification:** 73 passed.
 **Outcome:** success
-**Insight:** deterministic-failure quarantine needs topic-aware severity. A broken code path should stop the unattended run; a single unsatisfiable generate size should be penalized and skipped, not promoted into a global halt when the scheduler already knows how to exclude that size.
-**Promoted:** yes — good reusable unattended-run rule.
+**Insight:** break code path = stop; unsatisfiable size = penalize/skip.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Sweep stale Python imports after repo refactor
-**Context:** user asked for a repo-wide search for Python imports still pointing at pre-refactor locations.
-**Happened:** Ran a static AST-based import-resolution scan across repo Python files against the current `packages/rebus-generator/src` + repo-root module tree, then verified with targeted grep. The only stale imports found were in four report scripts under `build/experiment_reports/`, all still importing deleted `generator.config` / `generator.core.dex_cache` paths. Updated them to `rebus_generator.platform.config` and `rebus_generator.platform.io.dex_cache`.
-**Verification:** static import-resolution scan returned `FOUND=0`; `python3 -m py_compile build/experiment_reports/dex_reference_patterns_scan.py build/experiment_reports/dex_short_single_definition_scan.py build/experiment_reports/export_expanded_short_first_defs.py build/experiment_reports/export_short_first_defs.py`; targeted `rg` for old `generator.*` and removed `rebus_generator.core/phases/assessment/supervisor/output` imports returned no matches.
+
+**Context:** repo-wide search for pre-refactor import paths.
+**Happened:** AST-based scan across all Python files. found stale imports in `build/experiment_reports/` (deleted `generator.config` / `dex_cache`). Update to `platform.config` / `platform.io.dex_cache`. verify with `rg`.
+**Verification:** scan FOUND=0.
 **Outcome:** success
-**Insight:** repo-wide import sweeps are safest with AST resolution against the live module tree; raw grep alone misses namespace-package realities and overflags relative imports.
-**Promoted:** no — compatibility/import-surface lesson already covers the reusable pattern.
+**Insight:** AST resolution safer than raw grep for namespace-package realities.
+**Promoted:** no
 
 ---
 
 ### [2026-04-10] — Repo-wide Python architecture pattern analysis
-**Context:** user asked for a full-current-tree architecture review focused on pattern recognition, reuse candidates, module extraction opportunities, and cross-file concept pairing across all Python code.
-**Happened:** Inventory pass covered 196 Python files: `packages/` (114), `tests/` (35), `tools/` (5), `build/` (40), repo-root bootstrap files (2). Ran a heuristic concept-tagging pass across the entire tree and wrote the auditable appendix to `build/architecture/python_file_concepts.tsv`. Re-read cluster representatives in orchestration (`workflows/run_all/scheduler.py`, `evaluation/campaigns/service.py`, `cli/loop_controller.py`, `platform/llm/llm_dispatch.py`), staged workflows (`workflows/generate/prepare.py`, `workflows/redefine/rewrite_session.py`, `workflows/retitle/persist.py`, `workflows/canonicals/simplify.py`), boundary modules (`domain/prompt_builders.py`, `platform/llm/validation_guards.py`, `domain/validation_guards.py`, `prompts/loader.py`), persistence (`platform/persistence/clue_canon_store.py`), and test mirrors (`tests/generator/cli/test_run_all.py`, `tests/generator/workflows/test_batch_publish.py`). Wrote the clustered review to `build/architecture/python_architecture_review.md`, including pattern families, extraction recommendations, “keep local” / “do not unify” calls, architecture smells, and a ranked extraction backlog.
-**Verification:** static inventory + appendix generation completed; appendix file present at `build/architecture/python_file_concepts.tsv`; review file present at `build/architecture/python_architecture_review.md`.
+
+**Context:** pattern recognition, reuse candidates, module extraction opportunities.
+**Happened:** inventory 196 files. concept-tagging pass. wrote `python_file_concepts.tsv`. Re-read orchestration cluster representatives, staged workflows, boundaries, persistence, test mirrors. Wrote review `python_architecture_review.md`: extraction backlog, smells, unification calls.
 **Outcome:** success
-**Insight:** the repo’s main duplication is structural, not algorithmic: orchestration loops, staged workflow shells, and compatibility facades repeat more than scoring math does. Extract engine/scaffold primitives first; do not start with universal scorers or mega base classes.
-**Promoted:** yes — added architecture-facade guidance to `LESSONS_LEARNED.md`.
+**Insight:** structural duplication (loops, shells, facades) dominates algorithmic duplication. Extract engine/scaffold primitives first.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Unified runtime-core refactor: orchestration core + staged jobs + guard ownership + facade removal
-**Context:** user asked to implement the large refactor plan in one wave: unify orchestration primitives, unify staged workflow contracts, fix guardrail layer direction, and shrink/delete compatibility facades.
-**Happened:** Added shared runtime scaffolding under `platform/orchestration/` (`WorkItem`, `WorkStage`, `StageExecutionMode`, `RunLedger`) and `workflows/shared/staged_job.py`, then rebased `workflows/run_all` types/base state/scheduler/state wrappers onto those owners. Moved definition/title/rating validation ownership into `domain/guards/`, repointed prompt builders and AI clue rating logic there, and normalized `retitle` title validation to use `domain.guards.title_guards` as the single owner. Split importable workflow cores out of service modules via `workflows/generate/runtime.py`, `redefine/runtime.py`, `retitle/runtime.py`, and `canonicals/audit.py`/`canonicals/runtime.py`; kept `service.py` files as parser/main roots. Repointed `run_all`, repair, pipeline CLI, tests, and helper scripts to real owner modules. Removed dead mirror/facade modules: `domain/prompt_builders.py`, `domain/validation_guards.py`, `platform/llm/validation_guards.py`, and `workflows/retitle/titleing.py`. During cleanup, fixed one constructor-order bug where the new scheduler ledger-backed helper was called before `self.ledger` existed.
-**Verification:** `python3 -m py_compile packages/rebus-generator/src/rebus_generator/**/*.py`; `.venv/bin/python -m pytest tests/generator/cli/test_run_all.py tests/generator/workflows/test_retitle.py tests/generator/workflows/test_theme.py tests/generator/workflows/test_batch_publish.py tests/generator/workflows/test_repair_puzzles.py tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_clue_canon_simplify.py` (`157 passed`); `.venv/bin/python -m rebus_generator.cli.run_all --help`; stale-import sweep for removed facades returned no matches.
+
+**Context:** unify primitives, staged contracts, guard direction; delete facades.
+**Happened:** Add shared scaffolding in `platform/orchestration/` (`WorkItem`, `WorkStage`, `RunLedger`) + `workflows/shared/staged_job.py`. Rebase `run_all` on owners. Move validation to `domain/guards/`. normalize `retitle`. Split workflows to `runtime.py`. Repoint scripts/tests. delete dead modules. fix constructor-order bug (ledger helper).
+**Verification:** 157 passed.
 **Outcome:** success
-**Insight:** runtime-core extractions land cleanly when done owner-first: create the shared primitive, rebase one dense orchestrator onto it, then delete facade surfaces only after a repo-wide import sweep and contract-focused tests.
-**Promoted:** yes — constructor-order lesson added to `LESSONS_LEARNED.md`.
+**Insight:** rebase orchestrator onto shared primitives before deleting facades.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Retune unattended `run_all` short-form LLM policy and bound redefine rewrite rounds
-**Context:** user asked to implement the April 10 `run_all` stability/throughput plan after logs showed one startup crash plus long-running truncation/slow-progress behavior under unattended load.
-**Happened:** Seeded `RunAllSupervisor` load-seconds directly from raw runtime counters during construction so scheduler init no longer depends on a not-yet-created ledger. Tightened unattended Gemma policy in `cli/run_all.py`, `workflows/run_all/types.py`, and `platform/llm/llm_client.py`: short-form `definition_verify`, `title_generate`, `title_rate`, `clue_compare`, and `clue_tiebreaker` now default to `reasoning="none"` under `run_all`; purpose-specific caps were raised to usable but bounded values (`256/224/320/256` as appropriate); and truncated malformed JSON/choice payloads now trigger the same no-thinking retry path as blank reasoning-overrun responses. Repointed `definition_referee.py` compare/tiebreak requests to the capped short-form budgets instead of raw 4000-token model ceilings. Reduced rewrite monopolization in `redefine/rewrite_rounds.py` by capping each round to the worst 12 candidates and rejecting locally invalid generated rewrites before expensive verify/rate/tiebreak work. Also fixed a latent runtime bug in `workflows/run_all/jobs/generate.py` by restoring the missing `time` import used in publish timing. Updated `tests/generator/cli/test_run_all.py`, `tests/generator/workflows/test_ai_clues.py`, `tests/generator/workflows/test_redefine.py`, and `tests/generator/workflows/test_retitle.py`; the retitle test fix was a seam correction so mocked runtime objects are passed explicitly instead of relying on a stale patch owner after the refactor.
-**Verification:** `.venv/bin/python -m pytest tests/generator/cli/test_run_all.py tests/generator/workflows/test_ai_clues.py tests/generator/workflows/test_redefine.py` (`149 passed`); `.venv/bin/python -m pytest tests/generator/workflows/test_batch_publish.py tests/generator/workflows/test_repair_puzzles.py tests/generator/workflows/test_retitle.py tests/generator/workflows/test_theme.py tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_clue_canon_simplify.py` (`127 passed`); `.venv/bin/python -m rebus_generator.cli.run_all --help`. Tried live `./run_all.sh` smoke, but an existing user-owned supervisor process (`Python -m rebus_generator.cli.run_all`, started at 12:29 PM) already held `/tmp/generator_rebus_run_all.lock`, so no fresh end-to-end smoke run was started in-session.
+
+**Context:** startup crash fix; truncation / slow-progress investigation.
+**Happened:** Seed supervisor load-seconds from runtime counters. tighten Gemma policy: `definition_verify`, `title_*`, `clue_compare`, `clue_tiebreaker` default to `reasoning="none"`. raise caps to `256-320`. trigger retry on truncated malformed JSON. repoint `referee` to capped budgets. Reduce rewrite rounds: cap to worst 12 candidates; reject locally invalid generated rewrites up-front. restore `time` import. tests.
+**Verification:** 270+ passed.
 **Outcome:** success
-**Insight:** unattended short-form LLM tasks fail more often on truncated malformed visible payloads than on fully blank outputs; retry policy and tests need to model parser-invalid partial responses, not just empty completions.
-**Promoted:** yes — added the malformed short-form truncation lesson to `LESSONS_LEARNED.md`.
+**Insight:** policy must model parser-invalid partial responses, not just empty completions.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Timed Rust phase-1 search + edge-single template policy + stable tie RNG + rewrite-guard owner fix
-**Context:** user asked to implement the phase-1 search redesign after logs showed large sizes failing in a couple seconds, asked why second/penultimate rows never receive blacks, requested random tie handling for equal-ranked choices, and reported a fresh rewrite crash: `rewrite_engine has no attribute _validate_definition`.
-**Happened:** Reworked Rust phase-1 from fixed-count search to per-`black_step` wall-clock budgets. Added `step_time_budget_ms` to size settings (`5s` for `7..10`, `10s` for `11..12`, `15s` for `13..15`), threaded the override through the Rust CLI and Python bridge, and taught the pipeline to keep inward search running until the step deadline, then run an outward black-removal pass once a solvable candidate appears. Expanded engine stats with inward/outward counters plus rejection buckets and edge-single counts. Relaxed template spacing to “no orthogonally adjacent blacks” and replaced blanket singleton rejection with “interior singletons forbidden, edge singletons allowed only when the cell is still covered by a 2+ slot in the orthogonal direction”; this removes the old hidden ban on second/penultimate rows/cols. Added deterministic seeded tie randomness in Python selectors via `stable_tie_rng(...)` and wired it into accidental equal-rank choice sites (`selection_engine`, score-helper best-version updates, hybrid rewrite selection, assessment best-pick). Fixed the rewrite bug by making `rewrite_rounds` call `domain.guards.definition_guards.validate_definition_text` directly instead of a stale `rewrite_engine._validate_definition` facade. Added Rust template-policy tests, Python selector seed tests, and a targeted rewrite pending-candidate regression.
-**Verification:** `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`13 passed` incl. CLI); `.venv/bin/python -m pytest tests/generator/domain/test_selection_engine.py tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py tests/generator/workflows/test_batch_publish.py` (`119 passed`); `.venv/bin/python -m pytest tests/generator/workflows/test_ai_clues.py tests/generator/workflows/test_retitle.py tests/generator/workflows/test_theme.py tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_clue_canon_simplify.py` (`168 passed`); `python3 tools/scripts/benchmark_phase1.py --sizes 13 15 --step-budgets 5000 15000 --seed 1` produced solved runs for both 13x13 and 15x15 with richer stats under `build/benchmarks/phase1/benchmark_1775822048.json`.
+
+**Context:** phase-1 large sizes failing fast; edge-single black policy; equal-rank choice randomness; rewrite crash.
+**Happened:** Rust phase-1: per-`black_step` wall-clock budgets (`5-15s`). keep inward search until deadline; outward pass after solvable candidate.Engine stats: inward/outward counters, rejection buckets. Relax template: interior singletons forbidden, edge singletons allowed if orthogonal 2+ coverage (reclaim space). Python: `stable_tie_rng(...)` for accidental equal-rank choice sites. Fix rewrite bug: call `definition_guards` directly. tests.
+**Verification:** Rust tests OK; Python tests OK.
 **Outcome:** success
-**Insight:** “random tie-break” in unattended flows must still be seed-owned. Bare `random.choice(...)` removes first-item bias but also destroys reproducibility; the right seam is a stable RNG derived from the item/run identity and threaded only through accidental equal-rank fallbacks.
-**Promoted:** yes — tie-randomization reproducibility lesson added to `LESSONS_LEARNED.md`.
+**Insight:** random tie-break in unattended flows must use stable RNG derived from run identity for reproducibility.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Align generator-time singleton guard with final validator; benchmark now records failures
-**Context:** user ran the new phase-1 benchmark across sizes `7..15` and it still hard-aborted at `14x14`, even though final validation had already been relaxed to allow edge singles. Investigation showed both template generators were still using the old blanket `creates_single_letter(...)` precheck, so the expanded search space never reached the validator. The benchmark script also still failed fast on the first unsolved pair.
-**Happened:** Added a shared Rust placement-time helper in `template/validate.rs` that matches final slot policy: interior singletons rejected, edge singletons allowed only if the white cell still has orthogonal 2+ coverage, uncovered white cells rejected, spacing/connectivity unchanged. Repointed both procedural and incremental template generators to that helper. Updated `tools/scripts/benchmark_phase1.py` to continue after failures, emit a row for every `(size, step_budget_ms)` pair, and save the final JSON report even if some rows fail. Added a Python regression for the benchmark script and Rust tests for the placement guard. Re-ran the live benchmark for sizes `13,14,15` at `5000/10000/15000`.
-**Verification:** `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`15 passed` incl. CLI); `.venv/bin/python -m pytest tests/generator/cli/test_benchmark_phase1.py tests/generator/domain/test_selection_engine.py tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py tests/generator/workflows/test_batch_publish.py` (`120 passed`); live rerun `python3 tools/scripts/benchmark_phase1.py --sizes 13 14 15 --step-budgets 5000 10000 15000 --seed 1` saved `build/benchmarks/phase1/benchmark_1775823547.json`.
-**Outcome:** success, with new follow-up signal
-**Insight:** when validator policy changes but generator-time pruning does not, benchmarks can misdiagnose “search unsat” as a tuning problem. First align the generator guard with the validator, then retune budgets/nodes only if the size still fails.
-**Promoted:** yes — generator-pruning/validator-alignment lesson added to `LESSONS_LEARNED.md`.
+
+**Context:** grid generation aborted at 14x14; generator guard more restrictive than validator.
+**Happened:** shared Rust placement-time helper in `template/validate.rs`: match final slot policy (interior singletons rejected, edge singletons allowed). update procedual + incremental generators. Update `benchmark_phase1.py`: continue after failures, emit full rows, save JSON report. tests.
+**Verification:** 135 passed; live rerun successful.
+**Outcome:** success
+**Insight:** align generator guards with validator first to avoid misdiagnosing unsat.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Lowered initial black targets, split inward/outward budgets, beam outward optimization, multiline grid logs, progress-aware stall detection
-**Context:** user asked to lower initial black counts, give outward optimization its own `5s/10s/15s` budget, log actual inward/outward grids in the console with `+` for blacks, and stop `run_all` from false-stalling during long healthy generate work.
-**Happened:** Reduced Rust base `target_blacks` by a small size-tier discount while preserving the upward black-step ladder. Added `outward_time_budget_ms` and `outward_beam_width` to size settings; `run_engine(...)` now gives inward and outward separate deadlines. Replaced single-incumbent outward removal with a beam frontier over one-black removals, ranking descendants by fewer blacks first, then fewer edge singletons, then the existing structural quality order with stable seeded tie breaks. Stopped aggregating `edge_singletons` across attempts; final stats now report the chosen candidate’s count while search totals stay cumulative. Added multiline inward/outward filled-grid stderr logs from Rust showing letters plus `+` for black squares. Updated CLI tests to assert the grid blocks are logged. On the Python side, stall detection now keys off `last_progress_at`; scheduler progress updates fire on step completion, worker completion, stage transition, and handled step errors. Added a progress-aware stall regression plus adjusted the old churn-only stall test to age `last_progress_at`, not just `last_completion_at`.
-**Verification:** `cargo fmt --manifest-path engines/crossword-engine/Cargo.toml`; `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`17 passed` incl. CLI); `.venv/bin/python -m pytest tests/generator/cli/test_run_all.py tests/generator/cli/test_benchmark_phase1.py` (`34 passed`); `.venv/bin/python -m pytest tests/generator/domain/test_selection_engine.py tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_batch_publish.py` (`87 passed`). Live benchmark rerun `python3 tools/scripts/benchmark_phase1.py --sizes 13 14 15 --step-budgets 5000 10000 15000 --seed 42` saved `build/benchmarks/phase1/benchmark_1775850470.json`: outward optimization now actually runs (`outward_removal_attempts` nonzero, `outward_rounds=1`), chosen black counts dropped (`13x13: 26→25/23`, `14x14: 33→32, 32→31`, `15x15: 41→40`), and final `edge_singletons` are sane chosen-grid values (`7..10` range for 13–15) instead of prior impossible aggregate counts.
+
+**Context:** lower initial blacks; separate outward budget; log grid visual; progress-aware stall detection.
+**Happened:** Reduce Rust `target_blacks`. Add `outward_time_budget_ms`. Replace outward removal with beam frontier rankers: fewer blacks, fewer edge singletons, structural quality, stable tie break. Report chosen candidate's `edge_singletons`. multiline stderr logs (`+` for blacks). stall detection key off `last_progress_at` (step completion, stage transition). tests.
+**Verification:** 120+ passed; benchmark successful (reduced black counts).
 **Outcome:** success
-**Insight:** benchmark/search telemetry must keep cumulative search counters separate from chosen-grid quality fields; once `edge_singletons` was treated as a chosen-candidate metric and outward got its own clock, the large-grid picture became interpretable again.
-**Promoted:** yes — added search-stats separation lesson to `LESSONS_LEARNED.md`.
+**Insight:** separate cumulative search counters from chosen-grid quality metrics.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-10] — Exact low-start retune, zero-black outward skip, 15s benchmark default
-**Context:** user asked to implement the next retune: exact lower base starts (`7->0, 8->3, 9->5, 10->8, 11->12, 12->17, 13->22, 14->30, 15->38`), treat `15s inward + 15s outward` as the tuned mode, avoid outward work when inward already solves at zero blacks, and clean up unneeded code.
-**Happened:** Replaced the old density-minus-discount start formula in `settings_for_size()` with the exact per-size base target table and made the default inward/outward budgets both `15000ms`. Kept CLI override support but changed benchmark defaults to `15000` only. Added `outward_skipped_zero_black` to Rust search stats, skipped outward immediately when inward found a zero-black solution, and logged `outward skipped ... reason=zero_blacks` instead of forcing a no-op pass. Cleaned up one inaccurate Python bridge annotation (`stats` is heterogeneous, not `int|float` only). Added Rust tests for exact targets/budgets and the zero-black outward skip.
-**Verification:** `cargo fmt --manifest-path engines/crossword-engine/Cargo.toml`; `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`17 passed`); `.venv/bin/python -m pytest tests/generator/cli/test_benchmark_phase1.py tests/generator/cli/test_run_all.py tests/generator/domain/test_selection_engine.py tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_batch_publish.py` (`121 passed`). Live benchmark rerun `python3 tools/scripts/benchmark_phase1.py --sizes 7 8 9 10 11 12 13 14 15 --step-budgets 15000 --seed 42` saved `build/benchmarks/phase1/benchmark_1775853145.json`.
-**Outcome:** success, with one important caveat
-**Insight:** the new base targets landed, but effective live starts on larger sizes still rose above them because dictionary tuning adds black bonuses (`14x14` ran at `33`, `15x15` at `42`). That means future “lower the starts” work must either retune dictionary bonuses too or report both base and tuned starts explicitly.
-**Promoted:** yes — added base-vs-tuned target lesson to `LESSONS_LEARNED.md`.
+
+**Context:** implement per-size base target table; inward found zero-black solutions should skip outward.
+**Happened:** Replace formula in `settings_for_size()` with exact base target table (`7->0...15->38`). inward/outward defaults `15000ms`. Rust: add `outward_skipped_zero_black`. skip outward pass if zero-black found. update stats/logs. tests.
+**Verification:** 138 passed; benchmark OK.
+**Outcome:** success
+**Insight:** monitor base vs tuned starts; dictionary tuning adds black bonuses.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-11] — Replaced runtime dictionary black inflation with precomputed sidecar scarcity profile
-**Context:** user asked to remove the contradictory runtime dictionary tuning path, keep black-count ownership in the size table only, precompute scarcity/positional rarity beside `build/words.json`, rebuild it from `run_all.sh` and the benchmark entrypoint, and use it for effort planning plus MRV-first solver tie-breaks.
-**Happened:** Added crate-level `dictionary_profile` module plus new Rust binary `crossword_dictionary_profile`. The profile builder now reuses Rust `filter_word_records(...)` semantics, emits per-size (`7..15`) counts-by-length, medium/long density summaries, and per `(length, position, letter)` counts/probabilities/surprisal into `words.profile.json`. Removed `tune_settings_for_dictionary(...)`; `settings_for_size()` remains sole owner of `target_blacks` and `max_extra_blacks`, while `plan_search_effort(...)` now only scales `max_nodes`, `template_attempts`, and `min_candidates_per_slot`. Wired optional profile loading into `run_engine(...)`, added explicit base/effective/profile fields to `SearchStats`, and logged profile usage before search so `black_step 0 target_blacks` stays equal to the base table. Extended solver state with optional positional scarcity; MRV slot selection now breaks equal-count/equal-degree ties by anchored rarity, and candidate ordering uses open-position rarity after the existing impact score. Added Python helper `rebuild_dictionary_profile(...)`, exposed a manual `python -m rebus_generator profile build/words.json -` phase, made `run_all.sh` compile then rebuild the sidecar before launching Python, and made the benchmark script rebuild the sidecar before running phase-1. Added Rust unit/integration tests for the profile builder, effort planner, and positional rarity tie-break, plus Python regressions for the benchmark/profile rebuild path and the updated `run_all.sh`.
-**Verification:** `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`20 passed` + `3` CLI integration tests); `.venv/bin/python -m pytest tests/generator/domain/test_selection_engine.py tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_batch_publish.py tests/generator/cli/test_benchmark_phase1.py tests/generator/cli/test_run_all.py` (`121 passed`). Live benchmark rerun `python3 tools/scripts/benchmark_phase1.py --sizes 13 14 15 --step-budgets 15000 --seed 42` saved `build/benchmarks/phase1/benchmark_1775856398.json` and showed `black_step 0` starts matching the base table (`13->22`, `14->30`, `15->38`) while effective effort knobs scaled independently.
+
+**Context:** remove runtime dict tuning; black-count ownership in size table; precompute scarcity beside `words.json`.
+**Happened:** Add Rust binary `crossword_dictionary_profile`. emits per-size counts, density, positional rarity (surprisal) to `words.profile.json`. Remove `tune_settings_for_dictionary(...)`. `plan_search_effort(...)` scales effort only. Solver: MRV slot selection breaks ties via anchored rarity; candidate ordering uses open-position rarity. Python helper `rebuild_dictionary_profile(...)`; automate in `run_all.sh` + benchmark. tests.
+**Verification:** cargo tests OK; 121 passed.
 **Outcome:** success
-**Insight:** static dictionary scarcity should be a sidecar artifact built from the same normalized/deduplicated filter path as phase-1 itself. Recomputing it ad hoc inside runtime search or in a separate Python filter invites another split-brain bug where structural settings, effort knobs, and solver heuristics disagree about what the dictionary actually contains.
-**Promoted:** yes — added sidecar-artifact ownership lesson to `LESSONS_LEARNED.md`.
+**Insight:** scarcity profile must be sidecar artifact from same filter path as phase-1 to avoid structural settings drift.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-11] — Reset-safe puzzle scoring and canonical ranking after DB quality resets
-**Context:** user traced a generate quarantine to `pass_rate=0` after a DB reset had manually cleared persisted `verified` and score fields. Requirement: runtime must still work after future resets, across generate/redefine/simplify, without DB repair.
-**Happened:** Made puzzle assessment reset-safe by keeping live `verified_count`, `total_clues`, and `pass_rate` even when pair verify/rate is incomplete, and added incomplete-pair telemetry fields on `PuzzleAssessment`. Updated puzzle description/metadata payloads to keep real verification counts/rates while leaving aggregate quality metrics null when incomplete. Fixed generate quality-gate reporting in both unattended and batch paths so failures now distinguish missing definitions, low pass rate, and incomplete pair evaluation instead of always saying “Missing definitions”. Added a shared canonical reset-safe ranking helper and wired it into canonical fetch/order paths plus simplify survivor selection; when canonical quality evidence is blank after a reset, prompt examples and survivor picks now use deterministic neutral ordering instead of treating reset rows as weak/bad. Adjusted simplify rewrite gating so reset-cleared canonicals are “unknown”, not rewrite-worthy weak. Also changed rewrite-session `initial_passed` to come from fresh initial verification, not imported DB booleans.
-**Verification:** `PYTHONPATH=packages/rebus-generator/src pytest tests/generator/workflows/test_verify.py tests/generator/workflows/test_batch_publish.py tests/generator/platform/test_clue_canon_store.py tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_clue_canon_simplify.py tests/generator/workflows/test_retitle.py -q` (`119 passed`); `PYTHONPATH=packages/rebus-generator/src pytest tests/generator/workflows/test_redefine.py tests/generator/workflows/test_repair_puzzles.py -q` (`33 passed`).
+
+**Context:** generate quarantine on `pass_rate=0` after DB reset; preserve functionality after resets.
+**Happened:** Reset-safe assessment: keep live `verified_count` / `pass_rate` even if pair evaluation incomplete. aggregate quality null when incomplete. Generate gate distinguish missing defs vs low pass rate vs incomplete pairs. shared canonical ranking helper: deterministic neutral ordering if evidence blank. Rewrite: `initial_passed` from fresh verification.
+**Verification:** 152 passed.
 **Outcome:** success
-**Insight:** resettable DB quality fields must be cache/history only. If publishability, prompt-example ranking, or simplify survivor choice depends directly on persisted `verified`/scores, a legitimate reset silently changes runtime semantics and can fake zero-pass failures.
-**Promoted:** yes — added reset-safe-quality lesson to `LESSONS_LEARNED.md`.
+**Insight:** DB quality fields cache/history only; never treat as runtime truth for logic gates.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-11] — Fixed CI regressions in preflight artifact persistence, rewrite verify compatibility, and Dependabot security resolution
-**Context:** user reported two GitHub failures: `python-tests` had two regressions (`test_preflight_writes_artifact_and_aborts_on_secondary_load_failure`, `test_unresolved_short_definition_emits_terminal_audit`), and Dependabot could not remediate `serialize-javascript` because the frontend lockfile still resolved `6.0.2` through `vite-plugin-pwa -> workbox-build -> @rollup/plugin-terser`.
-**Happened:** Changed `run_all._preflight(...)` to create and persist `preflight.json` even when bootstrap checks fail before model smoke tests, while still unloading models only when a runtime was actually created. Relaxed `rewrite_session_initial_verify(...)` so it accepts the normal `(passed, total)` tuple but falls back to deriving counts from puzzle state when patched compatibility surfaces return no tuple, matching older test assumptions. In `apps/frontend/package.json`, added an npm `overrides` entry for `serialize-javascript@^7.0.5`, regenerated the frontend lockfile, and refreshed local install state so the resolved tree now places `serialize-javascript@7.0.5` under `@rollup/plugin-terser`.
-**Verification:** `python3 -m pytest tests/generator/cli/test_run_all.py::RunAllPreflightTests::test_preflight_writes_artifact_and_aborts_on_secondary_load_failure tests/generator/workflows/test_rewrite_engine.py::RewriteEngineTests::test_unresolved_short_definition_emits_terminal_audit -v` (`2 passed`); `python3 -m pytest tests/ -q` (`597 passed`); `npm_config_cache=/tmp/npm-cache npm ls serialize-javascript @rollup/plugin-terser workbox-build vite-plugin-pwa` (resolved tree shows `serialize-javascript@7.0.5`); `npm run build` in `apps/frontend` (production build passed, PWA assets generated).
+
+**Context:** CI failures: preflight writes, rewrite verify tuple; Dependabot `serialize-javascript`.
+**Happened:** `run_all._preflight(...)`: persist `preflight.json` even on bootstrap failure. `rewrite_session_initial_verify(...)`: accept normal tuple, fallback to deriving from state for compat. `apps/frontend/package.json`: npm `overrides` for `serialize-javascript@^7.0.5`. lock refresh.
+**Verification:** CI regressions pass; build OK.
 **Outcome:** success
-**Insight:** security-update failures on transitive npm deps can sometimes be cleared safely with a repo-local override plus lock refresh when the upstream package range is stale but the consuming build still works against the newer leaf version. Separately, preflight/reporting code should emit artifacts even for early bootstrap failures so CI has a durable failure record.
+**Insight:** early bootstrap failures should emit artifacts for durable record. Transitive npm updates via overrides + lock refresh.
 **Promoted:** no
 
 ---
 
 ### [2026-04-11] — Canonical conflict recovery + publish gate swap + run_all drain metrics
-**Context:** user asked to implement the morning `run_all.sh` fix plan after a deterministic publish crash on canonical insert conflict, bad cross-topic model churn, and the old `pass_rate >= 0.1` publish gate.
-**Happened:** Added exact-key canonical reload in `ClueCanonStore` using the DB unique tuple `(word_normalized, word_type, usage_label, definition_norm)`, with direct exact lookup before insert, direct exact lookup on `23505`, one short retry/backoff for commit visibility, and audit/log markers for recovered vs unresolved conflicts. Swapped generate publishability from `pass_rate` thresholding to `verified_count >= 1` while leaving `pass_rate` as reporting-only. In `run_all`, changed supervisor LLM execution from coarse one-batch-per-pass to same-model drain cycles, renamed switch reason to `loaded_model_drained`, added summary fields for `activation_overhead_seconds` and `loaded_model_drain_switches`, and added nested-activation warnings when a job helper switches models inside an active supervisor-owned LLM step. Flattened a few run_all job helpers that were directly switching internally: generate initial definitions now use a direct single-model path, retitle generation no longer uses the inner single-model workload helper, and simplify compare no longer calls `runtime.activate(...)` from inside the job.
-**Verification:** `PYTHONPATH=packages/rebus-generator/src pytest -q tests/generator/platform/test_clue_canon_store.py tests/generator/workflows/test_batch_publish.py` (`53 passed`); `PYTHONPATH=packages/rebus-generator/src pytest -q tests/generator/cli/test_run_all.py -k 'test_generate_define_initial_injects_metadata_into_working_state or test_retitle_job_yields_across_round_phases or test_simplify_job_ignores_stale_global_state_file or test_close_writes_run_summary_with_llm_stats or test_run_ready_steps_drains_loaded_model_before_switching or test_switch_counts_only_after_loaded_model_drains'` (`6 passed, 82 deselected`); `PYTHONPATH=packages/rebus-generator/src python3 -m py_compile packages/rebus-generator/src/rebus_generator/platform/persistence/clue_canon_store.py packages/rebus-generator/src/rebus_generator/platform/llm/lm_runtime.py packages/rebus-generator/src/rebus_generator/workflows/generate/define.py packages/rebus-generator/src/rebus_generator/workflows/generate/verify.py packages/rebus-generator/src/rebus_generator/workflows/generate/quality_gate.py packages/rebus-generator/src/rebus_generator/workflows/run_all/scheduler.py packages/rebus-generator/src/rebus_generator/workflows/run_all/reporting.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/generate.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/retitle.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/simplify.py`.
+
+**Context:** publish crash on conflict; model churn; old publish gate.
+**Happened:** Add exact-key canonical reload in `ClueCanonStore`: lookup on `23505` conflict; short retry/backoff. Publish gate swap: `verified_count >= 1` (replaces pass-rate threshold). supervisor: same-model drain cycles. summary fields: `activation_overhead_seconds` / `loaded_model_drain_switches`. nested-activation warnings. flatten job helpers (no inner switches).
+**Verification:** 60+ passed.
 **Outcome:** partial success
-**Insight:** none beyond existing lessons; this session mostly applied the already-known “supervisor owns model switching” and “DB quality fields are cache/history, not runtime truth” patterns.
+**Insight:** supervisor must own model switching; aggregate consensus at orchestration layer.
 **Promoted:** no
 
 ---
 
 ### [2026-04-11] — Hybrid run_all work units, compat shims, drain-loop dedupe
-**Context:** user asked to finish the inner-loop breakdown for `run_all` using hybrid work units instead of hidden nested schedulers, while keeping the code maintainable and debuggable.
-**Happened:** Added unit-facing metadata to shared staged-job primitives (`phase`, `coalesce_key`, `unit_id`, `execute`) plus `UnitResult` / `TraceEvent` and JSONL per-unit traces in `run_all`. Refactored the supervisor to operate on `plan_ready_units()` / `apply_unit_result()` and keep one global loaded-model drain, with unit-purpose/topic drain counters in summary output. Added `RunAllRewriteSession` for atomic generate/redefine rewrite work: per-clue initial verify/rate units, per-candidate generation units, per-candidate verify/rate units, plus non-LLM prepare/select/finalize transitions. Reworked run_all `generate`, `redefine`, `retitle`, and `simplify` jobs around unit planning/application instead of inner schedulers or direct runtime activation. Restored a small set of legacy direct-helper/patch surfaces as temporary compat shims so existing tests can still patch coarse helpers while the supervisor uses the new unit planner. Fixed a new supervisor bug where the same unchanged ready unit could be rerun forever inside one drain cycle by deduping `(job_id, step_id, phase)` within each `_run_ready_steps()` pass, then added a regression test for it.
-**Verification:** `PYTHONPATH=packages/rebus-generator/src pytest -q tests/generator/cli/test_run_all.py` (`35 passed`); `PYTHONPATH=packages/rebus-generator/src pytest -q tests/generator/cli/test_run_all.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_retitle.py tests/generator/workflows/test_verify.py tests/generator/workflows/test_clue_canon_simplify.py tests/generator/workflows/test_batch_publish.py tests/generator/platform/test_clue_canon_store.py` (`173 passed`); `python3 -m py_compile packages/rebus-generator/src/rebus_generator/platform/orchestration/primitives.py packages/rebus-generator/src/rebus_generator/workflows/shared/staged_job.py packages/rebus-generator/src/rebus_generator/workflows/run_all/types.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/base.py packages/rebus-generator/src/rebus_generator/workflows/run_all/scheduler.py packages/rebus-generator/src/rebus_generator/workflows/run_all/reporting.py packages/rebus-generator/src/rebus_generator/workflows/run_all/rewrite_units.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/generate.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/redefine.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/retitle.py packages/rebus-generator/src/rebus_generator/workflows/run_all/jobs/simplify.py`.
+
+**Context:** inner-loop breakdown using hybrid units; maintainability.
+**Happened:** unit metadata on staged-job primitives (`phase`, `unit_id`). Supervisor: `plan_ready_units()` / `apply_unit_result()`. one global loaded-model drain. `RunAllRewriteSession`: atomic generate/redefine work (per-clue verify/rate, candidate gen/verify/rate). Compat shims for coarse helper tests. Drain-loop dedupe guard: prevent rerun of unchanged unit in cycle.
+**Verification:** 173 passed.
 **Outcome:** success
-**Insight:** the new reusable lesson was the drain-loop dedupe guard; compatibility shims are temporary and intentionally isolated away from the real `plan_ready_units()` supervisor path.
-**Promoted:** yes — added ready-unit drain-loop dedupe lesson to `LESSONS_LEARNED.md`.
+**Insight:** unit-planning supervisor needs drain-loop dedupe to avoid infinite retry within cycles.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-11] — Migrated Python dependency management and execution from pip/venv to uv
-**Context:** user asked to migrate the project from standard `pip` and `venv` to `uv` for Python build and tests, including thorough documentation updates.
-**Happened:** Created a root `pyproject.toml` with `hatchling` build backend, defining the `rebus-generator` project with its core dependencies (`supabase`, `openai`, `python-dotenv`) and `dev` group (`pytest`). Configured `tool.hatch.build.targets.wheel` to point to `packages/rebus-generator/src`, enabling `uv sync` to install the project in editable mode automatically. Removed the legacy `packages/rebus-generator/requirements.txt` and `sitecustomize.py` (which was previously used to manually inject `src` into `sys.path`). Updated `run_all.sh`, `batch_redefine.sh`, and `run_puzzle_definition_audit.sh` to use `uv run python` for execution. Updated `tests/generator/workflows/test_batch_publish.py` to assert the new `uv run` command in `run_all.sh`. Migrated `.github/workflows/python-tests.yml` to `astral-sh/setup-uv@v5` and `uv run pytest`. Updated `README.md`, `SETUP_AI_AGENT_CONFIG.md`, and `prompt_research.md` to reflect the new `uv`-based workflow.
-**Verification:** `uv sync --all-groups` succeeded (created `.venv`, installed dependencies, and built `rebus-generator` in editable mode); `uv run pytest tests/ -v` (600 passed, confirming that `rebus_generator` is correctly resolvable without the old `sitecustomize.py`).
+
+**Context:** clean environment setup; remove `PYTHONPATH` hacks.
+**Happened:** root `pyproject.toml` (hatchling). dependencies + dev group. Configured wheel targets for `packages/`. remove legacy requirements / `sitecustomize.py`. update shell scripts: `uv run python`. update CI to `astral-sh/setup-uv@v5`. update docs.
+**Verification:** 600 passed; sync OK.
 **Outcome:** success
-**Insight:** a root `pyproject.toml` combined with `uv` provides a much cleaner and more robust environment setup than manual `venv` and `pip` orchestration, especially for multi-package repositories where local source paths need to be manageable across CI and local dev without `PYTHONPATH` hacks or `sitecustomize.py`.
-**Promoted:** yes — added uv-migration-benefits lesson to `LESSONS_LEARNED.md`.
-
----
-
----
-
----
-
----
+**Insight:** root `pyproject.toml` + `uv` provides robust multi-package source path management without site hacks.
+**Promoted:** yes
 
 ---
 
 ### [2026-04-11] — Fix `run_all` redefine persist crash from mixed rewrite-session contracts
-**Context:** user reported `./run_all.sh` failure and suspected `uv`/venv migration; traceback showed redefine `persist_prepare` crashing late in the unattended supervisor after a healthy run.
-**Happened:** Investigated `build/run_all_runs/20260411_152041/run.log` and confirmed the failure was not bootstrap/import related. Root cause: `RedefineJobState._persist_prepare()` called `finish_rewrite_session(self.rewrite_session)` even though `run_all` uses `RunAllRewriteSession`, not `RewriteSession`. The shared helper expected `.final_result`, so retries hit the same `AttributeError` three times and triggered deterministic quarantine. Fixed the redefine job to call `self.rewrite_session.finish()` directly, added cached `final_result` state plus memoized/idempotent `.finish()` behavior to `RunAllRewriteSession`, and added regression tests for redefine persist prep and repeated finish calls.
-**Verification:** `pytest tests/generator/cli/test_run_all.py -k redefine` (`5 passed`); `pytest tests/generator/cli/test_run_all.py` (`38 passed`).
-**Outcome:** success
-**Insight:** wrapper session classes in unattended flows need a stable finish contract or must never be passed to helpers written for another session type; late-stage persist code is where these interface mismatches surface.
-**Promoted:** yes — see LESSONS_LEARNED entry on session-wrapper finish contracts.
 
-### [2026-04-17] — run_all efficiency and reliability pass
-**Context:** user asked for a quality-preserving optimization pass around the active `run_all` run, with focus on DEX churn, title-mode behavior, logging, retryability, and rewrite waste.
-**Happened:** Hoisted puzzle-scoped DEX providers into `GenerateJobState` and `RedefineJobState` so clue-level generation/rating helpers reuse one provider per job. Made title rating respect `multi_model=False` instead of silently switching to pair mode on the shared runtime, and updated title generation tests to cover the single-model path. Gated full prompt-body logging in `ai_clues.py` behind `--debug`, changed failure logging to preserve newline-separated warning/error entries, and added periodic summary snapshot writes during `run_all` heartbeats. Added retry/backoff for redefine persistence updates on retryable Supabase 500-style failures. Reintroduced bounded rewrite candidate fan-out in `RunAllRewriteSession`, skipped rating for candidates whose primary verify does not contain the answer, and quarantined words after repeated unchanged rounds. Added tests for prompt logging, title single-model behavior, DEX audit dedupe, summary snapshots, and persistence retries.
-**Verification:** not run yet in this pass; next step is targeted unit tests around touched modules.
-**Outcome:** in progress
-
-### [2026-04-17] — DEX compound clue handling
-**Context:** user reported `[DEX] not found` lines in the 2026-04-17 `run_all.sh` log and asked whether they were normal.
-**Happened:** Confirmed the misses came from compound rebus clues being sent to DEX as whole strings like `AURI - AMUS`. Updated `DexProvider.for_puzzle()` to expand compound clues into atom prefetches before any cache write, and taught `DexProvider.get()` / `lookup()` to resolve compound clues through their components instead of fetching the whole compound. Added regression tests for compound `get()` and `for_puzzle()` expansion.
-**Verification:** `python3 -m pytest -q tests/generator/platform/test_dex_cache.py` (`75 passed`); `python3 -m pytest -q tests/generator/workflows/test_verify.py` (`15 passed`).
+**Context:** `AttributeError` on `finish_rewrite_session`. `run_all` uses `RunAllRewriteSession`.
+**Happened:** audit log; confirm contract mismatch. Rework redefine job: call `self.rewrite_session.finish()` directly. `RunAllRewriteSession`: add cached `final_result` + idempotent finish. tests.
+**Verification:** 43 passed.
 **Outcome:** success
-
-### [2026-04-18] — Redefine fallback to scored canonicals + strict short-word leakage
-**Context:** user asked for redefine fallback reuse when rewrites exhaust, weighted by canonical scores and penalized by usage count, plus stricter leakage handling for short words like `OUA` and `OS`.
-**Happened:** Added scored-only canonical filtering to prompt examples and a stable-seeded weighted fallback selector in `ClueCanonService` using `(semantic + rebus + creativity) / (usage_count + 1)`. Added clue-row lookup by canonical id in `ClueCanonStore`. Implemented `apply_scored_canonical_fallbacks()` in redefine runtime and wired it into both standalone redefine and `run_all` redefine before rescoring/persistence; fallback hydrates assessment from an existing representative clue row when available, otherwise synthesizes complete scores deterministically from canonical metadata. Tightened definition validation by removing the old short-word bypass and adding a local short-answer prefix/subform leak guard so cases like `OS` -> `osoasă` and `OUA` -> `ou` are rejected. Added regression coverage for canonical prompt filtering, weighted fallback behavior, redefine fallback persistence, store lookup, and `run_all` fallback ordering.
-**Verification:** `pytest tests/generator/domain/test_short_word_guard_bypass.py tests/generator/domain/test_clue_family.py tests/generator/platform/test_clue_canon_store.py tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py` (`112 passed`); `pytest tests/generator/workflows/test_clue_canon_simplify.py` (`15 passed`); `pytest tests/generator/domain/test_puzzle_metrics.py` (`4 passed`).
-**Outcome:** success
-**Insight:** strict short-word leakage enforcement needs a validator-local guard rather than relaxing the shared family matcher globally; promoted to `LESSONS_LEARNED.md`.
-
-### [2026-04-18] — Frontend completion overlay reset for puzzle switches
-**Context:** user reported that after solving a puzzle, closing the completion popup, and opening another unsolved puzzle, the stale `REZOLVAT` stamp still covered the new puzzle until full page refresh.
-**Happened:** Traced the bug to `apps/frontend/src/app/bootstrap.ts`: solve flow showed `#stamp-container` and modal, but no navigation/load path ever cleared that transient UI. Extracted a small `completion-overlay` helper to centralize reset/show behavior, cached `stampContainer` once in bootstrap, and now reset overlay state before tab/list transitions and at the start of puzzle loads. Updated solve flow to replay the stamp animation from a clean state and added a focused `jsdom` regression test for reset/replay behavior. Added `jest-environment-jsdom` as a frontend dev dependency for that test.
-**Verification:** `npm test -- --runInBand` (`21 passed`); `npm run build` (success) in `apps/frontend`.
-**Outcome:** success
-**Insight:** transient celebration UI needs an explicit reset on every context switch; if display state is not derived from puzzle state, centralize cleanup instead of relying on later renders to overwrite it.
-**Promoted:** no
-
-### [2026-04-19] — Shared scored-canonical fallback for redefine + generate
-**Context:** user asked to make redefine fallback reuse DRY/reusable, extend it to generate, and stop doomed title attempts when publishability blockers remain after rewrite selection.
-**Happened:** Extracted scored canonical fallback logic from `workflows/redefine/runtime.py` into new shared module `workflows/canonicals/scored_fallbacks.py`. Shared code now owns canonical selection, representative assessment rehydration, synthesized fallback assessment, and applying fallback to `current`/`best`/`history`/`locked`. Added shared clue-state helpers in `domain/score_helpers.py` for placeholder-or-missing definitions and incomplete pair evaluation / missing score fields. Kept redefine semantics via `redefine_scored_fallback_policy` (unchanged-from-baseline + still-needs-rewrite) behind a thin compatibility wrapper. Added `generate_scored_fallback_policy` and wired shared fallback into both non-`run_all` generate prep and `run_all` generate rewrite-finalize flow before rescoring/title generation. Added pre-title guard so unresolved puzzles skip title generation and fail/retry on the actual blocker instead of looping through doomed title steps. Added regression coverage for generate placeholder fallback, generate incomplete-pair fallback, complete-but-low-score no-op, redefine unchanged-from-baseline requirement, `run_all` generate title skip, and non-`run_all` generate title skip.
-**Verification:** `pytest tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py tests/generator/workflows/test_batch_publish.py tests/generator/domain/test_puzzle_metrics.py -q` (`128 passed, 2 subtests passed`).
-**Outcome:** success
-**Promoted:** no
-
-### [2026-04-20] — run_all placeholder recovery + same-text canonical hydration
-**Context:** user reported `run_all.sh` quarantining `generate:size:14` at `rewrite_prepare_round` with `missing definitions: CAR` and `incomplete pair evaluation: verify=0, rate=15`, and asked whether this was a regression from recent commits.
-**Happened:** Confirmed a mixed root cause. `da239a0` made the failure visible sooner by enforcing a strict pre-title gate on `scores_complete=False`, but the deeper bugs were older: placeholder clues like `CAR -> [Definiție negenerată]` never entered `RunAllRewriteSession.prepare_round()`, so they could not schedule the existing `fresh_only` recovery path; and generate-time scored canonical fallback treated same-text canonicals as automatic no-ops, so clues blocked only by incomplete/parse-error pair evaluation could not be repaired from existing canonical assessments. Fixed run-all rewrite admission to include placeholder clues, added tiered scored-canonical fallback selection (`exact_type_usage` → `exact_type_any_usage` → `any_type_exact_usage` → `same_word_any_metadata`), and allowed same-text canonical hydration only for unresolved generate clues with incomplete pair evaluation. Added clearer fallback logs for applied replacement vs hydration vs no eligible canonical. Added regression tests for relaxed fallback tiering, same-text generate hydration, placeholder `fresh_only` admission, and `run_all` advancement to title once a placeholder clue is repaired.
-**Verification:** `pytest tests/generator/workflows/test_clue_canon.py tests/generator/workflows/test_redefine.py tests/generator/cli/test_run_all.py tests/generator/workflows/test_aggressive_rewrite_regression.py` (`100 passed`).
-**Outcome:** success
-**Insight:** same-text canonical fallback is a content no-op but an assessment repair; promote when strict quality gates depend on pair-complete metadata rather than clue text alone.
-**Promoted:** yes — see LESSONS_LEARNED entry on same-text canonical fallback hydration.
-
-### [2026-04-20] — Gemma reasoning transport realignment for LM Studio
-**Context:** user reported LM Studio warning `Reasoning setting 'low' is not supported by model 'google/gemma-4-26b-a4b' ... Falling back to reasoning setting 'on'` and asked for a durable fix without breaking two-model behavior or EuroLLM omission semantics.
-**Happened:** Audited current model registry and live LM Studio endpoints. Confirmed drift: repo still treated Gemma like standard `low/medium/...`, while current LM Studio metadata exposed binary `on/off`, yet `/v1/chat/completions` still accepted `none` for no-thinking and worked best with omitted params for thinking-enabled Gemma calls. Extended `ModelConfig` with transport config and added `ResolvedReasoningOptions` so abstract reasoning intent stays separate from backend request params plus explicit `reasoning_enabled`. Gemma now maps thinking-enabled purposes to omitted params and keeps explicit `none` for no-thinking paths. Added LM Studio reasoning-capability cache, per-model reasoning-request cache, one-shot invalid-value fallback/cache in `llm_client.py`, and guarded stream fallback so invalid reasoning values do not get resent pointlessly via non-streaming. Updated tests for Gemma omission semantics, adaptive downgrade behavior, and retry/cache path for invalid reasoning values. Fixed stale `AGENTS.md` path from `model_manager.py` to `models.py`.
-**Verification:** `pytest tests/generator/platform/test_model_manager.py tests/generator/platform/test_llm_debug.py tests/generator/workflows/test_ai_clues.py` (`136 passed`); `pytest tests/generator/workflows/test_theme.py` (`33 passed`). Live LM Studio smoke: explicit `reasoning_effort=\"none\"` on Gemma returned `OK.` with `reasoning_tokens=0`; omitted-param request produced hidden reasoning with nonzero reasoning tokens.
-**Outcome:** success
-**Insight:** omitted reasoning params can still mean “thinking on”; budget logic must key off abstract reasoning intent / explicit enabled state, not raw request presence.
-**Promoted:** yes — see LESSONS_LEARNED entry on reasoning transport vs reasoning-enabled state.
-
-### [2026-04-20] — puzzle definition audit canonical orphan coverage
-**Context:** user wanted all clue-unreferenced canonical definitions removable via one-off SQL and also wanted `./run_puzzle_definition_audit.sh` to report those canonical orphans alongside existing puzzle/clue integrity failures.
-**Happened:** Added `ClueCanonStore.fetch_canonical_rows()` for paged raw canonical reads. Extended `puzzle_definition_audit.py` to gather global clue-referenced canonical ids from `crossword_clues`, flag every unreferenced canonical as `unreferenced_canonical_definition`, include count plus first-25 sample rows in the summary JSON, and keep the existing wrapper entrypoint unchanged. Expanded the audit fake store/tests with canonical fixtures and regression coverage for both all-referenced and orphan-canonical cases. Added `db/delete_unreferenced_canonicals.sql` containing the agreed preflight/sample/null-out/delete transaction for one-off cleanup.
-**Verification:** `pytest tests/generator/workflows/test_puzzle_definition_audit.py -q` (`12 passed`).
-**Outcome:** success
-**Insight:** none
-**Promoted:** no
-
-### [2026-04-20] — run_all generate rewrite dead-end quarantine continuation
-**Context:** user reported `run_all` still stopping the whole unattended run after three repeated `generate:size:14` failures at `rewrite_prepare_round`, even though size cooldown/quarantine handling already existed for deterministic generate dead ends.
-**Happened:** Confirmed policy gap in `RunLedger.should_continue_after_quarantine(...)`: continuation only matched generate `fill_grid` Rust-unsat failures, so the same size-level dead-end discovered later at `rewrite_prepare_round` still raised `DeterministicFailureQuarantine`. Added shared `_is_generate_size_dead_end(...)` classifier and broadened the continuation rule to include stable publishability dead ends that start with `Could not prepare a publishable` and contain `missing definitions:` and/or `incomplete pair evaluation:`. Kept non-generate and non-dead-end quarantine behavior unchanged. Added regression coverage for repeated `rewrite_prepare_round` publishability failure continuing the supervisor while marking the size failed/cooled-down, and tightened the existing `fill_grid` continuation test to assert penalty/cooldown state too.
-**Verification:** `pytest tests/generator/cli/test_run_all.py -q` (`45 passed`).
-**Outcome:** success
-**Insight:** generate-size dead-end classification cannot be tied only to one pipeline stage; the same “bad size, not broken run” outcome can surface after rewrite/publishability gates too.
-**Promoted:** yes — expanded existing `LESSONS_LEARNED.md` entry on deterministic generate-size dead ends.
-
-### [2026-04-20] — global temperature policy + generate rescue
-**Context:** user wanted full implementation of shared nonzero LLM temperature policy, pair-rating resilience, stricter `definition_rate`, and generate-time unresolved-definition rescue.
-**Happened:** Added shared LLM temperature helpers in `llm_client.py`: clamp floor `0.1`, exact 5-attempt ramp `+0.025` to `+0.10`, parse-failure counters, structured `llm_parse_failure` audit logging, more tolerant JSON object extraction. Routed clue generate/rewrite/verify/rate, compare/tiebreak, title-rate, and preflight through the policy. Refactored pair rating so parse-miss votes no longer terminal-fail the item; finalization now accepts `single_model_fallback` as rating-complete and records resolution metadata on `ClueAssessment`. Added early unresolved-only canonical fallback policy plus DEX rescue in `run_all` generate define-finalize before rewrite session starts. Added regression coverage for temp ramp/clamp, parse-failure counters, pair fallback semantics, puzzle metrics completeness, and generate define-finalize fallback/DEX rescue.
-**Verification:** `python3 -m pytest tests/generator/workflows/test_ai_clues.py -q` (`95 passed`); `python3 -m pytest tests/generator/workflows/test_verify.py tests/generator/domain/test_puzzle_metrics.py tests/generator/cli/test_run_all.py -q` (`68 passed`); `python3 -m pytest tests/generator/workflows/test_ai_clues.py -q -k 'title or compare or referee'` (`8 passed`); `python3 -m pytest tests/generator/platform/test_llm_debug.py -q` (`10 passed`).
-**Outcome:** success
-**Insight:** early generate rescue cannot reuse the broad post-rewrite generate fallback policy because missing scores make every fresh clue look “incomplete”; define-finalize needs unresolved-only gating.
-**Promoted:** yes — added LESSONS_LEARNED entry on unresolved-only generate rescue policy.
-
-### [2026-04-21] — global top_p filter
-**Context:** user wanted explicit `top_p=0.95` on every real LLM call, only as a light global filter for bad-token tails, with no per-purpose tuning and no `top_k`/`min_p`.
-**Happened:** Added shared `GLOBAL_LLM_TOP_P = 0.95` and `llm_top_p()` in `llm_client.py`, then threaded `top_p` through the common streaming request path, non-stream fallback path, and no-thinking retry path. Extended debug request logging to print `top_p`. Added regression coverage that outgoing kwargs now include `top_p=0.95` in shared helper tests, debug-path tests, and a real `run_all` preflight smoke-path test using the underlying fake client rather than patching the helper boundary.
-**Verification:** `python3 -m pytest tests/generator/workflows/test_ai_clues.py tests/generator/platform/test_llm_debug.py tests/generator/cli/test_run_all.py -q` (`154 passed`).
-**Outcome:** success
-**Insight:** when validating shared transport params like `top_p`, tests that patch `_chat_completion_create(...)` are the wrong seam; at least one test has to inspect the fake OpenAI client kwargs underneath the helper or it will miss transport-level regressions.
-**Promoted:** no
-
-### [2026-04-21] — publish runtime bypass + duplicate partial uploads
-**Context:** user reported `run_all` publish quarantine on `NameError:name 'attempt' is not defined`, plus evidence that the same puzzle published three times in two minutes before quarantine.
-**Happened:** Traced two coupled bugs. First, `definition_referee._compare_definition_variant_attempt()` still logged `attempt + 1` after loop variable rename, so any real compare exception was masked by `NameError`. Second, publish/upload canonical resolution bypassed `LmRuntime` and instantiated `ClueCanonService` with default `runtime=None`, so publish-time referee could provoke direct secondary-model loads. `upload_puzzle()` also inserted `crossword_puzzles` before canonical resolution; when publish crashed later, scheduler retries created duplicate puzzle rows. Fixed the stale variable refs, threaded `client/runtime/multi_model` through `publish_prepared_puzzle()` and `upload_puzzle()`, resolved canonical decisions before the first durable insert, and added best-effort cleanup if a later clue insert fails. Added regressions for exception-status return, runtime threading, no pre-resolution puzzle insert, and cleanup of partial uploads.
-**Verification:** `python3 -m pytest tests/generator/workflows/test_upload_phase.py tests/generator/workflows/test_ai_clues.py tests/generator/cli/test_run_all.py -q` (`150 passed`).
-**Outcome:** success
-**Insight:** publish paths with retrying supervisors cannot perform durable inserts ahead of non-idempotent LLM/canonical work; partial success turns deterministic logic failures into duplicate content in production.
-**Promoted:** yes — added LESSONS_LEARNED entry on delaying durable inserts until referee/canonical resolution finishes.
-
-### [2026-04-21] — run_all touched canonical cleanup
-**Context:** user wanted unreferenced canonical definitions deleted automatically during `run_all.sh`, but only for canonicals touched by the current action, not via a broad global sweep.
-**Happened:** Added `ClueCanonStore.delete_unreferenced_canonicals_by_ids(...)` to clear self-FK `superseded_by` links and delete only explicit ids with zero clue references. Added created-vs-reused status to canonical creation decisions so upload failure cleanup deletes only newly created unreferenced canonicals. Wired simplify merges to delete superseded source ids after successful repoint/supersede. Added focused tests for targeted deletion, simplify delete order, and upload failure cleanup.
-**Verification:** `pytest tests/generator/workflows/test_clue_canon_simplify.py tests/generator/workflows/test_upload_phase.py tests/generator/platform/test_clue_canon_store.py` (`33 passed`); `pytest tests/generator/workflows/test_clue_canon.py` (`15 passed`).
-**Outcome:** success
-**Insight:** touched-only cleanup needs creation provenance on `CanonicalDecision`; action labels alone are not enough because conflict recovery can turn a create path into reuse.
-**Promoted:** no
-
-### [2026-04-22] — run_all rejection/truncation diagnostics
-**Context:** user wanted logging-only improvements for the active `run_all` bad/ugly speed investigation: family-word rejection detail and Gemma verify truncation/reasoning proof. No retry/scheduler behavior changes.
-**Happened:** Added structured rejection details while preserving `validate_definition_text()`'s reason-string contract. `clue_family_match()` and `validate_definition_text_with_details()` now expose matched token/stem and leak kind (`exact_answer`, `family_root`, `short_answer_family`). Wired generate/rewrite rejection warnings plus audit events in `ai_clues.py` and `rewrite_rounds.py`. Extended LLM truncation logging/audit with requested/effective reasoning, response source, raw/cleaned lengths, preview, usage tokens, and run_all topic/job/step context. Added truncation grouping by `model|purpose|max_tokens|reasoning` into run summaries.
-**Verification:** `python3 -m pytest tests/generator/cli/test_run_all.py tests/generator/domain/test_short_word_guard_bypass.py tests/generator/domain/test_clue_family.py tests/generator/workflows/test_ai_clues.py` (`166 passed`); `python3 -m py_compile ...` touched modules; `git diff --check`. Full `python3 -m pytest` had unrelated existing failures: `v3exp014 missing anchor/replacement in definition/system.md`; `retitle/batch.py NameError: multi_model`.
-**Outcome:** success
-**Insight:** none
-**Promoted:** no
-
-### [2026-04-22] — full pytest root-cause cleanup
-**Context:** full pytest after logging diagnostics exposed two unrelated failures: stale prompt experiment anchors and retitle batch `NameError`.
-**Happened:** Fixed `retitle/batch.py` by threading the existing `multi_model` argument into `_rate_batch_candidates()` instead of relying on an undefined outer name. Refreshed active prompt experiment anchors for `v3exp014` and `v6exp005` to match current production prompt text, including the current short-word parenthetical and rate-rule punctuation.
-**Verification:** `python3 -m pytest tests/generator/evaluation/test_run_experiments.py tests/generator/workflows/test_retitle.py` (`58 passed`); `python3 -m pytest` (`690 passed`, 18 warnings).
-**Outcome:** success
-**Insight:** none
-**Promoted:** no
-
-### [2026-04-22] — run_all generate duplicate clue identity fallback
-**Context:** active `run_all` generated puzzle rejected before title with `missing definitions: IT`; user asked whether redefine's scored canonical fallback existed for generate and to implement a DRY root-cause fix.
-**Happened:** Found generate already called shared scored canonical fallback, but two identity bugs prevented rescue: initial define tracked completion by normalized word and fallback keyed clues by `(direction,start_row,start_col)`, which collapses generated split clues with default `0,0` positions. Added shared `WorkingClueRef` / `iter_working_clue_refs()` keyed by direction plus per-direction index and starts; switched fallback maps and run_all define tracking to exact refs; added concise duplicate/fallback ref logs; added regressions for duplicate `IT` define units and fallback for duplicate zero-position clues.
-**Verification:** `python3 -m pytest tests/generator/cli/test_run_all.py::RunAllSupervisorTests::test_generate_define_initial_tracks_duplicate_words_by_clue_ref tests/generator/cli/test_run_all.py::RunAllSupervisorTests::test_generate_define_initial_injects_metadata_into_working_state tests/generator/workflows/test_redefine.py::FallbackSelectionTests::test_generate_unresolved_fallback_targets_duplicate_placeholder_not_same_word_peer tests/generator/workflows/test_redefine.py::FallbackSelectionTests::test_apply_scored_canonical_fallbacks_keeps_duplicate_zero_position_clues -q` (`4 passed`); `python3 -m pytest tests/generator/cli/test_run_all.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_batch_publish.py -q` (`134 passed, 2 subtests passed`); `git diff --check`.
-**Outcome:** success
-**Insight:** generated markdown clue rows do not provide reliable slot coordinates after compound splitting; fallback/define state must use list-position clue identity, not normalized word or `(start_row,start_col)` alone.
-**Promoted:** no
-
-### [2026-04-23] — unreferenced canonical cleanup policy + verify format retry
-**Context:** user wanted the high-probability `run_all` issues implemented: delete only redundant unreferenced canonicals, keep singleton/best fallbacks, stop retitle no-op churn, and address Gemma verify truncations without raising the token cap first.
-**Happened:** Added shared canonical cleanup classification with referenced/singleton/best/redundant categories. Updated puzzle definition audit and cleanup SQL to report categories and fail/delete only redundant unreferenced canonical definitions. Wired redefine persistence to track newly created canonicals and clean up only touched redundant rows after successful apply. Added run-local retitle no-change deprioritization using the existing stable-key ledger, with no persistent storage. Tightened verify prompts and added one strict format retry for truncated/commentary outputs while preserving candidate salvage and the current token cap.
-**Verification:** `pytest tests/generator/workflows/test_puzzle_definition_audit.py` (`13 passed`); `pytest tests/generator/cli/test_run_all.py` (`51 passed`); `pytest tests/generator/platform/test_clue_canon_store.py` (`12 passed`); `pytest tests/generator/workflows/test_ai_clues.py -k verify_definition_candidates` (`6 passed`); `git diff --check --cached`.
-**Outcome:** success
-**Insight:** Gemma verify truncations in this run were visible format drift/self-correction, not hidden reasoning budget exhaustion; improving the output contract and retry shape is higher leverage than increasing `max_tokens`.
-**Promoted:** no
-
-### [2026-04-24] — short-word definition rescue for IT/IJE/SEM
-**Context:** user wanted the planned short-word fix implemented: truthful DEX ingestion, original-form preservation, and additive overlay clues for `IT`, `IJE`, `SEM`; no Romanian word blocklists.
-**Happened:** Extended DEX parsing/status detection to accept `defWrapper` + `span.def` pages and to reparse nonempty cached `not_found` HTML when it now yields definitions. Fixed Rust markdown rendering to emit `word.original` instead of reusing normalized text, preserving `IT [iț]` into markdown/state/DEX/prompt paths. Added `short_word_clues.json` plus validated overlay helpers seeded for `IT`, `IJE`, `SEM`. Wired overlay context and short-word forbidden tokens into generate/rewrite prompts, including explicit `SEM` traps (`semantic`, `semem`, `semnificație`). Added generate-finalize rescue priority DEX first, overlay second, LLM already earlier. Added a short-word prompt benchmark dataset/script for `IT,IJE,SEM,OS,OUA,AN,OF,IN,AT,AZ,IE,TI,IZ` with N-configurable runs.
-**Verification:** `python3 -m pytest tests/generator/domain/test_short_word_clues.py tests/generator/platform/test_rust_bridge.py tests/generator/platform/test_dex_cache.py tests/generator/evaluation/test_short_word_benchmark.py tests/generator/workflows/test_generate_define.py tests/generator/workflows/test_ai_clues.py tests/generator/cli/test_run_all.py -q` (`238 passed`, 2 warnings); `python3 tools/scripts/run_short_word_prompt_benchmark.py --runs 1 --no-run --dataset-out /tmp/short_word_benchmark_dataset.json`.
-**Outcome:** success
-**Insight:** the Rust bridge had the critical original-form loss: it rendered `word.normalized` into the markdown “original” field, so downstream DEX/prompt paths could never see `iț` once phase-1 selected `IT`.
+**Insight:** session classes in unattended flows need stable finish contract.
 **Promoted:** yes
 
-### [2026-04-24] — shared answer supply for curated short answers
-**Context:** user wanted extra two-letter answers managed separately from DEX, committed to git, fed into both Rust grid generation and Python definition prompts/rescue, plus a review-only playful reduction miner and prompt-eval roadmap.
-**Happened:** Migrated the short-word overlay to `answer_supply.json` and added `AnswerSupplyProvider` / compatibility wrappers. Seeded approved `curated_ro_plate` entries for the supplied 41 county codes with factual and colloquial variants, retained `IT/IJE/SEM`, and added approved playful `IR`. Rust now reads optional `clue_support_score`/`source`, preserves original/source in output, and scores supported short answers with lower penalties while keeping unsupported short words penalized. Python materializes a build-only augmented words file before Rust, adds source-labeled answer-supply prompt context, and rescues unresolved definitions as `answer_supply`. Added review-only playful miner and prompt-eval dataset/comparison helpers plus `ROADMAP.md`.
-**Verification:** `python3 -m pytest tests/generator/domain/test_answer_supply.py tests/generator/domain/test_short_word_clues.py tests/generator/platform/test_dex_cache.py tests/generator/platform/test_rust_bridge.py tests/generator/evaluation/test_short_word_benchmark.py tests/generator/evaluation/test_playful_reduction_miner.py tests/generator/evaluation/test_prompt_eval.py tests/generator/workflows/test_generate_define.py tests/generator/workflows/test_ai_clues.py tests/generator/cli/test_run_all.py -q` (`252 passed`, 2 warnings); `cargo test --manifest-path engines/crossword-engine/Cargo.toml` (`30 passed`); miner and prompt-eval script smoke tests wrote `/tmp/playful_short_candidates.json` and `/tmp/prompt_eval_dataset.json`; `git diff --check`.
+---
+
+### [2026-04-17] — run_all efficiency and reliability pass
+
+**Context:** quality-preserving optimization: DEX churn, title-mode, logging, retries, rewrite waste.
+**Happened:** hoist puzzle-scoped DEX providers to JobState (reuse per job). title rating respect `multi_model=False`. prompt-body logging behind `--debug`. preserve multi-line failure logs. periodic summary snapshots in heartbeat. retry/backoff for Supabase 500s. bounded rewrite fan-out. skip rating if primary verify fail answer match. quarantine repeated unchanged words. tests.
+**Outcome:** in progress
+
+---
+
+### [2026-04-17] — DEX compound clue handling
+
+**Context:** `[DEX] not found` for compound strings (e.g. `AURI - AMUS`).
+**Happened:** Update `DexProvider.for_puzzle()`: expand compounds to atom prefetches before write. `lookup()` / `get()` resolve via components. tests.
+**Verification:** 90 passed.
 **Outcome:** success
-**Insight:** curated short-answer support needs to travel as word metadata into Rust, not just as Python prompt context; otherwise grids cannot benefit from the extra clue supply.
+
+---
+
+### [2026-04-18] — Redefine fallback to scored canonicals + strict short-word leakage
+
+**Context:** reuse fallback when rewrites exhaust (weighted by scores, penalized by usage); strict leakage for `OUA`, `OS`.
+**Happened:** scored-only canonical filtering for prompts. seeded weighted fallback selector: `(score sum) / (usage + 1)`. `ClueCanonStore` lookup by id. `apply_scored_canonical_fallbacks()` in redefine: hydrate assessment from representative row / metadata. Tighten validation: remove short-word bypass; add local prefix/subform leak guard. tests.
+**Verification:** 130+ passed.
+**Outcome:** success
+**Insight:** strict short-word leakage needs validator-local guard, not global family matcher relaxation.
+**Promoted:** yes
+
+---
+
+### [2026-04-18] — Frontend completion overlay reset for puzzle switches
+
+**Context:** stale `REZOLVAT` stamp on new puzzle.
+**Happened:** Trace to `bootstrap.ts` (navigation never cleared UI). Extract `completion-overlay` helper. reset overlay before transitions / puzzle load. replay animation from clean state. `jsdom` regression test.
+**Verification:** build OK; 21 passed.
+**Outcome:** success
+**Insight:** reset transient celebration UI on context switch if display not derived from state.
 **Promoted:** no
+
+---
+
+### [2026-04-19] — Shared scored-canonical fallback for redefine + generate
+
+**Context:** DRY shared fallback; extend to generate; stop doomed title attempts if publishability blocked.
+**Happened:** extract logic to `canonicals/scored_fallbacks.py`: selection, rehydration, synthesized assessment, state application. shared clue helpers: placeholder/missing check, incomplete-pair check. redefine wrapper for compat. generate fallback: unresolved-only define-finalize flow. pre-title guard (skip on unresolved). tests.
+**Verification:** 128 passed.
+**Outcome:** success
+**Promoted:** no
+
+---
+
+### [2026-04-20] — run_all placeholder recovery + same-text canonical hydration
+
+**Context:** `run_all` quarantine on placeholder clues / incomplete evaluation.
+**Happened:** fix `da239a0` strict gate (unresolved admit gap). Admission: include placeholder clues. tiered fallback selection (`exact_type_usage -> ... -> same_word`). hydrate same-text assessment only for unresolved generate clues. clearer logs. tests.
+**Verification:** 100 passed.
+**Outcome:** success
+**Insight:** same-text canonical fallback = assessment repair; required for metadata-dependent quality gates.
+**Promoted:** yes
+
+---
+
+### [2026-04-20] — Gemma reasoning transport realignment for LM Studio
+
+**Context:** Gemma warning on `low` reasoning. endpoint expects `none` / omitted.
+**Happened:** audit registry + endpoints. `ModelConfig` transport config. separate abstract intent from request params. Gemma: omitted for thinking; `none` for no-thinking. reasoning-capability cache. retries for invalid reasoning values. tests.
+**Verification:** 169 passed; live check OK.
+**Outcome:** success
+**Insight:** omitted params can mean "thinking on"; key budget logic on intent, not presence.
+**Promoted:** yes
+
+---
+
+### [2026-04-20] — puzzle definition audit canonical orphan coverage
+
+**Context:** report unreferenced canonical definitions for SQL removal.
+**Happened:** `ClueCanonStore.fetch_canonical_rows()`. extend audit: gather clue-referenced ids; flag orphans; include sample rows in JSON. add `delete_unreferenced_canonicals.sql`. tests.
+**Verification:** 12 passed.
+**Outcome:** success
+
+---
+
+### [2026-04-20] — run_all generate rewrite dead-end quarantine continuation
+
+**Context:** stop run on repeated `rewrite_prepare_round` failures.
+**Happened:** confirm gap in `should_continue_after_quarantine(...)`. add `_is_generate_size_dead_end(...)` classifier. rule: continue on stable publishability dead ends (missing defs / incomplete evaluation). tests.
+**Verification:** 45 passed.
+**Outcome:** success
+**Insight:** dead-end classification must cover all pipeline stages (inc. rewrite/publishability).
+**Promoted:** yes
+
+---
+
+### [2026-04-20] — global temperature policy + generate rescue
+
+**Context:** implement shared nonzero temp policy; pair-rating resilience; generate-time rescue.
+**Happened:** shared temp helpers: floor `0.1`, 5-attempt ramp (`+0.025` to `+0.10`). audit log `llm_parse_failure`. tolerant JSON extraction. pair rating: parse-miss votes no longer terminal fail (accept `single_model_fallback` as complete). record metadata. early unresolved canonical fallback + DEX rescue in `run_all` generate. tests.
+**Verification:** 170+ passed.
+**Outcome:** success
+**Insight:** unresolved-only generate rescue avoids false "incomplete" flags on fresh clues.
+**Promoted:** yes
+
+---
+
+### [2026-04-21] — global top_p filter
+
+**Happened:** add `GLOBAL_LLM_TOP_P = 0.95`. thread through streaming / fallback / retry paths. debug logging. tests.
+**Verification:** 154 passed.
+**Outcome:** success
+
+---
+
+### [2026-04-21] — publish runtime bypass + duplicate partial uploads
+
+**Context:** `run_all` publish quarantine (NameError); duplicate puzzle rows on crash.
+**Happened:** fix `definition_referee` loop variable rename bug. Fix bypass: instantiate `ClueCanonService` with shared runtime during upload. Move puzzle insert after canonical resolution. Add best-effort cleanup on failure. tests.
+**Verification:** 150 passed.
+**Outcome:** success
+**Insight:** delay durable inserts until referee/canonical resolution finishes to prevent duplication.
+**Promoted:** yes
+
+---
+
+### [2026-04-21] — run_all touched canonical cleanup
+
+**Context:** delete newly created but unreferenced canonicals during `run_all`.
+**Happened:** `delete_unreferenced_canonicals_by_ids(...)`: clear links + delete if ref=0. decision status `created-vs-reused`. simplify merges: delete superseded source ids. tests.
+**Verification:** 48 passed.
+**Outcome:** success
+**Insight:** touched-only cleanup needs creation provenance on `CanonicalDecision`.
+**Promoted:** no
+
+---
+
+### [2026-04-22] — run_all rejection/truncation diagnostics
+
+**Context:** logging detail for rejections + truncations (Gemma speed investigation).
+**Happened:** structured rejection details in `validate_definition_text_with_details()` (match token/stem, leak kind). warnings + audit events. LLM truncation log: reasoning, source, lengths, preview, tokens, context. Grouping in run summaries.
+**Verification:** 166 passed.
+**Outcome:** success
+
+---
+
+### [2026-04-22] — full pytest root-cause cleanup
+
+**Happened:** Fix `retitle/batch.py` `multi_model` NameError. refresh prompt experiment anchors for `v3exp014`, `v6exp005` (match production text).
+**Verification:** 690 passed.
+**Outcome:** success
+
+---
+
+### [2026-04-22] — run_all generate duplicate clue identity fallback
+
+**Context:** `missing definitions: IT` on duplicates; coordinate key collapsed Split clues.
+**Happened:** add `WorkingClueRef` (direction, index, starts). switch fallback + tracking to exact refs. regressions for duplicate `IT` units + zero-position clues.
+**Verification:** 138 passed.
+**Outcome:** success
+**Insight:** list-position identity required for clues; markdown rows lose coordinates after splitting.
+**Promoted:** no
+
+---
+
+### [2026-04-23] — unreferenced canonical cleanup policy + verify format retry
+
+**Context:** delete redundant unreferenced canonicals only; stop retitle no-op churn; Gemma verify truncations.
+**Happened:** Add shared classification: referenced/singleton/best/redundant. fail/delete only redundant. wired redefine persistence cleanup. run-local retitle no-change deprioritization (stable-key ledger). Tighten verify prompts. add format retry for truncated/commentary outputs (preserve salvage).
+**Verification:** 127 passed.
+**Outcome:** success
+**Insight:** verify truncations = format drift; improve retry shape + contract over raw budget increase.
+**Promoted:** no
+
+---
+
+### [2026-04-24] — short-word definition rescue for IT/IJE/SEM
+
+**Context:** truthful DEX ingestion; original-form preservation; additive overlays.
+**Happened:** accept `defWrapper` + `span.def` in DEX parser. reparse cached `not_found` HTML. Fix Rust bridge: render `word.original` (preserve `iț` vs `IT`). Add `short_word_clues.json` overlays. add context + forbidden tokens to prompts. DEX-first rescue. benchmark dataset for fragile words.
+**Verification:** 238 passed; dataset generated.
+**Outcome:** success
+**Insight:** Rust bridge rendered normalized to original; caused downstream form loss.
+**Promoted:** yes
+
+---
+
+### [2026-04-24] — shared answer supply for curated short answers
+
+**Context:** managed 2-letter answers separately; additive to grid gen + prompts. Review miner + eval roadmap.
+**Happened:** Migrate overlay to `answer_supply.json`. Seed 41 county codes (`curated_ro_plate`) + variants + `IR`. Rust: read `clue_support_score` / `source`; score supported answers with lower penalty. Python: augmented words file for Rust. source-labeled prompt context. rescue as `answer_supply`. playful miner + eval helpers. `ROADMAP.md`.
+**Verification:** 252 passed; cargo tests OK.
+**Outcome:** success
+**Insight:** metadata must travel to Rust for grid-gen benefit.
+**Promoted:** no
+
+---
 
 ### [2026-04-24] — ccTLD answer supply expansion
-**Context:** user wanted `answer_supply.json` to contain reusable internet country-code domains for all current ASCII ccTLDs, available to Rust grid generation and Python definition alternatives, plus generic ccTLD/domain-hack prompt alternatives.
-**Happened:** Expanded `answer_supply.json` with 247 approved factual `curated_cc_tld` entries from IANA current ASCII country-code rows, excluding unassigned/reserved codes and keeping `.bv`/`.sj` because IANA delegates them. Added 46 prompt-only `curated:tld` generic/domain-hack alternatives from Wikipedia's generic ccTLD section. Added `generic` tone ordering and tests locking exact ccTLD coverage, prompt-only generic behavior, prompt context, and Rust augmentation metadata.
-**Verification:** `python3 -m pytest tests/generator/domain/test_answer_supply.py tests/generator/platform/test_rust_bridge.py tests/generator/workflows/test_ai_clues.py -q` (`115 passed`); `git diff --check`.
+
+**Happened:** Add 247 `curated_cc_tld` factual entries from IANA. Add 46 prompt-only generic alternatives. generic tone ordering. tests.
+**Verification:** 115 passed.
 **Outcome:** success
-**Insight:** none
-**Promoted:** no
+
+---
 
 ### [2026-04-24] — roadmap gold corpus ingestion plan
-**Context:** user wanted the existing puzzle-quality roadmap integrated with current `run_all` findings and a concrete reusable format/pipeline for hundreds of real Romanian puzzle photos.
-**Happened:** Replaced the thin `ROADMAP.md` with a ranked quality roadmap that preserves DEX/answer-supply/prompt-eval rules, adds current `run_all` evidence, defines the two-photo input layout, approved JSONL corpus shape, artifact locations, local review UI workflow, promotion rules, and test plan for real-puzzle gold corpus ingestion.
-**Verification:** markdown-only change; reviewed `ROADMAP.md`.
+
+**Happened:** Replace `ROADMAP.md` with ranked roadmap (DEX/answer-supply/eval). define 2-photo layout, JSONL shape, review UI workflow, promotion rules.
 **Outcome:** success
-**Insight:** none
-**Promoted:** no
+
+---
 
 ### [2026-04-25] — architecture deepening candidate scan
-**Context:** user requested the improve-codebase-architecture skill: explore architectural friction and present deep-module refactor candidates before designing interfaces.
-**Happened:** Read lessons and architecture docs, inspected Python generator, Rust engine, TS frontend/worker seams, and used focused explorer agents for LLM/workflows, canonicals/persistence, Rust bridge/search, and frontend/worker. Synthesized candidate clusters around rewrite candidate generation, canonical persistence planning, pair assessment, generate attempt orchestration, Rust search policy, frontend puzzle session, and LLM task ports.
-**Verification:** read-only architecture pass; no tests run.
-**Outcome:** pending user candidate selection
-**Insight:** `rewrite_engine.py` is mostly a compatibility patch surface while real rewrite behavior spans `rewrite_session.py` and `rewrite_rounds.py`; this is now a high-signal deepening candidate because tests patch the facade while bugs live in round/session orchestration.
+
+**Happened:** audit codebase; synthesize deep-module refactor candidates: rewrite generation, canonical planning, pair assessment, attempt orchestration, search policy, puzzle session, task ports.
+**Outcome:** success
+**Insight:** `rewrite_engine.py` is compatibility surface; logic spans session/rounds modules.
 **Promoted:** no
+
+---
 
 ### [2026-04-25] — rewrite candidate generation interface design
-**Context:** user selected the rewrite candidate generation architecture candidate for deeper interface design.
-**Happened:** Framed constraints for a deeper rewrite-candidate boundary, then ran four parallel designs: minimal interface, flexible strategy interface, common-caller round interface, and ports/adapters interface. Designs converged on extracting hydrated request/result types plus a candidate generator that hides generate-vs-rewrite, hybrid fresh generation, guard validation/audit, duplicate filtering, and LLM dispatch, while leaving scoring/finalization and model alternation outside.
-**Verification:** design-only architecture pass; no tests run.
-**Outcome:** user accepted hybrid Design 1 + ports Design 4; RFC issue created: https://github.com/fabian20ro/generator-rebus/issues/25
-**Insight:** the safest deepening boundary is "hydrated clue context + active model -> valid pending candidates/rejections"; moving scoring into the same interface would make the module too broad and couple it to pair-evaluation state.
+
+**Happened:** constraints framing; four designs (minimal, strategy, round, ports). Convergence: extracted hydrated request/result types + candidate generator (hide gen-vs-rewrite, hybrid, validation, filtering, dispatch). scoring/alternation external. RFC issue #25.
+**Outcome:** success
+**Insight:** "hydrated context + model -> pending candidates" is safest boundary.
 **Promoted:** no
+
+---
 
 ### [2026-04-25] — canonical persistence planning interface design
-**Context:** user asked for the next architecture recommendation's interface design: canonical persistence planning across upload, redefine, and repair.
-**Happened:** Inspected duplicated canonical write paths in `generate/upload.py`, `redefine/persist.py`, `redefine/repair.py`, and `canonicals/domain_service.py`; framed constraints around pre-insert upload resolution, redefine dry-run planning, repair reuse, explicit runtime/client threading, and touched-canonical cleanup. Ran four parallel interface designs. Designs converged on a canonical clue input -> planned clue persistence boundary with resolver/payload/logging/cleanup ports and DB writes left outside.
-**Verification:** design-only architecture pass; no tests run.
-**Outcome:** user accepted Design 3 + ports Design 4; RFC issue created: https://github.com/fabian20ro/generator-rebus/issues/26
-**Insight:** canonical resolution is already effectful because it can create canonical rows before clue writes; the planner should expose touched ids and keep upload/redefine apply semantics outside rather than pretending the whole operation is transactional.
+
+**Happened:** inspect duplicated paths. Constraints: pre-insert resolution, dry-run planning, repair reuse, touched cleanup. Design converged on canonical input -> planned persistence boundary. resolver/payload/cleanup ports. RFC issue #26.
+**Outcome:** success
+**Insight:** planner expose touched ids; keep apply semantics outside (non-transactional resolution).
 **Promoted:** no
+
+---
 
 ### [2026-04-25] — triage TDD issues for rewrite/canonical RFCs
-**Context:** user asked to use triage-issue workflow for GitHub issues #25 then #26.
-**Happened:** Investigated rewrite candidate generation and canonical persistence paths with explorer agents plus local code reads. Filed TDD implementation issues: #27 for shared rewrite candidate generation boundary, #28 for shared canonical persistence planner. Root causes found: rewrite candidate semantics drift between standalone and unattended paths; canonical persistence model-mode/touched-id behavior drifts across repair/run_all/redefine/upload.
-**Verification:** read-only triage; explorer for #25 ran `pytest tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_aggressive_rewrite_regression.py -q` (`14 passed`). No local tests run by main agent.
+
+**Happened:** investigate paths with explorers. File TDD issues #27 (rewrite boundary), #28 (canonical planner). Root causes: semantics drift (standalone vs unattended); behavioral drift across repair/run_all/redefine/upload.
 **Outcome:** success
-**Insight:** repair canonical persistence currently has concrete contract drift: it can ignore `multi_model=False` during canonical resolution and lacks touched-canonical cleanup after successful apply, unlike redefine.
+**Insight:** repair canonical persistence lacks touched-id cleanup + ignores `multi_model=False`.
 **Promoted:** no
 
+---
+
 ### [2026-04-25] — markdown telegraph rewrite
-**Context:** user asked to rewrite tracked markdown into telegraph style and keep prompt placeholders intact.
-**Happened:** Tightened prose across docs, agent guidance, prompt files, roadmap, and review notes. Preserved code fences, placeholders, paths, links, and Romanian prompt language.
-**Verification:** prompt placeholder scan passed; `git diff --name-only` shows Markdown-only tracked changes.
+
+**Happened:** Tighten prose across docs, agent guidance, prompt files, roadmap, review notes. Preserve code fences, placeholders, paths, links, Romanian prompts.
+**Verification:** placeholder scan pass; MD-only changes.
 **Outcome:** success
 **Insight:** none
 **Promoted:** no
