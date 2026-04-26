@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from rebus_generator.platform.llm.definition_referee import choose_better_puzzle_variant
 from rebus_generator.platform.llm.llm_dispatch import run_single_model_call
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
@@ -10,6 +12,14 @@ from rebus_generator.domain.quality import QualityReport
 from rebus_generator.domain.score_helpers import _compact_log_text
 
 from .models import MIN_PUBLISHABLE_CONSENSUS_CLUES, PUZZLE_TIEBREAK_DELTA, PreparedPuzzle
+
+
+@dataclass(frozen=True)
+class PreparedPuzzleTieBreakRequest:
+    best: PreparedPuzzle
+    candidate: PreparedPuzzle
+    a_summary: str
+    b_summary: str
 
 
 def _compute_difficulty(size: int, report: QualityReport) -> int:
@@ -114,6 +124,70 @@ def better_prepared_puzzle(
         return chosen
 
     return candidate if score_delta > 0 else best
+
+
+def prepared_puzzle_tiebreak_request(
+    best: PreparedPuzzle | None,
+    candidate: PreparedPuzzle,
+) -> PreparedPuzzleTieBreakRequest | None:
+    if best is None:
+        return None
+
+    best_publishable = is_publishable(best)
+    candidate_publishable = is_publishable(candidate)
+    if candidate_publishable != best_publishable:
+        return None
+
+    score_delta = candidate.assessment.definition_score - best.assessment.definition_score
+    verified_delta = candidate.assessment.verified_count - best.assessment.verified_count
+    if verified_delta != 0:
+        return None
+    if abs(score_delta) > PUZZLE_TIEBREAK_DELTA:
+        return None
+
+    _winner, decision = choose_puzzle_assessment(
+        best.assessment,
+        candidate.assessment,
+        tiebreaker=lambda _a, _b: "A",
+    )
+    if not decision.used_tiebreak:
+        return None
+    return PreparedPuzzleTieBreakRequest(
+        best=best,
+        candidate=candidate,
+        a_summary=decision.a_summary,
+        b_summary=decision.b_summary,
+    )
+
+
+def run_prepared_puzzle_tiebreak(
+    request: PreparedPuzzleTieBreakRequest,
+    *,
+    client,
+    model_id: str = PRIMARY_MODEL.model_id,
+) -> str:
+    return choose_better_puzzle_variant(
+        client,
+        request.a_summary,
+        request.b_summary,
+        model=model_id,
+    )
+
+
+def apply_prepared_puzzle_tiebreak(
+    request: PreparedPuzzleTieBreakRequest,
+    winner: str,
+) -> PreparedPuzzle:
+    selected = "B" if winner == "B" else "A"
+    chosen = request.candidate if selected == "B" else request.best
+    log(
+        "Puzzle tie-break: "
+        f"A='{_compact_log_text(request.a_summary)}' | "
+        f"B='{_compact_log_text(request.b_summary)}' | "
+        f"câștigă {selected} | "
+        f"ales='{_compact_log_text(request.b_summary if selected == 'B' else request.a_summary)}'"
+    )
+    return chosen
 
 
 _is_publishable = is_publishable

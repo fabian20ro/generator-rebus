@@ -33,11 +33,19 @@ from rebus_generator.workflows.canonicals.scored_fallbacks import (
 )
 from rebus_generator.workflows.retitle.generate import generate_title_for_final_puzzle_result
 from rebus_generator.workflows.run_all.generate_attempt import (
+    build_prepared_puzzle_tiebreak_request,
     finalize_rewritten_attempt,
     finalize_titled_attempt,
+    finish_prepared_puzzle_tiebreak,
     rescue_unresolved_generated_definitions,
 )
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
+from rebus_generator.workflows.generate.quality_gate import (
+    PreparedPuzzleTieBreakRequest,
+    describe_publishability_failure,
+    is_publishable,
+    run_prepared_puzzle_tiebreak,
+)
 from .base import JobState
 
 
@@ -63,6 +71,9 @@ class GenerateJobState(JobState):
         self.final_passed = 0
         self.total = 0
         self.best_prepared: PreparedPuzzle | None = None
+        self.pending_prepared: PreparedPuzzle | None = None
+        self.pending_tiebreak: PreparedPuzzleTieBreakRequest | None = None
+        self.pending_tiebreak_origin = ""
         self.rewrite_session: RunAllRewriteSession | None = None
 
     def next_steps(self, ctx):
@@ -102,10 +113,30 @@ class GenerateJobState(JobState):
             return [self._non_llm_step("define_finalize", "generate_define_finalize", self._finalize_define_initial)]
         if self.stage in {"rewrite_initial_verify", "rewrite_initial_rate", "rewrite_prepare_round", "generate_candidates", "evaluate_verify", "evaluate_rate", "select_candidates", "finalize_round"}:
             return self._rewrite_units()
+        if self.stage == "prepared_tiebreak":
+            return [
+                self._llm_step(
+                    "prepared_tiebreak",
+                    "puzzle_tiebreaker",
+                    PRIMARY_MODEL.model_id,
+                    self._prepared_tiebreak,
+                    phase="prepared_tiebreak",
+                    coalesce_key="puzzle_tiebreaker",
+                )
+            ]
         if self.stage == "title":
             return [self._llm_step("title", "generate_title", PRIMARY_MODEL.model_id, self._title)]
         if self.stage == "publish":
-            return [self._non_llm_step("publish", "generate_publish", self._publish)]
+            return [
+                self._llm_step(
+                    "publish",
+                    "generate_publish",
+                    PRIMARY_MODEL.model_id,
+                    self._publish,
+                    phase="publish",
+                    coalesce_key="generate_publish",
+                )
+            ]
         return []
 
     def _select_size(self, ctx):
@@ -195,6 +226,8 @@ class GenerateJobState(JobState):
             return
         if self.rewrite_session is not None:
             self._apply_rewrite_result(unit, result)
+        if unit.purpose == "puzzle_tiebreaker":
+            self._apply_prepared_tiebreak_result(str(result.value or "A"))
 
     def _finalize_define_initial(self, ctx):
         state = self._ensure_define_state()
@@ -332,6 +365,8 @@ class GenerateJobState(JobState):
                 runtime=ctx.runtime,
                 multi_model=ctx.multi_model,
             )
+            if decision.next_stage == "prepared_tiebreak":
+                self._prepare_pending_tiebreak(decision.prepared, origin="rewrite")
             self._progress(decision.next_stage, detail=decision.detail)
             return decision.result
         self._progress(self.rewrite_session.phase, detail=f"round={self.rewrite_session.round_index}")
@@ -384,8 +419,59 @@ class GenerateJobState(JobState):
             client=ctx.ai_client,
             runtime=ctx.runtime,
         )
+        if decision.next_stage == "prepared_tiebreak":
+            self._prepare_pending_tiebreak(decision.prepared, origin="title")
         self._progress(decision.next_stage, detail=decision.detail)
         return decision.prepared
+
+    def _prepare_pending_tiebreak(self, prepared: PreparedPuzzle | None, *, origin: str) -> None:
+        if prepared is None:
+            raise RuntimeError("prepared tiebreak requested without a candidate")
+        self.pending_prepared = prepared
+        self.pending_tiebreak = build_prepared_puzzle_tiebreak_request(
+            self.best_prepared,
+            prepared,
+        )
+        self.pending_tiebreak_origin = origin
+
+    def _prepared_tiebreak(self, ctx):
+        if self.pending_tiebreak is None:
+            raise RuntimeError("prepared tiebreak stage has no request")
+        return run_prepared_puzzle_tiebreak(
+            self.pending_tiebreak,
+            client=ctx.ai_client,
+            model_id=PRIMARY_MODEL.model_id,
+        )
+
+    def _apply_prepared_tiebreak_result(self, winner: str) -> None:
+        if self.pending_tiebreak is None or self.pending_prepared is None:
+            raise RuntimeError("prepared tiebreak result without pending request")
+        prepared = self.pending_prepared
+        self.best_prepared = finish_prepared_puzzle_tiebreak(
+            request=self.pending_tiebreak,
+            winner=winner,
+        )
+        origin = self.pending_tiebreak_origin
+        self.pending_prepared = None
+        self.pending_tiebreak = None
+        self.pending_tiebreak_origin = ""
+        if origin == "title" and self.best_prepared and is_publishable(self.best_prepared):
+            self._progress("publish", detail=f"title={self.best_prepared.title}")
+            return
+        if self.attempt_index < self.effective_attempts:
+            log(
+                "Rejected generated puzzle after quality gate: "
+                + describe_publishability_failure(prepared)
+            )
+            self._progress(
+                "fill_grid",
+                detail=f"retry={self.attempt_index + 1}/{self.effective_attempts}",
+            )
+            return
+        raise RuntimeError(
+            f"Could not prepare a publishable {self.size}x{self.size} puzzle. "
+            f"Quality gate failed: {describe_publishability_failure(prepared)}"
+        )
 
     def _publish(self, ctx):
         assert self.best_prepared is not None

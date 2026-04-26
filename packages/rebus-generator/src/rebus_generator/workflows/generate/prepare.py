@@ -18,7 +18,6 @@ from rebus_generator.domain.pipeline_state import (
     puzzle_from_working_state,
     working_puzzle_from_puzzle,
 )
-from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.domain.score_helpers import (
     _coerce_working_clue,
     _compact_log_text,
@@ -27,16 +26,13 @@ from rebus_generator.domain.score_helpers import (
 )
 from rebus_generator.domain.selection_engine import choose_clue_version, stable_tie_rng
 from rebus_generator.domain.size_tuning import get_min_preparation_attempts
-from rebus_generator.workflows.canonicals.scored_fallbacks import (
-    apply_scored_canonical_fallbacks,
-    generate_scored_fallback_policy,
-)
+from rebus_generator.workflows.canonicals.scored_fallbacks import apply_scored_canonical_fallbacks
 from rebus_generator.workflows.generate.define import generate_definitions_for_puzzle
 from rebus_generator.workflows.generate.titleing import generate_publication_title
 from rebus_generator.workflows.redefine.rewrite_engine import run_rewrite_loop
 
 from .models import PreparedPuzzle
-from .quality_gate import better_prepared_puzzle, describe_publishability_failure, is_publishable
+from .quality_gate import describe_publishability_failure, is_publishable
 
 
 def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
@@ -214,6 +210,11 @@ def _prepare_puzzle_for_publication(
     word_metadata: dict[str, dict] | None = None,
     runtime: LmRuntime | None = None,
 ) -> PreparedPuzzle:
+    from rebus_generator.workflows.run_all.generate_attempt import (
+        finalize_rewritten_attempt,
+        finalize_titled_attempt,
+    )
+
     best_prepared: PreparedPuzzle | None = None
     effective_attempts = _preparation_attempts_for_size(size, preparation_attempts)
 
@@ -262,33 +263,37 @@ def _prepare_puzzle_for_publication(
             runtime=runtime,
         )
         _restore_best_versions(state)
-        apply_scored_canonical_fallbacks(
-            target_puzzle=state,
+        decision, best_prepared = finalize_rewritten_attempt(
+            puzzle=state,
             puzzle_identity=f"generate:{index}:{size}:{attempt_index}",
-            policy=generate_scored_fallback_policy,
+            candidate=candidate,
+            best_prepared=best_prepared,
+            rewrite_result=type(
+                "_RewriteResult",
+                (),
+                {
+                    "initial_passed": first_passed,
+                    "final_passed": final_passed,
+                    "total": total,
+                },
+            )(),
+            size=size,
+            index=index,
+            attempt_index=attempt_index,
+            effective_attempts=effective_attempts,
             client=client,
             runtime=runtime,
             multi_model=multi_model,
-            seed_parts=(index, size, attempt_index),
+            defer_tiebreak=False,
+            raise_on_final_failure=False,
+            fallback_func=apply_scored_canonical_fallbacks,
         )
-        state.assessment = score_puzzle_state(state, candidate.report)
-        if should_skip_title_generation(state):
-            prepared = build_prepared_puzzle(
-                title="",
-                title_score=0,
-                candidate=candidate,
-                puzzle=state,
-                first_passed=first_passed,
-                final_passed=final_passed,
-                total=total,
-            )
-            best_prepared = better_prepared_puzzle(
-                best_prepared, prepared, client=client, runtime=runtime
-            )
-            log(
-                "Rejected puzzle before title generation: "
-                + describe_publishability_failure(prepared)
-            )
+        if decision.next_stage != "title":
+            if decision.prepared is not None:
+                log(
+                    "Rejected puzzle before title generation: "
+                    + describe_publishability_failure(decision.prepared)
+                )
             continue
         title_result = generate_publication_title(
             puzzle_from_working_state(state),
@@ -298,26 +303,32 @@ def _prepare_puzzle_for_publication(
         )
         state.title = title_result.title
         log(f"Titlu final: {title_result.title}")
-        prepared = build_prepared_puzzle(
+        decision, best_prepared = finalize_titled_attempt(
             title=title_result.title,
             title_score=title_result.score,
-            candidate=candidate,
             puzzle=state,
+            candidate=candidate,
+            best_prepared=best_prepared,
             first_passed=first_passed,
             final_passed=final_passed,
             total=total,
-        )
-        best_prepared = better_prepared_puzzle(
-            best_prepared, prepared, client=client, runtime=runtime
+            size=size,
+            attempt_index=attempt_index,
+            effective_attempts=effective_attempts,
+            client=client,
+            runtime=runtime,
+            defer_tiebreak=False,
+            raise_on_final_failure=False,
         )
 
         if is_publishable(best_prepared):
             log(f"  Puzzle publicabil la tentativa {attempt_index}/{effective_attempts}")
             break
-        log(
-            "Rejected puzzle after quality gate: "
-            + describe_publishability_failure(prepared)
-        )
+        if decision.prepared is not None:
+            log(
+                "Rejected puzzle after quality gate: "
+                + describe_publishability_failure(decision.prepared)
+            )
 
     if best_prepared is None:
         raise RuntimeError(f"Failed to prepare any {size}x{size} puzzle candidate")

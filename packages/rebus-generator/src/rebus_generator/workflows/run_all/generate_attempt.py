@@ -21,9 +21,12 @@ from rebus_generator.workflows.generate.prepare import (
     should_skip_title_generation,
 )
 from rebus_generator.workflows.generate.quality_gate import (
+    PreparedPuzzleTieBreakRequest,
+    apply_prepared_puzzle_tiebreak,
     better_prepared_puzzle,
     describe_publishability_failure,
     is_publishable,
+    prepared_puzzle_tiebreak_request,
 )
 
 
@@ -167,9 +170,13 @@ def finalize_rewritten_attempt(
     client,
     runtime,
     multi_model: bool,
+    defer_tiebreak: bool = True,
+    raise_on_final_failure: bool = True,
+    fallback_func=None,
 ) -> tuple[GenerateAttemptDecision, PreparedPuzzle | None]:
     _restore_best_versions(puzzle)
-    apply_scored_canonical_fallbacks(
+    fallback = fallback_func or apply_scored_canonical_fallbacks
+    fallback(
         target_puzzle=puzzle,
         puzzle_identity=puzzle_identity,
         policy=generate_scored_fallback_policy,
@@ -201,17 +208,37 @@ def finalize_rewritten_attempt(
         final_passed=final_passed,
         total=total,
     )
+    if defer_tiebreak and prepared_puzzle_tiebreak_request(best_prepared, prepared) is not None:
+        return (
+            GenerateAttemptDecision(
+                next_stage="prepared_tiebreak",
+                detail=f"rewrite_attempt={attempt_index}/{effective_attempts}",
+                prepared=prepared,
+                result=rewrite_result,
+            ),
+            best_prepared,
+        )
     best_prepared = better_prepared_puzzle(
         best_prepared,
         prepared,
-        client=client,
-        runtime=runtime,
+        client=None if defer_tiebreak else client,
+        runtime=None if defer_tiebreak else runtime,
     )
     if attempt_index < effective_attempts:
         log(
             "Rejected generated puzzle before title generation: "
             + describe_publishability_failure(prepared)
         )
+        return (
+            GenerateAttemptDecision(
+                next_stage="fill_grid",
+                detail=f"retry={attempt_index + 1}/{effective_attempts}",
+                prepared=prepared,
+                result=rewrite_result,
+            ),
+            best_prepared,
+        )
+    if not raise_on_final_failure:
         return (
             GenerateAttemptDecision(
                 next_stage="fill_grid",
@@ -242,6 +269,8 @@ def finalize_titled_attempt(
     effective_attempts: int,
     client,
     runtime,
+    defer_tiebreak: bool = True,
+    raise_on_final_failure: bool = True,
 ) -> tuple[GenerateAttemptDecision, PreparedPuzzle | None]:
     puzzle.title = title
     prepared = build_prepared_puzzle(
@@ -253,11 +282,20 @@ def finalize_titled_attempt(
         final_passed=final_passed,
         total=total,
     )
+    if defer_tiebreak and prepared_puzzle_tiebreak_request(best_prepared, prepared) is not None:
+        return (
+            GenerateAttemptDecision(
+                next_stage="prepared_tiebreak",
+                detail=f"title_attempt={attempt_index}/{effective_attempts}",
+                prepared=prepared,
+            ),
+            best_prepared,
+        )
     best_prepared = better_prepared_puzzle(
         best_prepared,
         prepared,
-        client=client,
-        runtime=runtime,
+        client=None if defer_tiebreak else client,
+        runtime=None if defer_tiebreak else runtime,
     )
     if best_prepared and is_publishable(best_prepared):
         return (
@@ -281,7 +319,34 @@ def finalize_titled_attempt(
             ),
             best_prepared,
         )
+    if not raise_on_final_failure:
+        return (
+            GenerateAttemptDecision(
+                next_stage="fill_grid",
+                detail=f"retry={attempt_index + 1}/{effective_attempts}",
+                prepared=prepared,
+            ),
+            best_prepared,
+        )
     raise RuntimeError(
         f"Could not prepare a publishable {size}x{size} puzzle. "
         f"Quality gate failed: {describe_publishability_failure(prepared)}"
     )
+
+
+def build_prepared_puzzle_tiebreak_request(
+    best_prepared: PreparedPuzzle | None,
+    prepared: PreparedPuzzle,
+) -> PreparedPuzzleTieBreakRequest:
+    request = prepared_puzzle_tiebreak_request(best_prepared, prepared)
+    if request is None:
+        raise ValueError("prepared puzzle tie-break is not needed")
+    return request
+
+
+def finish_prepared_puzzle_tiebreak(
+    *,
+    request: PreparedPuzzleTieBreakRequest,
+    winner: str,
+) -> PreparedPuzzle:
+    return apply_prepared_puzzle_tiebreak(request, winner)
