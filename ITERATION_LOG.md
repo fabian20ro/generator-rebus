@@ -1764,3 +1764,52 @@
 **Outcome:** success
 **Insight:** Generate run_all job stays a resumable adapter when retry/publication decisions live in a small attempt Module.
 **Promoted:** no
+
+---
+
+### [2026-04-26] — definition evaluation module extraction
+
+**Happened:** Added Definition Evaluation Module for two-model verify/rate workload, vote storage, pair finalization, rating summary, and failure reason projection. `generate.verify` keeps CLI/single-model compatibility while routing pair workflows through the module.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_verify.py -q` -> 16 passed. `python3 -m pytest tests/generator/workflows/test_verify.py tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_aggressive_rewrite_regression.py tests/generator/cli/test_run_all.py -q` -> 82 passed. `python3 -m compileall -q ...` passed.
+**Outcome:** success
+**Insight:** Pair evaluation is the interface test surface; verify CLI should adapt into it, not own vote lifecycle.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — definition evaluation hard cutover
+
+**Happened:** Deleted duplicate pair verify/rate helpers from `generate.verify`. Moved run_all baseline/rewrite pair-call imports to `definition_evaluation`. Added direct Definition Evaluation pair tests plus verify adapter routing tests.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_definition_evaluation.py tests/generator/workflows/test_verify.py -q` -> 24 passed. `python3 -m pytest tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_aggressive_rewrite_regression.py tests/generator/cli/test_run_all.py -q` -> 66 passed. `python3 -m compileall -q ...` passed. `git diff --check` and `git diff --cached --check` passed.
+**Outcome:** success
+**Insight:** Hard cutover is cleaner than aliases here; pair ownership now has one public module and `verify.py` stays adapter/single-model.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — architecture cleanup follow-up
+
+**Happened:** Added `Generate Attempt` and `Definition Evaluation` terms to `CONTEXT.md`. Narrowed Definition Evaluation public Interface with underscored internals. Promoted Generate Attempt prepare/quality-gate dependencies to public names while keeping private aliases for existing compatibility. Added direct Generate Attempt tests.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_generate_attempt.py tests/generator/workflows/test_definition_evaluation.py tests/generator/workflows/test_verify.py -q` -> 31 passed. `python3 -m pytest tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_aggressive_rewrite_regression.py tests/generator/cli/test_run_all.py -q` -> 66 passed. `python3 -m compileall -q ...` passed. `git diff --check` and `git diff --cached --check` passed.
+**Outcome:** success
+**Insight:** New deep Modules need matching named context and direct interface tests immediately; otherwise adapters keep owning the test surface.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — architecture deepening candidate scan
+
+**Happened:** Read lessons, context, architecture docs, generator run_all/generate/rewrite/evaluation modules, and frontend Puzzle Session/gamification modules. Used explorers for backend and frontend sidecar scans. Produced deepening candidates only.
+**Outcome:** analysis only
+**Insight:** Current best candidates are second-order: existing named Modules now need narrower Interfaces and clearer LLM/non-LLM seams, not broad new slices.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — generate attempt LLM seam deepening
+
+**Happened:** Made run_all prepared-puzzle tie-break an explicit `puzzle_tiebreaker` LLM unit. Marked generate publish as LLM-visible because canonical upload can run referee work. Reused Generate Attempt finalization from batch preparation with batch-only direct tie-break behavior.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_generate_attempt.py tests/generator/workflows/test_batch_publish.py tests/generator/cli/test_run_all.py -q` -> 106 passed. `python3 -m pytest tests/generator/workflows/test_upload_phase.py tests/generator/workflows/test_definition_evaluation.py tests/generator/workflows/test_verify.py -q` -> 30 passed. `python3 -m compileall -q ...` passed. `git diff --check` passed.
+**Outcome:** success
+**Insight:** Hidden LLM work can be removed incrementally by moving decision points to explicit units first; full canonical planning split can come later without changing scheduler shape again.
+**Promoted:** no

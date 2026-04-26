@@ -23,6 +23,7 @@ from rebus_generator.workflows.run_all.jobs.base import JobState
 from rebus_generator.workflows.run_all.jobs.generate import GenerateJobState
 from rebus_generator.workflows.run_all.rewrite_units import RunAllRewriteSession
 from rebus_generator.workflows.run_all.types import RunAllStallDetected, StableItemProgress, UnitResult
+from rebus_generator.workflows.generate.models import PreparedPuzzle
 
 
 class _FakeRuntime:
@@ -118,6 +119,31 @@ def _model_step(item_id: str, topic: str, model_id: str) -> StepState:
         model_id=model_id,
         runner=lambda ctx: None,
         execution_mode="llm",
+    )
+
+
+def _prepared(title: str, score: float = 8.0) -> PreparedPuzzle:
+    assessment = PuzzleAssessment(
+        definition_score=score,
+        avg_rebus=8.0,
+        min_rebus=8,
+        blocker_words=[],
+        verified_count=1,
+        total_clues=1,
+        pass_rate=1.0,
+        scores_complete=True,
+    )
+    return PreparedPuzzle(
+        title=title,
+        title_score=8,
+        candidate=SimpleNamespace(report=SimpleNamespace()),
+        puzzle=WorkingPuzzle(title, 1, [["A"]], [], [], assessment=assessment),
+        first_passed=1,
+        final_passed=1,
+        total=1,
+        definition_score=score,
+        blocking_words=[],
+        assessment=assessment,
     )
 
 
@@ -958,8 +984,8 @@ class RunAllSupervisorTests(unittest.TestCase):
             patch("rebus_generator.workflows.run_all.jobs.redefine.rate_clue_with_model", return_value=SimpleNamespace(score=8)),
             patch("rebus_generator.workflows.run_all.jobs.redefine.DexProvider.for_puzzle", return_value=SimpleNamespace()),
             patch("rebus_generator.workflows.run_all.jobs.redefine.RunAllRewriteSession", return_value=SimpleNamespace()),
-            patch("rebus_generator.workflows.run_all.jobs.redefine._finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
-            patch("rebus_generator.workflows.run_all.jobs.redefine._finalize_pair_rating"),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.finalize_pair_rating"),
             patch("rebus_generator.workflows.run_all.jobs.redefine.score_puzzle_state", return_value=SimpleNamespace(min_rebus=1, avg_rebus=2.0, verified_count=1, total_clues=1)),
         ):
             ctx = _context(runtime)
@@ -1315,6 +1341,56 @@ class RunAllSupervisorTests(unittest.TestCase):
         self.assertTrue(kwargs["multi_model"])
         self.assertEqual([{"puzzle_id": "p1"}], result)
         self.assertEqual("done", job.stage)
+
+    def test_generate_publish_is_llm_visible(self):
+        item = _item("generate", "generate:size:15:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 15, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "publish"
+        job.best_prepared = _prepared("Final")
+        job.run_dir = Path("/tmp/run_all_publish_visible")
+
+        units = job.plan_ready_units(_context(_FakeRuntime(current_model=PRIMARY_MODEL)))
+
+        self.assertEqual(1, len(units))
+        self.assertEqual("llm", units[0].execution_mode)
+        self.assertEqual("generate_publish", units[0].purpose)
+        self.assertEqual(PRIMARY_MODEL.model_id, units[0].model_id)
+
+    def test_generate_prepared_tiebreak_runs_as_llm_unit(self):
+        runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
+        ctx = _context(runtime)
+        item = _item("generate", "generate:size:15:1", preferred_model_id=PRIMARY_MODEL.model_id)
+        item.payload = {"size": 15, "index": 1}
+        job = GenerateJobState(item)
+        job.stage = "prepared_tiebreak"
+        job.index = 1
+        job.size = 15
+        job.attempt_index = 1
+        job.effective_attempts = 2
+        job.best_prepared = _prepared("A", score=8.0)
+        job.pending_prepared = _prepared("B", score=8.1)
+        job.pending_tiebreak_origin = "title"
+        from rebus_generator.workflows.run_all.generate_attempt import build_prepared_puzzle_tiebreak_request
+        job.pending_tiebreak = build_prepared_puzzle_tiebreak_request(
+            job.best_prepared,
+            job.pending_prepared,
+        )
+
+        units = job.plan_ready_units(ctx)
+        self.assertEqual(1, len(units))
+        self.assertEqual("llm", units[0].execution_mode)
+        self.assertEqual("puzzle_tiebreaker", units[0].purpose)
+        self.assertEqual(PRIMARY_MODEL.model_id, units[0].model_id)
+
+        with patch(
+            "rebus_generator.workflows.run_all.jobs.generate.run_prepared_puzzle_tiebreak",
+            return_value="B",
+        ):
+            _run_planned_unit(job, units[0], ctx)
+
+        self.assertEqual("publish", job.stage)
+        self.assertEqual("B", job.best_prepared.title)
 
     def test_generate_define_finalize_uses_unresolved_only_fallback_policy(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
