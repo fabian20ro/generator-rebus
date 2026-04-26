@@ -5,7 +5,9 @@ import time
 from collections import Counter
 
 from rebus_generator.platform.io.runtime_logging import log
+from rebus_generator.platform.llm.definition_referee import referee_batch_stats_snapshot
 from rebus_generator.platform.llm.llm_client import llm_run_retry_count, llm_run_stats_snapshot
+from rebus_generator.platform.persistence.supabase_ops import supabase_usage_stats_snapshot
 
 from .types import RunAllStallDetected
 
@@ -185,6 +187,7 @@ def build_summary_payload(supervisor) -> dict[str, object]:
         "switch_count": supervisor.ctx.runtime.switch_count,
         "loaded_model_drain_switches": getattr(supervisor, "loaded_model_drain_switches", 0),
         "nested_activation_warnings": getattr(supervisor, "nested_activation_warnings", 0),
+        "switch_reason_counts": dict(getattr(supervisor, "switch_reason_counts", {})),
         "completed_by_topic": {
             topic: slot.completed_count
             for topic, slot in supervisor.slots.items()
@@ -216,6 +219,8 @@ def build_summary_payload(supervisor) -> dict[str, object]:
         "unload_seconds_total": round(unload_seconds_total, 3),
         "activation_overhead_seconds": round(activation_seconds_total + unload_seconds_total, 3),
         "llm": llm_stats,
+        "supabase": supabase_usage_stats_snapshot(),
+        "definition_referee": referee_batch_stats_snapshot(),
         "topics": {topic: topic_summary(supervisor, topic) for topic in supervisor.topics},
     }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
+from rebus_generator.platform.persistence.supabase_ops import record_supabase_select
 from rebus_generator.domain.guards.title_guards import normalize_title_key
 from rebus_generator.workflows.retitle.sanitize import FALLBACK_TITLES
 
@@ -13,8 +14,10 @@ def fetch_puzzles(
     date: str | None = None,
     puzzle_id: str | None = None,
     fallbacks_only: bool = False,
+    columns: str = "*",
 ) -> list[dict]:
-    query = supabase.table("crossword_puzzles").select("*")
+    record_supabase_select("crossword_puzzles", broad=columns.strip() == "*", columns=columns)
+    query = supabase.table("crossword_puzzles").select(columns)
     if puzzle_id:
         query = query.eq("id", puzzle_id)
     if date:
@@ -27,6 +30,23 @@ def fetch_puzzles(
         fallback_set = set(FALLBACK_TITLES)
         rows = [row for row in rows if row.get("title") in fallback_set]
     return rows
+
+
+def fetch_run_all_candidates(supabase, *, limit: int = 200) -> list[dict]:
+    try:
+        result = supabase.rpc("run_all_retitle_candidates", {"limit_count": limit}).execute()
+        record_supabase_select("rpc:run_all_retitle_candidates", columns="id,title,title_score,created_at")
+        return select_puzzles_for_retitle(result.data or [])
+    except Exception:
+        return select_puzzles_for_retitle(
+            fetch_puzzles(supabase, columns="id,title,title_score,created_at")[:limit]
+        )
+
+
+def fetch_title_rows(supabase) -> list[dict]:
+    record_supabase_select("crossword_puzzles", columns="id,title")
+    result = supabase.table("crossword_puzzles").select("id,title").execute()
+    return result.data or []
 
 
 def _puzzle_sort_key(row: dict) -> tuple[bool, str, str]:

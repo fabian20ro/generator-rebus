@@ -264,12 +264,10 @@ def apply_redefined_puzzle_persistence(
                 eq_filters={"id": row["id"], "puzzle_id": puzzle_id},
                 puzzle_id=puzzle_id,
                 dry_run=dry_run,
-            )
+        )
         row.update(update.update_payload)
         row["definition"] = update.canonical_definition
-        if plan.metadata_payload is not None:
-            persist_puzzle_metadata(supabase, puzzle_id, plan.metadata_payload, dry_run=dry_run)
-    if plan.metadata_payload is not None and not plan.clue_updates:
+    if plan.metadata_payload is not None:
         persist_puzzle_metadata(supabase, puzzle_id, plan.metadata_payload, dry_run=dry_run)
     if plan.touched_canonical_ids and not dry_run:
         deleted = ClueCanonStore(client=supabase).delete_redundant_unreferenced_canonicals_by_ids(

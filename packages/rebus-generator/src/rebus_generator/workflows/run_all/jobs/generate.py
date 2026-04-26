@@ -11,6 +11,7 @@ from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.io.metrics import BatchMetric, update_word_difficulty, write_metrics
 from rebus_generator.platform.io.rust_bridge import _best_candidate, _load_words, _metadata_by_word
 from rebus_generator.domain.guards.definition_guards import validate_definition_text
+from rebus_generator.domain.guards.title_guards import normalize_title_key
 from rebus_generator.domain.short_word_clues import valid_short_word_clues_for
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.domain.pipeline_state import (
@@ -560,6 +561,10 @@ class GenerateJobState(JobState):
             self.run_dir / "metrics.json",
         )
         update_word_difficulty(word_metrics, ctx.words_path.parent / "word_difficulty.json")
+        if ctx.retitle_title_keys is not None:
+            title_key = normalize_title_key(self.best_prepared.title)
+            if title_key:
+                ctx.retitle_title_keys.add(title_key)
         (self.run_dir / "manifest.json").write_text(
             json.dumps([manifest_item], ensure_ascii=False, indent=2),
             encoding="utf-8",

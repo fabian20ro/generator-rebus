@@ -35,6 +35,8 @@ from rebus_generator.platform.io.runtime_logging import (
     set_llm_debug_enabled,
 )
 from rebus_generator.platform.persistence.supabase_ops import create_service_role_client
+from rebus_generator.platform.persistence.supabase_ops import reset_supabase_usage_stats
+from rebus_generator.platform.llm.definition_referee import reset_referee_batch_stats
 from rebus_generator.platform.io.rust_bridge import _rust_binary_path
 from rebus_generator.workflows.run_all.scheduler import (
     DEFAULT_HEARTBEAT_SECONDS,
@@ -93,6 +95,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Use the configured two-model workflow (default: True).",
     )
     parser.add_argument("--dry-run", action="store_true", help="Do not persist DB changes for non-generation topics.")
+    parser.add_argument(
+        "--egress-safe",
+        dest="egress_safe",
+        action="store_true",
+        default=True,
+        help="Refuse start when recent local summaries show high egress/switch risk (default).",
+    )
+    parser.add_argument("--no-egress-safe", dest="egress_safe", action="store_false")
+    parser.add_argument(
+        "--ignore-egress-risk",
+        action="store_true",
+        help="Override the egress-safe restart guard after checking Supabase quota.",
+    )
     add_llm_debug_argument(parser)
     return parser
 
@@ -244,6 +259,48 @@ def _preflight(*, topics: list[str], artifact_path: Path, multi_model: bool) -> 
         artifact_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _latest_run_summary(run_root: Path) -> dict[str, object] | None:
+    if not run_root.exists():
+        return None
+    summaries = sorted(run_root.glob("*/run_summary.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in summaries:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+    return None
+
+
+def _egress_risk_reasons(summary: dict[str, object] | None) -> list[str]:
+    if not summary:
+        return []
+    reasons: list[str] = []
+    switch_count = int(summary.get("switch_count") or 0)
+    activation_overhead = float(summary.get("activation_overhead_seconds") or 0.0)
+    supabase = summary.get("supabase") if isinstance(summary.get("supabase"), dict) else {}
+    broad_select_count = int(supabase.get("broad_select_count") or 0) if isinstance(supabase, dict) else 0
+    if switch_count >= 1000:
+        reasons.append(f"switch_count={switch_count}")
+    if activation_overhead >= 3600.0:
+        reasons.append(f"activation_overhead_seconds={activation_overhead:.1f}")
+    if broad_select_count > 0:
+        reasons.append(f"broad_select_count={broad_select_count}")
+    return reasons
+
+
+def _enforce_egress_guard(args: argparse.Namespace, run_root: Path) -> None:
+    if not args.egress_safe or args.ignore_egress_risk:
+        return
+    reasons = _egress_risk_reasons(_latest_run_summary(run_root))
+    if not reasons:
+        return
+    raise SystemExit(
+        "run_all egress-safe guard refused start; latest run_summary shows "
+        + ", ".join(reasons)
+        + ". Supabase Free includes 5 GB egress; pass --ignore-egress-risk only after quota check."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -252,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--dry-run is not supported when generate topic is enabled")
 
     run_root = Path(args.output_root)
+    _enforce_egress_guard(args, run_root)
     run_dir = run_root / path_timestamp()
     log_path = run_dir / "run.log"
     audit_path = run_dir / "audit.jsonl"
@@ -272,6 +330,8 @@ def main(argv: list[str] | None = None) -> int:
         log(f"Topics: {','.join(topics)}")
         with _singleton_lock(LOCK_PATH):
             reset_run_llm_state()
+            reset_supabase_usage_stats()
+            reset_referee_batch_stats()
             if args.llm_preflight:
                 _preflight(
                     topics=topics,

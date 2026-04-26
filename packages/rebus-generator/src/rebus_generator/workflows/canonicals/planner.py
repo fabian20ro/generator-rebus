@@ -71,19 +71,9 @@ class CanonicalPersistencePlanner:
     def plan(self, inputs: List[CanonicalInput]) -> CanonicalPersistencePlan:
         persistences = []
         touched_ids = []
+        decisions = self._resolve(inputs)
         
-        for inp in inputs:
-            decision = self.resolver.resolve_definition(
-                word_normalized=inp.word_normalized,
-                word_original=inp.word_original,
-                definition=inp.definition,
-                word_type=inp.word_type,
-                verified=inp.verified,
-                semantic_score=inp.semantic_score,
-                rebus_score=inp.rebus_score,
-                creativity_score=inp.creativity_score,
-            )
-            
+        for inp, decision in zip(inputs, decisions):
             payload = self.builder.build_clue_definition_payload(
                 canonical_definition_id=decision.canonical_definition_id,
                 verify_note=inp.verify_note or "",
@@ -113,3 +103,21 @@ class CanonicalPersistencePlanner:
             clue_persistences=persistences,
             touched_canonical_ids=list(set(touched_ids))
         )
+
+    def _resolve(self, inputs: List[CanonicalInput]) -> list[Any]:
+        bulk_method = getattr(type(self.resolver), "resolve_definitions", None)
+        if callable(bulk_method):
+            return list(self.resolver.resolve_definitions(inputs))
+        return [
+            self.resolver.resolve_definition(
+                word_normalized=inp.word_normalized,
+                word_original=inp.word_original,
+                definition=inp.definition,
+                word_type=inp.word_type,
+                verified=inp.verified,
+                semantic_score=inp.semantic_score,
+                rebus_score=inp.rebus_score,
+                creativity_score=inp.creativity_score,
+            )
+            for inp in inputs
+        ]

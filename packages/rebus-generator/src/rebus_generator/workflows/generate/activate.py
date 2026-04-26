@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import sys
+from postgrest.types import ReturnMethod
 from rebus_generator.platform.config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from rebus_generator.platform.io.runtime_logging import log
 from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_client, execute_logged_update
@@ -28,6 +29,7 @@ def set_published(puzzle_id: str, published: bool) -> str:
         "crossword_puzzles",
         {"published": new_state},
         eq_filters={"id": puzzle_id},
+        returning=ReturnMethod.representation,
     )
 
     if result.data:

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from rebus_generator.platform.io.markdown_io import ClueEntry
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
+from rebus_generator.platform.persistence.supabase_ops import record_supabase_select
 from rebus_generator.domain.pipeline_state import WorkingClue, WorkingPuzzle, working_clue_from_entry
 
 
@@ -30,8 +31,10 @@ def fetch_puzzles(
     *,
     date: str | None = None,
     puzzle_id: str | None = None,
+    columns: str = "*",
 ) -> list[dict]:
-    query = supabase.table("crossword_puzzles").select("*")
+    record_supabase_select("crossword_puzzles", broad=columns.strip() == "*", columns=columns)
+    query = supabase.table("crossword_puzzles").select(columns)
     if puzzle_id:
         query = query.eq("id", puzzle_id)
     if date:
@@ -41,6 +44,19 @@ def fetch_puzzles(
     result = query.execute()
     rows = result.data or []
     return sorted(rows, key=_puzzle_sort_key)
+
+
+def fetch_run_all_candidates(supabase, *, limit: int = 200) -> list[dict]:
+    try:
+        result = supabase.rpc("run_all_redefine_candidates", {"limit_count": limit}).execute()
+        record_supabase_select("rpc:run_all_redefine_candidates", columns="candidate_columns")
+        return sorted(result.data or [], key=_puzzle_sort_key)
+    except Exception:
+        columns = (
+            "id,title,grid_size,created_at,repaired_at,description,"
+            "rebus_score_min,rebus_score_avg,definition_score,verified_count,total_clues,pass_rate"
+        )
+        return fetch_puzzles(supabase, columns=columns)[:limit]
 
 
 def _puzzle_sort_key(row: dict) -> tuple[object, ...]:

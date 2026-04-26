@@ -7,12 +7,18 @@ import re
 import time
 
 from postgrest.exceptions import APIError
+from postgrest.types import ReturnMethod
 
 from rebus_generator.domain.clue_canon_cleanup import deletable_canonical_ids
 from rebus_generator.domain.clue_canon_ranking import canonical_reset_safe_sort_key
 from rebus_generator.domain.clue_canon_types import CanonicalDefinition, ClueDefinitionRecord
 from rebus_generator.platform.io.runtime_logging import audit, log
-from .supabase_ops import create_service_role_client, execute_logged_insert, execute_logged_update
+from .supabase_ops import (
+    create_service_role_client,
+    execute_logged_insert,
+    execute_logged_update,
+    record_supabase_select,
+)
 
 _CANONICAL_SELECT = (
     "id, word_normalized, word_original_seed, definition, definition_norm, "
@@ -51,6 +57,7 @@ class ClueCanonStore:
             .eq("word_normalized", word)
             .execute()
         )
+        record_supabase_select("canonical_clue_definitions", columns=_CANONICAL_SELECT)
         rows = [self._canonical_from_row(row) for row in (result.data or [])]
         rows.sort(key=_canonical_sort_key)
         self._word_cache[word] = rows
@@ -85,6 +92,7 @@ class ClueCanonStore:
                     break
                 page_size = min(page_size, remaining)
             batch = query.range(offset, offset + page_size - 1).execute().data or []
+            record_supabase_select("canonical_clue_definitions", columns=_CANONICAL_SELECT)
             converted = [self._canonical_from_row(row) for row in batch]
             rows.extend(converted)
             if len(batch) < page_size or (limit is not None and len(rows) >= limit):
@@ -115,12 +123,62 @@ class ClueCanonStore:
                 .in_("word_normalized", chunk)
                 .execute()
             )
+            record_supabase_select("canonical_clue_definitions", columns=_CANONICAL_SELECT)
             for row in result.data or []:
                 converted = self._canonical_from_row(row)
                 rows.append(converted)
                 self._prime_canonical_cache(converted)
         rows.sort(key=_canonical_sort_key)
         return rows
+
+    def fetch_run_all_simplify_candidate_pairs(
+        self,
+        *,
+        limit: int = 100,
+        excluded_words: list[str] | None = None,
+    ):
+        excluded = sorted({
+            str(word or "").strip().upper()
+            for word in (excluded_words or [])
+            if str(word or "").strip()
+        })
+        try:
+            result = (
+                self.client.rpc(
+                    "run_all_simplify_candidate_pairs",
+                    {"limit_count": int(limit), "excluded_words": excluded},
+                )
+                .execute()
+            )
+            record_supabase_select("rpc:run_all_simplify_candidate_pairs", columns="candidate_pair_columns")
+            from rebus_generator.workflows.canonicals.simplify import SimplifyCandidatePair
+
+            return [
+                SimplifyCandidatePair(
+                    key=str(row.get("key") or f"{row.get('left_id')}::{row.get('right_id')}"),
+                    word=str(row.get("word") or ""),
+                    word_type=str(row.get("word_type") or ""),
+                    usage_label=str(row.get("usage_label") or ""),
+                    left_id=str(row.get("left_id") or ""),
+                    right_id=str(row.get("right_id") or ""),
+                    left_definition=str(row.get("left_definition") or ""),
+                    right_definition=str(row.get("right_definition") or ""),
+                    left_definition_norm=str(row.get("left_definition_norm") or ""),
+                    right_definition_norm=str(row.get("right_definition_norm") or ""),
+                    weight=float(row.get("weight") or 0.0),
+                )
+                for row in result.data or []
+            ]
+        except Exception:
+            from rebus_generator.workflows.canonicals.simplify import build_candidate_pairs
+
+            return build_candidate_pairs(
+                [
+                    row
+                    for row in self.fetch_active_canonical_variants()
+                    if row.word_normalized not in set(excluded)
+                ]
+            )[:limit]
 
     def prefetch_canonical_variants(self, words_normalized: list[str]) -> dict[str, list[CanonicalDefinition]]:
         words = sorted({
@@ -141,6 +199,7 @@ class ClueCanonStore:
                     .in_("word_normalized", chunk)
                     .execute()
                 )
+                record_supabase_select("canonical_clue_definitions", columns=_CANONICAL_SELECT)
                 for row_data in result.data or []:
                     row = self._canonical_from_row(row_data)
                     fetched.setdefault(row.word_normalized, []).append(row)
@@ -196,6 +255,7 @@ class ClueCanonStore:
             .limit(1)
             .execute()
         )
+        record_supabase_select("canonical_clue_definitions", columns=_CANONICAL_SELECT)
         rows = result.data or []
         if not rows:
             return None
@@ -247,6 +307,7 @@ class ClueCanonStore:
                 self.client,
                 "canonical_clue_definitions",
                 payload,
+                returning=ReturnMethod.representation,
             )
         except APIError as exc:
             if not _is_unique_conflict(exc):
@@ -457,6 +518,7 @@ class ClueCanonStore:
                 batch = query.execute().data or []
             else:
                 batch = query.range(offset, offset + _CLUE_PAGE_SIZE - 1).execute().data or []
+            record_supabase_select("crossword_clue_effective", columns=", ".join(select_fields))
             rows.extend(batch)
             if puzzle_id or len(batch) < _CLUE_PAGE_SIZE:
                 break
@@ -489,6 +551,7 @@ class ClueCanonStore:
                 .data
                 or []
             )
+            record_supabase_select("crossword_clues", columns=", ".join(select_fields))
             rows.extend(batch)
             if len(batch) < _CLUE_PAGE_SIZE:
                 break
@@ -535,6 +598,7 @@ class ClueCanonStore:
                         break
                     page_size = min(page_size, remaining)
                 batch = query.range(offset, offset + page_size - 1).execute().data or []
+            record_supabase_select("crossword_puzzles", columns=", ".join(select_fields))
             rows.extend(batch)
             if puzzle_id or len(batch) < _CLUE_PAGE_SIZE or (limit is not None and len(rows) >= limit):
                 break
@@ -585,6 +649,7 @@ class ClueCanonStore:
                 .data
                 or []
             )
+            record_supabase_select("canonical_clue_definitions", columns=", ".join(select_fields))
             rows.extend(batch)
             if len(batch) < page_size or (limit is not None and len(rows) >= limit):
                 break
@@ -621,6 +686,7 @@ class ClueCanonStore:
                 .data
                 or []
             )
+            record_supabase_select("canonical_clue_definitions", columns=", ".join(select_fields))
             rows.extend(batch)
         rows.sort(key=lambda row: (str(row.get("word_normalized") or ""), str(row.get("id") or "")))
         return rows
@@ -668,6 +734,7 @@ class ClueCanonStore:
                     .range(offset, offset + _CLUE_PAGE_SIZE - 1)
                 )
                 batch = query.execute().data or []
+                record_supabase_select("crossword_clue_effective", columns=", ".join(select_fields))
                 rows.extend(batch)
                 if len(batch) < _CLUE_PAGE_SIZE:
                     break
@@ -714,6 +781,7 @@ class ClueCanonStore:
                 .data
                 or []
             )
+            record_supabase_select("crossword_clue_effective", columns=", ".join(select_fields))
             rows.extend(batch)
         rows.sort(
             key=lambda row: (

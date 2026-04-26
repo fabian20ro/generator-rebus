@@ -1668,3 +1668,22 @@
 **Outcome:** success
 **Insight:** none
 **Promoted:** no
+
+---
+
+### [2026-04-26] — run_all live log triage
+
+**Happened:** Inspected active `build/run_all_runs/20260424_063040` while process running. Found healthy throughput/no failed jobs, but 3263 switches and ~8.1h activation+unload overhead. Recent rapid switches caused by publish canonical planner resolving clues serially; each single clue calls two-model `definition_referee` directly, outside scheduler batching.
+**Outcome:** analysis only
+**Insight:** canonical upload planning must batch referee decisions or expose them as scheduler-visible LLM units.
+**Promoted:** yes
+
+---
+
+### [2026-04-26] — run_all egress + model thrash fixes
+
+**Happened:** Implemented egress-safe restart guard; minimal-return Supabase writes; one redefine metadata update per job; narrow run_all poller reads; title-key cache; grid-size/simplify RPC paths; bulk canonical persistence planning; switch/egress/referee summary counters; SQL migration.
+**Verification:** `pytest tests/generator/platform/test_supabase_ops.py tests/generator/workflows/canonicals/test_planner.py tests/generator/cli/test_loop_controller.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_upload_phase.py tests/generator/platform/test_clue_canon_store.py tests/generator/cli/test_run_all.py -q` -> 131 passed. `pytest tests/generator/workflows/test_retitle.py tests/generator/workflows/test_upload_phase.py tests/generator/cli/test_run_all.py -q` -> 84 passed. `rg` run_all broad-select scan -> no matches. `git diff --check` OK.
+**Outcome:** success
+**Insight:** Supabase mutations need explicit `ReturnMethod.minimal` when response rows unused.
+**Promoted:** yes

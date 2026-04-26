@@ -1,4 +1,5 @@
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 from openai import OpenAI
@@ -27,6 +28,21 @@ from .prompt_builders import (
     _build_puzzle_tiebreak_prompt,
 )
 from rebus_generator.platform.io.runtime_logging import log
+
+_REFEREE_BATCH_SIZE_HISTOGRAM: Counter[int] = Counter()
+
+
+def reset_referee_batch_stats() -> None:
+    _REFEREE_BATCH_SIZE_HISTOGRAM.clear()
+
+
+def referee_batch_stats_snapshot() -> dict[str, object]:
+    return {
+        "batch_size_histogram": {
+            str(size): count
+            for size, count in sorted(_REFEREE_BATCH_SIZE_HISTOGRAM.items())
+        }
+    }
 
 
 @dataclass(frozen=True)
@@ -264,6 +280,7 @@ def run_definition_referee_adaptive_batch(
 ) -> AdaptiveRefereeBatchResult:
     if not requests:
         return AdaptiveRefereeBatchResult(results={}, total_votes=0)
+    _REFEREE_BATCH_SIZE_HISTOGRAM[len(requests)] += 1
 
     vote_steps = [
         (PRIMARY_MODEL, False, "primary"),

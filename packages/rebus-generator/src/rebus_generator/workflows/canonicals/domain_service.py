@@ -344,6 +344,162 @@ class ClueCanonService:
             created_new=created_new,
         )
 
+    def resolve_definitions(self, inputs) -> list[CanonicalDecision]:
+        records = [self._record_from_input(inp) for inp in inputs]
+        self.store.prefetch_canonical_variants([record.word_normalized for record in records])
+        decisions: list[CanonicalDecision | None] = [None] * len(records)
+        pending: list[dict[str, object]] = []
+
+        for index, record in enumerate(records):
+            exact = self.store.find_exact_canonical(
+                record.word_normalized,
+                record.definition_norm,
+                word_type=record.word_type,
+                usage_label=record.usage_label,
+            )
+            if exact is not None:
+                exact = self.store.bump_usage(exact.id, record.word_normalized) or exact
+                clue_id = getattr(inputs[index], "clue_id", None)
+                puzzle_id = getattr(inputs[index], "puzzle_id", None)
+                self._attach_if_possible(clue_id, puzzle_id, exact.id)
+                decisions[index] = CanonicalDecision(
+                    canonical_definition=exact.definition,
+                    canonical_definition_norm=exact.definition_norm,
+                    canonical_definition_id=exact.id,
+                    action="reuse_exact",
+                )
+                continue
+            matches = self._likely_matches(record)
+            if matches:
+                pending.append({"index": index, "record": record, "matches": matches, "cursor": 0})
+            else:
+                decisions[index] = self._create_new_decision(record, inputs[index])
+
+        while pending:
+            requests: list[DefinitionRefereeInput] = []
+            request_states: dict[str, tuple[dict[str, object], CanonicalDefinition]] = {}
+            carry: list[dict[str, object]] = []
+            for state in pending:
+                matches = state["matches"]
+                cursor = int(state["cursor"])
+                if cursor >= len(matches):
+                    index = int(state["index"])
+                    decisions[index] = self._create_new_decision(state["record"], inputs[index])
+                    continue
+                record = state["record"]
+                canonical = matches[cursor]
+                request_id = f"{state['index']}:{cursor}:{canonical.id}"
+                requests.append(
+                    DefinitionRefereeInput(
+                        request_id=request_id,
+                        word=record.word_normalized,
+                        answer_length=len(record.word_normalized),
+                        definition_a=record.definition,
+                        definition_b=canonical.definition,
+                    )
+                )
+                request_states[request_id] = (state, canonical)
+            if not requests:
+                break
+            results = self._run_referee_batch(requests)
+            for request in requests:
+                state, canonical = request_states[request.request_id]
+                result = results[request.request_id]
+                record = state["record"]
+                self._audit_referee_result(record, canonical, result)
+                index = int(state["index"])
+                if result.merge_allowed and result.winner == "B":
+                    self.store.bump_usage(canonical.id, record.word_normalized)
+                    clue_id = getattr(inputs[index], "clue_id", None)
+                    puzzle_id = getattr(inputs[index], "puzzle_id", None)
+                    self._attach_if_possible(clue_id, puzzle_id, canonical.id)
+                    decisions[index] = CanonicalDecision(
+                        canonical_definition=canonical.definition,
+                        canonical_definition_norm=canonical.definition_norm,
+                        canonical_definition_id=canonical.id,
+                        action="reuse_near",
+                        same_meaning_votes=result.same_meaning_votes,
+                        winner_votes=result.winner_votes,
+                        decision_note="existing canonical kept",
+                    )
+                    continue
+                if result.merge_allowed and result.winner == "A":
+                    created, created_new = self.store.create_canonical_definition_with_status(record)
+                    promoted = created or canonical
+                    clue_id = getattr(inputs[index], "clue_id", None)
+                    puzzle_id = getattr(inputs[index], "puzzle_id", None)
+                    self._attach_if_possible(clue_id, puzzle_id, promoted.id)
+                    decisions[index] = CanonicalDecision(
+                        canonical_definition=promoted.definition,
+                        canonical_definition_norm=promoted.definition_norm,
+                        canonical_definition_id=promoted.id,
+                        action="promote_new",
+                        same_meaning_votes=result.same_meaning_votes,
+                        winner_votes=result.winner_votes,
+                        decision_note="new immutable canonical created; existing canonical retained",
+                        created_new=created_new,
+                    )
+                    continue
+                state["cursor"] = int(state["cursor"]) + 1
+                carry.append(state)
+            pending = carry
+
+        for index, decision in enumerate(decisions):
+            if decision is None:
+                decisions[index] = self._create_new_decision(records[index], inputs[index])
+        return list(decisions)
+
+    def _record_from_input(self, inp) -> ClueDefinitionRecord:
+        definition = str(getattr(inp, "definition", "") or "").strip()
+        return ClueDefinitionRecord(
+            id=str(getattr(inp, "clue_id", "") or ""),
+            word_normalized=str(getattr(inp, "word_normalized", "") or "").strip().upper(),
+            word_original=str(getattr(inp, "word_original", "") or "").strip(),
+            definition=definition,
+            definition_norm=normalize_definition_text(definition),
+            word_type=str(getattr(inp, "word_type", "") or "").strip().upper(),
+            usage_label=_extract_usage_label(definition),
+            verified=bool(getattr(inp, "verified", False)),
+            semantic_score=getattr(inp, "semantic_score", None),
+            rebus_score=getattr(inp, "rebus_score", None),
+            creativity_score=getattr(inp, "creativity_score", None),
+        )
+
+    def _create_new_decision(self, record: ClueDefinitionRecord, inp) -> CanonicalDecision:
+        created, created_new = self.store.create_canonical_definition_with_status(record)
+        canonical_id = created.id if created is not None else None
+        canonical_text = created.definition if created is not None else record.definition
+        self._attach_if_possible(getattr(inp, "clue_id", None), getattr(inp, "puzzle_id", None), canonical_id)
+        return CanonicalDecision(
+            canonical_definition=canonical_text,
+            canonical_definition_norm=record.definition_norm,
+            canonical_definition_id=canonical_id,
+            action="create_new",
+            created_new=created_new,
+        )
+
+    def _audit_referee_result(
+        self,
+        record: ClueDefinitionRecord,
+        canonical: CanonicalDefinition,
+        result: DefinitionRefereeResult,
+    ) -> None:
+        audit(
+            "clue_canon_referee",
+            component="clue_canon",
+            payload={
+                "word": record.word_normalized,
+                "definition_a": record.definition,
+                "definition_b": canonical.definition,
+                "same_meaning_votes": result.same_meaning_votes,
+                "better_a_votes": result.better_a_votes,
+                "better_b_votes": result.better_b_votes,
+                "equal_votes": result.equal_votes,
+                "winner": result.winner,
+                "winner_votes": result.winner_votes,
+            },
+        )
+
     def _likely_matches(self, record: ClueDefinitionRecord) -> list[CanonicalDefinition]:
         rows = self.store.fetch_canonical_variants(record.word_normalized)
         matches: list[tuple[float, CanonicalDefinition]] = []

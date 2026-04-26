@@ -13,7 +13,7 @@ from rebus_generator.workflows.retitle.batch import (
 )
 from rebus_generator.workflows.retitle.load import (
     fetch_clues as fetch_retitle_clues,
-    fetch_puzzles as fetch_retitle_puzzles,
+    fetch_title_rows as fetch_retitle_puzzles,
     stored_title_score as _stored_title_score,
 )
 from rebus_generator.workflows.retitle.persist import PreparedTitleUpdate, apply_title_update, prepare_title_update
@@ -71,12 +71,15 @@ class RetitleJobState(JobState):
         self.definitions = [c["definition"] for c in clues if c.get("definition")]
         if not self.words_list or not self.definitions:
             return self._complete(False, detail="missing_words_or_definitions")
-        self.forbidden_title_keys = {
-            normalize_title_key(row.get("title", "") or "")
-            for row in fetch_retitle_puzzles(ctx.supabase)
-            if str(row.get("id") or "") != str(self.puzzle_row.get("id") or "")
-            and normalize_title_key(row.get("title", "") or "")
-        }
+        if ctx.retitle_title_keys is None:
+            ctx.retitle_title_keys = {
+                normalize_title_key(row.get("title", "") or "")
+                for row in fetch_retitle_puzzles(ctx.supabase)
+                if normalize_title_key(row.get("title", "") or "")
+            }
+        current_key = normalize_title_key(self.puzzle_row.get("title", "") or "")
+        self.forbidden_title_keys = set(ctx.retitle_title_keys)
+        self.forbidden_title_keys.discard(current_key)
         self.title_state = _RetitleBatchState(
             puzzle_row=self.puzzle_row,
             words=self.words_list,
@@ -283,4 +286,11 @@ class RetitleJobState(JobState):
             self.prepared_update,
             dry_run=ctx.dry_run,
         )
+        if changed and ctx.retitle_title_keys is not None and self.prepared_update is not None:
+            old_key = normalize_title_key(self.prepared_update.old_title)
+            new_key = normalize_title_key(self.prepared_update.new_title)
+            if old_key:
+                ctx.retitle_title_keys.discard(old_key)
+            if new_key:
+                ctx.retitle_title_keys.add(new_key)
         return self._complete(changed, detail=f"changed={changed}")

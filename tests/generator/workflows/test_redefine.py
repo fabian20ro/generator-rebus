@@ -569,7 +569,7 @@ class RedefinePuzzleTests(unittest.TestCase):
 
     @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
     @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
-    def test_updates_metadata_after_each_changed_clue(self, mock_evaluate, mock_rewrite):
+    def test_updates_metadata_once_after_changed_clues(self, mock_evaluate, mock_rewrite):
         clue_rows = [
             _make_clue_row("MUNTE", "Formă de relief", clue_id="c1", clue_number=1, row=0, col=0),
             _make_clue_row("APA", "Lichid vital", clue_id="c2", clue_number=2, row=0, col=3),
@@ -638,7 +638,7 @@ class RedefinePuzzleTests(unittest.TestCase):
 
         self.assertEqual(2, count)
         self.assertEqual(2, fixture.clue_table.update.call_count)
-        self.assertEqual(2, fixture.puzzle_table.update.call_count)
+        self.assertEqual(1, fixture.puzzle_table.update.call_count)
         final_payload = fixture.puzzle_table.update.call_args_list[-1][0][0]
         self.assertEqual(7, final_payload["rebus_score_min"])
         self.assertEqual(2, final_payload["verified_count"])

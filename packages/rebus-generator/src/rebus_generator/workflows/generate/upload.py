@@ -4,7 +4,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import sys
+from postgrest.types import ReturnMethod
 from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_client
+from rebus_generator.platform.persistence.supabase_ops import execute_logged_insert
 from rebus_generator.platform.config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
 from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, CanonicalInput
@@ -202,14 +204,24 @@ def upload_puzzle(
             
         created_canonical_ids = plan.touched_canonical_ids
 
-        result = supabase.table("crossword_puzzles").insert(puzzle_data).execute()
+        result = execute_logged_insert(
+            supabase,
+            "crossword_puzzles",
+            puzzle_data,
+            returning=ReturnMethod.representation,
+        )
         puzzle_id = result.data[0]["id"]
         log(f"  Puzzle ID: {puzzle_id}")
 
         if resolved_clue_records:
             for record in resolved_clue_records:
                 record["puzzle_id"] = puzzle_id
-            supabase.table("crossword_clues").insert(resolved_clue_records).execute()
+            execute_logged_insert(
+                supabase,
+                "crossword_clues",
+                resolved_clue_records,
+                returning=ReturnMethod.minimal,
+            )
             for action, record, original_definition, decision in canonical_events:
                 log_canonical_event(
                     action,

@@ -21,7 +21,7 @@ from rebus_generator.platform.io.runtime_logging import (
     set_llm_debug_enabled,
 )
 from rebus_generator.domain.size_tuning import OVERNIGHT_LOOP_SIZES, SUPPORTED_GRID_SIZES
-from rebus_generator.platform.persistence.supabase_ops import create_service_role_client
+from rebus_generator.platform.persistence.supabase_ops import create_service_role_client, record_supabase_select
 
 
 @dataclass(frozen=True)
@@ -34,9 +34,22 @@ class LoopRunResult:
 
 def fetch_puzzle_size_counts(*, client=None, batch_size: int = 1000) -> dict[int, int]:
     client = client or create_service_role_client()
+    try:
+        result = client.rpc("run_all_grid_size_counts").execute()
+        record_supabase_select("rpc:run_all_grid_size_counts", columns="grid_size,puzzle_count")
+        counts: dict[int, int] = {}
+        for row in result.data or []:
+            size = int(row.get("grid_size") or 0)
+            count = int(row.get("puzzle_count", row.get("count", 0)) or 0)
+            if size in SUPPORTED_GRID_SIZES:
+                counts[size] = count
+        return counts
+    except Exception:
+        pass
     counts: dict[int, int] = {}
     offset = 0
     while True:
+        record_supabase_select("crossword_puzzles", columns="grid_size")
         response = (
             client.table("crossword_puzzles")
             .select("grid_size")

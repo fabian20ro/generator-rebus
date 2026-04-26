@@ -121,6 +121,7 @@ class RunAllSupervisor:
         self.summary_written = False
         self.loaded_model_drain_switches = 0
         self.nested_activation_warnings = 0
+        self.switch_reason_counts: Counter[str] = Counter()
         self._next_switch_reason = "initial_load"
         self.unit_purpose_counts: Counter[str] = Counter()
         self.topic_drain_counts: Counter[str] = Counter()
@@ -645,6 +646,7 @@ class RunAllSupervisor:
 
     def _on_model_switch(self, previous_model_id: str, next_model_id: str, runtime: LmRuntime, reason: str) -> None:
         reason = reason or self._next_switch_reason or "unknown"
+        self.switch_reason_counts[reason] += 1
         if reason == "loaded_model_drained":
             self.loaded_model_drain_switches += 1
         ready_counts = self._runnable_counts_by_model()

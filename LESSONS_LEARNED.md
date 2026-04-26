@@ -228,6 +228,10 @@
 
 **[2026-04-24]** Curated short-answer dictionary support — materialise curated fallback definitions as Rust word rows for grid use, not just Python rescue context.
 
+**[2026-04-26]** Canonical upload resolution must be batch-aware — per-clue `resolve_definition()` calls invoke single-item two-model referees and bypass `run_all` scheduler batching. During publish this causes physical model thrash (`definition_referee` switches with `ready_by_model` often 1). Plan canonical decisions in bulk or route referee work through scheduler-visible units.
+
+**[2026-04-26]** Supabase mutation egress — PostgREST returns changed rows by default. For unattended bulk writes, set `ReturnMethod.minimal` unless the caller consumes inserted/updated row data.
+
 ---
 
 ## Archive

@@ -7,8 +7,8 @@ from rebus_generator.workflows.canonicals.simplify import build_candidate_pairs
 from rebus_generator.platform.llm.llm_dispatch import initial_generation_model
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.cli.loop_controller import select_auto_size
-from rebus_generator.workflows.redefine.load import fetch_puzzles as fetch_redefine_puzzles
-from rebus_generator.workflows.retitle.load import fetch_puzzles as fetch_retitle_puzzles, select_puzzles_for_retitle
+from rebus_generator.workflows.redefine.load import fetch_run_all_candidates as fetch_redefine_puzzles
+from rebus_generator.workflows.retitle.load import fetch_run_all_candidates as fetch_retitle_puzzles
 from .types import SupervisorWorkItem
 
 if TYPE_CHECKING:
@@ -67,7 +67,7 @@ def poll_redefine(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
 
 
 def poll_retitle(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
-    rows = select_puzzles_for_retitle(fetch_retitle_puzzles(supervisor.ctx.supabase))
+    rows = fetch_retitle_puzzles(supervisor.ctx.supabase)
     deferred: SupervisorWorkItem | None = None
     for row in rows:
         puzzle_id = str(row.get("id") or "")
@@ -99,14 +99,23 @@ def poll_retitle(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
 
 
 def poll_simplify(supervisor: "RunAllSupervisor") -> SupervisorWorkItem | None:
-    pairs = build_candidate_pairs(
-        [
-            row
-            for row in supervisor.ctx.store.fetch_active_canonical_variants()
-            if row.word_normalized not in supervisor.claims.simplify_words
-            and not supervisor.claims.simplify_word_conflict({row.word_normalized})
-        ]
-    )
+    excluded_words = set(supervisor.claims.simplify_words)
+    for words in supervisor.claims.puzzle_words.values():
+        excluded_words.update(words)
+    if hasattr(supervisor.ctx.store, "fetch_run_all_simplify_candidate_pairs"):
+        pairs = supervisor.ctx.store.fetch_run_all_simplify_candidate_pairs(
+            limit=max(10, int(supervisor.ctx.simplify_batch_size) * 4),
+            excluded_words=sorted(excluded_words),
+        )
+    else:
+        pairs = build_candidate_pairs(
+            [
+                row
+                for row in supervisor.ctx.store.fetch_active_canonical_variants()
+                if row.word_normalized not in excluded_words
+                and not supervisor.claims.simplify_word_conflict({row.word_normalized})
+            ]
+        )
     seen_words: set[str] = set()
     deferred: SupervisorWorkItem | None = None
     for pair in pairs:

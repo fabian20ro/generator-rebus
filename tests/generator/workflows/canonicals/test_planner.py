@@ -173,5 +173,41 @@ class TestCanonicalPersistencePlanner(unittest.TestCase):
         self.assertIsNone(plan.clue_persistences[0].clue_id)
         self.assertEqual(plan.clue_persistences[0].canonical_definition_id, "canon-999")
 
+    def test_plan_uses_bulk_resolver_when_available(self):
+        class _BulkResolver:
+            def __init__(self):
+                self.inputs = None
+
+            def resolve_definitions(self, inputs):
+                self.inputs = list(inputs)
+                return [
+                    MagicMock(
+                        canonical_definition_id=f"canon-{index}",
+                        canonical_definition=inp.definition,
+                        action="bulk",
+                        created_new=False,
+                    )
+                    for index, inp in enumerate(inputs)
+                ]
+
+            def resolve_definition(self, **_kwargs):
+                raise AssertionError("serial resolver should not run")
+
+        resolver = _BulkResolver()
+        builder = MagicMock()
+        builder.build_clue_definition_payload.side_effect = lambda *, canonical_definition_id, **_kwargs: {
+            "canonical_definition_id": canonical_definition_id,
+        }
+        planner = CanonicalPersistencePlanner(resolver=resolver, builder=builder)
+        inputs = [
+            CanonicalInput(word_normalized="A", definition="Def A"),
+            CanonicalInput(word_normalized="B", definition="Def B"),
+        ]
+
+        plan = planner.plan(inputs)
+
+        self.assertEqual(inputs, resolver.inputs)
+        self.assertEqual(["canon-0", "canon-1"], [item.canonical_definition_id for item in plan.clue_persistences])
+
 if __name__ == "__main__":
     unittest.main()

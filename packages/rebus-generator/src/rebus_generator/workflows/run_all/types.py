@@ -40,6 +40,7 @@ class RunAllContext:
     gemma_rate_reasoning: str | None = "minimal"
     gemma_title_generate_reasoning: str | None = "none"
     gemma_title_rate_reasoning: str | None = "none"
+    retitle_title_keys: set[str] | None = None
 
 
 SupervisorWorkItem = WorkItem
