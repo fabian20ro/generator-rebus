@@ -132,7 +132,7 @@ class VerifyPhaseTests(unittest.TestCase):
         return_value=SimpleNamespace(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id),
     )
     @patch("rebus_generator.workflows.generate.verify.DexProvider.for_puzzle", return_value=None)
-    @patch("rebus_generator.workflows.generate.verify.rate_definition")
+    @patch("rebus_generator.workflows.generate.definition_evaluation.rate_definition")
     def test_rate_puzzle_reports_two_averages(self, mock_rate_definition, _mock_dex, _mock_primary, _mock_secondary):
         mock_rate_definition.side_effect = [
             DefinitionRating(semantic_score=8, guessability_score=6, feedback="bună", creativity_score=7),
@@ -166,7 +166,7 @@ class VerifyPhaseTests(unittest.TestCase):
         return_value=SimpleNamespace(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id),
     )
     @patch("rebus_generator.workflows.generate.verify.DexProvider.for_puzzle", return_value=None)
-    @patch("rebus_generator.workflows.generate.verify.rate_definition")
+    @patch("rebus_generator.workflows.generate.definition_evaluation.rate_definition")
     def test_rate_logging_includes_definition_text(self, mock_rate_definition, _mock_dex, _mock_primary, _mock_secondary):
         mock_rate_definition.side_effect = [
             DefinitionRating(
@@ -276,7 +276,7 @@ class VerifyPhaseTests(unittest.TestCase):
         "rebus_generator.workflows.generate.verify.LmRuntime.activate_primary",
         return_value=SimpleNamespace(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id),
     )
-    @patch("rebus_generator.workflows.generate.verify.verify_definition_candidates")
+    @patch("rebus_generator.workflows.generate.definition_evaluation.verify_definition_candidates")
     def test_verify_working_puzzle_requires_both_models_to_match(self, mock_verify_definition, _mock_primary, _mock_secondary):
         mock_verify_definition.side_effect = [
             SimpleNamespace(candidates=["ARACI"], response_source="reasoning"),
@@ -303,7 +303,7 @@ class VerifyPhaseTests(unittest.TestCase):
         "rebus_generator.workflows.generate.verify.LmRuntime.activate_primary",
         return_value=SimpleNamespace(display_name=PRIMARY_MODEL.display_name, model_id=PRIMARY_MODEL.model_id),
     )
-    @patch("rebus_generator.workflows.generate.verify.rate_definition")
+    @patch("rebus_generator.workflows.generate.definition_evaluation.rate_definition")
     def test_rate_working_puzzle_accepts_single_model_fallback_rating(self, mock_rate_definition, _mock_primary, _mock_secondary):
         mock_rate_definition.side_effect = [
             DefinitionRating(semantic_score=8, guessability_score=6, feedback="ok", creativity_score=6),

@@ -41,6 +41,7 @@ from rebus_generator.domain.pipeline_state import (
 )
 from rebus_generator.domain.diacritics import normalize
 from rebus_generator.platform.io.runtime_logging import log
+from rebus_generator.workflows.generate import definition_evaluation
 
 
 def _build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
@@ -832,23 +833,12 @@ def verify_working_puzzle(
             max_guesses=max_guesses,
         )
     else:
-        pair_runtime = _pair_runtime(runtime)
-        model_ids, pair_label = _run_pair_verify(
+        return definition_evaluation.pair_verify_working_puzzle(
             puzzle,
             client,
-            runtime=pair_runtime,
+            runtime=runtime,
             skip_words=skip_words,
             max_guesses=max_guesses,
-        )
-        puzzle.horizontal_clues = _finalize_pair_verification(
-            puzzle.horizontal_clues,
-            model_order=model_ids,
-            model_label=pair_label,
-        )
-        puzzle.vertical_clues = _finalize_pair_verification(
-            puzzle.vertical_clues,
-            model_order=model_ids,
-            model_label=pair_label,
         )
 
     total = len(puzzle.horizontal_clues) + len(puzzle.vertical_clues)
@@ -878,23 +868,12 @@ def rate_working_puzzle(
             puzzle.vertical_clues, client, skip_words=skip_words, dex=dex, model_label=model_label, model_name=model_name,
         )
     else:
-        pair_runtime = _pair_runtime(runtime)
-        model_ids, pair_label = _run_pair_rate(
+        return definition_evaluation.pair_rate_working_puzzle(
             puzzle,
             client,
-            runtime=pair_runtime,
+            runtime=runtime,
             skip_words=skip_words,
             dex=dex,
-        )
-        _finalize_pair_rating(
-            puzzle.horizontal_clues,
-            model_order=model_ids,
-            model_label=pair_label,
-        )
-        _finalize_pair_rating(
-            puzzle.vertical_clues,
-            model_order=model_ids,
-            model_label=pair_label,
         )
 
     semantic_scores = []

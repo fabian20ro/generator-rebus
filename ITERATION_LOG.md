@@ -1764,3 +1764,13 @@
 **Outcome:** success
 **Insight:** Generate run_all job stays a resumable adapter when retry/publication decisions live in a small attempt Module.
 **Promoted:** no
+
+---
+
+### [2026-04-26] — definition evaluation module extraction
+
+**Happened:** Added Definition Evaluation Module for two-model verify/rate workload, vote storage, pair finalization, rating summary, and failure reason projection. `generate.verify` keeps CLI/single-model compatibility while routing pair workflows through the module.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_verify.py -q` -> 16 passed. `python3 -m pytest tests/generator/workflows/test_verify.py tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_aggressive_rewrite_regression.py tests/generator/cli/test_run_all.py -q` -> 82 passed. `python3 -m compileall -q ...` passed.
+**Outcome:** success
+**Insight:** Pair evaluation is the interface test surface; verify CLI should adapt into it, not own vote lifecycle.
+**Promoted:** no
