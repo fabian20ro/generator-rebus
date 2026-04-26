@@ -5,7 +5,6 @@ from rebus_generator.platform.llm.ai_clues import DefinitionRating
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.domain.pipeline_state import working_clue_from_entry
 from rebus_generator.workflows.generate.definition_evaluation import (
-    combine_rating_feedback,
     finalize_pair_rating,
     finalize_pair_verification,
 )
@@ -154,17 +153,21 @@ class DefinitionEvaluationTests(unittest.TestCase):
         self.assertEqual("unrated", assessed.failure_reason.kind)  # type: ignore[union-attr]
 
     def test_pair_rating_feedback_dedupe_keeps_model_order(self):
-        duplicate_votes = {
+        duplicate = _clue()
+        duplicate.current.assessment.rating_votes = {
             PRIMARY_MODEL.model_id: _rating(feedback="clar"),
             SECONDARY_MODEL.model_id: _rating(feedback="clar"),
         }
-        ordered_votes = {
+        ordered = _clue()
+        ordered.current.assessment.rating_votes = {
             PRIMARY_MODEL.model_id: _rating(feedback="primar"),
             SECONDARY_MODEL.model_id: _rating(feedback="secundar"),
         }
 
-        self.assertEqual("clar", combine_rating_feedback(duplicate_votes, MODEL_ORDER))
-        self.assertEqual("primar / secundar", combine_rating_feedback(ordered_votes, MODEL_ORDER))
+        finalize_pair_rating([duplicate, ordered], model_order=MODEL_ORDER, model_label=MODEL_LABEL)
+
+        self.assertEqual("clar", duplicate.current.assessment.feedback)
+        self.assertEqual("primar / secundar", ordered.current.assessment.feedback)
 
 
 if __name__ == "__main__":

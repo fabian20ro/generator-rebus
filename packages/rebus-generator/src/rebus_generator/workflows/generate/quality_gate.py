@@ -28,14 +28,14 @@ def _compute_difficulty(size: int, report: QualityReport) -> int:
     return max(1, min(5, difficulty))
 
 
-def _is_publishable(prepared: PreparedPuzzle) -> bool:
+def is_publishable(prepared: PreparedPuzzle) -> bool:
     return (
         not prepared.blocking_words
         and prepared.assessment.verified_count >= MIN_PUBLISHABLE_CONSENSUS_CLUES
     )
 
 
-def _describe_publishability_failure(prepared: PreparedPuzzle) -> str:
+def describe_publishability_failure(prepared: PreparedPuzzle) -> str:
     reasons: list[str] = []
     if prepared.blocking_words:
         reasons.append(
@@ -56,7 +56,7 @@ def _describe_publishability_failure(prepared: PreparedPuzzle) -> str:
     return "; ".join(reasons) if reasons else "quality gate failed"
 
 
-def _better_prepared_puzzle(
+def better_prepared_puzzle(
     best: PreparedPuzzle | None,
     candidate: PreparedPuzzle,
     client=None,
@@ -65,8 +65,8 @@ def _better_prepared_puzzle(
     if best is None:
         return candidate
 
-    best_publishable = _is_publishable(best)
-    candidate_publishable = _is_publishable(candidate)
+    best_publishable = is_publishable(best)
+    candidate_publishable = is_publishable(candidate)
     if candidate_publishable != best_publishable:
         return candidate if candidate_publishable else best
 
@@ -114,3 +114,8 @@ def _better_prepared_puzzle(
         return chosen
 
     return candidate if score_delta > 0 else best
+
+
+_is_publishable = is_publishable
+_describe_publishability_failure = describe_publishability_failure
+_better_prepared_puzzle = better_prepared_puzzle

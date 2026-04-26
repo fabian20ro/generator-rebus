@@ -36,7 +36,7 @@ from rebus_generator.workflows.generate.titleing import generate_publication_tit
 from rebus_generator.workflows.redefine.rewrite_engine import run_rewrite_loop
 
 from .models import PreparedPuzzle
-from .quality_gate import _better_prepared_puzzle, _describe_publishability_failure, _is_publishable
+from .quality_gate import better_prepared_puzzle, describe_publishability_failure, is_publishable
 
 
 def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
@@ -47,11 +47,11 @@ def _blocking_clues(puzzle: WorkingPuzzle) -> list[WorkingClue]:
     ]
 
 
-def _should_skip_title_generation(puzzle: WorkingPuzzle) -> bool:
+def should_skip_title_generation(puzzle: WorkingPuzzle) -> bool:
     return bool(_blocking_clues(puzzle)) or not puzzle.assessment.scores_complete
 
 
-def _build_prepared_puzzle(
+def build_prepared_puzzle(
     *,
     title: str,
     title_score: int,
@@ -73,6 +73,10 @@ def _build_prepared_puzzle(
         blocking_words=[clue.word_normalized for clue in _blocking_clues(puzzle)],
         assessment=copy.deepcopy(puzzle.assessment),
     )
+
+
+_should_skip_title_generation = should_skip_title_generation
+_build_prepared_puzzle = build_prepared_puzzle
 
 
 def _choose_metadata_variants_for_puzzle(
@@ -268,8 +272,8 @@ def _prepare_puzzle_for_publication(
             seed_parts=(index, size, attempt_index),
         )
         state.assessment = score_puzzle_state(state, candidate.report)
-        if _should_skip_title_generation(state):
-            prepared = _build_prepared_puzzle(
+        if should_skip_title_generation(state):
+            prepared = build_prepared_puzzle(
                 title="",
                 title_score=0,
                 candidate=candidate,
@@ -278,12 +282,12 @@ def _prepare_puzzle_for_publication(
                 final_passed=final_passed,
                 total=total,
             )
-            best_prepared = _better_prepared_puzzle(
+            best_prepared = better_prepared_puzzle(
                 best_prepared, prepared, client=client, runtime=runtime
             )
             log(
                 "Rejected puzzle before title generation: "
-                + _describe_publishability_failure(prepared)
+                + describe_publishability_failure(prepared)
             )
             continue
         title_result = generate_publication_title(
@@ -294,7 +298,7 @@ def _prepare_puzzle_for_publication(
         )
         state.title = title_result.title
         log(f"Titlu final: {title_result.title}")
-        prepared = _build_prepared_puzzle(
+        prepared = build_prepared_puzzle(
             title=title_result.title,
             title_score=title_result.score,
             candidate=candidate,
@@ -303,16 +307,16 @@ def _prepare_puzzle_for_publication(
             final_passed=final_passed,
             total=total,
         )
-        best_prepared = _better_prepared_puzzle(
+        best_prepared = better_prepared_puzzle(
             best_prepared, prepared, client=client, runtime=runtime
         )
 
-        if _is_publishable(best_prepared):
+        if is_publishable(best_prepared):
             log(f"  Puzzle publicabil la tentativa {attempt_index}/{effective_attempts}")
             break
         log(
             "Rejected puzzle after quality gate: "
-            + _describe_publishability_failure(prepared)
+            + describe_publishability_failure(prepared)
         )
 
     if best_prepared is None:

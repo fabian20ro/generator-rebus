@@ -36,13 +36,23 @@ from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import get_active_model_labels
 
 
-def pair_runtime(runtime: LmRuntime | None) -> LmRuntime:
+__all__ = [
+    "pair_verify_working_puzzle",
+    "pair_rate_working_puzzle",
+    "verify_clue_with_model",
+    "rate_clue_with_model",
+    "finalize_pair_verification",
+    "finalize_pair_rating",
+]
+
+
+def _pair_runtime(runtime: LmRuntime | None) -> LmRuntime:
     if runtime is not None and getattr(runtime, "multi_model", True):
         return runtime
     return LmRuntime(multi_model=True)
 
 
-def pair_labels() -> str:
+def _pair_labels() -> str:
     return " + ".join(get_active_model_labels(multi_model=True))
 
 
@@ -54,8 +64,8 @@ def pair_verify_working_puzzle(
     skip_words: set[str] | None,
     max_guesses: int = VERIFY_CANDIDATE_COUNT,
 ) -> tuple[int, int]:
-    active_runtime = pair_runtime(runtime)
-    model_ids, pair_label = run_pair_verify(
+    active_runtime = _pair_runtime(runtime)
+    model_ids, pair_label = _run_pair_verify(
         puzzle,
         client,
         runtime=active_runtime,
@@ -85,8 +95,8 @@ def pair_rate_working_puzzle(
     skip_words: set[str] | None,
     dex: DexProvider | None,
 ) -> tuple[float, float, int]:
-    active_runtime = pair_runtime(runtime)
-    model_ids, pair_label = run_pair_rate(
+    active_runtime = _pair_runtime(runtime)
+    model_ids, pair_label = _run_pair_rate(
         puzzle,
         client,
         runtime=active_runtime,
@@ -103,10 +113,10 @@ def pair_rate_working_puzzle(
         model_order=model_ids,
         model_label=pair_label,
     )
-    return rating_summary(puzzle)
+    return _rating_summary(puzzle)
 
 
-def rating_summary(puzzle: WorkingPuzzle) -> tuple[float, float, int]:
+def _rating_summary(puzzle: WorkingPuzzle) -> tuple[float, float, int]:
     semantic_scores = []
     guessability_scores = []
     for clue in all_working_clues(puzzle):
@@ -124,7 +134,7 @@ def rating_summary(puzzle: WorkingPuzzle) -> tuple[float, float, int]:
     return avg_semantic, avg_guessability, len(semantic_scores)
 
 
-def build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
+def _build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
     assessment = clue.current.assessment
     if assessment.scores.family_leakage:
         return ClueFailureReason("same_family", "Definiția folosește aceeași familie lexicală.")
@@ -144,7 +154,7 @@ def build_failure_reason(clue: WorkingClue) -> ClueFailureReason | None:
     return None
 
 
-def combine_verify_candidates(votes: dict[str, list[str]], model_order: list[str]) -> list[str]:
+def _combine_verify_candidates(votes: dict[str, list[str]], model_order: list[str]) -> list[str]:
     combined: list[str] = []
     seen: set[str] = set()
     for model_id in model_order:
@@ -158,11 +168,11 @@ def combine_verify_candidates(votes: dict[str, list[str]], model_order: list[str
     return combined
 
 
-def available_model_order(votes: dict[str, object], model_order: list[str]) -> list[str]:
+def _available_model_order(votes: dict[str, object], model_order: list[str]) -> list[str]:
     return [model_id for model_id in model_order if model_id in votes]
 
 
-def related_guess_for_candidates(word: str, candidates: list[str]) -> str:
+def _related_guess_for_candidates(word: str, candidates: list[str]) -> str:
     return next(
         (
             guess for guess in candidates
@@ -172,7 +182,7 @@ def related_guess_for_candidates(word: str, candidates: list[str]) -> str:
     )
 
 
-def combine_rating_feedback(votes: dict[str, DefinitionRating], model_order: list[str]) -> str:
+def _combine_rating_feedback(votes: dict[str, DefinitionRating], model_order: list[str]) -> str:
     parts: list[str] = []
     seen: set[str] = set()
     for model_id in model_order:
@@ -190,7 +200,7 @@ def combine_rating_feedback(votes: dict[str, DefinitionRating], model_order: lis
     return " / ".join(parts)
 
 
-def pair_clues(puzzle: WorkingPuzzle, skip_words: set[str] | None = None) -> list[WorkingClue]:
+def _pair_clues(puzzle: WorkingPuzzle, skip_words: set[str] | None = None) -> list[WorkingClue]:
     clues: list[WorkingClue] = []
     for clue in all_working_clues(puzzle):
         if not isinstance(clue, WorkingClue):
@@ -204,7 +214,7 @@ def pair_clues(puzzle: WorkingPuzzle, skip_words: set[str] | None = None) -> lis
     return clues
 
 
-def verify_runner(client: OpenAI, *, max_guesses: int):
+def _verify_runner(client: OpenAI, *, max_guesses: int):
     def _run(item: WorkItem[WorkingClue, list[str]], model) -> WorkVote[list[str]]:
         clue = item.payload
         try:
@@ -243,7 +253,7 @@ def verify_clue_with_model(
     model_id: str,
     max_guesses: int,
 ) -> list[str]:
-    vote = verify_runner(client, max_guesses=max_guesses)(
+    vote = _verify_runner(client, max_guesses=max_guesses)(
         WorkItem(
             item_id=f"verify:{clue.word_normalized}",
             task_kind="verify",
@@ -258,7 +268,7 @@ def verify_clue_with_model(
     return candidates
 
 
-def verify_conclusion(model_order: list[str]):
+def _verify_conclusion(model_order: list[str]):
     model_set = set(model_order)
 
     def _conclude(item: WorkItem[WorkingClue, list[str]]) -> WorkConclusion:
@@ -288,7 +298,7 @@ def verify_conclusion(model_order: list[str]):
     return _conclude
 
 
-def rate_runner(client: OpenAI, *, dex: DexProvider | None):
+def _rate_runner(client: OpenAI, *, dex: DexProvider | None):
     def _run(item: WorkItem[WorkingClue, DefinitionRating], model) -> WorkVote[DefinitionRating]:
         clue = item.payload
         dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
@@ -324,7 +334,7 @@ def rate_clue_with_model(
     dex: DexProvider | None,
     model_id: str,
 ) -> DefinitionRating | None:
-    vote = rate_runner(client, dex=dex)(
+    vote = _rate_runner(client, dex=dex)(
         WorkItem(
             item_id=f"rate:{clue.word_normalized}",
             task_kind="rate",
@@ -339,7 +349,7 @@ def rate_clue_with_model(
     return vote.value
 
 
-def rate_conclusion(model_order: list[str]):
+def _rate_conclusion(model_order: list[str]):
     def _conclude(item: WorkItem[WorkingClue, DefinitionRating]) -> WorkConclusion:
         if len(item.votes) == len(model_order):
             return WorkConclusion(complete=True)
@@ -348,7 +358,7 @@ def rate_conclusion(model_order: list[str]):
     return _conclude
 
 
-def run_pair_verify(
+def _run_pair_verify(
     puzzle: WorkingPuzzle,
     client: OpenAI,
     *,
@@ -358,7 +368,7 @@ def run_pair_verify(
 ) -> tuple[list[str], str]:
     models = [runtime.primary, runtime.secondary]
     model_ids = [model.model_id for model in models]
-    pair_label = " + ".join(model.display_name for model in models) or pair_labels()
+    pair_label = " + ".join(model.display_name for model in models) or _pair_labels()
     items = [
         WorkItem[WorkingClue, list[str]](
             item_id=f"verify:{index}:{clue.word_normalized}",
@@ -366,7 +376,7 @@ def run_pair_verify(
             payload=clue,
             pending_models=set(model_ids),
         )
-        for index, clue in enumerate(pair_clues(puzzle, skip_words), start=1)
+        for index, clue in enumerate(_pair_clues(puzzle, skip_words), start=1)
     ]
     run_llm_workload(
         runtime=runtime,
@@ -376,8 +386,8 @@ def run_pair_verify(
             WorkStep(
                 model_id=model.model_id,
                 purpose="definition_verify",
-                runner=verify_runner(client, max_guesses=max_guesses),
-                can_conclude=verify_conclusion(model_ids),
+                runner=_verify_runner(client, max_guesses=max_guesses),
+                can_conclude=_verify_conclusion(model_ids),
             )
             for model in models
         ],
@@ -393,7 +403,7 @@ def run_pair_verify(
     return model_ids, pair_label
 
 
-def run_pair_rate(
+def _run_pair_rate(
     puzzle: WorkingPuzzle,
     client: OpenAI,
     *,
@@ -403,7 +413,7 @@ def run_pair_rate(
 ) -> tuple[list[str], str]:
     models = [runtime.primary, runtime.secondary]
     model_ids = [model.model_id for model in models]
-    pair_label = " + ".join(model.display_name for model in models) or pair_labels()
+    pair_label = " + ".join(model.display_name for model in models) or _pair_labels()
     items = [
         WorkItem[WorkingClue, DefinitionRating](
             item_id=f"rate:{index}:{clue.word_normalized}",
@@ -411,7 +421,7 @@ def run_pair_rate(
             payload=clue,
             pending_models=set(model_ids),
         )
-        for index, clue in enumerate(pair_clues(puzzle, skip_words), start=1)
+        for index, clue in enumerate(_pair_clues(puzzle, skip_words), start=1)
     ]
     run_llm_workload(
         runtime=runtime,
@@ -421,8 +431,8 @@ def run_pair_rate(
             WorkStep(
                 model_id=model.model_id,
                 purpose="definition_rate",
-                runner=rate_runner(client, dex=dex),
-                can_conclude=rate_conclusion(model_ids),
+                runner=_rate_runner(client, dex=dex),
+                can_conclude=_rate_conclusion(model_ids),
             )
             for model in models
         ],
@@ -459,14 +469,14 @@ def finalize_pair_verification(
             for model_id in model_order
             if model_id in clue.current.assessment.verify_votes
         }
-        active_order = available_model_order(votes, model_order)
+        active_order = _available_model_order(votes, model_order)
         negative_votes = [
             model_id
             for model_id, candidates in votes.items()
             if clue.word_normalized not in [normalize(candidate) for candidate in candidates]
         ]
         clue.current.assessment.verify_complete = len(votes) == len(model_order) or bool(negative_votes)
-        combined_candidates = combine_verify_candidates(votes, model_order)
+        combined_candidates = _combine_verify_candidates(votes, model_order)
         clue.current.assessment.verify_candidates = combined_candidates
         clue.current.assessment.verified_by = model_label
 
@@ -505,7 +515,7 @@ def finalize_pair_verification(
             combined_candidates,
         )
         first_guess = failing_candidates[0] if failing_candidates else ""
-        related_guess = related_guess_for_candidates(clue.word_normalized, failing_candidates)
+        related_guess = _related_guess_for_candidates(clue.word_normalized, failing_candidates)
         related_form = bool(related_guess)
         clue.current.assessment.verified = False
         clue.current.assessment.wrong_guess = first_guess
@@ -548,17 +558,17 @@ def finalize_pair_rating(
             for model_id in model_order
             if model_id in clue.current.assessment.rating_votes
         }
-        active_order = available_model_order(votes, model_order)
+        active_order = _available_model_order(votes, model_order)
         clue.current.assessment.rated_by = model_label
         if not active_order:
-            mark_pair_rating_incomplete(clue)
+            _mark_pair_rating_incomplete(clue)
             continue
 
         if len(active_order) == len(model_order):
             first_vote = votes[active_order[0]]
             second_vote = votes[active_order[1]]
             if first_vote is None or second_vote is None:
-                mark_pair_rating_incomplete(clue)
+                _mark_pair_rating_incomplete(clue)
                 continue
             rating = combine_definition_ratings(first_vote, second_vote)
             clue.current.assessment.rating_complete = True
@@ -571,7 +581,7 @@ def finalize_pair_rating(
         else:
             fallback_vote = votes[active_order[0]]
             if fallback_vote is None:
-                mark_pair_rating_incomplete(clue)
+                _mark_pair_rating_incomplete(clue)
                 continue
             rating = fallback_vote
             clue.current.assessment.rating_complete = True
@@ -580,7 +590,7 @@ def finalize_pair_rating(
             clue.current.assessment.rarity_only_override = fallback_vote.rarity_only_override
             resolution_label = "single-model fallback"
 
-        feedback = combine_rating_feedback(votes, model_order)
+        feedback = _combine_rating_feedback(votes, model_order)
         semantic_score = rating.semantic_score
         guessability_score = rating.guessability_score
         creativity_score = rating.creativity_score
@@ -595,7 +605,7 @@ def finalize_pair_rating(
             creativity=creativity_score,
             rebus_score=rebus,
         )
-        clue.current.assessment.failure_reason = build_failure_reason(clue)
+        clue.current.assessment.failure_reason = _build_failure_reason(clue)
 
         semantic_ok = semantic_score >= RATE_MIN_SEMANTIC
         rebus_ok = rebus >= RATE_MIN_REBUS
@@ -608,7 +618,7 @@ def finalize_pair_rating(
         )
 
 
-def mark_pair_rating_incomplete(clue: WorkingClue) -> None:
+def _mark_pair_rating_incomplete(clue: WorkingClue) -> None:
     clue.current.assessment.rating_complete = False
     clue.current.assessment.rating_resolution = ""
     clue.current.assessment.rating_resolution_models = []
