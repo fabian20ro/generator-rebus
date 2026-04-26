@@ -10,11 +10,10 @@ from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.domain.pipeline_state import ClueScores, working_clue_from_entry
 from rebus_generator.domain.puzzle_metrics import build_puzzle_description, puzzle_metadata_payload, score_puzzle_state
 from rebus_generator.workflows.generate.verify import (
-    _finalize_pair_rating,
-    _finalize_pair_verification,
     _rate_clues,
     _verify_clues,
     rate_puzzle,
+    rate_working_puzzle,
     verify_working_puzzle,
 )
 
@@ -320,6 +319,60 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertIn("Scor semantic: 8/10", puzzle.horizontal_clues[0].verify_note)
         self.assertIn("Scor rebus: 6/10", puzzle.horizontal_clues[0].verify_note)
 
+    @patch("rebus_generator.workflows.generate.verify.definition_evaluation.pair_verify_working_puzzle")
+    def test_verify_working_puzzle_without_model_delegates_to_pair_evaluation(self, mock_pair_verify):
+        mock_pair_verify.return_value = (1, 1)
+        puzzle = SimpleNamespace(horizontal_clues=[], vertical_clues=[])
+        client = object()
+
+        result = verify_working_puzzle(puzzle, client=client, model_name=None)
+
+        self.assertEqual((1, 1), result)
+        mock_pair_verify.assert_called_once_with(
+            puzzle,
+            client,
+            runtime=None,
+            skip_words=None,
+            max_guesses=3,
+        )
+
+    @patch("rebus_generator.workflows.generate.verify.definition_evaluation.pair_rate_working_puzzle")
+    def test_rate_working_puzzle_without_model_delegates_to_pair_evaluation(self, mock_pair_rate):
+        mock_pair_rate.return_value = (8.0, 6.0, 1)
+        puzzle = SimpleNamespace(horizontal_clues=[], vertical_clues=[])
+        client = object()
+
+        result = rate_working_puzzle(puzzle, client=client, model_name=None)
+
+        self.assertEqual((8.0, 6.0, 1), result)
+        mock_pair_rate.assert_called_once_with(
+            puzzle,
+            client,
+            runtime=None,
+            skip_words=None,
+            dex=None,
+        )
+
+    @patch("rebus_generator.workflows.generate.verify.definition_evaluation.pair_verify_working_puzzle")
+    @patch("rebus_generator.workflows.generate.verify.verify_definition_candidates")
+    def test_verify_working_puzzle_with_model_uses_single_model_path(self, mock_verify_definition, mock_pair_verify):
+        mock_verify_definition.return_value = SimpleNamespace(candidates=["AUR"])
+        puzzle = SimpleNamespace(
+            horizontal_clues=[working_clue_from_entry(ClueEntry(1, "AUR", "aur", "Metal prețios galben"))],
+            vertical_clues=[],
+        )
+
+        result = verify_working_puzzle(
+            puzzle,
+            client=object(),
+            model_name=PRIMARY_MODEL.model_id,
+            model_label=PRIMARY_MODEL.display_name,
+        )
+
+        self.assertEqual((1, 1), result)
+        mock_pair_verify.assert_not_called()
+        mock_verify_definition.assert_called_once()
+
     def test_puzzle_metrics_keep_live_pass_rate_when_pair_incomplete(self):
         passed = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
         passed.current.assessment.verified = True
@@ -359,65 +412,6 @@ class VerifyPhaseTests(unittest.TestCase):
         self.assertEqual(1, payload["verified_count"])
         self.assertEqual(0.5, payload["pass_rate"])
         self.assertIn("Verificate: 1/2", description)
-
-    def test_finalize_pair_verification_handles_single_negative_vote_without_keyerror(self):
-        clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
-        clue.current.assessment.verify_votes = {
-            PRIMARY_MODEL.model_id: ["PARI"],
-        }
-
-        assessed = _finalize_pair_verification(
-            [clue],
-            model_order=[PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
-            model_label="gemma + eurollm",
-        )[0].current.assessment
-
-        self.assertTrue(assessed.verify_complete)
-        self.assertFalse(assessed.verified)
-        self.assertEqual("PARI", assessed.wrong_guess)
-        self.assertEqual("wrong_guess", assessed.failure_reason.kind)  # type: ignore[union-attr]
-
-    def test_finalize_pair_rating_handles_missing_second_vote_without_keyerror(self):
-        clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
-        clue.current.assessment.rating_votes = {
-            PRIMARY_MODEL.model_id: DefinitionRating(
-                semantic_score=8,
-                guessability_score=6,
-                feedback="ok",
-                creativity_score=6,
-            ),
-        }
-
-        _finalize_pair_rating(
-            [clue],
-            model_order=[PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
-            model_label="gemma + eurollm",
-        )
-
-        assessed = clue.current.assessment
-        self.assertTrue(assessed.rating_complete)
-        self.assertEqual("single_model_fallback", assessed.rating_resolution)
-        self.assertEqual([PRIMARY_MODEL.model_id], assessed.rating_resolution_models)
-        self.assertEqual(8, assessed.scores.semantic_exactness)
-        self.assertEqual(6, assessed.scores.answer_targeting)
-        self.assertEqual(6, assessed.scores.rebus_score)
-        self.assertEqual("feedback", assessed.failure_reason.kind)  # type: ignore[union-attr]
-
-    def test_finalize_pair_rating_stays_incomplete_when_both_votes_missing(self):
-        clue = working_clue_from_entry(ClueEntry(1, "ARACI", "araci", "Bețe de sprijin pentru vie"))
-
-        _finalize_pair_rating(
-            [clue],
-            model_order=[PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id],
-            model_label="gemma + eurollm",
-        )
-
-        assessed = clue.current.assessment
-        self.assertFalse(assessed.rating_complete)
-        self.assertEqual("", assessed.rating_resolution)
-        self.assertEqual([], assessed.rating_resolution_models)
-        self.assertIsNone(assessed.scores.semantic_exactness)
-        self.assertEqual("unrated", assessed.failure_reason.kind)  # type: ignore[union-attr]
 
 
 if __name__ == "__main__":

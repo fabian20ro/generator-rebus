@@ -958,8 +958,8 @@ class RunAllSupervisorTests(unittest.TestCase):
             patch("rebus_generator.workflows.run_all.jobs.redefine.rate_clue_with_model", return_value=SimpleNamespace(score=8)),
             patch("rebus_generator.workflows.run_all.jobs.redefine.DexProvider.for_puzzle", return_value=SimpleNamespace()),
             patch("rebus_generator.workflows.run_all.jobs.redefine.RunAllRewriteSession", return_value=SimpleNamespace()),
-            patch("rebus_generator.workflows.run_all.jobs.redefine._finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
-            patch("rebus_generator.workflows.run_all.jobs.redefine._finalize_pair_rating"),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.finalize_pair_verification", return_value=baseline_puzzle.horizontal_clues),
+            patch("rebus_generator.workflows.run_all.jobs.redefine.finalize_pair_rating"),
             patch("rebus_generator.workflows.run_all.jobs.redefine.score_puzzle_state", return_value=SimpleNamespace(min_rebus=1, avg_rebus=2.0, verified_count=1, total_clues=1)),
         ):
             ctx = _context(runtime)

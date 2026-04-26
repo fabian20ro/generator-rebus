@@ -1774,3 +1774,13 @@
 **Outcome:** success
 **Insight:** Pair evaluation is the interface test surface; verify CLI should adapt into it, not own vote lifecycle.
 **Promoted:** no
+
+---
+
+### [2026-04-26] — definition evaluation hard cutover
+
+**Happened:** Deleted duplicate pair verify/rate helpers from `generate.verify`. Moved run_all baseline/rewrite pair-call imports to `definition_evaluation`. Added direct Definition Evaluation pair tests plus verify adapter routing tests.
+**Verification:** `python3 -m pytest tests/generator/workflows/test_definition_evaluation.py tests/generator/workflows/test_verify.py -q` -> 24 passed. `python3 -m pytest tests/generator/workflows/test_rewrite_engine.py tests/generator/workflows/test_aggressive_rewrite_regression.py tests/generator/cli/test_run_all.py -q` -> 66 passed. `python3 -m compileall -q ...` passed. `git diff --check` and `git diff --cached --check` passed.
+**Outcome:** success
+**Insight:** Hard cutover is cleaner than aliases here; pair ownership now has one public module and `verify.py` stays adapter/single-model.
+**Promoted:** no

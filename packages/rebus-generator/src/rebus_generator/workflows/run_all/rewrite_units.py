@@ -25,9 +25,9 @@ from rebus_generator.platform.llm.ai_clues import RewriteAttemptResult, generate
 from rebus_generator.platform.llm.llm_dispatch import initial_generation_model, next_generation_model
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
-from rebus_generator.workflows.generate.verify import (
-    _finalize_pair_rating,
-    _finalize_pair_verification,
+from rebus_generator.workflows.generate.definition_evaluation import (
+    finalize_pair_rating,
+    finalize_pair_verification,
     rate_clue_with_model,
     verify_clue_with_model,
 )
@@ -171,7 +171,7 @@ class RunAllRewriteSession:
 
     def finalize_initial_verify(self) -> None:
         label = " + ".join("gemma + eurollm".split()) if self.multi_model else PRIMARY_MODEL.display_name
-        clues = _finalize_pair_verification(self.clues(), model_order=self.model_order, model_label=label)
+        clues = finalize_pair_verification(self.clues(), model_order=self.model_order, model_label=label)
         split = len(self.puzzle.horizontal_clues)
         self.puzzle.horizontal_clues = clues[:split]
         self.puzzle.vertical_clues = clues[split:]
@@ -206,7 +206,7 @@ class RunAllRewriteSession:
 
     def finalize_initial_rate(self) -> None:
         label = " + ".join("gemma + eurollm".split()) if self.multi_model else PRIMARY_MODEL.display_name
-        _finalize_pair_rating(self.clues(), model_order=self.model_order, model_label=label)
+        finalize_pair_rating(self.clues(), model_order=self.model_order, model_label=label)
         for clue in self.clues():
             _update_best_clue_version(clue, tiebreaker=lambda _a, _b: "A")
         self.build_initial_outcomes()
@@ -572,8 +572,8 @@ class RunAllRewriteSession:
                 shadow.current.assessment.verify_vote_sources = dict(evaluation.candidate.assessment.verify_vote_sources)
                 shadow.current.assessment.rating_votes = copy.deepcopy(evaluation.candidate.assessment.rating_votes)
                 shadow.current.assessment.rating_vote_sources = dict(evaluation.candidate.assessment.rating_vote_sources)
-                _finalize_pair_verification([shadow], model_order=self.model_order, model_label=label)
-                _finalize_pair_rating([shadow], model_order=self.model_order, model_label=label)
+                finalize_pair_verification([shadow], model_order=self.model_order, model_label=label)
+                finalize_pair_rating([shadow], model_order=self.model_order, model_label=label)
                 finalized_versions.append((evaluation.request, copy.deepcopy(shadow.current)))
             chosen_request, chosen_version = finalized_versions[0]
             for request, version in finalized_versions[1:]:
