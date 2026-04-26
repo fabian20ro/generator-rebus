@@ -14,6 +14,7 @@ from rebus_generator.platform.llm.ai_clues import (
     create_client,
     generate_definition,
     rate_definition,
+    RateDefinitionRequest,
     verify_definition_candidates,
 )
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
@@ -119,14 +120,17 @@ def verify_for_word(client, definition: str, length: int, word_type: str, max_gu
 
 def rate_for_word(client, word: str, display_word: str, definition: str, length: int, word_type: str, dex_definitions: str, model_name: str) -> tuple[int, int, bool]:
     try:
-        rating = rate_definition(
-            client,
-            word,
-            display_word,
-            definition,
-            length,
+        req = RateDefinitionRequest(
+            word=word,
+            original=display_word,
+            definition=definition,
+            answer_length=length,
             word_type=word_type,
             dex_definitions=dex_definitions,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=model_name,
         )
         if rating is not None:

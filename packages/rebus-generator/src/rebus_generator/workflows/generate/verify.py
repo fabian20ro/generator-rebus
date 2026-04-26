@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from openai import OpenAI
 
 from rebus_generator.platform.config import VERIFY_CANDIDATE_COUNT
@@ -14,6 +15,7 @@ from rebus_generator.platform.llm.ai_clues import (
     combine_definition_ratings,
     compute_rebus_score,
     rate_definition,
+    RateDefinitionRequest,
     verify_definition_candidates,
     contains_english_markers,
 )
@@ -225,14 +227,17 @@ def _rate_runner(client: OpenAI, *, dex: DexProvider | None):
     def _run(item: WorkItem[WorkingClue, DefinitionRating], model) -> WorkVote[DefinitionRating]:
         clue = item.payload
         dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
-        rating = rate_definition(
-            client,
-            clue.word_normalized,
-            clue.word_original,
-            clue.current.definition,
-            len(clue.word_normalized),
+        req = RateDefinitionRequest(
+            word=clue.word_normalized,
+            original=clue.word_original,
+            definition=clue.current.definition,
+            answer_length=len(clue.word_normalized),
             word_type=clue.word_type,
             dex_definitions=dex_defs,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=model.model_id,
         )
         if rating is None:
@@ -264,7 +269,7 @@ def rate_clue_with_model(
             payload=clue,
             pending_models={model_id},
         ),
-        type("_ModelRef", (), {"model_id": model_id})(),
+        SimpleNamespace(model_id=model_id),
     )
     clue.current.assessment.rating_vote_sources[model_id] = vote.source
     if vote.value is not None:
@@ -500,14 +505,17 @@ def _rate_clues(
 
         dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
         try:
-            rating = rate_definition(
-                client,
-                clue.word_normalized,
-                clue.word_original,
-                definition,
-                len(clue.word_normalized),
+            req = RateDefinitionRequest(
+                word=clue.word_normalized,
+                original=clue.word_original,
+                definition=definition,
+                answer_length=len(clue.word_normalized),
                 word_type=clue.word_type,
                 dex_definitions=dex_defs,
+            )
+            rating = rate_definition(
+                client,
+                req,
                 model=model_name,
             )
         except Exception:
