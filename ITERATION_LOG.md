@@ -1687,3 +1687,51 @@
 **Outcome:** success
 **Insight:** Supabase mutations need explicit `ReturnMethod.minimal` when response rows unused.
 **Promoted:** yes
+
+---
+
+### [2026-04-26] — architecture deepening scan
+
+**Happened:** Read lessons + architecture doc. Explorer + local pass over run_all, rewrite, canonical, title, verify modules. Produced candidate list only.
+**Outcome:** analysis only
+**Insight:** Direct CLI/batch paths and run_all scheduler paths repeatedly duplicate the same domain loops; deepest seams are policy/state Modules with thin execution Adapters.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — canonical publication planner helpers
+
+**Happened:** Added high-level planner helpers for new-puzzle and existing-puzzle clue publication. Upload/redefine/repair now receive resolved records/events/touched IDs from planner instead of local temp IDs/diff/event bookkeeping.
+**Verification:** `python3 -m pytest tests/generator/workflows/canonicals/test_planner.py`; `python3 -m pytest tests/generator/workflows/test_upload_phase.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_repair_puzzles.py`; targeted `git diff --check`.
+**Outcome:** success
+**Insight:** Planner-owned event + touched-id projection keeps adapters mutation-only while preserving rollback/cleanup flow.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — loaded-model scheduler unification
+
+**Happened:** Routed run_all LLM units through `ModelAwareScheduler`; rewired definition referee batch work through `run_llm_workload`; kept canonical publication on bulk planner helpers.
+**Verification:** `pytest tests/generator/cli/test_run_all.py tests/generator/workflows/test_ai_clues.py tests/generator/workflows/test_model_aware_scheduler.py tests/generator/workflows/canonicals/test_planner.py tests/generator/workflows/test_upload_phase.py tests/generator/workflows/test_redefine.py tests/generator/workflows/test_repair_puzzles.py -q` -> 216 passed, 2 subtests passed. `git diff --cached --check` OK.
+**Outcome:** success
+**Insight:** Broad scheduler unification changes run_all from one-model-per-cycle to ready-snapshot drain; switch metric remains tied to loaded-model drain.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — whole-codebase architecture deepening scan
+
+**Happened:** Read lessons, architecture doc, Python generator workflows, run_all scheduler, canonical planner, title flow, frontend bootstrap, worker puzzle handler. Produced deepening candidates only.
+**Outcome:** analysis only
+**Insight:** Largest locality gaps remain where direct batch flows and run_all resumable flows encode same domain policy separately; frontend bootstrap is similar UI orchestration accumulation.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — run_all drain and puzzle session deepening
+
+**Happened:** Added `CONTEXT.md` terms for Topic Slot, Model Drain, Puzzle Session, and Puzzle Session Adapter. Extracted run_all `ModelDrain` and `TopicSlotProgressor` Modules from supervisor. Extracted frontend puzzle-session view model + solved-grid hydration Module; wired bootstrap to use it.
+**Verification:** `python3 -m pytest tests/generator/cli/test_run_all.py -q` -> 52 passed. `npm test -- --runInBand apps/frontend/src/features/puzzle-player/session/puzzle-session.test.ts` -> 3 passed. `npm run build` in `apps/frontend` passed. `git diff --check` passed.
+**Outcome:** success
+**Insight:** Keep `RunAllSupervisor` as loop/coordinator; model ordering belongs in Model Drain, topic admission/ready-unit collection in Topic Slot Progressor.
+**Promoted:** no

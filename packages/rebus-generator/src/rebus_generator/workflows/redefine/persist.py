@@ -12,7 +12,7 @@ from rebus_generator.platform.llm.models import get_active_model_labels
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.persistence.supabase_ops import execute_logged_update
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
-from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, CanonicalInput
+from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, ExistingPuzzleClueInput
 from rebus_generator.domain.pipeline_state import WorkingClue, WorkingPuzzle, puzzle_from_working_state
 
 from .load import PlannedClueUpdate, RedefinePersistencePlan, clue_key, working_clue_map
@@ -144,11 +144,11 @@ def plan_redefined_puzzle_persistence(
     )
     planner = CanonicalPersistencePlanner(resolver=clue_canon, builder=clue_canon.store)
     
-    inputs = []
     key_to_row = {
         clue_key(row.get("direction"), row.get("start_row"), row.get("start_col")): row
         for row in clue_rows
     }
+    planning_inputs: list[ExistingPuzzleClueInput] = []
     
     for key, row in key_to_row.items():
         desired = desired_payloads.get(key)
@@ -157,43 +157,37 @@ def plan_redefined_puzzle_persistence(
             continue
             
         final_version = source_clue.active_version()
-        current_payload = {
-            "definition": row.get("definition", "") or "",
-            "verify_note": row.get("verify_note", "") or "",
-            "verified": bool(row.get("verified")),
-            "canonical_definition_id": row.get("canonical_definition_id"),
-        }
-        
-        inputs.append(
-            CanonicalInput(
+        planning_inputs.append(
+            ExistingPuzzleClueInput(
+                row=row,
                 word_normalized=source_clue.word_normalized,
                 word_original=source_clue.word_original,
                 definition=str(desired["definition"]),
                 word_type=source_clue.word_type,
-                clue_id=str(row["id"]),
                 verified=bool(desired.get("verified")),
                 semantic_score=final_version.assessment.scores.semantic_exactness,
                 rebus_score=final_version.assessment.scores.rebus_score,
                 creativity_score=final_version.assessment.scores.creativity,
                 verify_note=str(desired.get("verify_note") or ""),
-                current_payload=current_payload,
+                context={"key": key, "source_clue": source_clue},
             )
         )
         
-    plan_result = planner.plan(inputs)
+    plan_result = planner.plan_existing_puzzle_clues(
+        planning_inputs,
+        touched_canonical_ids=touched_canonical_ids,
+    )
     
     clue_updates: list[PlannedClueUpdate] = []
-    row_by_id = {str(row["id"]): row for row in clue_rows}
     
-    for persistence in plan_result.clue_persistences:
-        clue_id = str(persistence.clue_id)
-        row = row_by_id.get(clue_id)
-        if not row:
-            continue
-            
-        key = clue_key(row.get("direction"), row.get("start_row"), row.get("start_col"))
+    for planned in plan_result.clues:
+        persistence = planned.persistence
+        row = planned.row
+        clue_id = str(row["id"])
+        context = planned.context or {}
+        key = context.get("key") or clue_key(row.get("direction"), row.get("start_row"), row.get("start_col"))
         target_clue = persistence_clues.get(key)
-        source_clue = candidate_clues.get(key)
+        source_clue = context.get("source_clue") or candidate_clues.get(key)
         if target_clue and source_clue:
             apply_clue_version(target_clue, source_clue)
             
@@ -204,13 +198,11 @@ def plan_redefined_puzzle_persistence(
                 candidate_definition=persistence.candidate_definition,
                 canonical_definition=persistence.canonical_definition,
                 update_payload=persistence.payload,
-                canonical_action=persistence.action,
-                canonical_detail=persistence.detail,
+                canonical_action=planned.canonical_event.action,
+                canonical_detail=planned.canonical_event.detail,
             )
         )
         
-    touched_ids = list(set(list(touched_canonical_ids or []) + plan_result.touched_canonical_ids))
-    
     metadata_payload = None
     from .load import _needs_metadata_backfill
     if clue_updates:
@@ -222,7 +214,7 @@ def plan_redefined_puzzle_persistence(
     return RedefinePersistencePlan(
         clue_updates=clue_updates,
         metadata_payload=metadata_payload,
-        touched_canonical_ids=sorted(touched_ids),
+        touched_canonical_ids=plan_result.touched_canonical_ids,
     )
 
 

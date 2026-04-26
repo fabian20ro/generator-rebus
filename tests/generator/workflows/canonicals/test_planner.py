@@ -8,6 +8,7 @@ from rebus_generator.workflows.canonicals.planner import (
     CanonicalInput,
     CanonicalResolverPort,
     CluePayloadBuilderPort,
+    ExistingPuzzleClueInput,
 )
 
 class TestCanonicalPersistencePlanner(unittest.TestCase):
@@ -208,6 +209,128 @@ class TestCanonicalPersistencePlanner(unittest.TestCase):
 
         self.assertEqual(inputs, resolver.inputs)
         self.assertEqual(["canon-0", "canon-1"], [item.canonical_definition_id for item in plan.clue_persistences])
+
+    def test_plan_new_puzzle_clues_uses_bulk_without_temp_ids(self):
+        class _BulkResolver:
+            def __init__(self):
+                self.calls = []
+
+            def resolve_definitions(self, inputs):
+                self.calls.append(list(inputs))
+                return [
+                    MagicMock(
+                        canonical_definition_id="canon-1",
+                        canonical_definition="Def canon",
+                        action="create_new",
+                        created_new=True,
+                    )
+                ]
+
+            def resolve_definition(self, **_kwargs):
+                raise AssertionError("serial resolver should not run")
+
+        resolver = _BulkResolver()
+        builder = MagicMock()
+        builder.build_clue_definition_payload.return_value = {
+            "canonical_definition_id": "canon-1",
+            "definition": "Def canon",
+            "verified": False,
+        }
+        planner = CanonicalPersistencePlanner(resolver=resolver, builder=builder)
+
+        plan = planner.plan_new_puzzle_clues([
+            {
+                "word_normalized": "NOU",
+                "word_original": "nou",
+                "word_type": "adj",
+                "clue_number": 1,
+                "_candidate_definition": "Def candidat",
+            }
+        ])
+
+        self.assertEqual(1, len(resolver.calls))
+        self.assertIsNone(resolver.calls[0][0].clue_id)
+        self.assertEqual(["canon-1"], plan.touched_canonical_ids)
+        self.assertEqual("canon-1", plan.clues[0].record["canonical_definition_id"])
+        self.assertNotIn("_candidate_definition", plan.clues[0].record)
+        self.assertEqual("create_new", plan.clues[0].canonical_event.action)
+        self.assertEqual("Def candidat", plan.clues[0].canonical_event.candidate_definition)
+
+    def test_plan_existing_puzzle_clues_builds_current_diff_and_merges_touched_ids(self):
+        class _BulkResolver:
+            def __init__(self):
+                self.calls = []
+
+            def resolve_definitions(self, inputs):
+                self.calls.append(list(inputs))
+                return [
+                    MagicMock(
+                        canonical_definition_id="new-id",
+                        canonical_definition="Def nou",
+                        action="promote_new",
+                        created_new=True,
+                    ),
+                    MagicMock(
+                        canonical_definition_id="same-id",
+                        canonical_definition="Def vechi",
+                        action="reuse_exact",
+                        created_new=False,
+                    ),
+                ]
+
+            def resolve_definition(self, **_kwargs):
+                raise AssertionError("serial resolver should not run")
+
+        resolver = _BulkResolver()
+        builder = MagicMock()
+        builder.build_clue_definition_payload.side_effect = [
+            {"canonical_definition_id": "new-id", "verified": True, "verify_note": "ok"},
+            {"canonical_definition_id": "same-id", "verified": False, "verify_note": ""},
+        ]
+        planner = CanonicalPersistencePlanner(resolver=resolver, builder=builder)
+
+        changed_row = {
+            "id": "row-1",
+            "definition": "Def veche",
+            "canonical_definition_id": "old-id",
+            "verified": False,
+            "verify_note": "",
+        }
+        unchanged_row = {
+            "id": "row-2",
+            "definition": "Def vechi",
+            "canonical_definition_id": "same-id",
+            "verified": False,
+            "verify_note": "",
+        }
+        plan = planner.plan_existing_puzzle_clues(
+            [
+                ExistingPuzzleClueInput(
+                    row=changed_row,
+                    word_normalized="A",
+                    definition="Def nou",
+                    verified=True,
+                    verify_note="ok",
+                    context={"key": ("H", 0, 0)},
+                ),
+                ExistingPuzzleClueInput(
+                    row=unchanged_row,
+                    word_normalized="B",
+                    definition="Def vechi",
+                    verified=False,
+                    verify_note="",
+                    context={"key": ("V", 0, 0)},
+                ),
+            ],
+            touched_canonical_ids=["prior-id"],
+        )
+
+        self.assertEqual(1, len(resolver.calls))
+        self.assertEqual(1, len(plan.clues))
+        self.assertEqual("row-1", plan.clues[0].persistence.clue_id)
+        self.assertEqual({"key": ("H", 0, 0)}, plan.clues[0].context)
+        self.assertEqual("promote_new", plan.clues[0].canonical_event.action)
+        self.assertEqual(["new-id", "prior-id"], plan.touched_canonical_ids)
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,10 @@ import {
   checkPuzzle,
   isPuzzleComplete,
 } from "../features/puzzle-player/hints/hint-system";
+import {
+  buildPuzzleSessionViewModel,
+  hydrateSolvedGridFromSolution,
+} from "../features/puzzle-player/session/puzzle-session";
 import { renderDefinitionBar } from "../features/puzzle-player/clues/definition-bar";
 import { renderStatisticsPanel } from "../features/gamification/statistics-panel";
 import { renderRewardsPanel } from "../features/gamification/rewards-panel";
@@ -160,18 +164,6 @@ function setPuzzleInteractionDisabled(disabled: boolean): void {
   btnHintWord.toggleAttribute("disabled", disabled);
   btnPencil.toggleAttribute("disabled", disabled);
   renderTouchRemote();
-}
-
-function hydrateSolvedGridFromSolution(state: GridState): boolean {
-  if (!state.solution) return false;
-
-  state.cells = state.solution.map((row, r) =>
-    row.map((cell, c) => (state.template[r][c] ? cell : "#"))
-  );
-  state.revealed = state.template.map((row) => row.map((isLetter) => isLetter));
-  state.pencilCells = state.template.map((row) => row.map(() => false));
-  state.isSolvedView = true;
-  return true;
 }
 
 function formatDateLabel(value?: string | null): string {
@@ -469,16 +461,19 @@ function focusActiveCell(): void {
 }
 
 function renderTouchRemote(): void {
-  const showRemote =
-    touchRemoteEnabled && !!gridState && !gridState.isSolvedView;
-  touchRemote.classList.toggle("hidden", !showRemote);
+  const view = buildPuzzleSessionViewModel(gridState, {
+    currentPuzzleId,
+    alreadySolved: currentPuzzleId ? isPuzzleAlreadySolved(currentPuzzleId) : false,
+    touchRemoteEnabled,
+  });
+  touchRemote.classList.toggle("hidden", !view.showTouchRemote);
 
-  const disabled = !showRemote;
+  const disabled = !view.showTouchRemote;
   for (const button of touchRemoteButtons) {
     button.disabled = disabled;
   }
 
-  if (!showRemote || !gridState) {
+  if (!view.showTouchRemote || !gridState) {
     touchRemoteDirection.classList.remove(
       "touch-remote__key--horizontal",
       "touch-remote__key--vertical"
@@ -486,7 +481,7 @@ function renderTouchRemote(): void {
     return;
   }
 
-  const isHorizontal = gridState.activeDirection === "H";
+  const isHorizontal = view.activeDirection === "H";
   touchRemoteDirection.classList.toggle(
     "touch-remote__key--horizontal",
     isHorizontal
@@ -649,25 +644,12 @@ function refresh(): void {
   renderDefinitionBar(definitionBar, gridState);
   renderTouchRemote();
 
-  // Update progress counter
-  updateProgressCounter(gridState);
-}
-
-function updateProgressCounter(state: GridState): void {
-  let filled = 0;
-  let total = 0;
-  for (let r = 0; r < state.size; r++) {
-    for (let c = 0; c < state.size; c++) {
-      if (state.template[r][c]) {
-        total++;
-        const v = state.cells[r][c];
-        if (v !== null && v !== "#") {
-          filled++;
-        }
-      }
-    }
-  }
-  progressCounter.textContent = `${filled}/${total}`;
+  const view = buildPuzzleSessionViewModel(gridState, {
+    currentPuzzleId,
+    alreadySolved: currentPuzzleId ? isPuzzleAlreadySolved(currentPuzzleId) : false,
+    touchRemoteEnabled,
+  });
+  progressCounter.textContent = view.progressText;
 }
 
 // --- Completion handler ---

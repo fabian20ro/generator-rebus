@@ -12,7 +12,7 @@ from rebus_generator.platform.persistence.supabase_ops import create_rebus_clien
 from rebus_generator.platform.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERIFY_CANDIDATE_COUNT
 from rebus_generator.platform.llm.llm_client import create_client as create_ai_client
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
-from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, CanonicalInput
+from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, ExistingPuzzleClueInput
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.io.clue_logging import clue_label, clue_label_from_row, log_canonical_event, log_definition_event
 from rebus_generator.domain.clue_rating import extract_creativity_score, extract_rebus_score, extract_semantic_score
@@ -183,7 +183,6 @@ def _persist_clues(
     )
     planner = CanonicalPersistencePlanner(resolver=clue_canon, builder=clue_canon.store)
     
-    inputs = []
     key_to_id = {
         ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row["id"]
         for row in clue_rows
@@ -192,34 +191,41 @@ def _persist_clues(
         ((row.get("direction") or "").upper(), row.get("start_row"), row.get("start_col")): row
         for row in clue_rows
     }
+    planning_inputs: list[ExistingPuzzleClueInput] = []
     
     for direction, clues in (("H", puzzle.horizontal_clues), ("V", puzzle.vertical_clues)):
         for clue in clues:
-            clue_id = key_to_id.get((direction, clue.start_row, clue.start_col))
-            if not clue_id:
+            key = (direction, clue.start_row, clue.start_col)
+            row = row_by_key.get(key)
+            if not row:
                 continue
             active = clue.active_version()
             verify_note = render_verify_note(active.assessment)
-            inputs.append(
-                CanonicalInput(
+            planning_inputs.append(
+                ExistingPuzzleClueInput(
+                    row=row,
                     word_normalized=clue.word_normalized,
                     word_original=clue.word_original,
                     definition=active.definition,
                     word_type=clue.word_type,
-                    clue_id=clue_id,
                     verified=bool(active.assessment.verified),
                     semantic_score=extract_semantic_score(verify_note),
                     rebus_score=extract_rebus_score(verify_note),
                     creativity_score=extract_creativity_score(verify_note),
                     verify_note=verify_note,
+                    context={"key": key},
                 )
             )
             
-    plan = planner.plan(inputs)
+    plan = planner.plan_existing_puzzle_clues(planning_inputs)
     
-    for persistence in plan.clue_persistences:
-        key = next(k for k, v in key_to_id.items() if v == persistence.clue_id)
-        row = row_by_key.get(key, {})
+    for planned in plan.clues:
+        persistence = planned.persistence
+        event = planned.canonical_event
+        key = (planned.context or {}).get("key")
+        if key is None:
+            key = next(k for k, v in key_to_id.items() if v == persistence.clue_id)
+        row = planned.row
         clue_ref = clue_label(
             word=row.get("word_normalized", ""),
             direction=key[0],
@@ -229,12 +235,12 @@ def _persist_clues(
         )
         
         log_canonical_event(
-            persistence.action,
+            event.action,
             puzzle_id=puzzle_id,
             clue_ref=clue_ref,
-            candidate_definition=persistence.candidate_definition,
-            canonical_definition=persistence.canonical_definition,
-            detail=persistence.detail,
+            candidate_definition=event.candidate_definition,
+            canonical_definition=event.canonical_definition,
+            detail=event.detail,
         )
         
         if row:

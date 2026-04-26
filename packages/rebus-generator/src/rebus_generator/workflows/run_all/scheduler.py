@@ -18,6 +18,7 @@ from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.platform.io.runtime_logging import log
 from .jobs import build_job
+from .model_drain import ModelDrain
 from .pollers import poll_generate, poll_redefine, poll_retitle, poll_simplify
 from .reporting import (
     dominant_failure_global_text,
@@ -42,6 +43,7 @@ from .state import (
     should_deprioritize_live_item,
     stable_progress,
 )
+from .topic_slots import TopicSlotProgressor
 from .types import (
     ClaimState,
     DeterministicFailureQuarantine,
@@ -126,6 +128,8 @@ class RunAllSupervisor:
         self.unit_purpose_counts: Counter[str] = Counter()
         self.topic_drain_counts: Counter[str] = Counter()
         self.unit_trace_path = Path(self.ctx.run_dir) / "unit_trace.jsonl"
+        self.model_drain = ModelDrain(self.ctx.runtime)
+        self.topic_slot_progressor = TopicSlotProgressor(self)
         self.ctx.runtime.switch_callback = self._on_model_switch
         if hasattr(self.ctx.runtime, "nested_activation_callback"):
             self.ctx.runtime.nested_activation_callback = self._on_nested_activation
@@ -197,69 +201,38 @@ class RunAllSupervisor:
         llm_units = [unit for unit in _fresh_units() if unit.execution_mode == "llm"]
         if not llm_units:
             return ran_any
-        model_id = self._choose_model_for_units(llm_units)
-        self._ensure_model_active(model_id)
-        same_model_units = [unit for unit in llm_units if unit.model_id == model_id]
-        topic_counts = Counter(unit.topic for unit in same_model_units)
-        purpose_counts = Counter(unit.purpose for unit in same_model_units)
+        topic_counts = Counter(unit.topic for unit in llm_units)
+        purpose_counts = Counter(unit.purpose for unit in llm_units)
         topic_text = " ".join(f"{topic}={topic_counts.get(topic, 0)}" for topic in self.topics)
         purpose_text = " ".join(f"{purpose}={count}" for purpose, count in sorted(purpose_counts.items()))
         log(
-            f"[run_all drain] model={model_id} ready={sum(topic_counts.values())} "
+            f"[run_all drain] scheduler=model_aware ready={sum(topic_counts.values())} "
             f"topics=({topic_text}) purposes=({purpose_text}) {self._queue_snapshot_text()}"
         )
-        while True:
-            same_model_units = [
-                unit
-                for unit in _fresh_units()
-                if unit.execution_mode == "llm" and unit.model_id == model_id
-            ]
-            if not same_model_units:
-                break
-            unit = same_model_units[0]
-            self._run_unit(unit, lane="llm")
-            executed_unit_keys.add((unit.job_id, unit.step_id, unit.phase or ""))
-            ran_any = True
-            self._poll_worker_task()
-            self._finalize_finished_jobs()
+        self._run_llm_units_with_scheduler(llm_units, executed_unit_keys)
+        ran_any = True
         return ran_any
 
+    def _run_llm_units_with_scheduler(
+        self,
+        units: list[StepState],
+        executed_unit_keys: set[tuple[str, str, str]],
+    ) -> None:
+        def _run(unit: StepState) -> None:
+            self._run_unit(unit, lane="llm")
+
+        def _after(unit: StepState) -> None:
+            self._poll_worker_task()
+            self._finalize_finished_jobs()
+
+        drained = self.model_drain.drain(units, run_unit=_run, after_unit=_after)
+        executed_unit_keys.update(drained_unit.key() for drained_unit in drained)
+
     def _collect_units(self) -> list[StepState]:
-        now = time.monotonic()
-        units: list[StepState] = []
-        for topic in self.topics:
-            slot = self.slots[topic]
-            job = slot.active_job
-            if (
-                job is None
-                or job.status != "active"
-                or job.available_after > now
-                or job.running_step_id is not None
-            ):
-                continue
-            self._observe_job_stage(job)
-            units.extend(job.plan_ready_units(self.ctx))
-        return units
+        return self.topic_slot_progressor.collect_ready_units()
 
     def _choose_model_for_units(self, units: list[StepState]) -> str:
-        self.ctx.runtime.sync()
-        current_model_id = self.ctx.runtime.current_model_id
-        ready_by_model = Counter(unit.model_id for unit in units if unit.model_id)
-
-        # 0-work guard: if the current model can do ANY work, stay on it.
-        if current_model_id and ready_by_model.get(current_model_id, 0) > 0:
-            return current_model_id
-
-        # Prefer PRIMARY if it has work.
-        if ready_by_model.get(PRIMARY_MODEL.model_id, 0) > 0:
-            return PRIMARY_MODEL.model_id
-
-        # Otherwise, if SECONDARY has work, switch.
-        if ready_by_model.get(SECONDARY_MODEL.model_id, 0) > 0:
-            return SECONDARY_MODEL.model_id
-
-        # If no model has work (e.g. non-LLM steps only), stay on current or PRIMARY.
-        return current_model_id or PRIMARY_MODEL.model_id
+        return self.model_drain.choose_model_for_units(units)
 
     def _ensure_model_active(self, model_id: str) -> None:
         previous_model_id = self.ctx.runtime.current_model_id
@@ -468,27 +441,7 @@ class RunAllSupervisor:
             slot.active_job = None
 
     def _refill_slots(self) -> int:
-        admitted = 0
-        if self._admission_frozen():
-            return 0
-        for topic in self.topics:
-            slot = self.slots[topic]
-            if slot.active_job is not None:
-                continue
-            item = self._next_pending_for_topic(topic)
-            if item is None:
-                item = self._poll_one_topic(topic)
-            if item is None:
-                continue
-            job = self._build_job(item)
-            slot.active_job = job
-            self._note_job_started(job)
-            admitted += 1
-            log(
-                f"[run_all start] topic={topic} job={job.item_id} task={job.task_kind} "
-                f"preferred={job.preferred_model_id} stage={job.stage}"
-            )
-        return admitted
+        return self.topic_slot_progressor.refill()
 
     def _admission_frozen(self) -> bool:
         step_counts = self._runnable_counts_by_model()
@@ -647,7 +600,7 @@ class RunAllSupervisor:
     def _on_model_switch(self, previous_model_id: str, next_model_id: str, runtime: LmRuntime, reason: str) -> None:
         reason = reason or self._next_switch_reason or "unknown"
         self.switch_reason_counts[reason] += 1
-        if reason == "loaded_model_drained":
+        if reason == "loaded_model_drained" or reason == "model_aware_scheduler:run_all_llm_units":
             self.loaded_model_drain_switches += 1
         ready_counts = self._runnable_counts_by_model()
         log(

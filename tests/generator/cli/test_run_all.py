@@ -778,9 +778,10 @@ class RunAllSupervisorTests(unittest.TestCase):
 
         supervisor._run_ready_steps()
 
-        self.assertEqual(["generate", "retitle"], calls)
-        self.assertEqual(PRIMARY_MODEL.model_id, runtime.current_model_id)
-        self.assertEqual(0, runtime.switch_count)
+        self.assertEqual(["generate", "retitle", "simplify"], calls)
+        self.assertEqual(SECONDARY_MODEL.model_id, runtime.current_model_id)
+        self.assertEqual(1, runtime.switch_count)
+        self.assertEqual(1, supervisor.loaded_model_drain_switches)
 
     def test_switch_counts_only_after_loaded_model_drains(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)

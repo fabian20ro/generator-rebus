@@ -9,7 +9,7 @@ from rebus_generator.platform.persistence.supabase_ops import create_rebus_clien
 from rebus_generator.platform.persistence.supabase_ops import execute_logged_insert
 from rebus_generator.platform.config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
-from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, CanonicalInput
+from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner
 from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.io.clue_logging import clue_label_from_row, log_canonical_event
 from rebus_generator.platform.io.markdown_io import parse_markdown
@@ -173,35 +173,9 @@ def upload_puzzle(
     puzzle_id = ""
     created_canonical_ids: list[str] = []
     try:
-        inputs = []
-        record_by_index = {}
-        for idx, record in enumerate(clue_records):
-            resolved_record = dict(record)
-            original_definition = str(resolved_record.pop("_candidate_definition", "") or "")
-            record_by_index[idx] = (resolved_record, original_definition)
-            inputs.append(
-                CanonicalInput(
-                    word_normalized=resolved_record["word_normalized"],
-                    word_original=resolved_record["word_original"],
-                    definition=original_definition,
-                    word_type=str(resolved_record.get("word_type") or ""),
-                    clue_id=str(idx), # Use index as temporary ID
-                )
-            )
-            
         planner = CanonicalPersistencePlanner(resolver=clue_canon, builder=clue_store)
-        plan = planner.plan(inputs)
-        
-        resolved_clue_records: list[dict[str, object]] = []
-        canonical_events: list[tuple[str, dict[str, object], str, object]] = []
-        
-        for persistence in plan.clue_persistences:
-            idx = int(persistence.clue_id)
-            resolved_record, original_definition = record_by_index[idx]
-            resolved_record.update(persistence.payload)
-            resolved_clue_records.append(resolved_record)
-            canonical_events.append((persistence.action, resolved_record, original_definition, persistence))
-            
+        plan = planner.plan_new_puzzle_clues(clue_records)
+        resolved_clue_records = [planned.record for planned in plan.clues]
         created_canonical_ids = plan.touched_canonical_ids
 
         result = execute_logged_insert(
@@ -222,14 +196,15 @@ def upload_puzzle(
                 resolved_clue_records,
                 returning=ReturnMethod.minimal,
             )
-            for action, record, original_definition, decision in canonical_events:
+            for planned in plan.clues:
+                event = planned.canonical_event
                 log_canonical_event(
-                    action,
+                    event.action,
                     puzzle_id=puzzle_id,
-                    clue_ref=clue_label_from_row(record),
-                    candidate_definition=original_definition,
-                    canonical_definition=decision.canonical_definition,
-                    detail=decision.detail,
+                    clue_ref=clue_label_from_row(planned.record),
+                    candidate_definition=event.candidate_definition,
+                    canonical_definition=event.canonical_definition,
+                    detail=event.detail,
                 )
             for record in resolved_clue_records:
                 log(

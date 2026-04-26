@@ -21,6 +21,8 @@ from .llm_client import (
     llm_attempt_temperatures,
     short_form_max_tokens,
 )
+from .llm_dispatch import WorkItem, WorkStep, WorkVote, run_llm_workload
+from .lm_runtime import LmRuntime
 from .models import PRIMARY_MODEL, SECONDARY_MODEL, chat_max_tokens
 from .prompt_builders import (
     _build_clue_tiebreak_prompt,
@@ -281,21 +283,78 @@ def run_definition_referee_adaptive_batch(
     if not requests:
         return AdaptiveRefereeBatchResult(results={}, total_votes=0)
     _REFEREE_BATCH_SIZE_HISTOGRAM[len(requests)] += 1
+    if runtime is None:
+        runtime = LmRuntime(multi_model=multi_model)
 
-    vote_steps = [
-        (PRIMARY_MODEL, False, "primary"),
-    ]
+    models = [PRIMARY_MODEL]
     if multi_model:
-        vote_steps.append((SECONDARY_MODEL, True, "secondary"))
-    
-    active_request_ids = [request.request_id for request in requests]
-    request_by_id = {request.request_id: request for request in requests}
-    votes_by_request_id: dict[str, list[DefinitionComparisonVote]] = {
-        request.request_id: [] for request in requests
+        models.append(SECONDARY_MODEL)
+    model_roles = {
+        PRIMARY_MODEL.model_id: "primary",
+        SECONDARY_MODEL.model_id: "secondary",
     }
-    attempts_by_request_id: dict[str, list[DefinitionComparisonAttempt]] = {
-        request.request_id: [] for request in requests
+    model_swaps = {
+        PRIMARY_MODEL.model_id: False,
+        SECONDARY_MODEL.model_id: True,
     }
+    model_ids = [model.model_id for model in models]
+    items = [
+        WorkItem[DefinitionRefereeInput, DefinitionComparisonAttempt](
+            item_id=request.request_id,
+            task_kind="definition_referee",
+            payload=request,
+            pending_models=set(model_ids),
+        )
+        for request in requests
+    ]
+
+    def _runner(
+        item: WorkItem[DefinitionRefereeInput, DefinitionComparisonAttempt],
+        model,
+    ) -> WorkVote[DefinitionComparisonAttempt]:
+        request = item.payload
+        swap = model_swaps.get(model.model_id, False)
+        model_role = model_roles.get(model.model_id, "")
+        left = request.definition_b if swap else request.definition_a
+        right = request.definition_a if swap else request.definition_b
+        attempt = _compare_definition_variant_attempt(
+            client,
+            request.word,
+            request.answer_length,
+            left,
+            right,
+            model=model.model_id,
+        )
+        vote = _remap_swapped_vote(attempt.vote) if (swap and attempt.vote is not None) else attempt.vote
+        return WorkVote(
+            model_id=model.model_id,
+            value=DefinitionComparisonAttempt(
+                model_id=attempt.model_id,
+                model_role=model_role,
+                valid_vote=attempt.valid_vote,
+                parse_status=attempt.parse_status,
+                latency_seconds=attempt.latency_seconds,
+                vote=vote,
+                error_message=attempt.error_message,
+            ),
+            source=attempt.parse_status,
+        )
+
+    run_llm_workload(
+        runtime=runtime,
+        models=models,
+        items=items,
+        steps=[
+            WorkStep(
+                model_id=model.model_id,
+                purpose="definition_referee",
+                runner=_runner,
+            )
+            for model in models
+        ],
+        task_label="definition_referee",
+    )
+
     results: dict[str, DefinitionRefereeResult] = {}
     total_votes = 0
     phase1_requests = 0
@@ -304,77 +363,44 @@ def run_definition_referee_adaptive_batch(
     invalid_compare_json_secondary = 0
     step_metrics: list[dict[str, object]] = []
 
-    for step_index, (model_config, swap, model_role) in enumerate(vote_steps):
-        if not active_request_ids:
-            break
-        requests_started = len(active_request_ids)
+    for step_index, model in enumerate(models):
+        model_id = model.model_id
+        model_role = model_roles[model_id]
+        requests_started = sum(1 for item in items if model_id in item.votes)
         if model_role == "primary":
             phase1_requests += requests_started
         else:
             phase2_requests += requests_started
-        if runtime is not None:
-            runtime.activate(model_config, reason="definition_referee")
-        completed_ids: list[str] = []
-        for request_id in list(active_request_ids):
-            request = request_by_id[request_id]
-            left = request.definition_b if swap else request.definition_a
-            right = request.definition_a if swap else request.definition_b
-            attempt = _compare_definition_variant_attempt(
-                client,
-                request.word,
-                request.answer_length,
-                left,
-                right,
-                model=model_config.model_id,
-            )
-            vote = _remap_swapped_vote(attempt.vote) if (swap and attempt.vote is not None) else attempt.vote
-            attempts_by_request_id[request_id].append(
-                DefinitionComparisonAttempt(
-                    model_id=attempt.model_id,
-                    model_role=model_role,
-                    valid_vote=attempt.valid_vote,
-                    parse_status=attempt.parse_status,
-                    latency_seconds=attempt.latency_seconds,
-                    vote=vote,
-                    error_message=attempt.error_message,
-                )
-            )
-            if vote is not None:
-                votes_by_request_id[request_id].append(vote)
-            elif attempt.parse_status == "invalid_json":
-                if model_role == "primary":
-                    invalid_compare_json_primary += 1
-                else:
-                    invalid_compare_json_secondary += 1
-            total_votes += 1
-            diagnostics = _build_referee_diagnostics(request_id, attempts_by_request_id[request_id])
-            if step_index == 0:
-                continue
-            results[request_id] = _with_diagnostics(
-                aggregate_referee_votes(votes_by_request_id[request_id]),
-                diagnostics,
-            )
-            completed_ids.append(request_id)
-        if completed_ids:
-            completed = set(completed_ids)
-            active_request_ids = [
-                request_id
-                for request_id in active_request_ids
-                if request_id not in completed
-            ]
+        completed_after_step = len(items) if step_index == len(models) - 1 else 0
         step_metrics.append({
             "step_index": step_index,
-            "model_id": model_config.model_id,
+            "model_id": model_id,
             "model_role": model_role,
             "requests_started": requests_started,
-            "requests_completed_after_step": len(completed_ids),
-            "requests_remaining_after_step": len(active_request_ids),
+            "requests_completed_after_step": completed_after_step,
+            "requests_remaining_after_step": max(0, len(items) - completed_after_step),
         })
 
-    for request_id in active_request_ids:
-        results[request_id] = _with_diagnostics(
-            aggregate_referee_votes(votes_by_request_id[request_id]),
-            _build_referee_diagnostics(request_id, attempts_by_request_id[request_id]),
+    for item in items:
+        attempts: list[DefinitionComparisonAttempt] = []
+        votes: list[DefinitionComparisonVote] = []
+        for model_id in model_ids:
+            vote = item.votes.get(model_id)
+            attempt = vote.value if vote is not None else None
+            if attempt is None:
+                continue
+            attempts.append(attempt)
+            if attempt.vote is not None:
+                votes.append(attempt.vote)
+            elif attempt.parse_status == "invalid_json":
+                if attempt.model_role == "primary":
+                    invalid_compare_json_primary += 1
+                elif attempt.model_role == "secondary":
+                    invalid_compare_json_secondary += 1
+            total_votes += 1
+        results[item.item_id] = _with_diagnostics(
+            aggregate_referee_votes(votes),
+            _build_referee_diagnostics(item.item_id, attempts),
         )
 
     return AdaptiveRefereeBatchResult(
