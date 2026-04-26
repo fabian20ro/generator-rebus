@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from openai import OpenAI
 
 from rebus_generator.platform.config import VERIFY_CANDIDATE_COUNT
@@ -13,6 +14,7 @@ from rebus_generator.platform.llm.ai_clues import (
     RATE_MIN_SEMANTIC,
     compute_rebus_score,
     rate_definition,
+    RateDefinitionRequest,
     verify_definition_candidates,
     contains_english_markers,
 )
@@ -197,14 +199,17 @@ def _rate_clues(
 
         dex_defs = (dex.get(clue.word_normalized, clue.word_original) if dex else None) or ""
         try:
-            rating = rate_definition(
-                client,
-                clue.word_normalized,
-                clue.word_original,
-                definition,
-                len(clue.word_normalized),
+            req = RateDefinitionRequest(
+                word=clue.word_normalized,
+                original=clue.word_original,
+                definition=definition,
+                answer_length=len(clue.word_normalized),
                 word_type=clue.word_type,
                 dex_definitions=dex_defs,
+            )
+            rating = rate_definition(
+                client,
+                req,
                 model=model_name,
             )
         except Exception:

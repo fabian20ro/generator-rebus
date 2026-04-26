@@ -165,6 +165,16 @@ class DefinitionRatingPair:
     complete: bool
 
 
+@dataclass(frozen=True)
+class RateDefinitionRequest:
+    word: str
+    original: str
+    definition: str
+    answer_length: int
+    word_type: str = ""
+    dex_definitions: str = ""
+
+
 def round_half_up(value: float) -> int:
     return int(math.floor(value + 0.5))
 
@@ -507,12 +517,7 @@ def _verify_needs_format_retry(raw: str, response) -> bool:
 
 def rate_definition(
     client: OpenAI,
-    word: str,
-    original: str,
-    definition: str,
-    answer_length: int,
-    word_type: str = "",
-    dex_definitions: str = "",
+    req: RateDefinitionRequest,
     model: str | None = None,
 ) -> DefinitionRating | None:
     """Rate a definition's semantic quality and guessability.
@@ -520,20 +525,20 @@ def rate_definition(
     Returns None when the model's response cannot be parsed as valid JSON,
     signaling that the definition should be treated as unrated.
     """
-    display_word = original if original else word.lower()
+    display_word = req.original if req.original else req.word.lower()
     resolved_model = _resolve_model_name(model)
     prompt = _build_rate_prompt(
         display_word,
-        word,
-        definition,
-        answer_length,
-        word_type=word_type,
-        dex_definitions=dex_definitions,
+        req.word,
+        req.definition,
+        req.answer_length,
+        word_type=req.word_type,
+        dex_definitions=req.dex_definitions,
         model_id=resolved_model,
     )
     system_prompt = (
         load_system_prompt("rate", model_id=resolved_model)
-        .replace("{answer_length}", str(answer_length))
+        .replace("{answer_length}", str(req.answer_length))
         + "\nRăspunzi strict cu un singur obiect JSON valid și nimic altceva."
     )
     retry_instruction = (
@@ -564,7 +569,7 @@ def rate_definition(
                 record_llm_parse_failure(
                     model=resolved_model,
                     purpose="definition_rate",
-                    word=word,
+                    word=req.word,
                     response_source=_response_source(response),
                     finish_reason=str(getattr(response.choices[0], "finish_reason", "") or ""),
                     payload_preview=raw,
@@ -585,14 +590,14 @@ def rate_definition(
                 creativity_score=_clamp_score(data.get("creativity_score")),
                 response_source=_response_source(response),
             )
-            rating = _guard_same_family_rating(word, definition, rating)
-            rating = _guard_english_meaning_rating(word, definition, rating)
+            rating = _guard_same_family_rating(req.word, req.definition, rating)
+            rating = _guard_english_meaning_rating(req.word, req.definition, rating)
             return _guard_definition_centric_rating(rating)
         except Exception as exc:
             record_llm_parse_failure(
                 model=resolved_model,
                 purpose="definition_rate",
-                word=word,
+                word=req.word,
                 response_source="exception",
                 finish_reason="exception",
                 payload_preview=str(exc),

@@ -20,6 +20,7 @@ from rebus_generator.platform.io.runtime_logging import set_llm_debug_enabled
 from rebus_generator.platform.llm.ai_clues import (
     DefinitionRating,
     RATE_MAX_TOKENS,
+    RateDefinitionRequest,
     RewriteAttemptResult,
     VERIFY_MAX_TOKENS,
     consensus_score,
@@ -181,12 +182,15 @@ class AiCluesTests(unittest.TestCase):
             })
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="ARACI",
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -217,12 +221,15 @@ class AiCluesTests(unittest.TestCase):
             })
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="ARACI",
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=SECONDARY_MODEL.model_id,
         )
 
@@ -307,12 +314,15 @@ class AiCluesTests(unittest.TestCase):
             })
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="ARACI",
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -330,12 +340,15 @@ class AiCluesTests(unittest.TestCase):
             })
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="ARACI",
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -353,12 +366,15 @@ class AiCluesTests(unittest.TestCase):
             }),
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="ARACI",
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -594,12 +610,15 @@ class AiCluesTests(unittest.TestCase):
             _chat_response(content=""),
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="ARACI",
             original="araci",
             definition="Bețe de sprijin pentru viță",
             answer_length=5,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -956,13 +975,16 @@ class AiCluesTests(unittest.TestCase):
             content='{"semantic_score": 8, "guessability_score": 6, "creativity_score": 5, "feedback": "ok"}'
         )
         setattr(response, "_response_source", "no_thinking_retry")
+        req = RateDefinitionRequest(
+            word="ARACI",
+            original="araci",
+            definition="Bețe de sprijin pentru viță",
+            answer_length=5,
+        )
         with mock.patch("rebus_generator.platform.llm.ai_clues._chat_completion_create", return_value=response):
             rating = rate_definition(
                 object(),
-                word="ARACI",
-                original="araci",
-                definition="Bețe de sprijin pentru viță",
-                answer_length=5,
+                req,
                 model=PRIMARY_MODEL.model_id,
             )
 
@@ -1218,12 +1240,15 @@ class AiCluesTests(unittest.TestCase):
             })
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="AN",
             original="an",
             definition="Articol nehotărât în limba engleză",
             answer_length=2,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -1274,12 +1299,15 @@ class AiCluesTests(unittest.TestCase):
             })
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="RIAL",
             original="rial",
             definition="Se plătește la șah",
             answer_length=4,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -1398,12 +1426,15 @@ class AiCluesTests(unittest.TestCase):
             })
         ])
 
-        rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="CASA",
             original="casă",
             definition="Locuință",
             answer_length=4,
+        )
+        rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -1528,12 +1559,15 @@ class AiCluesTests(unittest.TestCase):
             "Still not JSON",
         ])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="CASA",
             original="casă",
             definition="Locuință",
             answer_length=4,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -1549,12 +1583,15 @@ class AiCluesTests(unittest.TestCase):
         )
         client = _RecordingClient([fenced_json])
 
-        rating = rate_definition(
-            client,
+        req = RateDefinitionRequest(
             word="CASA",
             original="casă",
             definition="Locuință",
             answer_length=4,
+        )
+        rating = rate_definition(
+            client,
+            req,
             model=PRIMARY_MODEL.model_id,
         )
 
@@ -1830,13 +1867,16 @@ class AiCluesTests(unittest.TestCase):
             _chat_response(content="text final"),
         ])
 
+        req = RateDefinitionRequest(
+            word="ARACI",
+            original="araci",
+            definition="Bețe de sprijin pentru vie",
+            answer_length=5,
+        )
         with mock.patch("rebus_generator.platform.llm.llm_client.audit") as mock_audit:
             rating = rate_definition(
                 client,
-                word="ARACI",
-                original="araci",
-                definition="Bețe de sprijin pentru vie",
-                answer_length=5,
+                req,
                 model=PRIMARY_MODEL.model_id,
             )
 
