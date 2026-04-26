@@ -12,11 +12,9 @@ import {
   type PuzzleSummary,
 } from "../shared/api/puzzles";
 import {
-  createGridState,
   createGrid,
   updateGrid,
   focusCell,
-  type GridState,
 } from "../features/puzzle-player/grid/grid-renderer";
 import { renderClues } from "../features/puzzle-player/clues/clue-panel";
 import {
@@ -43,7 +41,14 @@ import {
 } from "../features/puzzle-player/hints/hint-system";
 import {
   buildPuzzleSessionViewModel,
-  hydrateSolvedGridFromSolution,
+  buildPuzzleProgress,
+  createPuzzleSessionState,
+  elapsedPuzzleSeconds,
+  loadPuzzleSession,
+  noteBackspaceUsed,
+  noteCheckUsed,
+  noteHintUsed,
+  resetPuzzleSession,
 } from "../features/puzzle-player/session/puzzle-session";
 import { renderDefinitionBar } from "../features/puzzle-player/clues/definition-bar";
 import { renderStatisticsPanel } from "../features/gamification/statistics-panel";
@@ -127,16 +132,8 @@ const completionOverlay = {
 };
 
 // --- State ---
-let gridState: GridState | null = null;
+const session = createPuzzleSessionState();
 let allPuzzles: PuzzleSummary[] = [];
-let currentPuzzleId: string | null = null;
-let currentDifficulty = 1;
-let currentGridSize = 10;
-let puzzleStartTime = 0;
-let hintsUsedCount = 0;
-let checksUsedCount = 0;
-let backspacesUsedCount = 0;
-let pencilMode = false;
 let puzzleListScrollY = 0;
 let activeTab: AppTab = "available";
 let availableBrowseState: AvailableTabBrowseState = {
@@ -150,7 +147,7 @@ document.documentElement.classList.toggle(
 );
 
 function isSolvedGridView(): boolean {
-  return !!gridState?.isSolvedView;
+  return !!session.gridState?.isSolvedView;
 }
 
 function detectTouchRemoteEnabled(): boolean {
@@ -377,8 +374,7 @@ function showTab(tab: AppTab): void {
   saveCurrentProgress();
   resetCompletionOverlay(completionOverlay);
   activeTab = tab;
-  gridState = null;
-  currentPuzzleId = null;
+  resetPuzzleSession(session);
 
   puzzleView.classList.add("hidden");
   puzzleTitle.textContent = "";
@@ -401,28 +397,17 @@ function deepCopyCells(cells: (string | null)[][]): (string | null)[][] {
 const debouncedSaveProgress = debounce(() => saveCurrentProgress(), 500);
 
 function saveCurrentProgress(): void {
-  if (!currentPuzzleId || !gridState) return;
-  if (gridState.isSolvedView) return;
-  if (isPuzzleAlreadySolved(currentPuzzleId)) return;
-  const elapsed = Math.round((Date.now() - puzzleStartTime) / 1000);
-  const cleanCells = gridState.cells.map((row) =>
-    row.map((cell) => (cell === "!" ? null : cell))
-  );
-  const progress = {
-    cells: cleanCells,
-    revealed: gridState.revealed,
-    pencilCells: gridState.pencilCells,
-    hintsUsed: hintsUsedCount,
-    checksUsed: checksUsedCount,
-    backspacesUsed: backspacesUsedCount,
-    elapsedSeconds: elapsed,
-    savedAt: new Date().toISOString(),
-  };
+  if (!session.currentPuzzleId) return;
+  const progress = buildPuzzleProgress(session, {
+    now: Date.now(),
+    alreadySolved: isPuzzleAlreadySolved(session.currentPuzzleId),
+  });
+  if (!progress) return;
   if (!hasFilledCells(progress)) {
-    clearProgress(currentPuzzleId);
+    clearProgress(session.currentPuzzleId);
     return;
   }
-  saveProgress(currentPuzzleId, progress);
+  saveProgress(session.currentPuzzleId, progress);
 }
 
 // --- Points display ---
@@ -433,37 +418,37 @@ function updatePointsDisplay(): void {
 
 function updateHintCosts(): void {
   checkCostEl.textContent = `${CHECK_COST} pts`;
-  hintLetterCostEl.textContent = `${hintLetterCost(currentDifficulty)} pts`;
-  hintWordCostEl.textContent = `${hintWordCost(currentDifficulty)} pts`;
+  hintLetterCostEl.textContent = `${hintLetterCost(session.currentDifficulty)} pts`;
+  hintWordCostEl.textContent = `${hintWordCost(session.currentDifficulty)} pts`;
 }
 
 function renderPencilButton(): void {
-  btnPencil.classList.toggle("btn-pencil--active", pencilMode);
-  btnPencil.setAttribute("aria-pressed", String(pencilMode));
-  btnPencilState.textContent = pencilMode ? "Pornit" : "Oprit";
-  const title = pencilMode
+  btnPencil.classList.toggle("btn-pencil--active", session.pencilMode);
+  btnPencil.setAttribute("aria-pressed", String(session.pencilMode));
+  btnPencilState.textContent = session.pencilMode ? "Pornit" : "Oprit";
+  const title = session.pencilMode
     ? "Literele noi vor fi marcate ca tentative"
     : "Literele noi vor fi introduse ca răspuns final";
   btnPencil.title = title;
   btnPencil.setAttribute(
     "aria-label",
-    pencilMode
+    session.pencilMode
       ? "Creion pornit. Literele noi vor fi marcate ca tentative."
       : "Creion oprit. Literele noi vor fi introduse ca răspuns final."
   );
 }
 
 function focusActiveCell(): void {
-  if (!gridState || gridState.activeRow < 0 || gridState.activeCol < 0) return;
-  focusCell(gridContainer, gridState.activeRow, gridState.activeCol, {
+  if (!session.gridState || session.gridState.activeRow < 0 || session.gridState.activeCol < 0) return;
+  focusCell(gridContainer, session.gridState.activeRow, session.gridState.activeCol, {
     native: !touchRemoteEnabled,
   });
 }
 
 function renderTouchRemote(): void {
-  const view = buildPuzzleSessionViewModel(gridState, {
-    currentPuzzleId,
-    alreadySolved: currentPuzzleId ? isPuzzleAlreadySolved(currentPuzzleId) : false,
+  const view = buildPuzzleSessionViewModel(session.gridState, {
+    currentPuzzleId: session.currentPuzzleId,
+    alreadySolved: session.currentPuzzleId ? isPuzzleAlreadySolved(session.currentPuzzleId) : false,
     touchRemoteEnabled,
   });
   touchRemote.classList.toggle("hidden", !view.showTouchRemote);
@@ -473,7 +458,7 @@ function renderTouchRemote(): void {
     button.disabled = disabled;
   }
 
-  if (!view.showTouchRemote || !gridState) {
+  if (!view.showTouchRemote || !session.gridState) {
     touchRemoteDirection.classList.remove(
       "touch-remote__key--horizontal",
       "touch-remote__key--vertical"
@@ -499,63 +484,63 @@ function renderTouchRemote(): void {
 }
 
 function performVirtualLetter(letter: string): void {
-  if (!gridState || isSolvedGridView()) return;
-  if (gridState.activeRow < 0 || gridState.activeCol < 0) return;
+  if (!session.gridState || isSolvedGridView()) return;
+  if (session.gridState.activeRow < 0 || session.gridState.activeCol < 0) return;
 
-  const row = gridState.activeRow;
-  const col = gridState.activeCol;
-  cellHistory.push(deepCopyCells(gridState.cells));
-  handleVirtualLetter(gridState, letter);
-  gridState.pencilCells[row][col] = pencilMode;
+  const row = session.gridState.activeRow;
+  const col = session.gridState.activeCol;
+  cellHistory.push(deepCopyCells(session.gridState.cells));
+  handleVirtualLetter(session.gridState, letter);
+  session.gridState.pencilCells[row][col] = session.pencilMode;
   refresh();
   focusActiveCell();
   debouncedSaveProgress();
 
-  if (isPuzzleComplete(gridState)) {
+  if (isPuzzleComplete(session.gridState)) {
     handleCompletion();
   }
 }
 
 function performVirtualDelete(): void {
-  if (!gridState || isSolvedGridView()) return;
-  if (gridState.activeRow < 0 || gridState.activeCol < 0) return;
+  if (!session.gridState || isSolvedGridView()) return;
+  if (session.gridState.activeRow < 0 || session.gridState.activeCol < 0) return;
 
-  cellHistory.push(deepCopyCells(gridState.cells));
-  backspaceActiveCell(gridState);
-  backspacesUsedCount++;
+  cellHistory.push(deepCopyCells(session.gridState.cells));
+  backspaceActiveCell(session.gridState);
+  noteBackspaceUsed(session);
   refresh();
   focusActiveCell();
   debouncedSaveProgress();
 }
 
 function performDirectionToggle(): void {
-  if (!gridState || isSolvedGridView()) return;
-  if (gridState.activeRow < 0 || gridState.activeCol < 0) return;
+  if (!session.gridState || isSolvedGridView()) return;
+  if (session.gridState.activeRow < 0 || session.gridState.activeCol < 0) return;
 
-  toggleDirection(gridState);
+  toggleDirection(session.gridState);
   refresh();
   focusActiveCell();
 }
 
-// --- Grid callback helpers (defined once, always reference current gridState) ---
+// --- Grid callback helpers (defined once, always reference current session.gridState) ---
 function onGridCellClick(row: number, col: number): void {
   if (isSolvedGridView()) return;
-  handleCellClick(gridState!, row, col);
+  handleCellClick(session.gridState!, row, col);
   refresh();
   focusActiveCell();
 }
 
 function onGridCellInput(row: number, col: number, value: string): void {
   if (isSolvedGridView()) return;
-  cellHistory.push(deepCopyCells(gridState!.cells));
-  handleCellInput(gridState!, row, col, value);
+  cellHistory.push(deepCopyCells(session.gridState!.cells));
+  handleCellInput(session.gridState!, row, col, value);
   if (value) {
-    gridState!.pencilCells[row][col] = pencilMode;
+    session.gridState!.pencilCells[row][col] = session.pencilMode;
   }
   refresh();
   focusActiveCell();
   debouncedSaveProgress();
-  if (isPuzzleComplete(gridState!)) {
+  if (isPuzzleComplete(session.gridState!)) {
     handleCompletion();
   }
 }
@@ -566,8 +551,8 @@ function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
   if ((e.ctrlKey || e.metaKey) && e.key === "z") {
     e.preventDefault();
     const prev = cellHistory.undo();
-    if (prev && gridState) {
-      gridState.cells = prev;
+    if (prev && session.gridState) {
+      session.gridState.cells = prev;
       refresh();
     }
     return;
@@ -575,8 +560,8 @@ function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
   if ((e.ctrlKey || e.metaKey) && e.key === "y") {
     e.preventDefault();
     const next = cellHistory.redo();
-    if (next && gridState) {
-      gridState.cells = next;
+    if (next && session.gridState) {
+      session.gridState.cells = next;
       refresh();
     }
     return;
@@ -587,23 +572,23 @@ function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
     e.key === "Backspace" ||
     e.key === "Delete" ||
     (e.key.length === 1 && /^[A-Za-z]$/.test(e.key));
-  if (isMutating && gridState) {
-    cellHistory.push(deepCopyCells(gridState.cells));
+  if (isMutating && session.gridState) {
+    cellHistory.push(deepCopyCells(session.gridState.cells));
   }
 
-  if ((e.key === "Backspace" || e.key === "Delete") && gridState) {
-    backspacesUsedCount++;
+  if ((e.key === "Backspace" || e.key === "Delete") && session.gridState) {
+    noteBackspaceUsed(session);
   }
 
-  const handled = handleKeyDown(gridState!, row, col, e);
+  const handled = handleKeyDown(session.gridState!, row, col, e);
   if (handled) {
     // Set pencil mode for letter key overwrites
     if (
       e.key.length === 1 &&
       /^[A-Za-z]$/.test(e.key) &&
-      gridState
+      session.gridState
     ) {
-      gridState.pencilCells[row][col] = pencilMode;
+      session.gridState.pencilCells[row][col] = session.pencilMode;
     }
     refresh();
     focusActiveCell();
@@ -612,9 +597,9 @@ function onGridKeyDown(row: number, col: number, e: KeyboardEvent): void {
 }
 
 function onClueClick(clue: Clue): void {
-  gridState!.activeRow = clue.start_row;
-  gridState!.activeCol = clue.start_col;
-  gridState!.activeDirection = clue.direction;
+  session.gridState!.activeRow = clue.start_row;
+  session.gridState!.activeCol = clue.start_col;
+  session.gridState!.activeDirection = clue.direction;
   refresh();
   focusActiveCell();
 }
@@ -624,29 +609,29 @@ let gridInitialised = false;
 
 // --- Re-render the grid, clues, and definition bar ---
 function refresh(): void {
-  if (!gridState) return;
+  if (!session.gridState) return;
 
   if (!gridInitialised) {
     createGrid(
       gridContainer,
-      gridState,
+      session.gridState,
       onGridCellClick,
       onGridCellInput,
       onGridKeyDown
     );
     gridInitialised = true;
   } else {
-    updateGrid(gridContainer, gridState);
+    updateGrid(gridContainer, session.gridState);
   }
 
-  renderClues(cluesH, cluesV, gridState, onClueClick);
+  renderClues(cluesH, cluesV, session.gridState, onClueClick);
 
-  renderDefinitionBar(definitionBar, gridState);
+  renderDefinitionBar(definitionBar, session.gridState);
   renderTouchRemote();
 
-  const view = buildPuzzleSessionViewModel(gridState, {
-    currentPuzzleId,
-    alreadySolved: currentPuzzleId ? isPuzzleAlreadySolved(currentPuzzleId) : false,
+  const view = buildPuzzleSessionViewModel(session.gridState, {
+    currentPuzzleId: session.currentPuzzleId,
+    alreadySolved: session.currentPuzzleId ? isPuzzleAlreadySolved(session.currentPuzzleId) : false,
     touchRemoteEnabled,
   });
   progressCounter.textContent = view.progressText;
@@ -654,20 +639,20 @@ function refresh(): void {
 
 // --- Completion handler ---
 function handleCompletion(): void {
-  if (!currentPuzzleId || !gridState) return;
-  if (isPuzzleAlreadySolved(currentPuzzleId)) {
+  if (!session.currentPuzzleId || !session.gridState) return;
+  if (isPuzzleAlreadySolved(session.currentPuzzleId)) {
     resetCompletionOverlay(completionOverlay);
     completionDetails.innerHTML = "<p>Ai rezolvat deja acest rebus!</p>";
     completionModal.classList.remove("hidden");
     return;
   }
 
-  const timeSeconds = Math.round((Date.now() - puzzleStartTime) / 1000);
+  const timeSeconds = elapsedPuzzleSeconds(session, Date.now());
   const score = calculateScore({
-    difficulty: currentDifficulty,
-    gridSize: currentGridSize,
+    difficulty: session.currentDifficulty,
+    gridSize: session.currentGridSize,
     timeSeconds,
-    hintsUsed: hintsUsedCount,
+    hintsUsed: session.hintsUsedCount,
   });
 
   // Get badges before recording
@@ -676,20 +661,20 @@ function handleCompletion(): void {
   );
 
   const record = {
-    puzzleId: currentPuzzleId,
+    puzzleId: session.currentPuzzleId,
     completedAt: new Date().toISOString(),
     timeSeconds,
-    difficulty: currentDifficulty,
-    gridSize: currentGridSize,
-    hintsUsed: hintsUsedCount,
-    checksUsed: checksUsedCount,
-    backspacesUsed: backspacesUsedCount,
+    difficulty: session.currentDifficulty,
+    gridSize: session.currentGridSize,
+    hintsUsed: session.hintsUsedCount,
+    checksUsed: session.checksUsedCount,
+    backspacesUsed: session.backspacesUsedCount,
     pointsEarned: score.total,
     pointsSpent: 0,
   };
 
   recordPuzzleCompletion(record);
-  clearProgress(currentPuzzleId);
+  clearProgress(session.currentPuzzleId);
   updatePointsDisplay();
 
   // Check for new badges
@@ -709,7 +694,7 @@ function handleCompletion(): void {
       ${score.speedBonus > 0 ? `<span><em>Vitez\u0103</em> <strong>+${score.speedBonus}</strong></span>` : ""}
       ${score.noHintBonus > 0 ? `<span><em>F\u0103r\u0103 indicii</em> <strong>+${score.noHintBonus}</strong></span>` : ""}
     </div>
-    <p>Timp: ${timeStr} | Indicii: ${hintsUsedCount}</p>
+    <p>Timp: ${timeStr} | Indicii: ${session.hintsUsedCount}</p>
   `;
 
   if (newBadges.length > 0) {
@@ -748,26 +733,10 @@ async function loadPuzzle(id: string): Promise<void> {
       throw puzzleResult.reason;
     }
     const data: PuzzleDetail = puzzleResult.value;
-    const { puzzle, clues } = data;
+    const { puzzle } = data;
     const template: boolean[][] = JSON.parse(puzzle.grid_template);
-
-    gridState = createGridState(puzzle.grid_size, template, clues);
-    gridState.touchRemoteEnabled = touchRemoteEnabled;
     gridInitialised = false; // force createGrid on next refresh
     cellHistory.clear();
-    currentPuzzleId = puzzle.id;
-    currentDifficulty = puzzle.difficulty;
-    currentGridSize = puzzle.grid_size;
-    puzzleStartTime = Date.now();
-    hintsUsedCount = 0;
-    checksUsedCount = 0;
-    backspacesUsedCount = 0;
-
-
-    // Attach solution if available (hints require it)
-    if (solutionResult.status === "fulfilled") {
-      gridState.solution = JSON.parse(solutionResult.value.solution);
-    }
 
     setPuzzleInteractionDisabled(false);
 
@@ -777,37 +746,29 @@ async function loadPuzzle(id: string): Promise<void> {
     if (savedRaw && !saved) {
       clearProgress(id);
     }
-    if (alreadySolved) {
-      if (hydrateSolvedGridFromSolution(gridState)) {
-        pencilMode = false;
-        renderPencilButton();
-        setPuzzleInteractionDisabled(true);
-      }
-    } else if (saved && saved.cells.length === gridState.size &&
-        saved.cells.every((row) => row.length === gridState!.size)) {
-      gridState.cells = saved.cells;
-      if (saved.revealed && saved.revealed.length === gridState.size) {
-        gridState.revealed = saved.revealed;
-      }
-      if (saved.pencilCells && saved.pencilCells.length === gridState.size) {
-        gridState.pencilCells = saved.pencilCells;
-      }
-      hintsUsedCount = saved.hintsUsed;
-      checksUsedCount = saved.checksUsed ?? 0;
-      backspacesUsedCount = saved.backspacesUsed ?? 0;
-      puzzleStartTime = Date.now() - saved.elapsedSeconds * 1000;
+    const sessionLoad = loadPuzzleSession(session, {
+      detail: data,
+      solutionJson: solutionResult.status === "fulfilled" ? solutionResult.value.solution : undefined,
+      progress: saved,
+      alreadySolved,
+      touchRemoteEnabled,
+      now: Date.now(),
+    });
+    if (sessionLoad.hydratedSolvedGrid) {
+      renderPencilButton();
+      setPuzzleInteractionDisabled(true);
     }
 
     const puzzleStatus = alreadySolved
       ? "Rezolvat"
-      : saved
+      : sessionLoad.usedProgress
         ? "În curs"
         : "Disponibil";
     const extraMeta = [
       `${puzzle.grid_size}x${puzzle.grid_size}`,
       puzzleStatus,
     ];
-    if (saved) {
+    if (sessionLoad.usedProgress) {
       extraMeta.push("Continuare salvată");
     }
 
@@ -827,11 +788,13 @@ async function loadPuzzle(id: string): Promise<void> {
     updateHintCosts();
 
     // Focus the first letter cell
-    for (let r = 0; r < gridState.size; r++) {
-      for (let c = 0; c < gridState.size; c++) {
+    const loadedGrid = session.gridState;
+    if (!loadedGrid) return;
+    for (let r = 0; r < loadedGrid.size; r++) {
+      for (let c = 0; c < loadedGrid.size; c++) {
         if (template[r][c]) {
-          gridState.activeRow = r;
-          gridState.activeCol = c;
+          loadedGrid.activeRow = r;
+          loadedGrid.activeCol = c;
           refresh();
           focusActiveCell();
           return;
@@ -849,8 +812,7 @@ async function loadPuzzle(id: string): Promise<void> {
 // --- Show puzzle list ---
 async function showPuzzleList(): Promise<void> {
   resetCompletionOverlay(completionOverlay);
-  gridState = null;
-  currentPuzzleId = null;
+  resetPuzzleSession(session);
   puzzleView.classList.add("hidden");
   statsPanel.classList.add("hidden");
   puzzleSelector.classList.remove("hidden");
@@ -879,9 +841,9 @@ async function showPuzzleList(): Promise<void> {
 
 // --- Button handlers ---
 btnCheck.addEventListener("click", () => {
-  if (!gridState) return;
-  if (gridState.isSolvedView) return;
-  const result = checkPuzzle(gridState);
+  if (!session.gridState) return;
+  if (session.gridState.isSolvedView) return;
+  const result = checkPuzzle(session.gridState);
   if (!result.success) {
     if (result.reason === "not_enough_points") {
       showToast(
@@ -891,18 +853,18 @@ btnCheck.addEventListener("click", () => {
     }
     return;
   }
-  checksUsedCount++;
+  noteCheckUsed(session);
   updatePointsDisplay();
   refresh();
   if (result.wrong === 0 && result.empty === 0) {
     handleCompletion();
   } else {
     setTimeout(() => {
-      if (!gridState) return;
-      for (let r = 0; r < gridState.size; r++) {
-        for (let c = 0; c < gridState.size; c++) {
-          if (gridState.cells[r][c] === "!") {
-            gridState.cells[r][c] = null;
+      if (!session.gridState) return;
+      for (let r = 0; r < session.gridState.size; r++) {
+        for (let c = 0; c < session.gridState.size; c++) {
+          if (session.gridState.cells[r][c] === "!") {
+            session.gridState.cells[r][c] = null;
           }
         }
       }
@@ -913,15 +875,15 @@ btnCheck.addEventListener("click", () => {
 });
 
 btnHintLetter.addEventListener("click", () => {
-  if (!gridState) return;
-  if (gridState.isSolvedView) return;
-  const result = revealLetter(gridState, currentDifficulty);
+  if (!session.gridState) return;
+  if (session.gridState.isSolvedView) return;
+  const result = revealLetter(session.gridState, session.currentDifficulty);
   if (result.success) {
-    hintsUsedCount++;
+    noteHintUsed(session);
     updatePointsDisplay();
     refresh();
     saveCurrentProgress();
-    if (isPuzzleComplete(gridState)) {
+    if (isPuzzleComplete(session.gridState)) {
       handleCompletion();
     }
   } else if (result.reason === "not_enough_points") {
@@ -933,15 +895,15 @@ btnHintLetter.addEventListener("click", () => {
 });
 
 btnHintWord.addEventListener("click", () => {
-  if (!gridState) return;
-  if (gridState.isSolvedView) return;
-  const result = revealWord(gridState, currentDifficulty);
+  if (!session.gridState) return;
+  if (session.gridState.isSolvedView) return;
+  const result = revealWord(session.gridState, session.currentDifficulty);
   if (result.success) {
-    hintsUsedCount++;
+    noteHintUsed(session);
     updatePointsDisplay();
     refresh();
     saveCurrentProgress();
-    if (isPuzzleComplete(gridState)) {
+    if (isPuzzleComplete(session.gridState)) {
       handleCompletion();
     }
   } else if (result.reason === "not_enough_points") {
@@ -963,19 +925,19 @@ btnCloseModal.addEventListener("click", () => {
 
 btnPencil.addEventListener("click", async () => {
   if (isSolvedGridView()) return;
-  if (!pencilMode) {
+  if (!session.pencilMode) {
     const shouldEnable = await showPencilHelpIfNeeded();
     if (!shouldEnable) {
-      pencilMode = false;
+      session.pencilMode = false;
       renderPencilButton();
       return;
     }
-    pencilMode = true;
+    session.pencilMode = true;
     renderPencilButton();
     return;
   }
 
-  pencilMode = false;
+  session.pencilMode = false;
   renderPencilButton();
 });
 
@@ -1020,7 +982,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 window.addEventListener("resize", () => {
-  if (!gridState) return;
+  if (!session.gridState) return;
   refresh();
 });
 

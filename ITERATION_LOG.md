@@ -1735,3 +1735,32 @@
 **Outcome:** success
 **Insight:** Keep `RunAllSupervisor` as loop/coordinator; model ordering belongs in Model Drain, topic admission/ready-unit collection in Topic Slot Progressor.
 **Promoted:** no
+
+---
+
+### [2026-04-26] — architecture deepening candidate scan
+
+**Happened:** Read `LESSONS_LEARNED.md`, `CONTEXT.md`, architecture notes, run_all, rewrite, verify/rate, canonical store/service, prompt campaign, and frontend puzzle session code. Produced candidate list only.
+**Outcome:** analysis only
+**Insight:** Best next depth is where domain loops already have names (`Puzzle Session`, `Model Drain`, canonical planning) but callers still assemble behaviour from many shallow helpers.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — puzzle session workflow extraction
+
+**Happened:** Deepened frontend Puzzle Session Module. Session now owns load hydration, solved-grid hydration, saved-progress restore, progress snapshot, counters, timing, and pencil state. `bootstrap.ts` kept DOM wiring and storage/API adapters.
+**Verification:** `npm test -- --runInBand apps/frontend/src/features/puzzle-player/session/puzzle-session.test.ts` -> 5 passed. `npm test -- --runInBand` -> 26 passed. `npm run build` passed. `git diff --check` passed.
+**Outcome:** success
+**Insight:** Keep `bootstrap.ts` as DOM adapter while Puzzle Session owns workflow state; this gives testable locality without frontloading a full controller rewrite.
+**Promoted:** no
+
+---
+
+### [2026-04-26] — generate attempt module extraction
+
+**Happened:** Added run_all Generate Attempt Module for unresolved definition rescue and post-rewrite/title quality decisions. `GenerateJobState` now schedules stages and delegates attempt policy.
+**Verification:** `python3 -m pytest tests/generator/cli/test_run_all.py -q` -> 52 passed. `python3 -m pytest tests/generator/workflows/test_batch_publish.py tests/generator/workflows/test_generate_define.py tests/generator/workflows/test_upload_phase.py tests/generator/cli/test_run_all.py -q` -> 104 passed. `python3 -m compileall -q ...` passed.
+**Outcome:** success
+**Insight:** Generate run_all job stays a resumable adapter when retry/publication decisions live in a small attempt Module.
+**Promoted:** no

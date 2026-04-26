@@ -860,7 +860,7 @@ class RunAllSupervisorTests(unittest.TestCase):
 
     @patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", return_value=SimpleNamespace())
     @patch("rebus_generator.workflows.run_all.jobs.generate.DexProvider.for_puzzle", return_value=SimpleNamespace())
-    @patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks")
+    @patch("rebus_generator.workflows.run_all.generate_attempt.apply_scored_canonical_fallbacks")
     @patch("rebus_generator.workflows.run_all.jobs.generate.generate_definition_for_working_clue", return_value="Gaz din atmosferă")
     def test_generate_define_initial_injects_metadata_into_working_state(self, _mock_define, _mock_apply, _mock_dex, _mock_session):
         item = _item("generate", "generate:size:13:1", preferred_model_id=SECONDARY_MODEL.model_id)
@@ -1191,9 +1191,9 @@ class RunAllSupervisorTests(unittest.TestCase):
         job.rewrite_session = _DoneRewriteSession()
 
         with (
-            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", side_effect=lambda **kwargs: calls.append("fallback") or {}),
+            patch("rebus_generator.workflows.run_all.generate_attempt.apply_scored_canonical_fallbacks", side_effect=lambda **kwargs: calls.append("fallback") or {}),
             patch(
-                "rebus_generator.workflows.run_all.jobs.generate.score_puzzle_state",
+                "rebus_generator.workflows.run_all.generate_attempt.score_puzzle_state",
                 side_effect=lambda *_args, **_kwargs: calls.append("score") or PuzzleAssessment(
                     definition_score=0.0,
                     verified_count=0,
@@ -1263,9 +1263,9 @@ class RunAllSupervisorTests(unittest.TestCase):
         job.rewrite_session = _DoneRewriteSession()
 
         with (
-            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", side_effect=_apply_fallback),
+            patch("rebus_generator.workflows.run_all.generate_attempt.apply_scored_canonical_fallbacks", side_effect=_apply_fallback),
             patch(
-                "rebus_generator.workflows.run_all.jobs.generate.score_puzzle_state",
+                "rebus_generator.workflows.run_all.generate_attempt.score_puzzle_state",
                 side_effect=lambda *_args, **_kwargs: calls.append("score") or PuzzleAssessment(
                     definition_score=17.0,
                     verified_count=1,
@@ -1345,7 +1345,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         )
 
         with (
-            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", side_effect=_apply_fallback),
+            patch("rebus_generator.workflows.run_all.generate_attempt.apply_scored_canonical_fallbacks", side_effect=_apply_fallback),
             patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", _CaptureRewriteSession),
         ):
             _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
@@ -1376,7 +1376,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         )
 
         with (
-            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", return_value={}),
+            patch("rebus_generator.workflows.run_all.generate_attempt.apply_scored_canonical_fallbacks", return_value={}),
             patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", _CaptureRewriteSession),
         ):
             _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
@@ -1416,7 +1416,7 @@ class RunAllSupervisorTests(unittest.TestCase):
         )
 
         with (
-            patch("rebus_generator.workflows.run_all.jobs.generate.apply_scored_canonical_fallbacks", return_value={}),
+            patch("rebus_generator.workflows.run_all.generate_attempt.apply_scored_canonical_fallbacks", return_value={}),
             patch("rebus_generator.workflows.run_all.jobs.generate.RunAllRewriteSession", _CaptureRewriteSession),
         ):
             _run_planned_unit(job, job.plan_ready_units(ctx)[0], ctx)
