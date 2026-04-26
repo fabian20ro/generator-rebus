@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 import json
@@ -34,7 +33,7 @@ from rebus_generator.platform.io.runtime_logging import log, path_timestamp
 DEFAULT_BATCH_SIZE = 40
 DEFAULT_IDLE_SLEEP_SECONDS = 30
 DEFAULT_SIMPLIFY_STATE_PATH = Path("build/clue_canon/simplify_state.json")
-SIMPLIFY_STATE_VERSION = 1
+SIMPLIFY_STATE_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -337,10 +336,17 @@ def _write_state(
     apply: bool,
     pool_version: int,
 ) -> None:
+    # random.getstate() returns (version, internal_state_tuple, gauss_next)
+    # where internal_state_tuple is a tuple of 625 integers.
+    rng_state = rng.getstate()
     payload = {
         "version": SIMPLIFY_STATE_VERSION,
         "seed": 0,
-        "rng_state": repr(rng.getstate()),
+        "rng_state": [
+            rng_state[0],
+            list(rng_state[1]),
+            rng_state[2],
+        ],
         "report_dir": str(report_dir),
         "stats": _stats_to_payload(stats),
         "attempted_pair_keys": sorted(attempted_pair_keys),
@@ -379,8 +385,19 @@ def _load_state(
         raise SystemExit(f"Simplify state {state_path} exists with different --batch-size")
     if int(payload.get("idle_sleep_seconds") or 0) != idle_sleep_seconds:
         raise SystemExit(f"Simplify state {state_path} exists with different --idle-sleep-seconds")
+
+    raw_rng_state = payload.get("rng_state")
+    if not isinstance(raw_rng_state, list) or len(raw_rng_state) != 3:
+        raise SystemExit(f"Invalid rng_state in {state_path}")
+
+    rng_state = (
+        raw_rng_state[0],
+        tuple(raw_rng_state[1]),
+        raw_rng_state[2],
+    )
+
     rng = random.Random()
-    rng.setstate(ast.literal_eval(str(payload.get("rng_state"))))
+    rng.setstate(rng_state)
     return (
         rng,
         Path(str(payload.get("report_dir"))),

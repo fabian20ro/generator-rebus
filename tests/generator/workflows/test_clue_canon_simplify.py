@@ -257,6 +257,7 @@ class ClueCanonSimplifyTests(unittest.TestCase):
 
     def test_simplify_state_roundtrip_restores_current_batch(self):
         rng = __import__("random").Random(7)
+        initial_state = rng.getstate()
         stats = SimplifyStats(pairs_sampled=3)
         pair = SimplifyCandidatePair("1::2", "LA", "", "", "1", "2", "a", "b", "a", "b", 1.5)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -277,6 +278,15 @@ class ClueCanonSimplifyTests(unittest.TestCase):
                 apply=False,
                 pool_version=2,
             )
+
+            # Verify the serialization format in the file
+            import json
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(2, payload["version"])
+            self.assertIsInstance(payload["rng_state"], list)
+            self.assertEqual(3, len(payload["rng_state"]))
+            self.assertIsInstance(payload["rng_state"][1], list)
+
             loaded = _load_state(
                 state_path,
                 dry_run=True,
@@ -287,12 +297,13 @@ class ClueCanonSimplifyTests(unittest.TestCase):
             )
 
         self.assertIsNotNone(loaded)
-        _rng, _report_dir, loaded_stats, attempted, cooldown, current_batch, pool_version = loaded
+        loaded_rng, _report_dir, loaded_stats, attempted, cooldown, current_batch, pool_version = loaded
         self.assertEqual(3, loaded_stats.pairs_sampled)
         self.assertEqual({"1::2"}, attempted)
         self.assertEqual([], sorted(cooldown))
         self.assertEqual(["1::2"], [item.key for item in current_batch])
         self.assertEqual(2, pool_version)
+        self.assertEqual(initial_state, loaded_rng.getstate())
 
     def test_run_simplify_fanout_keeps_best_existing_survivor_without_rewrite_when_pair_is_strong(self):
         pair_rows = [
