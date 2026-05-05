@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.services.path_safety import resolve_under
+from app.services.path_safety import sanitize_name
 
 
-def merge_jsonl(base_input_dir: Path, base_output_dir: Path, input_subdir: str, output_file: str) -> int:
-    input_dir = resolve_under(base_input_dir, input_subdir)
-    output_path = resolve_under(base_output_dir, output_file)
-    files = sorted(input_dir.glob("*.jsonl"))
+def merge_jsonl(base_dir: Path, output_file: str) -> int:
+    base_dir.mkdir(parents=True, exist_ok=True)
+    safe_output = sanitize_name(output_file, default="merged.jsonl")
+    output_path = base_dir / safe_output
+    files = sorted(p for p in base_dir.glob("*.jsonl") if p.name != safe_output)
     count = 0
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as out:
         for path in files:
             for line in path.read_text(encoding="utf-8").splitlines():

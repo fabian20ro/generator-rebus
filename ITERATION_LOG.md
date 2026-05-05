@@ -1824,3 +1824,7 @@
 - Fixed CodeQL path-traversal risks in golden-builder save/merge by constraining user paths under app data/output root.
 - Added explicit unsafe-path errors surfaced as HTTP 400.
 - Added path safety tests.
+
+## 2026-05-05 (codeql follow-up 2)
+- Reworked path handling to basename+allowlist sanitization (`sanitize_name`) to reduce taint-propagation surface.
+- Merge now operates only inside app output root and no longer accepts arbitrary input dir/subdir.

@@ -64,12 +64,11 @@ document.getElementById('save').addEventListener('click', async () => {
 
 
 document.getElementById('merge').addEventListener('click', async () => {
-  const input_subdir = document.getElementById('merge-subdir').value.trim();
   const output_file = document.getElementById('merge-output').value.trim() || 'merged.jsonl';
   await fetch('/api/merge-jsonl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input_subdir, output_file }),
+    body: JSON.stringify({ output_file }),
   });
   alert('Merged');
 });

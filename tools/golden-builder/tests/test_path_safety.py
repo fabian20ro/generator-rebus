@@ -1,15 +1,16 @@
-from pathlib import Path
-
 import pytest
 
-from app.services.path_safety import UnsafePathError, resolve_under
+from app.services.path_safety import UnsafePathError, sanitize_name
 
 
-def test_resolve_under_accepts_child():
-    out = resolve_under(Path('/tmp/base'), 'a/b.jsonl')
-    assert str(out).endswith('/tmp/base/a/b.jsonl')
+def test_sanitize_name_accepts_simple_file():
+    assert sanitize_name('a-1.jsonl', default='x.jsonl') == 'a-1.jsonl'
 
 
-def test_resolve_under_rejects_escape():
+def test_sanitize_name_drops_path_parts():
+    assert sanitize_name('../abc.jsonl', default='x.jsonl') == 'abc.jsonl'
+
+
+def test_sanitize_name_rejects_unsafe_chars():
     with pytest.raises(UnsafePathError):
-        resolve_under(Path('/tmp/base'), '../secret.txt')
+        sanitize_name('bad$name.jsonl', default='x.jsonl')

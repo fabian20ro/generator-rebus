@@ -48,7 +48,7 @@ def save(req: SaveRequest) -> dict[str, str]:
 @app.post("/api/merge-jsonl")
 def merge(req: MergeRequest) -> dict[str, int | str]:
     try:
-        count = merge_jsonl(OUTPUT_DIR, OUTPUT_DIR, req.input_subdir, req.output_file)
+        count = merge_jsonl(OUTPUT_DIR, req.output_file)
     except UnsafePathError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"rows": count, "output": req.output_file}
