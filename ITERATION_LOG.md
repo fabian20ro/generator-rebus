@@ -1819,3 +1819,8 @@
 - Added 10x10 parser rule: hyphen as row break only when current row already has 10 filled cells; otherwise black square occupying cell.
 - Added JSONL schema with puzzle_title/solution/definition.
 - Test run blocked by network fetching dependencies.
+
+## 2026-05-05 (follow-up)
+- Fixed CodeQL path-traversal risks in golden-builder save/merge by constraining user paths under app data/output root.
+- Added explicit unsafe-path errors surfaced as HTTP 400.
+- Added path safety tests.

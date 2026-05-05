@@ -19,5 +19,5 @@ class SaveRequest(BaseModel):
 
 
 class MergeRequest(BaseModel):
-    input_dir: str
-    output_file: str
+    input_subdir: str = ""
+    output_file: str = "merged.jsonl"
