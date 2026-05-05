@@ -1813,3 +1813,9 @@
 **Outcome:** success
 **Insight:** Hidden LLM work can be removed incrementally by moving decision points to explicit units first; full canonical planning split can come later without changing scheduler shape again.
 **Promoted:** no
+
+## 2026-05-05
+- Built local tools/golden-builder MVP scaffold (FastAPI + static UI + parsers + JSONL save/merge).
+- Added 10x10 parser rule: hyphen as row break only when current row already has 10 filled cells; otherwise black square occupying cell.
+- Added JSONL schema with puzzle_title/solution/definition.
+- Test run blocked by network fetching dependencies.
