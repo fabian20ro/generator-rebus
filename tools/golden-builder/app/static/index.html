@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Golden Builder</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <h1>Golden Builder</h1>
+  <label>Puzzle title <input id="title" /></label>
+  <div class="images">
+    <div><p>Clue image</p><input id="clue" type="file" accept="image/*" /></div>
+    <div><p>Solution image</p><input id="solution" type="file" accept="image/*" /></div>
+  </div>
+  <button id="extract">Extract</button>
+  <div class="diacritics">
+    <button class="dia">ă</button><button class="dia">â</button><button class="dia">î</button><button class="dia">ș</button><button class="dia">ț</button>
+  </div>
+  <table id="rows"><thead><tr><th>Solution</th><th>Definition</th></tr></thead><tbody></tbody></table>
+  <button id="save">Save JSONL</button>
+  <button id="merge">Merge JSONL</button>
+  <script src="/static/app.js"></script>
+</body>
+</html>

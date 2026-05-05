@@ -1813,3 +1813,22 @@
 **Outcome:** success
 **Insight:** Hidden LLM work can be removed incrementally by moving decision points to explicit units first; full canonical planning split can come later without changing scheduler shape again.
 **Promoted:** no
+
+## 2026-05-05
+- Built local tools/golden-builder MVP scaffold (FastAPI + static UI + parsers + JSONL save/merge).
+- Added 10x10 parser rule: hyphen as row break only when current row already has 10 filled cells; otherwise black square occupying cell.
+- Added JSONL schema with puzzle_title/solution/definition.
+- Test run blocked by network fetching dependencies.
+
+## 2026-05-05 (follow-up)
+- Fixed CodeQL path-traversal risks in golden-builder save/merge by constraining user paths under app data/output root.
+- Added explicit unsafe-path errors surfaced as HTTP 400.
+- Added path safety tests.
+
+## 2026-05-05 (codeql follow-up 2)
+- Reworked path handling to basename+allowlist sanitization (`sanitize_name`) to reduce taint-propagation surface.
+- Merge now operates only inside app output root and no longer accepts arbitrary input dir/subdir.
+
+## 2026-05-05 (codeql follow-up 3)
+- Removed user-controlled output path construction from save/merge operations.
+- Save now writes server-generated timestamped JSONL names; merge always writes fixed merged.jsonl in output root.

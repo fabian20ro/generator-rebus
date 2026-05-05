@@ -1,0 +1,6 @@
+body { font-family: sans-serif; margin: 16px; }
+.images { display: flex; gap: 16px; margin: 12px 0; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { border: 1px solid #ddd; padding: 8px; }
+input[type="text"], input, textarea { width: 100%; }
+textarea { min-height: 48px; }
