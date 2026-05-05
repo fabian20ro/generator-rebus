@@ -52,23 +52,21 @@ document.getElementById('extract').addEventListener('click', async () => {
 
 document.getElementById('save').addEventListener('click', async () => {
   const title = document.getElementById('title').value.trim();
-  const filename = document.getElementById('filename').value.trim();
   const rows = currentRows.map((r) => ({ puzzle_title: title, solution: r.solution || '', definition: r.definition || '' }));
   await fetch('/api/save-jsonl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ puzzle_title: title, filename, rows }),
+    body: JSON.stringify({ puzzle_title: title, rows }),
   });
   alert('Saved');
 });
 
 
 document.getElementById('merge').addEventListener('click', async () => {
-  const output_file = document.getElementById('merge-output').value.trim() || 'merged.jsonl';
   await fetch('/api/merge-jsonl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ output_file }),
+    body: JSON.stringify({}),
   });
   alert('Merged');
 });

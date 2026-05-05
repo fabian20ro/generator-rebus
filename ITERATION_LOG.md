@@ -1828,3 +1828,7 @@
 ## 2026-05-05 (codeql follow-up 2)
 - Reworked path handling to basename+allowlist sanitization (`sanitize_name`) to reduce taint-propagation surface.
 - Merge now operates only inside app output root and no longer accepts arbitrary input dir/subdir.
+
+## 2026-05-05 (codeql follow-up 3)
+- Removed user-controlled output path construction from save/merge operations.
+- Save now writes server-generated timestamped JSONL names; merge always writes fixed merged.jsonl in output root.

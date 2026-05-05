@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -11,7 +11,6 @@ from app.schemas import ExtractResponse, MergeRequest, SaveRequest
 from app.services.export_service import save_jsonl
 from app.services.extraction_service import build_pairs
 from app.services.merge_service import merge_jsonl
-from app.services.path_safety import UnsafePathError
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -38,20 +37,14 @@ async def extract(puzzle_title: str, clue_image: UploadFile = File(...), solutio
 
 @app.post("/api/save-jsonl")
 def save(req: SaveRequest) -> dict[str, str]:
-    try:
-        path = save_jsonl(OUTPUT_DIR, req.filename, req.rows)
-    except UnsafePathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    path = save_jsonl(OUTPUT_DIR, req.rows)
     return {"path": str(path)}
 
 
 @app.post("/api/merge-jsonl")
 def merge(req: MergeRequest) -> dict[str, int | str]:
-    try:
-        count = merge_jsonl(OUTPUT_DIR, req.output_file)
-    except UnsafePathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"rows": count, "output": req.output_file}
+    count, output = merge_jsonl(OUTPUT_DIR)
+    return {"rows": count, "output": str(output)}
 
 
 @app.get("/health")

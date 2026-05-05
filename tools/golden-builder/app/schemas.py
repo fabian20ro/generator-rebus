@@ -14,9 +14,8 @@ class ExtractResponse(BaseModel):
 
 class SaveRequest(BaseModel):
     puzzle_title: str
-    filename: str
     rows: list[PairRow]
 
 
 class MergeRequest(BaseModel):
-    output_file: str = "merged.jsonl"
+    pass
