@@ -58,9 +58,12 @@ Rules: No delete from `ITERATION_LOG.md`. Obsolete lessons → Archive. Date-sta
 ### Periodic Maintenance
 Audit configs via `SETUP_AI_AGENT_CONFIG.md`.
 
-## Sub-Agents
+## Development Tools
 
-Experts in `.claude/agents/`. Activate proactively.
+Use `Makefile` for task automation:
+- `make lint`: Run ruff check and format verification.
+- `make test`: Run pytest suite.
+- `make format`: Auto-format with ruff.
 
 | Agent | File | When |
 |-------|------|------|
