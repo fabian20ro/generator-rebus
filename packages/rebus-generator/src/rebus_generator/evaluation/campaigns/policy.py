@@ -137,6 +137,7 @@ V6_EXPERIMENT_FAMILY_PRIORITY = (
 
 
 def load_latest_kept_result(results_path: Path = WORKING_RESULTS_PATH) -> dict[str, str]:
+    """Loads the most recent benchmark row marked as 'keep' from the results file."""
     lines = results_path.read_text(encoding="utf-8").strip().splitlines()
     if len(lines) < 2:
         raise ValueError(f"No benchmark rows in {results_path}")
