@@ -1852,3 +1852,11 @@
 **Outcome:** success; pending GitHub Actions verification on pushed commit.
 **Insight:** Admin RPCs can remain `SECURITY INVOKER` when called with `service_role`; explicit function grants shrink API surface without privileged-definer exposure.
 **Promoted:** yes
+
+### [2026-07-21] — CodeQL release-gate follow-up
+
+**Happened:** Moved Python workflow token permissions to workflow scope so every job receives only `contents: read`.
+**Verification:** CodeQL annotation identified missing permissions on the database job; full GitHub Actions rerun pending on the follow-up commit.
+**Outcome:** least-privilege CI token boundary restored.
+**Insight:** Job-scoped permissions do not protect sibling jobs; shared least privilege belongs at workflow scope.
+**Promoted:** yes

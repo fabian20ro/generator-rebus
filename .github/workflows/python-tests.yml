@@ -8,11 +8,12 @@ on:
     paths: ['packages/rebus-generator/**', 'tests/**', 'tools/scripts/**', 'db/**', 'pyproject.toml', 'uv.lock', 'Makefile']
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
 

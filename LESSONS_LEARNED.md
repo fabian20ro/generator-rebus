@@ -236,6 +236,8 @@
 
 **[2026-07-21]** Supabase admin RPC boundary — prefer `SECURITY INVOKER` with explicit `REVOKE` from `PUBLIC/anon/authenticated` and `GRANT EXECUTE` only to `service_role`. The caller already bypasses RLS; a public `SECURITY DEFINER` adds avoidable privilege exposure.
 
+**[2026-07-21]** GitHub Actions token scope — define shared least-privilege `permissions` at workflow scope. Job-scoped permissions leave sibling jobs on repository defaults and trigger CodeQL's missing-permissions alert.
+
 ---
 
 ## Archive
