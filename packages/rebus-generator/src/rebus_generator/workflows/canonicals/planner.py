@@ -123,10 +123,16 @@ class CanonicalPersistencePlanner:
         decisions = self._resolve(inputs)
         
         for inp, decision in zip(inputs, decisions):
+            canonical_verified = getattr(decision, "canonical_verified", None)
+            if not isinstance(canonical_verified, bool):
+                canonical_verified = None
+            canonical_matches_candidate = (
+                str(decision.canonical_definition or "").strip() == str(inp.definition or "").strip()
+            )
             payload = self.builder.build_clue_definition_payload(
                 canonical_definition_id=decision.canonical_definition_id,
-                verify_note=inp.verify_note or "",
-                verified=inp.verified,
+                verify_note=(inp.verify_note or "") if canonical_matches_candidate else "",
+                verified=inp.verified if canonical_verified is None else canonical_verified,
             )
             
             if inp.current_payload:
@@ -160,6 +166,11 @@ class CanonicalPersistencePlanner:
         for record in clue_records:
             resolved_record = dict(record)
             candidate_definition = str(resolved_record.pop("_candidate_definition", "") or "")
+            verified = bool(resolved_record.pop("_verified", False))
+            semantic_score = resolved_record.pop("_semantic_score", None)
+            rebus_score = resolved_record.pop("_rebus_score", None)
+            creativity_score = resolved_record.pop("_creativity_score", None)
+            verify_note = str(resolved_record.pop("_verify_note", "") or "")
             source_records.append(resolved_record)
             candidate_definitions.append(candidate_definition)
             inputs.append(
@@ -168,6 +179,11 @@ class CanonicalPersistencePlanner:
                     word_original=str(resolved_record.get("word_original") or "") or None,
                     definition=candidate_definition,
                     word_type=str(resolved_record.get("word_type") or "") or None,
+                    verified=verified,
+                    semantic_score=semantic_score,
+                    rebus_score=rebus_score,
+                    creativity_score=creativity_score,
+                    verify_note=verify_note,
                 )
             )
 

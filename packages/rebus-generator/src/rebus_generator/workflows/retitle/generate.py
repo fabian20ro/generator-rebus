@@ -22,6 +22,7 @@ from .sanitize import (
     NO_TITLE_LABEL,
     TITLE_GENERATE_MAX_TOKENS,
     TITLE_MIN_CREATIVITY,
+    TitleCandidateReview,
     TitleGenerateAttempt,
     TitleGenerationResult,
     _build_rejected_context,

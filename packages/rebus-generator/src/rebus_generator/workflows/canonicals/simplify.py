@@ -509,21 +509,12 @@ def _apply_merge(
     best_source = choose_existing_survivor(left, right)
     if dry_run:
         return f"dry-run:{best_source.word_normalized}:{normalize_definition_text(survivor_definition)}"
-    survivor = store.create_canonical_definition(
-        _survivor_record_from_definition(best_source, definition=survivor_definition)
-    )
-    if survivor is None:
-        raise RuntimeError("failed to create survivor canonical")
-    store.repoint_clues_by_canonical_ids(
+    return store.merge_canonical_definitions_atomic(
         [left.id, right.id],
-        canonical_definition_id=survivor.id,
+        source=best_source,
+        definition=survivor_definition,
+        definition_norm=normalize_definition_text(survivor_definition),
     )
-    store.mark_canonicals_superseded(
-        [left.id, right.id],
-        superseded_by=survivor.id,
-    )
-    store.delete_unreferenced_canonicals_by_ids([left.id, right.id])
-    return survivor.id
 
 
 def apply_simplify_merge(

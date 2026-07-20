@@ -724,15 +724,10 @@ async function loadPuzzle(id: string): Promise<void> {
     const alreadySolved = isPuzzleAlreadySolved(id);
 
     // Fetch puzzle and solution in parallel
-    const [puzzleResult, solutionResult] = await Promise.allSettled([
+    const [data, solution] = await Promise.all([
       getPuzzle(id),
       getSolution(id),
     ]);
-
-    if (puzzleResult.status === "rejected") {
-      throw puzzleResult.reason;
-    }
-    const data: PuzzleDetail = puzzleResult.value;
     const { puzzle } = data;
     const template: boolean[][] = JSON.parse(puzzle.grid_template);
     gridInitialised = false; // force createGrid on next refresh
@@ -748,7 +743,7 @@ async function loadPuzzle(id: string): Promise<void> {
     }
     const sessionLoad = loadPuzzleSession(session, {
       detail: data,
-      solutionJson: solutionResult.status === "fulfilled" ? solutionResult.value.solution : undefined,
+      solutionJson: solution.solution,
       progress: saved,
       alreadySolved,
       touchRemoteEnabled,

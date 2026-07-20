@@ -64,9 +64,9 @@ def _print_report(result: AssessmentResult) -> None:
 
     failures = [
         c for c in result.candidates
-        if not _best_verified(c)
-        and _best_definition(c)
-        and not _best_definition(c).startswith("[")
+        if not best_verified(c)
+        and best_definition(c)
+        and not best_definition(c).startswith("[")
     ]
     if failures:
         log(f"\nFailed words ({len(failures)}):")

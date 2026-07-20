@@ -41,6 +41,8 @@ def _compute_difficulty(size: int, report: QualityReport) -> int:
 def is_publishable(prepared: PreparedPuzzle) -> bool:
     return (
         not prepared.blocking_words
+        and not prepared.assessment.blocker_words
+        and prepared.assessment.scores_complete
         and prepared.assessment.verified_count >= MIN_PUBLISHABLE_CONSENSUS_CLUES
     )
 
@@ -51,6 +53,11 @@ def describe_publishability_failure(prepared: PreparedPuzzle) -> str:
         reasons.append(
             "missing definitions: " + ", ".join(prepared.blocking_words[:12])
         )
+    quality_blockers = [
+        word for word in prepared.assessment.blocker_words if word not in prepared.blocking_words
+    ]
+    if quality_blockers:
+        reasons.append("definitions below quality thresholds: " + ", ".join(quality_blockers[:12]))
     if prepared.assessment.verified_count < MIN_PUBLISHABLE_CONSENSUS_CLUES:
         reasons.append(
             "no consensus-verified clue"

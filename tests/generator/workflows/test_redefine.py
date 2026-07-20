@@ -500,6 +500,8 @@ class RedefinePuzzleTests(unittest.TestCase):
         self.assertEqual(1, count)
         fixture.clue_table.update.assert_not_called()
         fixture.puzzle_table.update.assert_not_called()
+        fixture.canonical_table.insert.assert_not_called()
+        fixture.canonical_table.update.assert_not_called()
 
     @patch("rebus_generator.workflows.redefine.runtime.rewrite_puzzle_definitions")
     @patch("rebus_generator.workflows.redefine.runtime.evaluate_puzzle_state")
@@ -656,7 +658,7 @@ class RedefinePuzzleTests(unittest.TestCase):
             "definition_norm": "forma de relief",
             "word_type": "",
             "usage_label": "",
-            "verified": True,
+            "verified": False,
             "semantic_score": 8,
             "rebus_score": 6,
             "creativity_score": 6,

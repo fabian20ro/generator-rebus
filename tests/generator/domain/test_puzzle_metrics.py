@@ -1,6 +1,7 @@
 """Tests for rebus_generator.domain.puzzle_metrics."""
 
 import unittest
+from unittest.mock import patch
 from rebus_generator.domain.pipeline_state import (
     ClueAssessment,
     ClueCandidateVersion,
@@ -12,12 +13,26 @@ from rebus_generator.domain.pipeline_state import (
 from rebus_generator.domain.puzzle_metrics import (
     score_puzzle_state,
     build_puzzle_description,
+    evaluate_puzzle_state,
 )
 from rebus_generator.platform.io.markdown_io import ClueEntry
 from rebus_generator.platform.llm.ai_clues import DefinitionRating
 
 
 class TestPuzzleMetrics(unittest.TestCase):
+    @patch("rebus_generator.domain.puzzle_metrics.rate_working_puzzle")
+    @patch("rebus_generator.domain.puzzle_metrics.verify_working_puzzle", return_value=(0, 0))
+    @patch("rebus_generator.domain.puzzle_metrics.LmRuntime")
+    def test_evaluate_puzzle_state_respects_single_model_mode(
+        self, runtime_cls, _verify, _rate
+    ):
+        puzzle = WorkingPuzzle("T", 1, [["A"]], [], [])
+
+        result = evaluate_puzzle_state(puzzle, object(), multi_model=False)
+
+        runtime_cls.assert_called_once_with(multi_model=False)
+        self.assertNotIn(" + ", result.evaluator_model)
+
     def test_score_puzzle_state_partial_votes(self):
         # A clue with no finalized scores but one rating vote
         clue = WorkingClue(row_number=1, word_normalized="TEST", word_original="test")

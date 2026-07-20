@@ -1,0 +1,59 @@
+name: App Quality
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/frontend/**', 'apps/worker/**', '.github/workflows/app-quality.yml']
+  pull_request:
+    paths: ['apps/frontend/**', 'apps/worker/**', '.github/workflows/app-quality.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci
+        working-directory: apps/frontend
+      - run: npm test -- --runInBand
+        working-directory: apps/frontend
+      - run: npm run build
+        working-directory: apps/frontend
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/worker/package-lock.json
+      - run: npm ci
+        working-directory: apps/worker
+      - run: npm run typecheck
+        working-directory: apps/worker
+      - run: npm test
+        working-directory: apps/worker
+
+  secret-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject tracked local secret files
+        shell: bash
+        run: |
+          tracked=$(git ls-files '.env' '.env.*' '**/.dev.vars' '**/.wrangler/**' | grep -vE '(^|/)\.env\.example$' || true)
+          if [[ -n "$tracked" ]]; then
+            echo "Tracked local secret/runtime files:"
+            echo "$tracked"
+            exit 1
+          fi

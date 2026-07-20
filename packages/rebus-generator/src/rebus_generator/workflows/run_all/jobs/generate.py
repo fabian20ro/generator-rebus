@@ -144,7 +144,7 @@ class GenerateJobState(JobState):
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.raw_words = _load_words(ctx.words_path)
         self.word_metadata = _metadata_by_word(self.raw_words)
-        self.batch_rng = random.Random(random.SystemRandom().randint(1, 10_000_000))
+        self.batch_rng = random.Random(f"{ctx.seed}:{self.item.stable_key()}:{self.index}")
         self.effective_attempts = _preparation_attempts_for_size(self.size, 3)
         self._progress("fill_grid", detail=f"size={self.size}")
         return None
@@ -167,6 +167,7 @@ class GenerateJobState(JobState):
         self.resolved_metadata = _choose_metadata_variants_for_puzzle(
             puzzle,
             self.candidate.metadata,
+            rng=self.batch_rng,
         )
         self.working_puzzle = puzzle
         self.dex_provider = DexProvider.for_puzzle(self.working_puzzle)
@@ -492,7 +493,7 @@ class GenerateJobState(JobState):
         write_metrics(
             BatchMetric(
                 timestamp=utc_timestamp(),
-                seed=0,
+                seed=ctx.seed,
                 models_used=[label for label in (ctx.runtime.current_model_label,) if label],
                 puzzles=[puzzle_metric],
                 word_metrics=word_metrics,

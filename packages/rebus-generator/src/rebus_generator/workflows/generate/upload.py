@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 from datetime import datetime, timezone
+import hashlib
 import json
 import sys
-from postgrest.types import ReturnMethod
 from rebus_generator.platform.persistence.supabase_ops import create_rebus_client as create_client
-from rebus_generator.platform.persistence.supabase_ops import execute_logged_insert
 from rebus_generator.platform.config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
 from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner
@@ -16,6 +15,11 @@ from rebus_generator.platform.io.markdown_io import parse_markdown
 from rebus_generator.platform.io.runtime_logging import log
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.domain.slot_extractor import Slot, extract_slots
+from rebus_generator.domain.clue_rating import (
+    extract_creativity_score,
+    extract_rebus_score,
+    extract_semantic_score,
+)
 
 
 def _grid_to_json(grid: list[list[str]]) -> tuple[str, str]:
@@ -38,7 +42,7 @@ def _grid_to_json(grid: list[list[str]]) -> tuple[str, str]:
 
 
 def _clean_definition(definition: str) -> str:
-    return definition.split("→", 1)[0].strip()
+    return definition.strip()
 
 
 def _now_iso() -> str:
@@ -62,6 +66,7 @@ def upload_puzzle(
     client=None,
     runtime: LmRuntime | None = None,
     multi_model: bool = True,
+    published: bool = False,
 ) -> str:
     """Upload a parsed puzzle object and return the puzzle ID."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
@@ -75,7 +80,7 @@ def upload_puzzle(
     # Check all definitions are verified
     all_clues = puzzle.horizontal_clues + puzzle.vertical_clues
     if not force:
-        unverified = [c for c in all_clues if c.verified is False]
+        unverified = [c for c in all_clues if c.verified is not True]
         if unverified:
             log(f"Error: {len(unverified)} definitions failed verification.")
             log("Fix them and re-verify, or use --force to upload anyway.")
@@ -89,6 +94,10 @@ def upload_puzzle(
 
     # Find word positions in the grid for clue records
     slots_with_words = _slots_with_words(puzzle.grid)
+    if len(all_clues) != len(slots_with_words):
+        raise ValueError(
+            f"slot-clue mismatch: grid has {len(slots_with_words)} slots, puzzle has {len(all_clues)} clues"
+        )
     h_positions = [(s.start_row, s.start_col, word)
                    for s, word in slots_with_words if s.direction == "H"]
     v_positions = [(s.start_row, s.start_col, word)
@@ -108,9 +117,11 @@ def upload_puzzle(
 
     for clue in puzzle.horizontal_clues:
         positions = h_slot_by_word.get(clue.word_normalized, [])
-        if positions:
-            r, c, word = positions.pop(0)
-            clue_records.append({
+        if not positions:
+            raise ValueError(f"missing horizontal slot for clue {clue.word_normalized}")
+        r, c, word = positions.pop(0)
+        clue_records.append(
+            {
                 "direction": "H",
                 "start_row": r,
                 "start_col": c,
@@ -119,16 +130,19 @@ def upload_puzzle(
                 "word_original": clue.word_original or clue.word_normalized.lower(),
                 "word_type": getattr(clue, "word_type", "") or "",
                 "clue_number": clue_number,
-            })
-            clue_records[-1]["_candidate_definition"] = _clean_definition(clue.definition or "")
-            clue_number += 1
+            }
+        )
+        clue_records[-1].update(_candidate_assessment_payload(clue))
+        clue_number += 1
 
     v_clue_number = 1
     for clue in puzzle.vertical_clues:
         positions = v_slot_by_word.get(clue.word_normalized, [])
-        if positions:
-            r, c, word = positions.pop(0)
-            clue_records.append({
+        if not positions:
+            raise ValueError(f"missing vertical slot for clue {clue.word_normalized}")
+        r, c, word = positions.pop(0)
+        clue_records.append(
+            {
                 "direction": "V",
                 "start_row": r,
                 "start_col": c,
@@ -137,9 +151,16 @@ def upload_puzzle(
                 "word_original": clue.word_original or clue.word_normalized.lower(),
                 "word_type": getattr(clue, "word_type", "") or "",
                 "clue_number": v_clue_number,
-            })
-            clue_records[-1]["_candidate_definition"] = _clean_definition(clue.definition or "")
-            v_clue_number += 1
+            }
+        )
+        clue_records[-1].update(_candidate_assessment_payload(clue))
+        v_clue_number += 1
+
+    unmatched_slots = sum(
+        len(rows) for rows in (*h_slot_by_word.values(), *v_slot_by_word.values())
+    )
+    if unmatched_slots:
+        raise ValueError(f"slot-clue mismatch: {unmatched_slots} grid slots have no matching clue")
 
     log(f"Uploading puzzle: {puzzle.title or 'Untitled'}")
     log(f"  Grid: {puzzle.size}x{puzzle.size}")
@@ -152,6 +173,8 @@ def upload_puzzle(
         client=client,
         runtime=runtime,
         multi_model=multi_model,
+        track_usage=False,
+        preserve_candidate_text=True,
     )
     created_timestamp = _now_iso()
 
@@ -163,7 +186,7 @@ def upload_puzzle(
         "grid_template": grid_template_json,
         "grid_solution": grid_solution_json,
         "difficulty": difficulty,
-        "published": False,
+        "published": published,
     }
     if metadata:
         puzzle_data.update(metadata)
@@ -178,24 +201,21 @@ def upload_puzzle(
         resolved_clue_records = [planned.record for planned in plan.clues]
         created_canonical_ids = plan.touched_canonical_ids
 
-        result = execute_logged_insert(
-            supabase,
-            "crossword_puzzles",
-            puzzle_data,
-            returning=ReturnMethod.representation,
-        )
-        puzzle_id = result.data[0]["id"]
+        publication_key = _publication_key(puzzle_data, resolved_clue_records)
+        result = supabase.rpc(
+            "publish_crossword_puzzle_atomic",
+            {
+                "p_publication_key": publication_key,
+                "p_puzzle": puzzle_data,
+                "p_clues": resolved_clue_records,
+            },
+        ).execute()
+        puzzle_id = _rpc_puzzle_id(result.data)
         log(f"  Puzzle ID: {puzzle_id}")
 
         if resolved_clue_records:
             for record in resolved_clue_records:
                 record["puzzle_id"] = puzzle_id
-            execute_logged_insert(
-                supabase,
-                "crossword_clues",
-                resolved_clue_records,
-                returning=ReturnMethod.minimal,
-            )
             for planned in plan.clues:
                 event = planned.canonical_event
                 log_canonical_event(
@@ -212,8 +232,6 @@ def upload_puzzle(
                     f"{(record.get('canonical_definition_id') or '')[:80]}"
                 )
     except Exception:
-        if puzzle_id:
-            _delete_uploaded_puzzle(supabase, puzzle_id)
         if created_canonical_ids:
             clue_store.delete_unreferenced_canonicals_by_ids(created_canonical_ids)
         raise
@@ -234,10 +252,40 @@ def run(input_file: str, output_file: str, **kwargs) -> None:
     upload_puzzle(puzzle, force=force)
 
 
-def _delete_uploaded_puzzle(supabase, puzzle_id: str) -> None:
-    try:
-        supabase.table("crossword_clues").delete().eq("puzzle_id", puzzle_id).execute()
-        supabase.table("crossword_puzzles").delete().eq("id", puzzle_id).execute()
-        log(f"  [cleanup] removed partial upload for puzzle_id={puzzle_id}")
-    except Exception as cleanup_exc:
-        log(f"  [cleanup failed] puzzle_id={puzzle_id} error={cleanup_exc}", level="WARN")
+def _publication_key(puzzle_data: dict[str, object], clue_records: list[dict[str, object]]) -> str:
+    stable_puzzle = {
+        key: value
+        for key, value in puzzle_data.items()
+        if key not in {"created_at", "updated_at"}
+    }
+    payload = json.dumps(
+        {"puzzle": stable_puzzle, "clues": clue_records},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _rpc_puzzle_id(data) -> str:
+    if isinstance(data, str) and data:
+        return data
+    if isinstance(data, dict):
+        value = data.get("id") or data.get("publish_crossword_puzzle_atomic")
+        if value:
+            return str(value)
+    if isinstance(data, list) and data:
+        return _rpc_puzzle_id(data[0])
+    raise RuntimeError("atomic publication returned no puzzle ID")
+
+
+def _candidate_assessment_payload(clue) -> dict[str, object]:
+    verify_note = str(getattr(clue, "verify_note", "") or "")
+    return {
+        "_candidate_definition": _clean_definition(clue.definition or ""),
+        "_verified": clue.verified is True,
+        "_verify_note": verify_note,
+        "_semantic_score": extract_semantic_score(verify_note),
+        "_rebus_score": extract_rebus_score(verify_note),
+        "_creativity_score": extract_creativity_score(verify_note),
+    }

@@ -124,6 +124,8 @@
 **[2026-04-05]** Local LLM referee calls: bounded classification — disable reasoning for `clue_compare` micro-tasks. Strict JSON contract; cap completion budget (double/triple digit tokens) to avoid long "thinking" traces.
 
 ## Process & Workflow
+**[2026-07-20]** Publication and dry-run truthfulness — planning must be side-effect free. Evaluate the exact canonical text that will be persisted; atomically persist puzzle, complete clue coverage, canonical references, usage counts, and activation behind one idempotent publication Module. Retry after commit must reuse the publication ID, never create a second puzzle.
+
 **[2026-04-17]** Audit dedupe key: include run ID — prevents cross-cache suppression bursts. Fallback to per-instance behavior when no run context active.
 
 **[2026-04-17]** Heartbeat summaries: separate snapshot writer — periodic state files for long runs; human summary only at end. Build payload helper; write snapshots on timer.
@@ -231,6 +233,8 @@
 **[2026-04-26]** Canonical upload resolution must be batch-aware — per-clue `resolve_definition()` calls invoke single-item two-model referees and bypass `run_all` scheduler batching. During publish this causes physical model thrash (`definition_referee` switches with `ready_by_model` often 1). Plan canonical decisions in bulk or route referee work through scheduler-visible units.
 
 **[2026-04-26]** Supabase mutation egress — PostgREST returns changed rows by default. For unattended bulk writes, set `ReturnMethod.minimal` unless the caller consumes inserted/updated row data.
+
+**[2026-07-21]** Supabase admin RPC boundary — prefer `SECURITY INVOKER` with explicit `REVOKE` from `PUBLIC/anon/authenticated` and `GRANT EXECUTE` only to `service_role`. The caller already bypasses RLS; a public `SECURITY DEFINER` adds avoidable privilege exposure.
 
 ---
 

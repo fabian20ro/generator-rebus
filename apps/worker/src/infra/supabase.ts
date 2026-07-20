@@ -6,15 +6,12 @@ export function requireEnv(env: Env): string | null {
   return null;
 }
 
-function supabaseToken(env: Env): string {
-  return env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
-}
-
 export async function fetchFromSupabase(url: string, env: Env): Promise<Response> {
+  const token = env.SUPABASE_ANON_KEY;
   return fetch(url, {
     headers: {
-      apikey: supabaseToken(env),
-      Authorization: `Bearer ${supabaseToken(env)}`,
+      apikey: token,
+      Authorization: `Bearer ${token}`,
     },
   });
 }

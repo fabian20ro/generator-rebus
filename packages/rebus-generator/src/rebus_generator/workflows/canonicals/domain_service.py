@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
+import hashlib
 from itertools import combinations
 import re
 
@@ -184,11 +185,24 @@ def _to_int(value) -> int | None:
 
 
 class ClueCanonService:
-    def __init__(self, *, store: ClueCanonStore | None = None, client=None, runtime=None, multi_model: bool = True):
+    def __init__(
+        self,
+        *,
+        store: ClueCanonStore | None = None,
+        client=None,
+        runtime=None,
+        multi_model: bool = True,
+        read_only: bool = False,
+        track_usage: bool = True,
+        preserve_candidate_text: bool = False,
+    ):
         self.store = store or ClueCanonStore()
         self.client = client
         self.runtime = runtime
         self.multi_model = multi_model
+        self.read_only = read_only
+        self.track_usage = track_usage
+        self.preserve_candidate_text = preserve_candidate_text
 
     def fetch_prompt_examples(self, word_normalized: str, *, limit: int = 3) -> list[str]:
         rows = self._scored_active_canonicals(word_normalized)
@@ -277,13 +291,19 @@ class ClueCanonService:
             usage_label=record.usage_label,
         )
         if exact is not None:
-            exact = self.store.bump_usage(exact.id, record.word_normalized) or exact
-            self._attach_if_possible(clue_id, puzzle_id, exact.id)
+            if not self.read_only and self.track_usage:
+                exact = self.store.bump_usage(exact.id, record.word_normalized) or exact
+            if not self.read_only:
+                self._attach_if_possible(clue_id, puzzle_id, exact.id)
             return CanonicalDecision(
                 canonical_definition=exact.definition,
                 canonical_definition_norm=exact.definition_norm,
                 canonical_definition_id=exact.id,
                 action="reuse_exact",
+                canonical_verified=exact.verified,
+                canonical_semantic_score=exact.semantic_score,
+                canonical_rebus_score=exact.rebus_score,
+                canonical_creativity_score=exact.creativity_score,
             )
 
         for canonical in self._likely_matches(record):
@@ -303,9 +323,11 @@ class ClueCanonService:
                     "winner_votes": result.winner_votes,
                 },
             )
-            if result.merge_allowed and result.winner == "B":
-                self.store.bump_usage(canonical.id, record.word_normalized)
-                self._attach_if_possible(clue_id, puzzle_id, canonical.id)
+            if result.merge_allowed and result.winner == "B" and not self.preserve_candidate_text:
+                if not self.read_only and self.track_usage:
+                    self.store.bump_usage(canonical.id, record.word_normalized)
+                if not self.read_only:
+                    self._attach_if_possible(clue_id, puzzle_id, canonical.id)
                 return CanonicalDecision(
                     canonical_definition=canonical.definition,
                     canonical_definition_norm=canonical.definition_norm,
@@ -314,9 +336,17 @@ class ClueCanonService:
                     same_meaning_votes=result.same_meaning_votes,
                     winner_votes=result.winner_votes,
                     decision_note="existing canonical kept",
+                    canonical_verified=canonical.verified,
+                    canonical_semantic_score=canonical.semantic_score,
+                    canonical_rebus_score=canonical.rebus_score,
+                    canonical_creativity_score=canonical.creativity_score,
                 )
-            if result.merge_allowed and result.winner == "A":
-                created, created_new = self.store.create_canonical_definition_with_status(record)
+            if result.merge_allowed and result.winner in {"A", "B"}:
+                if self.read_only:
+                    return self._read_only_new_decision(record, action="promote_new")
+                created, created_new = self.store.create_canonical_definition_with_status(
+                    record, track_usage=self.track_usage
+                )
                 promoted = created or canonical
                 self._attach_if_possible(clue_id, puzzle_id, promoted.id)
                 return CanonicalDecision(
@@ -326,13 +356,25 @@ class ClueCanonService:
                     action="promote_new",
                     same_meaning_votes=result.same_meaning_votes,
                     winner_votes=result.winner_votes,
-                    decision_note="new immutable canonical created; existing canonical retained",
+                    decision_note=(
+                        "candidate text preserved for evaluation integrity"
+                        if result.winner == "B"
+                        else "new immutable canonical created; existing canonical retained"
+                    ),
                     created_new=created_new,
+                    canonical_verified=promoted.verified,
+                    canonical_semantic_score=promoted.semantic_score,
+                    canonical_rebus_score=promoted.rebus_score,
+                    canonical_creativity_score=promoted.creativity_score,
                 )
             if result.disagreement:
                 continue
 
-        created, created_new = self.store.create_canonical_definition_with_status(record)
+        if self.read_only:
+            return self._read_only_new_decision(record)
+        created, created_new = self.store.create_canonical_definition_with_status(
+            record, track_usage=self.track_usage
+        )
         canonical_id = created.id if created is not None else None
         canonical_text = created.definition if created is not None else record.definition
         self._attach_if_possible(clue_id, puzzle_id, canonical_id)
@@ -342,6 +384,10 @@ class ClueCanonService:
             canonical_definition_id=canonical_id,
             action="create_new",
             created_new=created_new,
+            canonical_verified=created.verified if created is not None else record.verified,
+            canonical_semantic_score=created.semantic_score if created is not None else record.semantic_score,
+            canonical_rebus_score=created.rebus_score if created is not None else record.rebus_score,
+            canonical_creativity_score=created.creativity_score if created is not None else record.creativity_score,
         )
 
     def resolve_definitions(self, inputs) -> list[CanonicalDecision]:
@@ -358,15 +404,21 @@ class ClueCanonService:
                 usage_label=record.usage_label,
             )
             if exact is not None:
-                exact = self.store.bump_usage(exact.id, record.word_normalized) or exact
                 clue_id = getattr(inputs[index], "clue_id", None)
                 puzzle_id = getattr(inputs[index], "puzzle_id", None)
-                self._attach_if_possible(clue_id, puzzle_id, exact.id)
+                if not self.read_only and self.track_usage:
+                    exact = self.store.bump_usage(exact.id, record.word_normalized) or exact
+                if not self.read_only:
+                    self._attach_if_possible(clue_id, puzzle_id, exact.id)
                 decisions[index] = CanonicalDecision(
                     canonical_definition=exact.definition,
                     canonical_definition_norm=exact.definition_norm,
                     canonical_definition_id=exact.id,
                     action="reuse_exact",
+                    canonical_verified=exact.verified,
+                    canonical_semantic_score=exact.semantic_score,
+                    canonical_rebus_score=exact.rebus_score,
+                    canonical_creativity_score=exact.creativity_score,
                 )
                 continue
             matches = self._likely_matches(record)
@@ -408,11 +460,13 @@ class ClueCanonService:
                 record = state["record"]
                 self._audit_referee_result(record, canonical, result)
                 index = int(state["index"])
-                if result.merge_allowed and result.winner == "B":
-                    self.store.bump_usage(canonical.id, record.word_normalized)
+                if result.merge_allowed and result.winner == "B" and not self.preserve_candidate_text:
                     clue_id = getattr(inputs[index], "clue_id", None)
                     puzzle_id = getattr(inputs[index], "puzzle_id", None)
-                    self._attach_if_possible(clue_id, puzzle_id, canonical.id)
+                    if not self.read_only and self.track_usage:
+                        self.store.bump_usage(canonical.id, record.word_normalized)
+                    if not self.read_only:
+                        self._attach_if_possible(clue_id, puzzle_id, canonical.id)
                     decisions[index] = CanonicalDecision(
                         canonical_definition=canonical.definition,
                         canonical_definition_norm=canonical.definition_norm,
@@ -421,10 +475,19 @@ class ClueCanonService:
                         same_meaning_votes=result.same_meaning_votes,
                         winner_votes=result.winner_votes,
                         decision_note="existing canonical kept",
+                        canonical_verified=canonical.verified,
+                        canonical_semantic_score=canonical.semantic_score,
+                        canonical_rebus_score=canonical.rebus_score,
+                        canonical_creativity_score=canonical.creativity_score,
                     )
                     continue
-                if result.merge_allowed and result.winner == "A":
-                    created, created_new = self.store.create_canonical_definition_with_status(record)
+                if result.merge_allowed and result.winner in {"A", "B"}:
+                    if self.read_only:
+                        decisions[index] = self._read_only_new_decision(record, action="promote_new")
+                        continue
+                    created, created_new = self.store.create_canonical_definition_with_status(
+                        record, track_usage=self.track_usage
+                    )
                     promoted = created or canonical
                     clue_id = getattr(inputs[index], "clue_id", None)
                     puzzle_id = getattr(inputs[index], "puzzle_id", None)
@@ -436,8 +499,16 @@ class ClueCanonService:
                         action="promote_new",
                         same_meaning_votes=result.same_meaning_votes,
                         winner_votes=result.winner_votes,
-                        decision_note="new immutable canonical created; existing canonical retained",
+                        decision_note=(
+                            "candidate text preserved for evaluation integrity"
+                            if result.winner == "B"
+                            else "new immutable canonical created; existing canonical retained"
+                        ),
                         created_new=created_new,
+                        canonical_verified=promoted.verified,
+                        canonical_semantic_score=promoted.semantic_score,
+                        canonical_rebus_score=promoted.rebus_score,
+                        canonical_creativity_score=promoted.creativity_score,
                     )
                     continue
                 state["cursor"] = int(state["cursor"]) + 1
@@ -466,7 +537,11 @@ class ClueCanonService:
         )
 
     def _create_new_decision(self, record: ClueDefinitionRecord, inp) -> CanonicalDecision:
-        created, created_new = self.store.create_canonical_definition_with_status(record)
+        if self.read_only:
+            return self._read_only_new_decision(record)
+        created, created_new = self.store.create_canonical_definition_with_status(
+            record, track_usage=self.track_usage
+        )
         canonical_id = created.id if created is not None else None
         canonical_text = created.definition if created is not None else record.definition
         self._attach_if_possible(getattr(inp, "clue_id", None), getattr(inp, "puzzle_id", None), canonical_id)
@@ -476,6 +551,33 @@ class ClueCanonService:
             canonical_definition_id=canonical_id,
             action="create_new",
             created_new=created_new,
+            canonical_verified=created.verified if created is not None else record.verified,
+            canonical_semantic_score=created.semantic_score if created is not None else record.semantic_score,
+            canonical_rebus_score=created.rebus_score if created is not None else record.rebus_score,
+            canonical_creativity_score=created.creativity_score if created is not None else record.creativity_score,
+        )
+
+    @staticmethod
+    def _read_only_new_decision(
+        record: ClueDefinitionRecord,
+        *,
+        action: str = "create_new",
+    ) -> CanonicalDecision:
+        identity = "\x1f".join(
+            (record.word_normalized, record.word_type, record.usage_label, record.definition_norm)
+        )
+        placeholder_id = f"dry-run:{hashlib.sha256(identity.encode()).hexdigest()[:20]}"
+        return CanonicalDecision(
+            canonical_definition=record.definition,
+            canonical_definition_norm=record.definition_norm,
+            canonical_definition_id=placeholder_id,
+            action=action,
+            decision_note="read-only canonical plan",
+            created_new=True,
+            canonical_verified=record.verified,
+            canonical_semantic_score=record.semantic_score,
+            canonical_rebus_score=record.rebus_score,
+            canonical_creativity_score=record.creativity_score,
         )
 
     def _audit_referee_result(

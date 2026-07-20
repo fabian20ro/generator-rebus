@@ -40,6 +40,18 @@ _UUID_RE = re.compile(
 )
 
 
+def _rpc_scalar_id(data, function_name: str) -> str:
+    if isinstance(data, str) and data:
+        return data
+    if isinstance(data, dict):
+        value = data.get("id") or data.get(function_name)
+        if value:
+            return str(value)
+    if isinstance(data, list) and data:
+        return _rpc_scalar_id(data[0], function_name)
+    raise RuntimeError(f"{function_name} returned no ID")
+
+
 class ClueCanonStore:
     def __init__(self, client=None):
         self.client = client or create_service_role_client()
@@ -270,6 +282,8 @@ class ClueCanonStore:
     def create_canonical_definition_with_status(
         self,
         record: ClueDefinitionRecord,
+        *,
+        track_usage: bool = True,
     ) -> tuple[CanonicalDefinition | None, bool]:
         existing = self.find_exact_canonical(
             record.word_normalized,
@@ -285,7 +299,9 @@ class ClueCanonStore:
                 usage_label=record.usage_label,
             )
         if existing is not None:
-            return self.bump_usage(existing.id, record.word_normalized), False
+            if track_usage:
+                existing = self.bump_usage(existing.id, record.word_normalized) or existing
+            return existing, False
 
         payload = {
             "word_normalized": record.word_normalized,
@@ -298,7 +314,7 @@ class ClueCanonStore:
             "semantic_score": record.semantic_score,
             "rebus_score": record.rebus_score,
             "creativity_score": record.creativity_score,
-            "usage_count": 1,
+            "usage_count": 1 if track_usage else 0,
             "last_used_at": _now_iso(),
             "updated_at": _now_iso(),
         }
@@ -342,7 +358,9 @@ class ClueCanonStore:
                     "[canonical conflict recovered_direct_exact] "
                     f"word={record.word_normalized} definition_norm={record.definition_norm}"
                 )
-                return self.bump_usage(existing.id, record.word_normalized) or existing, False
+                if track_usage:
+                    existing = self.bump_usage(existing.id, record.word_normalized) or existing
+                return existing, False
             audit(
                 "clue_canon_conflict_unresolved",
                 component="clue_canon",
@@ -890,6 +908,38 @@ class ClueCanonStore:
             )
             batches += 1
         return batches
+
+    def merge_canonical_definitions_atomic(
+        self,
+        source_ids: list[str],
+        *,
+        source: CanonicalDefinition,
+        definition: str,
+        definition_norm: str,
+    ) -> str:
+        result = self.client.rpc(
+            "merge_canonical_definitions_atomic",
+            {
+                "p_source_ids": source_ids,
+                "p_word_normalized": source.word_normalized,
+                "p_word_original_seed": source.word_original_seed,
+                "p_definition": definition,
+                "p_definition_norm": definition_norm,
+                "p_word_type": source.word_type,
+                "p_usage_label": source.usage_label,
+                "p_verified": source.verified,
+                "p_semantic_score": source.semantic_score,
+                "p_rebus_score": source.rebus_score,
+                "p_creativity_score": source.creativity_score,
+            },
+        ).execute()
+        survivor_id = _rpc_scalar_id(result.data, "merge_canonical_definitions_atomic")
+        self._invalidate_canonical_cache(source.word_normalized)
+        log(
+            "[supabase rpc] function=merge_canonical_definitions_atomic "
+            f"sources={len(source_ids)} survivor={survivor_id}"
+        )
+        return survivor_id
 
     def mark_canonicals_superseded(
         self,

@@ -3,9 +3,9 @@ name: Python Tests
 on:
   push:
     branches: [main]
-    paths: ['packages/rebus-generator/**', 'tests/**', 'tools/scripts/**']
+    paths: ['packages/rebus-generator/**', 'tests/**', 'tools/scripts/**', 'db/**', 'pyproject.toml', 'uv.lock', 'Makefile']
   pull_request:
-    paths: ['packages/rebus-generator/**', 'tests/**', 'tools/scripts/**']
+    paths: ['packages/rebus-generator/**', 'tests/**', 'tools/scripts/**', 'db/**', 'pyproject.toml', 'uv.lock', 'Makefile']
   workflow_dispatch:
 
 jobs:
@@ -23,5 +23,35 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups
 
+      - name: Lint
+        run: make lint
+
       - name: Run tests
-        run: uv run pytest tests/ -v
+        run: make test
+
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Supabase roles
+        run: psql -h 127.0.0.1 -U postgres -c "CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;"
+      - name: Apply schema and atomic migration
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -f db/schema.sql
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -f db/migrations/20260721_atomic_publication.sql
+      - name: Exercise idempotent publication and merge
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -f db/tests/atomic_publication_smoke.sql

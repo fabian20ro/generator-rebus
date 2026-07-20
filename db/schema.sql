@@ -19,7 +19,8 @@ CREATE TABLE crossword_puzzles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ,
   repaired_at TIMESTAMPTZ,
-  published BOOLEAN NOT NULL DEFAULT FALSE
+  published BOOLEAN NOT NULL DEFAULT FALSE,
+  publication_key TEXT UNIQUE
 );
 
 CREATE TABLE canonical_clue_definitions (
@@ -107,6 +108,11 @@ CREATE POLICY "Public read canonical clues of published puzzles" ON canonical_cl
       WHERE puzzle_id IN (SELECT id FROM crossword_puzzles WHERE published = TRUE)
     )
   );
+
+GRANT SELECT ON crossword_puzzles TO anon;
+GRANT SELECT ON crossword_clues TO anon;
+GRANT SELECT ON canonical_clue_definitions TO anon;
+GRANT SELECT ON crossword_clue_effective TO anon;
 
 -- Dexonline definition cache (shared with propozitii-nostime)
 CREATE TABLE dex_definitions (

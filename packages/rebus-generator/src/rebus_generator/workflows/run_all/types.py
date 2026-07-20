@@ -3,10 +3,13 @@ from __future__ import annotations
 import concurrent.futures
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from rebus_generator.platform.orchestration import StableItemProgress, WorkItem, WorkStage
 from rebus_generator.platform.io.runtime_logging import utc_timestamp
+
+if TYPE_CHECKING:
+    from .jobs.base import JobState
 
 
 class DeterministicFailureQuarantine(RuntimeError):
@@ -33,6 +36,7 @@ class RunAllContext:
     redefine_rounds: int
     verify_candidates: int
     simplify_batch_size: int
+    seed: int = 0
     preflight_enabled: bool = True
     llm_stall_seconds: int = 900
     llm_truncation_threshold: int = 3

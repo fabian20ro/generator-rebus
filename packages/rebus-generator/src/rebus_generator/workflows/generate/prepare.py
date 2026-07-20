@@ -76,8 +76,12 @@ _build_prepared_puzzle = build_prepared_puzzle
 
 
 def _choose_metadata_variants_for_puzzle(
-    puzzle, metadata: dict[str, list[dict]]
+    puzzle,
+    metadata: dict[str, list[dict]],
+    *,
+    rng: random.Random | None = None,
 ) -> dict[str, dict]:
+    chooser = rng or random
     resolved: dict[str, dict] = {}
     clues = list(getattr(puzzle, "horizontal_clues", [])) + list(
         getattr(puzzle, "vertical_clues", [])
@@ -87,7 +91,7 @@ def _choose_metadata_variants_for_puzzle(
         if normalized not in resolved:
             options = metadata.get(normalized) or []
             if options:
-                resolved[normalized] = copy.deepcopy(random.choice(options))
+                resolved[normalized] = copy.deepcopy(chooser.choice(options))
             else:
                 resolved[normalized] = {
                     "normalized": normalized,
@@ -240,7 +244,9 @@ def _prepare_puzzle_for_publication(
         puzzle = parse_markdown(candidate.markdown)
         puzzle.title = ""
         resolved_metadata = _choose_metadata_variants_for_puzzle(
-            puzzle, candidate.metadata
+            puzzle,
+            candidate.metadata,
+            rng=rng,
         )
         generate_definitions_for_puzzle(
             puzzle,
