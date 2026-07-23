@@ -136,6 +136,10 @@ class CanonicalDecision:
     winner_votes: int | None = None
     decision_note: str = ""
     created_new: bool = False
+    canonical_verified: bool | None = None
+    canonical_semantic_score: int | None = None
+    canonical_rebus_score: int | None = None
+    canonical_creativity_score: int | None = None
 
 
 @dataclass

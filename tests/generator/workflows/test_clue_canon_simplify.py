@@ -192,20 +192,13 @@ class ClueCanonSimplifyTests(unittest.TestCase):
 
         self.assertTrue(survivor_id.startswith("dry-run:LA:"))
 
-    def test_apply_merge_failure_before_supersede_keeps_sources_unsuperseded(self):
+    def test_apply_merge_propagates_atomic_rpc_failure(self):
         calls = []
 
         class _Store:
-            def create_canonical_definition(self, record):
-                calls.append("create")
-                return SimpleNamespace(id="survivor-1")
-
-            def repoint_clues_by_canonical_ids(self, *_args, **_kwargs):
-                calls.append("repoint")
+            def merge_canonical_definitions_atomic(self, *_args, **_kwargs):
+                calls.append("atomic-merge")
                 raise RuntimeError("boom")
-
-            def mark_canonicals_superseded(self, *_args, **_kwargs):
-                calls.append("supersede")
 
         with self.assertRaises(RuntimeError):
             _apply_merge(
@@ -216,25 +209,15 @@ class ClueCanonSimplifyTests(unittest.TestCase):
                 dry_run=False,
             )
 
-        self.assertEqual(["create", "repoint"], calls)
+        self.assertEqual(["atomic-merge"], calls)
 
-    def test_apply_merge_deletes_superseded_sources_after_repoint(self):
+    def test_apply_merge_uses_one_atomic_store_operation(self):
         calls = []
 
         class _Store:
-            def create_canonical_definition(self, record):
-                calls.append(("create", record.definition))
-                return SimpleNamespace(id="survivor-1")
-
-            def repoint_clues_by_canonical_ids(self, ids, *, canonical_definition_id):
-                calls.append(("repoint", ids, canonical_definition_id))
-
-            def mark_canonicals_superseded(self, ids, *, superseded_by):
-                calls.append(("supersede", ids, superseded_by))
-
-            def delete_unreferenced_canonicals_by_ids(self, ids):
-                calls.append(("delete", ids))
-                return len(ids)
+            def merge_canonical_definitions_atomic(self, ids, **kwargs):
+                calls.append(("atomic-merge", ids, kwargs["definition"]))
+                return "survivor-1"
 
         survivor_id = _apply_merge(
             store=_Store(),
@@ -246,12 +229,7 @@ class ClueCanonSimplifyTests(unittest.TestCase):
 
         self.assertEqual("survivor-1", survivor_id)
         self.assertEqual(
-            [
-                ("create", "Prepoziție care indică locul."),
-                ("repoint", ["1", "2"], "survivor-1"),
-                ("supersede", ["1", "2"], "survivor-1"),
-                ("delete", ["1", "2"]),
-            ],
+            [("atomic-merge", ["1", "2"], "Prepoziție care indică locul.")],
             calls,
         )
 

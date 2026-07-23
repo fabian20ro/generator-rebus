@@ -10,7 +10,6 @@ from rebus_generator.platform.llm.models import get_active_model_labels
 from rebus_generator.domain.pipeline_state import ClueAssessment, all_working_clues, puzzle_from_working_state
 from rebus_generator.domain.puzzle_metrics import build_puzzle_description, puzzle_metadata_payload
 from rebus_generator.domain.score_helpers import _needs_rewrite
-from rebus_generator.workflows.generate.activate import set_published
 from rebus_generator.workflows.generate.upload import upload_puzzle
 
 from .models import PreparedPuzzle
@@ -115,7 +114,7 @@ def publish_prepared_puzzle(
     description = build_puzzle_description(prepared.assessment, models_used_desc)
     difficulty = _compute_difficulty(size, prepared.candidate.report)
     puzzle_id = upload_puzzle(
-        puzzle_from_working_state(defs_puzzle),
+        rendered_puzzle,
         difficulty=difficulty,
         description=description,
         metadata={
@@ -125,8 +124,8 @@ def publish_prepared_puzzle(
         client=client,
         runtime=runtime,
         multi_model=multi_model,
+        published=True,
     )
-    set_published(puzzle_id, True)
 
     word_metrics = _collect_word_metrics(prepared.puzzle)
     clues = all_working_clues(prepared.puzzle)

@@ -14,6 +14,7 @@ from rebus_generator.platform.persistence.supabase_ops import execute_logged_upd
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
 from rebus_generator.workflows.canonicals.planner import CanonicalPersistencePlanner, ExistingPuzzleClueInput
 from rebus_generator.domain.pipeline_state import WorkingClue, WorkingPuzzle, puzzle_from_working_state
+from rebus_generator.domain.clue_canon_types import CanonicalDecision
 
 from .load import PlannedClueUpdate, RedefinePersistencePlan, clue_key, working_clue_map
 
@@ -141,6 +142,8 @@ def plan_redefined_puzzle_persistence(
         client=client,
         runtime=runtime,
         multi_model=multi_model,
+        read_only=dry_run,
+        preserve_candidate_text=True,
     )
     planner = CanonicalPersistencePlanner(resolver=clue_canon, builder=clue_canon.store)
     

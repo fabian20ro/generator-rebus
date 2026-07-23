@@ -71,10 +71,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--words", default="build/words.json", help="Path to words.json cache.")
     parser.add_argument("--output-root", default="build/run_all_runs", help="Supervisor artifact root.")
-    parser.add_argument("--generate-cap", type=int, default=1)
-    parser.add_argument("--redefine-cap", type=int, default=1)
-    parser.add_argument("--retitle-cap", type=int, default=1)
-    parser.add_argument("--simplify-cap", type=int, default=1)
+    cap_help = "One stateful slot per topic; only 1 is currently supported."
+    parser.add_argument("--generate-cap", type=int, choices=(1,), default=1, help=cap_help)
+    parser.add_argument("--redefine-cap", type=int, choices=(1,), default=1, help=cap_help)
+    parser.add_argument("--retitle-cap", type=int, choices=(1,), default=1, help=cap_help)
+    parser.add_argument("--simplify-cap", type=int, choices=(1,), default=1, help=cap_help)
+    parser.add_argument("--seed", type=int, default=0, help="Deterministic supervisor seed.")
+    parser.add_argument("--checkpoint", type=Path, default=None, help="Checkpoint JSON path.")
+    parser.add_argument("--resume-from", type=Path, default=None, help="Resume pending/active items from checkpoint.")
     parser.add_argument("--idle-sleep-seconds", type=int, default=DEFAULT_IDLE_SLEEP_SECONDS)
     parser.add_argument("--heartbeat-seconds", type=int, default=DEFAULT_HEARTBEAT_SECONDS)
     parser.add_argument("--rewrite-rounds", type=int, default=8)
@@ -310,7 +314,8 @@ def main(argv: list[str] | None = None) -> int:
 
     run_root = Path(args.output_root)
     _enforce_egress_guard(args, run_root)
-    run_dir = run_root / path_timestamp()
+    run_dir = args.resume_from.parent if args.resume_from else run_root / path_timestamp()
+    checkpoint_path = args.checkpoint or run_dir / "checkpoint.json"
     log_path = run_dir / "run.log"
     audit_path = run_dir / "audit.jsonl"
     failure_path = run_dir / "failures.log"
@@ -360,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
                 redefine_rounds=max(1, args.rounds),
                 verify_candidates=max(1, args.verify_candidates),
                 simplify_batch_size=max(1, args.simplify_batch_size),
+                seed=args.seed,
                 preflight_enabled=bool(args.llm_preflight),
                 llm_stall_seconds=max(60, int(args.llm_stall_seconds)),
                 llm_truncation_threshold=max(1, int(args.llm_truncation_threshold)),
@@ -380,6 +386,8 @@ def main(argv: list[str] | None = None) -> int:
                 idle_sleep_seconds=max(1, args.idle_sleep_seconds),
                 heartbeat_seconds=max(1, args.heartbeat_seconds),
                 debug=bool(args.debug),
+                checkpoint_path=checkpoint_path,
+                resume_from=args.resume_from,
             )
             try:
                 supervisor.run()

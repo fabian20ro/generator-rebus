@@ -17,7 +17,7 @@ export interface PuzzleSessionState {
 
 export interface PuzzleSessionLoadInput {
   detail: PuzzleDetail;
-  solutionJson?: string;
+  solutionJson: string;
   progress: PuzzleProgress | null;
   alreadySolved: boolean;
   touchRemoteEnabled: boolean;
@@ -61,12 +61,13 @@ export function loadPuzzleSession(
 ): PuzzleSessionLoadResult {
   const { puzzle, clues } = input.detail;
   const template: boolean[][] = JSON.parse(puzzle.grid_template);
+  const solution = JSON.parse(input.solutionJson);
+  if (!Array.isArray(solution) || solution.length !== puzzle.grid_size) {
+    throw new Error("Invalid puzzle solution");
+  }
   const gridState = createGridState(puzzle.grid_size, template, clues);
   gridState.touchRemoteEnabled = input.touchRemoteEnabled;
-
-  if (input.solutionJson) {
-    gridState.solution = JSON.parse(input.solutionJson);
-  }
+  gridState.solution = solution;
 
   state.gridState = gridState;
   state.currentPuzzleId = puzzle.id;

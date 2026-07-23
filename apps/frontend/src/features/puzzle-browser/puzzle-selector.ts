@@ -50,18 +50,26 @@ function createPuzzleCard(
   card.setAttribute("aria-label", `${puzzle.title || "Rebus"} — ${puzzle.grid_size}x${puzzle.grid_size}`);
 
   const subtitle = puzzle.description || puzzle.theme || "Fără descriere încă.";
-  const meta = createMetaRow(puzzle, mode)
-    .map((item) => `<span>${item}</span>`)
-    .join("");
+  const top = document.createElement("div");
+  top.className = "puzzle-card__top";
+  const size = document.createElement("span");
+  size.className = "puzzle-card__size";
+  size.textContent = `${puzzle.grid_size}x${puzzle.grid_size}`;
+  top.appendChild(size);
 
-  card.innerHTML = `
-    <div class="puzzle-card__top">
-      <span class="puzzle-card__size">${puzzle.grid_size}x${puzzle.grid_size}</span>
-    </div>
-    <h3>${puzzle.title || "Rebus"}</h3>
-    <p class="puzzle-card__theme">${subtitle}</p>
-    <div class="puzzle-card__meta">${meta}</div>
-  `;
+  const title = document.createElement("h3");
+  title.textContent = puzzle.title || "Rebus";
+  const theme = document.createElement("p");
+  theme.className = "puzzle-card__theme";
+  theme.textContent = subtitle;
+  const meta = document.createElement("div");
+  meta.className = "puzzle-card__meta";
+  for (const item of createMetaRow(puzzle, mode)) {
+    const label = document.createElement("span");
+    label.textContent = item;
+    meta.appendChild(label);
+  }
+  card.append(top, title, theme, meta);
 
   appendCardSelection(card, () => onSelect(puzzle.id));
   return card;
@@ -183,10 +191,11 @@ export function renderPuzzleList(
   if (puzzles.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.innerHTML = `
-      <h3>${options?.emptyTitle || "Nimic aici încă"}</h3>
-      <p>${options?.emptyBody || "Revino după ce mai joci câteva rebusuri."}</p>
-    `;
+    const title = document.createElement("h3");
+    title.textContent = options?.emptyTitle || "Nimic aici încă";
+    const body = document.createElement("p");
+    body.textContent = options?.emptyBody || "Revino după ce mai joci câteva rebusuri.";
+    empty.append(title, body);
 
     if (options?.emptyActionLabel && options.onEmptyAction) {
       const action = document.createElement("button");

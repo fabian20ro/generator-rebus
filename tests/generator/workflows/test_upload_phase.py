@@ -56,8 +56,69 @@ class _Client:
     def table(self, name):
         return _Table(self.payload_store, name, fail_inserts=self.fail_inserts)
 
+    def rpc(self, name, params):
+        client = self
+
+        class _RpcQuery:
+            def execute(self):
+                if client.fail_inserts & {"crossword_puzzles", "crossword_clues"}:
+                    failed = sorted(client.fail_inserts)[0]
+                    raise RuntimeError(f"insert failed for {failed}")
+                client.payload_store["_rpc"] = {"name": name, "params": params}
+                client.payload_store["crossword_puzzles"] = params["p_puzzle"]
+                client.payload_store["crossword_clues"] = params["p_clues"]
+                return SimpleNamespace(data="puzzle-1")
+
+        return _RpcQuery()
+
 
 class UploadPhaseTests(unittest.TestCase):
+    @patch("rebus_generator.workflows.generate.upload.SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    @patch("rebus_generator.workflows.generate.upload.SUPABASE_URL", "https://example.supabase.co")
+    def test_upload_rejects_unknown_verification_state(self):
+        puzzle = SimpleNamespace(
+            title="Test",
+            size=1,
+            grid=[["A"]],
+            horizontal_clues=[SimpleNamespace(
+                word_normalized="A",
+                word_original="a",
+                definition="Prima literă",
+                verified=None,
+                verify_note="",
+            )],
+            vertical_clues=[],
+        )
+
+        with self.assertRaises(SystemExit):
+            upload_puzzle(puzzle)
+
+    @patch("rebus_generator.workflows.generate.upload._slots_with_words")
+    @patch("rebus_generator.workflows.generate.upload.create_client")
+    @patch("rebus_generator.workflows.generate.upload.SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    @patch("rebus_generator.workflows.generate.upload.SUPABASE_URL", "https://example.supabase.co")
+    def test_upload_rejects_clue_without_matching_slot(self, mock_create_client, mock_slots):
+        mock_slots.return_value = [
+            (SimpleNamespace(direction="H", start_row=0, start_col=0), "A")
+        ]
+        puzzle = SimpleNamespace(
+            title="Test",
+            size=1,
+            grid=[["A"]],
+            horizontal_clues=[SimpleNamespace(
+                word_normalized="B",
+                word_original="b",
+                definition="A doua literă",
+                verified=True,
+                verify_note="ok",
+            )],
+            vertical_clues=[],
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing horizontal slot"):
+            upload_puzzle(puzzle)
+        mock_create_client.assert_not_called()
+
     @patch("rebus_generator.workflows.generate.upload._now_iso", return_value="2026-03-31T10:11:12+00:00")
     @patch("rebus_generator.workflows.generate.upload.create_client")
     @patch("rebus_generator.workflows.generate.upload.SUPABASE_SERVICE_ROLE_KEY", "test-key")
@@ -193,6 +254,8 @@ class UploadPhaseTests(unittest.TestCase):
             client=ai_client,
             runtime=runtime,
             multi_model=False,
+            track_usage=False,
+            preserve_candidate_text=True,
         )
 
     @patch("rebus_generator.workflows.generate.upload.ClueCanonService")
@@ -243,7 +306,7 @@ class UploadPhaseTests(unittest.TestCase):
     @patch("rebus_generator.workflows.generate.upload.create_client")
     @patch("rebus_generator.workflows.generate.upload.SUPABASE_SERVICE_ROLE_KEY", "test-key")
     @patch("rebus_generator.workflows.generate.upload.SUPABASE_URL", "https://example.supabase.co")
-    def test_upload_cleans_up_partial_puzzle_when_clue_insert_fails(
+    def test_atomic_upload_leaves_no_partial_puzzle_when_clue_insert_fails(
         self,
         mock_create_client,
         mock_slots_with_words,
@@ -283,13 +346,8 @@ class UploadPhaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "insert failed for crossword_clues"):
             upload_puzzle(puzzle)
 
-        self.assertEqual(
-            [
-                {"table": "crossword_clues", "filters": {"puzzle_id": "puzzle-1"}},
-                {"table": "crossword_puzzles", "filters": {"id": "puzzle-1"}},
-            ],
-            client.payload_store["_deletes"],
-        )
+        self.assertNotIn("crossword_puzzles", client.payload_store)
+        self.assertNotIn("crossword_clues", client.payload_store)
         mock_store.delete_unreferenced_canonicals_by_ids.assert_not_called()
 
     @patch("rebus_generator.workflows.generate.upload.ClueCanonService")

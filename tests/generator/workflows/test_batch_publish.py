@@ -787,16 +787,17 @@ class BatchPublishTests(unittest.TestCase):
         mock_upload.assert_not_called()
 
 
-    def test_low_scores_but_definitions_present_is_publishable(self):
+    def test_low_scores_block_publication_even_when_definitions_are_present(self):
         prepared = _prepared_puzzle(
             title="Test",
             definition_score=4.0,
             blocking_words=[],
             verified_count=1,
             total_clues=1,
+            quality_blocker_words=["AER"],
         )
 
-        self.assertTrue(_is_publishable(prepared))
+        self.assertFalse(_is_publishable(prepared))
 
     def test_zero_consensus_verified_clues_blocks_publication_even_without_missing_definitions(self):
         prepared = _prepared_puzzle(
@@ -997,6 +998,7 @@ def _prepared_puzzle(
     verify_incomplete_count: int = 0,
     rating_incomplete_count: int = 0,
     incomplete_words: list[str] | None = None,
+    quality_blocker_words: list[str] | None = None,
 ) -> PreparedPuzzle:
     clue = ClueEntry(
         row_number=1,
@@ -1045,7 +1047,7 @@ def _prepared_puzzle(
             definition_score=definition_score,
             avg_rebus=8.0,
             min_rebus=min_rebus,
-            blocker_words=list(blocking_words),
+            blocker_words=list(quality_blocker_words if quality_blocker_words is not None else blocking_words),
             verified_count=verified_count,
             total_clues=total_clues,
             pass_rate=(verified_count / total_clues) if total_clues else 0.0,

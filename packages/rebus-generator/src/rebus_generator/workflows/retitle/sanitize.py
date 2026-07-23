@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 from rebus_generator.domain.guards.title_guards import (
@@ -13,6 +12,7 @@ from rebus_generator.domain.guards.title_guards import (
     normalize_title_key,
 )
 from rebus_generator.platform.llm.llm_text import clean_llm_text_response
+from rebus_generator.domain.selection_engine import stable_tie_rng
 
 TITLE_MIN_CREATIVITY = 8
 MAX_TITLE_ROUNDS = 7
@@ -45,8 +45,9 @@ FALLBACK_TITLES = [
     "Orizont Fragmentat",
 ]
 
-def _fallback_title() -> str:
-    return random.choice(FALLBACK_TITLES)
+def _fallback_title(*, seed_parts: tuple[object, ...] = ()) -> str:
+    rng = stable_tie_rng("fallback_title", *seed_parts)
+    return rng.choice(FALLBACK_TITLES)
 
 
 def _clean_title(title: str) -> str:
@@ -79,7 +80,7 @@ class TitleGenerateAttempt:
 
 def _sanitize_title(title: str, input_words: list[str] | None = None) -> str:
     reviewed = _review_title_candidate(title, input_words=input_words)
-    return reviewed.title if reviewed.valid else _fallback_title()
+    return reviewed.title if reviewed.valid else _fallback_title(seed_parts=tuple(input_words or ()))
 
 
 def _generator_retry_instruction(reason: str) -> str:

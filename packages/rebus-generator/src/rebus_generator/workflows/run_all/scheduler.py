@@ -18,6 +18,7 @@ from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
 from rebus_generator.platform.io.runtime_logging import log
 from .jobs import build_job
+from .checkpoint import deserialize_work_item, load_checkpoint, serialize_work_item, write_checkpoint
 from .model_drain import ModelDrain
 from .pollers import poll_generate, poll_redefine, poll_retitle, poll_simplify
 from .reporting import (
@@ -76,15 +77,25 @@ class RunAllSupervisor:
         heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS,
         retry_limit: int = DEFAULT_RETRY_LIMIT,
         debug: bool = False,
+        checkpoint_path: Path | None = None,
+        resume_from: Path | None = None,
     ) -> None:
         self.ctx = context
         self.topics = list(topics)
+        unsupported_caps = {
+            topic: int(topic_caps.get(topic, 1))
+            for topic in self.topics
+            if int(topic_caps.get(topic, 1)) != 1
+        }
+        if unsupported_caps:
+            raise ValueError(f"only one stateful slot per topic is supported: {unsupported_caps}")
         self.topic_caps = {topic: 1 for topic in self.topics}
-        self.requested_topic_caps = {topic: max(1, int(topic_caps.get(topic, 1))) for topic in self.topics}
+        self.requested_topic_caps = dict(self.topic_caps)
         self.idle_sleep_seconds = max(1, int(idle_sleep_seconds))
         self.heartbeat_seconds = max(1, int(heartbeat_seconds))
         self.retry_limit = max(0, int(retry_limit))
         self.debug = bool(debug)
+        self.checkpoint_path = checkpoint_path
         self.pending_items: list[SupervisorWorkItem] = []
         self.slots = {topic: TopicSlot(topic=topic) for topic in self.topics}
         self.claims = ClaimState()
@@ -133,6 +144,8 @@ class RunAllSupervisor:
         self.ctx.runtime.switch_callback = self._on_model_switch
         if hasattr(self.ctx.runtime, "nested_activation_callback"):
             self.ctx.runtime.nested_activation_callback = self._on_nested_activation
+        if resume_from is not None:
+            self._restore_checkpoint(resume_from)
 
     def run(self, *, max_cycles: int | None = None) -> None:
         cycles = 0
@@ -439,6 +452,7 @@ class RunAllSupervisor:
                     f"elapsed_ms={elapsed_ms} persisted=no detail={job.last_error or '-'}"
                 )
             slot.active_job = None
+        self._write_checkpoint("finalize")
 
     def _refill_slots(self) -> int:
         return self.topic_slot_progressor.refill()
@@ -671,11 +685,54 @@ class RunAllSupervisor:
         self.ledger.retry_count_at_last_completion = self.retry_count_at_last_completion
         self.ledger.switch_count_at_last_completion = self.switch_count_at_last_completion
         self.ledger.load_seconds_at_last_completion = self.load_seconds_at_last_completion
+        self._write_checkpoint(_reason)
+
+    def _restore_checkpoint(self, path: Path) -> None:
+        payload = load_checkpoint(path, topics=self.topics)
+        recovered = list(payload.get("active_items") or []) + list(payload.get("pending_items") or [])
+        seen: set[str] = set()
+        for raw_item in recovered:
+            if not isinstance(raw_item, dict):
+                continue
+            item = deserialize_work_item(raw_item)
+            if item.topic not in self.topics or item.stable_key() in seen:
+                continue
+            seen.add(item.stable_key())
+            self.pending_items.append(item)
+        self.completed = int(payload.get("completed") or 0)
+        self.failed = int(payload.get("failed") or 0)
+        log(
+            f"[run_all resume] checkpoint={path} recovered_items={len(self.pending_items)} "
+            "mode=item_restart"
+        )
+
+    def _write_checkpoint(self, reason: str) -> None:
+        if self.checkpoint_path is None:
+            return
+        active_jobs = [
+            slot.active_job
+            for slot in self.slots.values()
+            if slot.active_job is not None and slot.active_job.status == "active"
+        ]
+        write_checkpoint(
+            self.checkpoint_path,
+            {
+                "topics": self.topics,
+                "reason": reason,
+                "completed": self.completed,
+                "failed": self.failed,
+                "active_items": [serialize_work_item(job.item) for job in active_jobs],
+                "active_stages": {job.item_id: job.stage for job in active_jobs},
+                "pending_items": [serialize_work_item(item) for item in self.pending_items],
+                "recovery_semantics": "active items restart from their durable item boundary",
+            },
+        )
 
     def close(self) -> None:
         if not self.stop_reason:
             self.stop_reason = "closed"
         write_summary_artifacts(self)
+        self._write_checkpoint("closed")
         if self.worker_executor is not None:
             self.worker_executor.shutdown(wait=True, cancel_futures=False)
             self.worker_executor = None

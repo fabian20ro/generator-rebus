@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock
 from typing import Protocol, List, Optional
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from rebus_generator.workflows.canonicals.planner import (
     CanonicalPersistencePlanner,
@@ -109,7 +110,7 @@ class TestCanonicalPersistencePlanner(unittest.TestCase):
         builder.build_clue_definition_payload.assert_called_once_with(
             canonical_definition_id="canon-1",
             verified=True,
-            verify_note="Scor rebus: 8/10"
+            verify_note=""
         )
 
     def test_plan_skips_unchanged_clues(self):
@@ -173,6 +174,72 @@ class TestCanonicalPersistencePlanner(unittest.TestCase):
         self.assertEqual(len(plan.clue_persistences), 1)
         self.assertIsNone(plan.clue_persistences[0].clue_id)
         self.assertEqual(plan.clue_persistences[0].canonical_definition_id, "canon-999")
+
+    def test_plan_uses_persisted_canonical_verification_for_different_text(self):
+        resolver = MagicMock()
+        builder = MagicMock()
+        resolver.resolve_definition.return_value = SimpleNamespace(
+            canonical_definition_id="canon-existing",
+            canonical_definition="Definiția canonicală",
+            action="reuse_near",
+            canonical_verified=False,
+            created_new=False,
+        )
+        planner = CanonicalPersistencePlanner(resolver=resolver, builder=builder)
+
+        planner.plan([CanonicalInput(
+            word_normalized="AER",
+            definition="Definiția candidată",
+            verified=True,
+            verify_note="evaluare pentru candidată",
+        )])
+
+        builder.build_clue_definition_payload.assert_called_once_with(
+            canonical_definition_id="canon-existing",
+            verified=False,
+            verify_note="",
+        )
+
+    def test_new_puzzle_plan_threads_candidate_scores_to_canonical_resolver(self):
+        resolver = MagicMock()
+        builder = MagicMock()
+        resolver.resolve_definition.return_value = SimpleNamespace(
+            canonical_definition_id="canon-new",
+            canonical_definition="Gaz din atmosferă",
+            action="create_new",
+            canonical_verified=True,
+            created_new=True,
+        )
+        builder.build_clue_definition_payload.return_value = {
+            "canonical_definition_id": "canon-new",
+            "verified": True,
+        }
+        planner = CanonicalPersistencePlanner(resolver=resolver, builder=builder)
+
+        plan = planner.plan_new_puzzle_clues([{
+            "word_normalized": "AER",
+            "word_original": "aer",
+            "word_type": "subst",
+            "clue_number": 1,
+            "_candidate_definition": "Gaz din atmosferă",
+            "_verified": True,
+            "_verify_note": "evaluat",
+            "_semantic_score": 9,
+            "_rebus_score": 8,
+            "_creativity_score": 7,
+        }])
+
+        resolver.resolve_definition.assert_called_once_with(
+            word_normalized="AER",
+            word_original="aer",
+            definition="Gaz din atmosferă",
+            word_type="subst",
+            verified=True,
+            semantic_score=9,
+            rebus_score=8,
+            creativity_score=7,
+        )
+        self.assertNotIn("_semantic_score", plan.clues[0].record)
 
     def test_plan_uses_bulk_resolver_when_available(self):
         class _BulkResolver:

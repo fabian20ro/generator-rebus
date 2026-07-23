@@ -1832,3 +1832,31 @@
 ## 2026-05-05 (codeql follow-up 3)
 - Removed user-controlled output path construction from save/merge operations.
 - Save now writes server-generated timestamped JSONL names; merge always writes fixed merged.jsonl in output root.
+
+---
+
+### [2026-07-20] — current codebase risk audit
+
+**Happened:** Read lessons/context/architecture vocabulary; inspected publication, canonical persistence, run_all, Worker, frontend Puzzle Session, schema, CI, and secrets hygiene. Independent explorer cross-check. No product-code changes.
+**Verification:** Python `759 passed`; frontend `26 passed`; frontend build passed; Worker TypeScript passed. `make lint` failed because `ruff` is not declared. npm production audits: 0 vulnerabilities.
+**Outcome:** analysis only. P0 findings: redefine dry-run mutates canonicals; evaluated text/metadata can diverge from persisted canonical text; service-role `.dev.vars` not ignored. P1 findings: silent clue loss, non-transactional/non-idempotent publication, weak publication gate, frontend stored-XSS and solution-load failure paths.
+**Insight:** Publication correctness requires one deep Module owning exact-text evaluation, slot coverage, atomic persistence, activation, and idempotency. A planner that mutates storage cannot support truthful dry-run semantics.
+**Promoted:** yes
+
+---
+
+### [2026-07-21] — audit remediation and release gates
+
+**Happened:** Repaired secret hygiene; truthful redefine dry-run; exact-text canonical evaluation; strict slot–clue coverage; transactional/idempotent publication and canonical merge; complete publishability gate; frontend XSS/solution loading; Worker anon-only access/tests; deterministic run_all seed, honest caps, checkpoint/resume; Python/app/database CI.
+**Verification:** `make lint` passed; `make test` -> 766 passed; frontend `npm ci`, 28 tests, build, audit -> passed/0 vulnerabilities; Worker `npm ci`, typecheck, 2 tests, audit -> passed/0 vulnerabilities. PostgreSQL 17 smoke applied schema+migration and proved repeated publication/merge idempotent. Base live database untouched.
+**Outcome:** success; pending GitHub Actions verification on pushed commit.
+**Insight:** Admin RPCs can remain `SECURITY INVOKER` when called with `service_role`; explicit function grants shrink API surface without privileged-definer exposure.
+**Promoted:** yes
+
+### [2026-07-21] — CodeQL release-gate follow-up
+
+**Happened:** Moved Python workflow token permissions to workflow scope so every job receives only `contents: read`.
+**Verification:** CodeQL annotation identified missing permissions on the database job; full GitHub Actions rerun pending on the follow-up commit.
+**Outcome:** least-privilege CI token boundary restored.
+**Insight:** Job-scoped permissions do not protect sibling jobs; shared least privilege belongs at workflow scope.
+**Promoted:** yes

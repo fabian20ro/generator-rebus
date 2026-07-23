@@ -153,7 +153,7 @@ def evaluate_puzzle_state(
     if dex is None:
         dex = DexProvider.for_puzzle(puzzle)
 
-    runtime = runtime or LmRuntime(multi_model=True)
+    runtime = runtime or LmRuntime(multi_model=multi_model)
     passed, total = verify_working_puzzle(
         puzzle,
         client,
@@ -171,7 +171,7 @@ def evaluate_puzzle_state(
         assessment=assessment,
         passed=passed,
         total=total,
-        evaluator_model=" + ".join(model.display_name for model in get_active_models(multi_model=True)),
+        evaluator_model=" + ".join(model.display_name for model in get_active_models(multi_model=multi_model)),
     )
 
 

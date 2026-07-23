@@ -75,6 +75,33 @@ describe("puzzle session view model", () => {
 });
 
 describe("puzzle session workflow", () => {
+  test("rejects loading a playable session without a valid solution", () => {
+    const session = createPuzzleSessionState();
+    const detail = {
+      puzzle: {
+        id: "p1",
+        title: "Rebus",
+        theme: "",
+        grid_size: 2,
+        grid_template: JSON.stringify([[true, false], [true, true]]),
+        difficulty: 3,
+        created_at: "2026-04-26T00:00:00Z",
+      },
+      clues: [],
+    };
+
+    expect(() => loadPuzzleSession(session, {
+      detail,
+      solutionJson: "null",
+      progress: null,
+      alreadySolved: false,
+      touchRemoteEnabled: true,
+      now: 1,
+    })).toThrow("Invalid puzzle solution");
+    expect(session.currentPuzzleId).toBeNull();
+    expect(session.gridState).toBeNull();
+  });
+
   test("loads saved progress and restores counters", () => {
     const session = createPuzzleSessionState();
 

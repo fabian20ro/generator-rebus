@@ -12,11 +12,18 @@ target/
 
 # Environment
 .env
+.env.*
+!.env.example
+.dev.vars
 logs/
 context/
 
 # Node
 node_modules/
+.wrangler/
+
+# Local Codex/pet generation artifacts
+.hatch-runs/
 
 # IDE
 .vscode/

@@ -13,6 +13,7 @@ from rebus_generator.workflows.canonicals.simplify import (
 )
 from rebus_generator.platform.llm.llm_client import create_client
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
+from rebus_generator.platform.persistence.clue_canon_store import ClueCanonStore
 from rebus_generator.platform.io.runtime_logging import (
     add_llm_debug_argument,
     install_process_logging,
