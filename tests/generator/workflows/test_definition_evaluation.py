@@ -2,7 +2,11 @@ import unittest
 
 from rebus_generator.platform.io.markdown_io import ClueEntry
 from rebus_generator.platform.llm.ai_clues import DefinitionRating
-from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
+from rebus_generator.platform.llm.models import (
+    PRIMARY_MODEL,
+    SECONDARY_MODEL,
+    get_active_model_label,
+)
 from rebus_generator.domain.pipeline_state import working_clue_from_entry
 from rebus_generator.workflows.generate.definition_evaluation import (
     finalize_pair_rating,
@@ -11,7 +15,7 @@ from rebus_generator.workflows.generate.definition_evaluation import (
 
 
 MODEL_ORDER = [PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id]
-MODEL_LABEL = "gemma + eurollm"
+MODEL_LABEL = get_active_model_label(multi_model=True)
 
 
 def _clue(word: str = "ARACI"):

@@ -45,8 +45,8 @@ uv run python -m rebus_generator.workflows.generate.catalog_recovery \
 ```
 
 Exit code `2` means rollout remains blocked. Repair the reported `repair_queue`
-sizes first; rerun until `rollout_ready` is `true`. The configured Gemma 4 and
-EuroLLM model IDs must both be installed in LM Studio; `run_all` preflight now
+sizes first; rerun until `rollout_ready` is `true`. The configured Ornith and
+Muse Glimmer model IDs must both be installed in LM Studio; `run_all` preflight now
 fails before unloading any active model when either is absent.
 
 After the recovery plan is ready, enable the Worker filter with

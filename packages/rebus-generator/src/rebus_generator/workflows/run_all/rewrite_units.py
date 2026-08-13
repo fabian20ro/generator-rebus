@@ -23,7 +23,11 @@ from rebus_generator.platform.io.dex_cache import DexProvider
 from rebus_generator.platform.io.runtime_logging import audit, log
 from rebus_generator.platform.llm.ai_clues import RewriteAttemptResult, generate_definition, rewrite_definition
 from rebus_generator.platform.llm.llm_dispatch import initial_generation_model, next_generation_model
-from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
+from rebus_generator.platform.llm.models import (
+    PRIMARY_MODEL,
+    SECONDARY_MODEL,
+    get_active_model_label,
+)
 from rebus_generator.workflows.canonicals.domain_service import ClueCanonService
 from rebus_generator.workflows.generate.definition_evaluation import (
     finalize_pair_rating,
@@ -170,7 +174,7 @@ class RunAllRewriteSession:
         self.initial_verify_done.setdefault(model_id, set()).add(word)
 
     def finalize_initial_verify(self) -> None:
-        label = " + ".join("gemma + eurollm".split()) if self.multi_model else PRIMARY_MODEL.display_name
+        label = get_active_model_label(multi_model=self.multi_model)
         clues = finalize_pair_verification(self.clues(), model_order=self.model_order, model_label=label)
         split = len(self.puzzle.horizontal_clues)
         self.puzzle.horizontal_clues = clues[:split]
@@ -205,7 +209,7 @@ class RunAllRewriteSession:
         self.initial_rate_done.setdefault(model_id, set()).add(word)
 
     def finalize_initial_rate(self) -> None:
-        label = " + ".join("gemma + eurollm".split()) if self.multi_model else PRIMARY_MODEL.display_name
+        label = get_active_model_label(multi_model=self.multi_model)
         finalize_pair_rating(self.clues(), model_order=self.model_order, model_label=label)
         for clue in self.clues():
             _update_best_clue_version(clue, tiebreaker=lambda _a, _b: "A")
@@ -560,7 +564,7 @@ class RunAllRewriteSession:
     def select_candidates(self) -> None:
         if self.current_round is None:
             return
-        label = "gemma + eurollm" if self.multi_model else PRIMARY_MODEL.display_name
+        label = get_active_model_label(multi_model=self.multi_model)
         for word, clue in self.current_round.clues_by_word.items():
             evals = self.current_round.evals_by_word.get(word, [])
             if not evals:

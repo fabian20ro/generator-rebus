@@ -226,13 +226,13 @@ class RateTitleCreativityTests(unittest.TestCase):
             "Test",
             ["A", "B"],
             client,
-            model_config=SECONDARY_MODEL,
+            model_config=PRIMARY_MODEL,
         )
         self.assertEqual(7, score)
         self.assertEqual("bun titlu", feedback)
-        self.assertNotIn("reasoning_effort", client.calls[0])
-        self.assertEqual(SECONDARY_MODEL.model_id, client.calls[0]["model"])
-        self.assertEqual(min(chat_max_tokens(SECONDARY_MODEL), TITLE_RATE_MAX_TOKENS), client.calls[0]["max_tokens"])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        self.assertEqual(PRIMARY_MODEL.model_id, client.calls[0]["model"])
+        self.assertEqual(min(chat_max_tokens(PRIMARY_MODEL), TITLE_RATE_MAX_TOKENS), client.calls[0]["max_tokens"])
 
     def test_extracts_json_from_markdown_fence(self):
         client = _FakeClient('```json\n{"creativity_score": 8, "feedback": "clar"}\n```')

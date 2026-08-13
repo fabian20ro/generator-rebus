@@ -17,6 +17,8 @@ from .lm_studio_api import (
 )
 from rebus_generator.platform.io.runtime_logging import log
 
+MODEL_SWITCH_COOLDOWN_SECONDS = 5.0
+
 
 @dataclass
 class LmRuntime:
@@ -56,6 +58,7 @@ class LmRuntime:
         return self._sync_current_model()
 
     def _unload_model_ids(self, model_ids: list[str]) -> None:
+        unloaded_any = False
         for model_id in model_ids:
             instances = get_loaded_model_instances()
             instance_id = instances.get(model_id)
@@ -75,6 +78,9 @@ class LmRuntime:
                 ) from exc
             self.unload_count += 1
             self.unload_seconds_total += time.monotonic() - started_at
+            unloaded_any = True
+        if unloaded_any:
+            time.sleep(MODEL_SWITCH_COOLDOWN_SECONDS)
 
     def activate(self, model: ModelConfig, *, reason: str = "") -> ModelConfig:
         target = self.primary if (not self.multi_model and model.model_id == self.secondary.model_id) else model
@@ -146,8 +152,9 @@ class LmRuntime:
                 if attempt == 0:
                     log(f"Retrying model activation for {target.display_name} after live-state refresh")
                     continue
+        detail = str(last_error).strip() if last_error else "unknown error"
         raise RuntimeError(
-            f"Could not activate LM Studio model {target.display_name}"
+            f"Could not activate LM Studio model {target.display_name}: {detail}"
         ) from last_error
 
     def activate_primary(self, *, reason: str = "") -> ModelConfig:

@@ -9,6 +9,7 @@ from rebus_generator.platform.llm.models import (
     SECONDARY_MODEL,
     chat_max_tokens,
     chat_reasoning_options,
+    get_active_model_label,
     get_active_model_labels,
     get_active_primary_model,
     get_active_secondary_model,
@@ -24,6 +25,7 @@ from rebus_generator.platform.llm.lm_studio_api import (
     get_loaded_models,
     get_loaded_model_instances,
     list_loaded_model_instances,
+    load_model,
     switch_model,
     unload_model,
 )
@@ -46,24 +48,28 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual({}, dict(config.reasoning_by_purpose))
 
     def test_primary_model_config(self):
-        self.assertEqual("gemma4_26b_a4b", PRIMARY_MODEL.registry_key)
-        self.assertIn("gemma", PRIMARY_MODEL.model_id)
-        self.assertEqual(6000, PRIMARY_MODEL.max_completion_tokens)
-        self.assertEqual(PRIMARY_MODEL.context_length, 8192)
+        self.assertEqual("ornith_1_0_35b_apex", PRIMARY_MODEL.registry_key)
+        self.assertEqual("ornith-1.0-35b-apex", PRIMARY_MODEL.model_id)
+        self.assertEqual("ornith", PRIMARY_MODEL.display_name)
+        self.assertEqual(4000, PRIMARY_MODEL.max_completion_tokens)
         self.assertEqual("low", PRIMARY_MODEL.reasoning_by_purpose["default"])
+        self.assertEqual("none", PRIMARY_MODEL.reasoning_transport.no_thinking_value)
         self.assertTrue(PRIMARY_MODEL.reasoning_transport.prefer_omit_for_binary_reasoning)
 
     def test_secondary_model_config(self):
-        self.assertEqual("eurollm_22b", SECONDARY_MODEL.registry_key)
-        self.assertIn("eurollm", SECONDARY_MODEL.model_id)
-        self.assertEqual(200, SECONDARY_MODEL.max_completion_tokens)
-        self.assertIsNone(SECONDARY_MODEL.reasoning_by_purpose["default"])
+        self.assertEqual("muse_glimmer", SECONDARY_MODEL.registry_key)
+        self.assertEqual("meta/muse-glimmer", SECONDARY_MODEL.model_id)
+        self.assertEqual("muse-glimmer", SECONDARY_MODEL.display_name)
+        self.assertEqual(6000, SECONDARY_MODEL.max_completion_tokens)
+        self.assertEqual(2000, SECONDARY_MODEL.reasoning_token_floor)
+        self.assertEqual("low", SECONDARY_MODEL.reasoning_by_purpose["default"])
+        self.assertEqual("low", SECONDARY_MODEL.reasoning_transport.no_thinking_value)
 
     def test_get_model_config_returns_known_model(self):
         self.assertEqual(PRIMARY_MODEL, get_model_config(PRIMARY_MODEL.model_id))
 
     def test_get_model_by_key_returns_known_model(self):
-        self.assertEqual(PRIMARY_MODEL, get_model_by_key("gemma4_26b_a4b"))
+        self.assertEqual(PRIMARY_MODEL, get_model_by_key("ornith_1_0_35b_apex"))
 
     def test_active_model_accessors_follow_central_pair(self):
         self.assertEqual(PRIMARY_MODEL, get_active_primary_model())
@@ -72,26 +78,30 @@ class ModelManagerTests(unittest.TestCase):
             [PRIMARY_MODEL.display_name, SECONDARY_MODEL.display_name],
             get_active_model_labels(multi_model=True),
         )
+        self.assertEqual("ornith + muse-glimmer", get_active_model_label(multi_model=True))
 
     def test_active_model_accessors_change_when_pair_constant_changes(self):
-        with patch("rebus_generator.platform.llm.models.ACTIVE_MODEL_KEYS", ("gpt_oss_20b", "gemma4_26b_a4b")):
+        with patch("rebus_generator.platform.llm.models.ACTIVE_MODEL_KEYS", ("gpt_oss_20b", "muse_glimmer")):
             self.assertEqual("gpt_oss_20b", get_active_primary_model().registry_key)
-            self.assertEqual("gemma4_26b_a4b", get_active_secondary_model().registry_key)
+            self.assertEqual("muse_glimmer", get_active_secondary_model().registry_key)
             self.assertEqual(
-                ["gpt-oss-20b", "gemma-4"],
+                ["gpt-oss-20b", "muse-glimmer"],
                 get_active_model_labels(multi_model=True),
             )
 
-    def test_chat_reasoning_options_omit_param_for_primary_default(self):
-        self.assertEqual({}, chat_reasoning_options(PRIMARY_MODEL.model_id))
-
-    def test_chat_reasoning_options_omit_param_for_primary_generate(self):
+    def test_chat_reasoning_options_omit_ornith_generation_param(self):
         self.assertEqual(
             {},
-            chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_generate"),
+            chat_reasoning_options(PRIMARY_MODEL.model_id),
         )
 
-    def test_chat_reasoning_request_marks_primary_generate_as_reasoning_enabled(self):
+    def test_chat_reasoning_options_map_ornith_verify_to_none(self):
+        self.assertEqual(
+            {"reasoning_effort": "none"},
+            chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_verify"),
+        )
+
+    def test_chat_reasoning_request_marks_ornith_generate_as_reasoning_enabled(self):
         request = resolve_chat_reasoning_request(
             PRIMARY_MODEL.model_id,
             purpose="definition_generate",
@@ -100,7 +110,7 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual({}, dict(request.request_options))
         self.assertTrue(request.reasoning_enabled)
 
-    def test_chat_reasoning_request_marks_primary_verify_as_no_thinking(self):
+    def test_chat_reasoning_request_disables_ornith_for_verify(self):
         request = resolve_chat_reasoning_request(
             PRIMARY_MODEL.model_id,
             purpose="definition_verify",
@@ -109,24 +119,21 @@ class ModelManagerTests(unittest.TestCase):
         self.assertEqual({"reasoning_effort": "none"}, dict(request.request_options))
         self.assertFalse(request.reasoning_enabled)
 
-    def test_chat_reasoning_options_omit_param_for_primary_compare(self):
+    def test_chat_reasoning_options_use_muse_low_for_secondary_generate(self):
         self.assertEqual(
-            {},
-            chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="clue_compare"),
+            {"reasoning_effort": "low"},
+            chat_reasoning_options(SECONDARY_MODEL.model_id, purpose="definition_generate"),
         )
 
-    def test_chat_reasoning_options_empty_for_primary_verify(self):
+    def test_chat_reasoning_options_keep_muse_low_for_secondary_verify(self):
         self.assertEqual(
-            {"reasoning_effort": "none"},
-            chat_reasoning_options(PRIMARY_MODEL.model_id, purpose="definition_verify"),
+            {"reasoning_effort": "low"},
+            chat_reasoning_options(SECONDARY_MODEL.model_id, purpose="definition_verify"),
         )
-
-    def test_chat_reasoning_options_empty_for_secondary(self):
-        self.assertEqual({}, chat_reasoning_options(SECONDARY_MODEL.model_id))
 
     def test_chat_max_tokens_return_model_budget(self):
-        self.assertEqual(6000, chat_max_tokens(PRIMARY_MODEL))
-        self.assertEqual(200, chat_max_tokens(SECONDARY_MODEL.model_id))
+        self.assertEqual(4000, chat_max_tokens(PRIMARY_MODEL))
+        self.assertEqual(6000, chat_max_tokens(SECONDARY_MODEL.model_id))
 
     def test_chat_reasoning_options_support_gpt_oss_profiles(self):
         gpt_oss = get_model_by_key("gpt_oss_20b")
@@ -239,6 +246,24 @@ class ModelManagerTests(unittest.TestCase):
         ensure_model_loaded(PRIMARY_MODEL)
 
         mock_load.assert_called_once_with(PRIMARY_MODEL)
+
+    @patch("rebus_generator.platform.llm.lm_studio_api.time.sleep")
+    @patch("rebus_generator.platform.llm.lm_studio_api._wait_for_model")
+    @patch("rebus_generator.platform.llm.lm_studio_api._post_json")
+    def test_load_model_waits_for_inference_readiness(
+        self,
+        mock_post,
+        mock_wait,
+        mock_sleep,
+    ):
+        load_model(PRIMARY_MODEL)
+
+        mock_post.assert_called_once_with(
+            "/api/v1/models/load",
+            {"model": PRIMARY_MODEL.model_id, "context_length": PRIMARY_MODEL.context_length},
+        )
+        mock_wait.assert_called_once_with(PRIMARY_MODEL.model_id)
+        mock_sleep.assert_called_once_with(5.0)
 
     @patch("rebus_generator.platform.llm.lm_studio_api.time.sleep")
     @patch("rebus_generator.platform.llm.lm_studio_api.load_model")

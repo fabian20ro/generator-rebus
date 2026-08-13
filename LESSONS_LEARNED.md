@@ -246,6 +246,8 @@
 
 **[2026-08-13]** Catalog recovery rollout — require minimum quality coverage per supported size before filtering production. Apply the same visibility predicate to list, detail, and solution routes. Repair/batch CLIs must exit nonzero when any selected item fails.
 
+**[2026-08-13]** LM Studio model replacement — verify exact live model IDs and the chat endpoint separately. Muse Glimmer accepts minimum `low`; Ornith advertises binary `on`/`off`, but OpenAI-compatible requests require omitted effort for thinking and `none` to disable it. Allow a short VRAM-release cooldown between unload and load.
+
 ---
 
 ## Archive

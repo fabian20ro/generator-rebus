@@ -158,7 +158,7 @@ class AiCluesTests(unittest.TestCase):
         reset_run_llm_state()
         set_llm_debug_enabled(False)
 
-    def test_generate_definition_omits_reasoning_effort_for_primary_model(self):
+    def test_generate_definition_uses_low_reasoning_for_muse(self):
         client = _RecordingClient(["Locuință pentru oameni."])
 
         generate_definition(
@@ -166,52 +166,13 @@ class AiCluesTests(unittest.TestCase):
             word="CASA",
             original="casa",
             theme="",
-            model=PRIMARY_MODEL.model_id,
+            model=SECONDARY_MODEL.model_id,
         )
 
-        self.assertNotIn("reasoning_effort", client.calls[0])
-        self.assertEqual(chat_max_tokens(PRIMARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual(chat_max_tokens(SECONDARY_MODEL), client.calls[0]["max_tokens"])
 
-    def test_rate_definition_sends_medium_reasoning_effort_for_primary_model(self):
-        client = _RecordingClient([
-            json.dumps({
-                "semantic_score": 9,
-                "guessability_score": 6,
-                "creativity_score": 5,
-                "feedback": "Definiția este corectă.",
-            })
-        ])
-
-        req = RateDefinitionRequest(
-            word="ARACI",
-            original="araci",
-            definition="Bețe de sprijin pentru viță",
-            answer_length=5,
-        )
-        rating = rate_definition(
-            client,
-            req,
-            model=PRIMARY_MODEL.model_id,
-        )
-
-        self.assertIsNotNone(rating)
-        self.assertEqual("none", client.calls[0]["reasoning_effort"])
-        self.assertEqual(RATE_MAX_TOKENS, client.calls[0]["max_tokens"])
-
-    def test_verify_definition_candidates_sends_none_reasoning_effort_for_primary_model(self):
-        client = _RecordingClient(["CASA"])
-
-        verify_definition_candidates(
-            client,
-            definition="Locuință pentru oameni.",
-            answer_length=4,
-            model=PRIMARY_MODEL.model_id,
-        )
-
-        self.assertEqual("none", client.calls[0]["reasoning_effort"])
-        self.assertEqual(VERIFY_MAX_TOKENS, client.calls[0]["max_tokens"])
-
-    def test_rate_definition_omits_reasoning_effort_for_secondary_model(self):
+    def test_rate_definition_uses_low_reasoning_for_muse(self):
         client = _RecordingClient([
             json.dumps({
                 "semantic_score": 9,
@@ -234,8 +195,47 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(rating)
-        self.assertNotIn("reasoning_effort", client.calls[0])
-        self.assertEqual(chat_max_tokens(SECONDARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual(SECONDARY_MODEL.reasoning_token_floor, client.calls[0]["max_tokens"])
+
+    def test_verify_definition_candidates_uses_low_reasoning_for_muse(self):
+        client = _RecordingClient(["CASA"])
+
+        verify_definition_candidates(
+            client,
+            definition="Locuință pentru oameni.",
+            answer_length=4,
+            model=SECONDARY_MODEL.model_id,
+        )
+
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
+        self.assertEqual(SECONDARY_MODEL.reasoning_token_floor, client.calls[0]["max_tokens"])
+
+    def test_rate_definition_disables_reasoning_for_ornith(self):
+        client = _RecordingClient([
+            json.dumps({
+                "semantic_score": 9,
+                "guessability_score": 6,
+                "creativity_score": 5,
+                "feedback": "Definiția este corectă.",
+            })
+        ])
+
+        req = RateDefinitionRequest(
+            word="ARACI",
+            original="araci",
+            definition="Bețe de sprijin pentru viță",
+            answer_length=5,
+        )
+        rating = rate_definition(
+            client,
+            req,
+            model=PRIMARY_MODEL.model_id,
+        )
+
+        self.assertIsNotNone(rating)
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        self.assertEqual(min(chat_max_tokens(PRIMARY_MODEL), RATE_MAX_TOKENS), client.calls[0]["max_tokens"])
 
     def test_consensus_score_penalizes_disagreement(self):
         self.assertEqual(10, consensus_score(10, 10))
@@ -752,7 +752,7 @@ class AiCluesTests(unittest.TestCase):
 
         response = _chat_completion_create(
             client,
-            model=SECONDARY_MODEL.model_id,
+            model=PRIMARY_MODEL.model_id,
             messages=[{"role": "user", "content": "test"}],
             temperature=0.0,
             max_tokens=200,
@@ -760,7 +760,7 @@ class AiCluesTests(unittest.TestCase):
         )
 
         self.assertEqual(1, len(client.calls))
-        self.assertNotIn("reasoning_effort", client.calls[0])
+        self.assertEqual("none", client.calls[0]["reasoning_effort"])
         self.assertEqual("plan", response.choices[0].message.reasoning_content)
 
     def test_chat_completion_logs_retry_without_thinking(self):
@@ -791,7 +791,7 @@ class AiCluesTests(unittest.TestCase):
     def test_run_policy_truncation_threshold_triggers_adaptive_downgrade(self):
         configure_run_llm_policy(
             reasoning_overrides={
-                (PRIMARY_MODEL.model_id, "default"): "minimal",
+                (PRIMARY_MODEL.model_id, "default"): "low",
             },
             truncation_threshold=2,
         )
@@ -1414,7 +1414,7 @@ class AiCluesTests(unittest.TestCase):
             model=SECONDARY_MODEL.model_id,
         )
 
-        self.assertEqual(chat_max_tokens(SECONDARY_MODEL), client.calls[0]["max_tokens"])
+        self.assertEqual(SECONDARY_MODEL.reasoning_token_floor, client.calls[0]["max_tokens"])
 
     def test_rate_definition_passes_explicit_model(self):
         client = _RecordingClient([
@@ -1782,7 +1782,7 @@ class AiCluesTests(unittest.TestCase):
         self.assertEqual(0.1, client.calls[0]["temperature"])
         self.assertEqual(0.95, client.calls[0]["top_p"])
 
-    def test_truncation_log_records_no_thinking_reasoning_for_gemma_verify(self):
+    def test_truncation_log_records_low_transport_for_muse_verify(self):
         client = _QueuedResponseClient([
             _chat_response(
                 content="GUAS, GALA",
@@ -1792,24 +1792,24 @@ class AiCluesTests(unittest.TestCase):
             )
         ])
         configure_run_llm_policy(
-            reasoning_overrides={(PRIMARY_MODEL.model_id, "definition_verify"): "none"}
+            reasoning_overrides={(SECONDARY_MODEL.model_id, "definition_verify"): "none"}
         )
 
         with mock.patch("rebus_generator.platform.llm.llm_client.log") as mock_log:
             _chat_completion_create(
                 client,
-                model=PRIMARY_MODEL.model_id,
+                model=SECONDARY_MODEL.model_id,
                 messages=[{"role": "user", "content": "test"}],
                 temperature=0.0,
                 max_tokens=VERIFY_MAX_TOKENS,
                 purpose="definition_verify",
             )
 
-        self.assertEqual("none", client.calls[0]["reasoning_effort"])
+        self.assertEqual("low", client.calls[0]["reasoning_effort"])
         line = " ".join(str(call.args[0]) for call in mock_log.call_args_list)
         self.assertIn("completion truncated: purpose=definition_verify", line)
         self.assertIn("effective_reasoning=abstract=none", line)
-        self.assertIn("enabled=off", line)
+        self.assertIn("enabled=on", line)
         self.assertIn("response_source=reasoning", line)
 
     def test_truncation_log_includes_run_all_context(self):

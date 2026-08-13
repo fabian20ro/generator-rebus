@@ -174,14 +174,15 @@ class RunAllSupervisorTests(unittest.TestCase):
             "600",
             "--llm-truncation-threshold",
             "4",
-            "--gemma-verify-reasoning",
+            "--primary-verify-reasoning",
             "none",
         ])
 
         self.assertTrue(args.llm_preflight)
         self.assertEqual(600, args.llm_stall_seconds)
         self.assertEqual(4, args.llm_truncation_threshold)
-        self.assertEqual("none", args.gemma_verify_reasoning)
+        self.assertEqual("none", args.primary_verify_reasoning)
+        self.assertEqual("none", args.primary_rate_reasoning)
 
     def test_supervisor_init_seeds_runtime_load_seconds_before_ledger_exists(self):
         runtime = _FakeRuntime(current_model=PRIMARY_MODEL)
@@ -1778,7 +1779,7 @@ class RunAllPreflightTests(unittest.TestCase):
             def activate(self, model, **kwargs):
                 if model.model_id == SECONDARY_MODEL.model_id:
                     raise RuntimeError(
-                        "Failed to load model eurollm-22b-instruct-2512-mlx-nvfp4: insufficient system resources"
+                        "Failed to load model ornith-1.0-35b-apex: insufficient system resources"
                     )
                 self.current_model = model
                 return model

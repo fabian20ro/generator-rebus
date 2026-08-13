@@ -526,7 +526,11 @@ def _effective_max_tokens(
         model=model, purpose=purpose, max_tokens=requested_max_tokens
     )
     if reasoning_request.reasoning_enabled:
-        return requested_max_tokens
+        config = get_model_config(model)
+        reasoning_floor = config.reasoning_token_floor if config else 0
+        if config:
+            reasoning_floor = min(reasoning_floor, config.max_completion_tokens)
+        return max(requested_max_tokens, reasoning_floor)
 
     if not _run_policy_enabled():
         return requested_max_tokens
@@ -995,6 +999,13 @@ def _chat_completion_create(
         max_tokens=max_tokens,
     ):
         return response
+    retry_reasoning_request = resolve_chat_reasoning_request(
+        model,
+        purpose=purpose,
+        reasoning_effort_override="none",
+    )
+    if retry_reasoning_request.reasoning_enabled:
+        return response
     _log_retry_without_thinking(
         model=model,
         purpose=purpose,
@@ -1010,11 +1021,7 @@ def _chat_completion_create(
         top_p=top_p,
         max_tokens=_retry_without_thinking_max_tokens(),
         purpose=purpose,
-        reasoning_request=resolve_chat_reasoning_request(
-            model,
-            purpose=purpose,
-            reasoning_effort_override="none",
-        ),
+        reasoning_request=retry_reasoning_request,
         response_source_label=RESPONSE_SOURCE_NO_THINKING_RETRY,
     )
     _purpose_stats(model, purpose).no_thinking_retries += 1

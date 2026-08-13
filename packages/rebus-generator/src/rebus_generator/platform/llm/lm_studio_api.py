@@ -14,6 +14,7 @@ from .models import ModelConfig
 from rebus_generator.platform.io.runtime_logging import log
 
 _REASONING_ALLOWED_OPTIONS_CACHE: dict[str, tuple[str, ...] | None] = {}
+MODEL_LOAD_READY_COOLDOWN_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ def load_model(config: ModelConfig) -> None:
         {"model": config.model_id, "context_length": config.context_length},
     )
     _wait_for_model(config.model_id)
+    time.sleep(MODEL_LOAD_READY_COOLDOWN_SECONDS)
     log(f"Model loaded: {config.display_name}")
 
 

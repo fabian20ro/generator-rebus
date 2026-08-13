@@ -27,6 +27,16 @@
 
 ---
 
+### [2026-08-13] — Muse Glimmer and Ornith migration
+
+**Happened:** Replaced the active Gemma/EuroLLM pair with Ornith primary and Muse Glimmer secondary while retaining legacy registry entries for checkpoint compatibility. Added model-aware reasoning transport, a 2,000-token Muse reasoning floor, dynamic model labels, primary-neutral CLI flags with legacy aliases, unload/load stabilization delays, and activation root-cause diagnostics. No database mutation.
+**Verification:** TDD red/green; `make lint`; 782 Python tests. Live LM Studio preflight loaded, queried, switched, and unloaded both models successfully. The 11x11 repair dry-run completed Ornith's 51-clue phase and started Muse's 27-clue phase without truncation; stopped manually after a Muse stream produced no progress for several minutes.
+**Outcome:** Active two-model configuration operational. Catalog repair remains blocked by missing stream-level inactivity timeout/watchdog, not missing models.
+**Insight:** LM Studio catalog capabilities and OpenAI-compatible request values may differ. Reasoning models that cannot disable thinking need larger short-task budgets; load-state visibility does not guarantee immediate inference readiness.
+**Promoted:** yes
+
+---
+
 ### [2026-04-09] Stabilize `run_all` deterministic stalls + fail fast
 
 **Context:** `run_all.sh` stall root cause + implementation to prevent repeat.
@@ -1950,3 +1960,13 @@
 **Outcome:** Recovery queue and safe rollout path ready; production filter intentionally disabled until per-size coverage reaches three. Next dependency: install both configured models, repair the three queued 11x11 puzzles, then the queued 14x14 puzzle.
 **Insight:** Catalog filtering must preserve size coverage and protect every read route. Batch repair tools must return nonzero when any selected item fails; summary-only errors create false-green automation.
 **Promoted:** yes
+
+---
+
+### [2026-08-13] — model migration validation follow-up
+
+**Happened:** Completed implementation and full validation for the Ornith + Muse Glimmer active pair. Preserved legacy registry identities for old checkpoint/debug compatibility.
+**Verification:** `make lint`; 782 Python tests; clean two-model live preflight. Repair dry-run: Ornith 51-clue stage complete; Muse stream later stalled, manual interrupt, no writes.
+**Outcome:** Model migration ready to ship. Next defect isolated: enforce stream inactivity timeout and resumable per-clue progress before catalog mutation.
+**Insight:** A request timeout alone does not guarantee forward progress for an open streaming response; enforce inactivity deadlines at chunk consumption.
+**Promoted:** no

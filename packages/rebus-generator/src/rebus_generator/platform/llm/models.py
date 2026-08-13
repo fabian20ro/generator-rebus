@@ -34,6 +34,7 @@ class ModelConfig:
     display_name: str
     max_completion_tokens: int
     context_length: int = 8192
+    reasoning_token_floor: int = 0
     reasoning_by_purpose: Mapping[str, str | None] = field(default_factory=dict)
     reasoning_transport: ReasoningTransportConfig = field(
         default_factory=ReasoningTransportConfig
@@ -41,6 +42,26 @@ class ModelConfig:
 
 
 MODEL_CATALOG: dict[str, ModelConfig] = {
+    "muse_glimmer": ModelConfig(
+        registry_key="muse_glimmer",
+        model_id="meta/muse-glimmer",
+        display_name="muse-glimmer",
+        max_completion_tokens=6000,
+        reasoning_token_floor=2000,
+        reasoning_by_purpose={
+            "default": "low",
+            "definition_generate": "low",
+            "definition_rewrite": "low",
+            "definition_verify": "low",
+            "definition_rate": "low",
+            "clue_compare": "low",
+            "title_generate": "low",
+            "title_rate": "low",
+        },
+        reasoning_transport=ReasoningTransportConfig(
+            no_thinking_value="low",
+        ),
+    ),
     "gemma4_26b_a4b": ModelConfig(
         registry_key="gemma4_26b_a4b",
         model_id="google/gemma-4-26b-a4b",
@@ -58,7 +79,7 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
         },
         reasoning_transport=ReasoningTransportConfig(
             thinking_value_by_effort={"default": None},
-            prefer_omit_for_binary_reasoning=True
+            prefer_omit_for_binary_reasoning=True,
         ),
     ),
     "gpt_oss_20b": ModelConfig(
@@ -74,6 +95,27 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
             "clue_compare": "medium",
         },
     ),
+    "ornith_1_0_35b_apex": ModelConfig(
+        registry_key="ornith_1_0_35b_apex",
+        model_id="ornith-1.0-35b-apex",
+        display_name="ornith",
+        max_completion_tokens=4000,
+        reasoning_by_purpose={
+            "default": "low",
+            "definition_generate": "low",
+            "definition_rewrite": "low",
+            "definition_verify": "none",
+            "definition_rate": "none",
+            "clue_compare": "none",
+            "title_generate": "low",
+            "title_rate": "none",
+        },
+        reasoning_transport=ReasoningTransportConfig(
+            no_thinking_value="none",
+            thinking_value_by_effort={"default": None},
+            prefer_omit_for_binary_reasoning=True,
+        ),
+    ),
     "eurollm_22b": ModelConfig(
         registry_key="eurollm_22b",
         model_id="eurollm-22b-instruct-2512-mlx-nvfp4",
@@ -82,7 +124,7 @@ MODEL_CATALOG: dict[str, ModelConfig] = {
         reasoning_by_purpose={"default": None},
     ),
 }
-ACTIVE_MODEL_KEYS = ("gemma4_26b_a4b", "eurollm_22b")
+ACTIVE_MODEL_KEYS = ("ornith_1_0_35b_apex", "muse_glimmer")
 MODEL_CONFIGS = tuple(MODEL_CATALOG.values())
 PRIMARY_MODEL = MODEL_CATALOG[ACTIVE_MODEL_KEYS[0]]
 SECONDARY_MODEL = MODEL_CATALOG[ACTIVE_MODEL_KEYS[1]]
@@ -117,6 +159,10 @@ def get_active_model_labels(*, multi_model: bool) -> list[str]:
     return [config.display_name for config in get_active_models(multi_model=multi_model)]
 
 
+def get_active_model_label(*, multi_model: bool) -> str:
+    return " + ".join(get_active_model_labels(multi_model=multi_model))
+
+
 def get_model_config(model_id: str) -> ModelConfig | None:
     normalized = str(model_id or "").strip()
     for config in MODEL_CONFIGS:
@@ -136,7 +182,7 @@ def resolve_reasoning_effort(
         return None
 
     # If the model does not support reasoning at all (default is None), always omit.
-    # This prevents crashing legacy models like EuroLLM even if an override says "none".
+    # This prevents crashing non-reasoning models even if an override says "none".
     if config.reasoning_by_purpose.get("default") is None:
         return None
 
@@ -197,7 +243,9 @@ def resolve_chat_reasoning_request(
     return ResolvedReasoningOptions(
         abstract_effort=effort,
         request_options=request_options,
-        reasoning_enabled=effort != "none",
+        reasoning_enabled=(
+            effort != "none" or request_effort not in {None, "none", "off"}
+        ),
     )
 
 

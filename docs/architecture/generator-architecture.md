@@ -79,7 +79,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
   │  raw_words   = load words.json (download if missing)
   │  client      = create_client()          # OpenAI-compat against LM Studio
   │  batch_rng   = Random(seed)             # ← RANDOMNESS: deterministic from seed
-  │  ensure_model_loaded(PRIMARY_MODEL)     # default primary: gemma-4
+  │  ensure_model_loaded(PRIMARY_MODEL)     # default primary: Ornith
   │
   └─ for each (index, size) in sizes:
 ```
@@ -154,7 +154,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
               │  _rewrite_failed_clues(state, client, rounds=30, multi_model=True)
               │    │
               │    │  ── Initial evaluation ──
-              │    │  if multi_model: load SECONDARY_MODEL (eurollm-22b)
+              │    │  if multi_model: load SECONDARY_MODEL (Muse Glimmer)
               │    │  verify_working_puzzle(state, client)       # temp=0.0
               │    │  rate_working_puzzle(state, client)         # temp=0.0
               │    │  update_best_clue_version() for all clues
@@ -334,7 +334,7 @@ batch_publish.run_batch(sizes, seed, rewrite_rounds=30)
 ## Non-Obvious Design Choices
 
 ### Dual-Model Alternation Rationale
-Cross-validation. High scores across models ensure quality, avoid single-model bias. Default: gemma-4 + eurollm-22b (config: `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`). Writer (temp 0.2-0.3) vs. Scorer/Verifier (temp 0.0). Catch hallucinations + self-rating inflation. Round-based alternation (not per clue) amortizes LM Studio switch overhead (~5-15s).
+Cross-validation. High scores across models ensure quality, avoid single-model bias. Default: Ornith + Muse Glimmer (config: `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`). Writer (temp 0.2-0.3) vs. Scorer/Verifier (temp 0.0). Catch hallucinations + self-rating inflation. Round-based alternation (not per clue) amortizes LM Studio switch overhead (~5-15s).
 
 ### Title Temp 0.9 vs. Rating Temp 0.1
 Creativity vs. Stability. High temp ensures round-to-round diversity, avoids "safe" convergence. Low temp ensures rating consistency for reliable accept/reject loop. Split maximizes exploration while maintaining quality gate.

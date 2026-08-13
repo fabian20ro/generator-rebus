@@ -89,10 +89,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rounds", type=int, default=7)
     parser.add_argument("--verify-candidates", type=int, default=VERIFY_CANDIDATE_COUNT)
     parser.add_argument("--simplify-batch-size", type=int, default=DEFAULT_SIMPLIFY_BATCH_SIZE)
-    parser.add_argument("--gemma-verify-reasoning", default="none")
-    parser.add_argument("--gemma-rate-reasoning", default="minimal")
-    parser.add_argument("--gemma-title-generate-reasoning", default="none")
-    parser.add_argument("--gemma-title-rate-reasoning", default="none")
+    parser.add_argument(
+        "--primary-verify-reasoning",
+        "--gemma-verify-reasoning",
+        dest="primary_verify_reasoning",
+        default="none",
+    )
+    parser.add_argument(
+        "--primary-rate-reasoning",
+        "--gemma-rate-reasoning",
+        dest="primary_rate_reasoning",
+        default="none",
+    )
+    parser.add_argument(
+        "--primary-title-generate-reasoning",
+        "--gemma-title-generate-reasoning",
+        dest="primary_title_generate_reasoning",
+        default="none",
+    )
+    parser.add_argument(
+        "--primary-title-rate-reasoning",
+        "--gemma-title-rate-reasoning",
+        dest="primary_title_rate_reasoning",
+        default="none",
+    )
     parser.add_argument("--llm-preflight", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--llm-stall-seconds", type=int, default=1800)
     parser.add_argument("--llm-truncation-threshold", type=int, default=3)
@@ -177,10 +197,10 @@ def _preflight_unload_all() -> None:
 
 def _reasoning_overrides(args: argparse.Namespace) -> dict[tuple[str, str], str | None]:
     return {
-        (PRIMARY_MODEL.model_id, "definition_verify"): args.gemma_verify_reasoning,
-        (PRIMARY_MODEL.model_id, "definition_rate"): args.gemma_rate_reasoning,
-        (PRIMARY_MODEL.model_id, "title_generate"): args.gemma_title_generate_reasoning,
-        (PRIMARY_MODEL.model_id, "title_rate"): args.gemma_title_rate_reasoning,
+        (PRIMARY_MODEL.model_id, "definition_verify"): args.primary_verify_reasoning,
+        (PRIMARY_MODEL.model_id, "definition_rate"): args.primary_rate_reasoning,
+        (PRIMARY_MODEL.model_id, "title_generate"): args.primary_title_generate_reasoning,
+        (PRIMARY_MODEL.model_id, "title_rate"): args.primary_title_rate_reasoning,
         (PRIMARY_MODEL.model_id, "clue_compare"): "none",
         (PRIMARY_MODEL.model_id, "clue_tiebreaker"): "none",
     }
@@ -390,10 +410,10 @@ def main(argv: list[str] | None = None) -> int:
                 preflight_enabled=bool(args.llm_preflight),
                 llm_stall_seconds=max(60, int(args.llm_stall_seconds)),
                 llm_truncation_threshold=max(1, int(args.llm_truncation_threshold)),
-                gemma_verify_reasoning=args.gemma_verify_reasoning,
-                gemma_rate_reasoning=args.gemma_rate_reasoning,
-                gemma_title_generate_reasoning=args.gemma_title_generate_reasoning,
-                gemma_title_rate_reasoning=args.gemma_title_rate_reasoning,
+                primary_verify_reasoning=args.primary_verify_reasoning,
+                primary_rate_reasoning=args.primary_rate_reasoning,
+                primary_title_generate_reasoning=args.primary_title_generate_reasoning,
+                primary_title_rate_reasoning=args.primary_title_rate_reasoning,
             )
             supervisor = RunAllSupervisor(
                 context=context,

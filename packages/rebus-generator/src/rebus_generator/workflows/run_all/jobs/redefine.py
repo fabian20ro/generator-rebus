@@ -3,7 +3,11 @@ from __future__ import annotations
 import copy
 
 from rebus_generator.platform.io.dex_cache import DexProvider
-from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
+from rebus_generator.platform.llm.models import (
+    PRIMARY_MODEL,
+    SECONDARY_MODEL,
+    get_active_model_label,
+)
 from rebus_generator.domain.puzzle_metrics import score_puzzle_state
 from rebus_generator.platform.io.runtime_logging import log
 from rebus_generator.workflows.generate.definition_evaluation import (
@@ -159,7 +163,7 @@ class RedefineJobState(JobState):
         return [PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id] if ctx.multi_model else [PRIMARY_MODEL.model_id]
 
     def _baseline_verify_finalize(self, ctx):
-        label = "gemma + eurollm" if ctx.multi_model else PRIMARY_MODEL.display_name
+        label = get_active_model_label(multi_model=ctx.multi_model)
         clues = finalize_pair_verification(
             self._baseline_clues(),
             model_order=self._model_order(ctx),
@@ -172,7 +176,7 @@ class RedefineJobState(JobState):
         return None
 
     def _baseline_rate_finalize(self, ctx):
-        label = "gemma + eurollm" if ctx.multi_model else PRIMARY_MODEL.display_name
+        label = get_active_model_label(multi_model=ctx.multi_model)
         finalize_pair_rating(
             self._baseline_clues(),
             model_order=self._model_order(ctx),

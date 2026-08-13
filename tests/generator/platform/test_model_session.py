@@ -46,6 +46,7 @@ class LmRuntimeTests(unittest.TestCase):
         mock_load.assert_not_called()
 
     @patch("rebus_generator.platform.llm.lm_runtime._wait_for_unload_model")
+    @patch("rebus_generator.platform.llm.lm_runtime.time.sleep")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
     @patch("rebus_generator.platform.llm.lm_runtime.get_available_model_ids")
     @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
@@ -56,6 +57,7 @@ class LmRuntimeTests(unittest.TestCase):
         mock_instances,
         mock_available,
         mock_unload,
+        mock_sleep,
         _mock_wait_unload,
     ):
         mock_available.return_value = {PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id}
@@ -72,9 +74,11 @@ class LmRuntimeTests(unittest.TestCase):
         self.assertEqual(PRIMARY_MODEL, current)
         self.assertEqual(1, runtime.activation_count)
         mock_unload.assert_called_once_with("inst-secondary", model_id=SECONDARY_MODEL.model_id)
+        mock_sleep.assert_called_once_with(5.0)
         mock_load.assert_called_once_with(PRIMARY_MODEL)
 
     @patch("rebus_generator.platform.llm.lm_runtime._wait_for_unload_model")
+    @patch("rebus_generator.platform.llm.lm_runtime.time.sleep")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
     @patch("rebus_generator.platform.llm.lm_runtime.get_available_model_ids")
     @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
@@ -85,6 +89,7 @@ class LmRuntimeTests(unittest.TestCase):
         mock_instances,
         mock_available,
         mock_unload,
+        mock_sleep,
         _mock_wait_unload,
     ):
         mock_available.return_value = {PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id}
@@ -103,6 +108,7 @@ class LmRuntimeTests(unittest.TestCase):
         self.assertEqual(PRIMARY_MODEL, current)
         self.assertEqual(2, mock_load.call_count)
         mock_unload.assert_called_once_with("inst-secondary", model_id=SECONDARY_MODEL.model_id)
+        mock_sleep.assert_called_once_with(5.0)
 
     @patch("rebus_generator.platform.llm.lm_runtime.time.sleep")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
@@ -123,7 +129,7 @@ class LmRuntimeTests(unittest.TestCase):
 
         runtime = LmRuntime(multi_model=True)
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaisesRegex(RuntimeError, "500"):
             runtime.activate_primary()
 
         self.assertEqual(2, mock_load.call_count)

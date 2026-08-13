@@ -40,10 +40,10 @@ class RunAllContext:
     preflight_enabled: bool = True
     llm_stall_seconds: int = 900
     llm_truncation_threshold: int = 3
-    gemma_verify_reasoning: str | None = "none"
-    gemma_rate_reasoning: str | None = "minimal"
-    gemma_title_generate_reasoning: str | None = "none"
-    gemma_title_rate_reasoning: str | None = "none"
+    primary_verify_reasoning: str | None = "none"
+    primary_rate_reasoning: str | None = "none"
+    primary_title_generate_reasoning: str | None = "none"
+    primary_title_rate_reasoning: str | None = "none"
     retitle_title_keys: set[str] | None = None
 
 

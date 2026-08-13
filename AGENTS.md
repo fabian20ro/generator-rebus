@@ -32,7 +32,7 @@ Style: telegraph. Noun-phrases OK. No grammar. Min tokens.
 
 - **Never blocklist Romanian words**: Use quality scoring, thresholds, penalties. Blocklist = risk.
 - **Dev server**: LM Studio local `http://localhost:1234`.
-- **Two-model workflow**: gemma-4 + eurollm-22b default. Alternate rewrites. Load via LM Studio REST API. Config: `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`.
+- **Two-model workflow**: Ornith + Muse Glimmer default. Alternate rewrites. Load via LM Studio REST API. Config: `packages/rebus-generator/src/rebus_generator/platform/llm/models.py`.
 
 ## Legacy & Deprecated
 
