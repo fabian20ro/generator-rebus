@@ -101,7 +101,6 @@ fn template_ok(
 const SALT_PROCEDURAL_TEMPLATE: u64 = 0x000A_11CE;
 const SALT_EVALUATE_TEMPLATE: u64 = 0x0A57_DA12;
 const SALT_INCREMENTAL_BASE: u64 = 0x1CE0_0001;
-const SALT_SOLVE_GRID_PROBE: u64 = 0x0BEE_F123;
 
 fn template_seed(base_seed: u64, black_step: usize, attempt_idx: usize, salt: u64) -> u64 {
     base_seed
@@ -652,8 +651,15 @@ pub fn run_engine(
                 {
                     return false;
                 }
-                let mut probe_rng =
-                    StdRng::seed_from_u64(template_seed(seed, black_step, 0, SALT_SOLVE_GRID_PROBE));
+                let solve_grid_probe_salt = seed
+                    .wrapping_add((black_step as u64).wrapping_shl(32))
+                    .wrapping_add((probe_nodes as u64).wrapping_mul(0x9E37_79B9));
+                let mut probe_rng = StdRng::seed_from_u64(template_seed(
+                    seed,
+                    black_step,
+                    0,
+                    solve_grid_probe_salt,
+                ));
                 solve_grid(
                     template,
                     &slots,
