@@ -1,3 +1,4 @@
+# Cloudflare Builds root: apps/worker (include path: apps/worker/**).
 name = "generator-rebus"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"

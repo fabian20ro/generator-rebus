@@ -1910,3 +1910,13 @@
 **Outcome:** CI dependency conflict repaired. Cloudflare Builds remains misconfigured at provider level: `worker/` and `worker/**` instead of `apps/worker` and `apps/worker/**`; authenticated connector lacks write scope.
 **Insight:** Independently mergeable Dependabot PRs can become incompatible in aggregate when one package introduces a new peer major; validate the combined `main` lockfile before batch merging.
 **Promoted:** no
+
+---
+
+### [2026-08-13] — Cloudflare stale retry recovery
+
+**Happened:** Audited the successful Cloudflare retry and found it rebuilt April commit `b915a61`, not current `main` `97fb8f2`. The stale deployment failed at runtime because it expected the removed `SUPABASE_ANON_KEY`; redeployed the current Worker immediately. Added the provider root/path contract beside Wrangler configuration so a fresh merge can validate automatic builds.
+**Verification:** Current deployment version `31f85e77-cf53-4f4b-b4e1-d78b28e0d7f1`; health, 534-puzzle list, 93-clue detail, solution, and GitHub Pages CORS passed.
+**Outcome:** Production restored from current `main`. Fresh automatic Cloudflare build remains to be proven by merging this in-scope change.
+**Insight:** Retrying a historic Cloudflare build preserves its historic commit; corrected project settings require a fresh build source to prove current-head deployment.
+**Promoted:** yes

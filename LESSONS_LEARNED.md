@@ -240,6 +240,8 @@
 
 **[2026-08-13]** Supabase publishable-key transport — modern `sb_publishable_*` keys belong in `apikey`, not `Authorization: Bearer`. Use a dedicated application key and declare required Worker secrets so incompatible rotations fail before deploy.
 
+**[2026-08-13]** Cloudflare historic build retry — retrying a Workers Build rebuilds its original commit even after project settings change. Verify the displayed SHA against GitHub `main`; use a fresh in-scope push to validate updated root/path settings.
+
 ---
 
 ## Archive
