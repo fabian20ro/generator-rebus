@@ -1900,3 +1900,13 @@
 **Outcome:** production read and atomic write contracts operational. Remaining operational gap: bootstrap a narrowly scoped `CLOUDFLARE_API_TOKEN` in `shared-api-host`, then automate Worker deployment and dependency smoke.
 **Insight:** Modern Supabase publishable keys are not JWTs; sending them as Bearer is incompatible. Required-secret declarations turn credential drift into a deploy-time failure.
 **Promoted:** yes
+
+---
+
+### [2026-08-13] — post-merge Worker CI dependency repair
+
+**Happened:** Investigated failing `App Quality` runs after sequential Dependabot merges. Aligned `@cloudflare/workers-types` with Wrangler 4.122's peer contract and regenerated the Worker lockfile. Audited Cloudflare Workers Builds configuration.
+**Verification:** Worker `npm ci`, typecheck, 2 tests, Wrangler 4.122 dry-run, and npm audit passed with zero vulnerabilities. Latest GitHub failure was isolated to npm `ERESOLVE`; frontend and secret hygiene remained green.
+**Outcome:** CI dependency conflict repaired. Cloudflare Builds remains misconfigured at provider level: `worker/` and `worker/**` instead of `apps/worker` and `apps/worker/**`; authenticated connector lacks write scope.
+**Insight:** Independently mergeable Dependabot PRs can become incompatible in aggregate when one package introduces a new peer major; validate the combined `main` lockfile before batch merging.
+**Promoted:** no
