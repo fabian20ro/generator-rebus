@@ -5,4 +5,7 @@ compatibility_date = "2024-01-01"
 [vars]
 # These are overridden by secrets in production
 # SUPABASE_URL = ""
-# SUPABASE_ANON_KEY = ""
+# SUPABASE_PUBLISHABLE_KEY = ""
+
+[secrets]
+required = [ "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY" ]

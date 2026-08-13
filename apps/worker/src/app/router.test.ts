@@ -5,7 +5,7 @@ import type { Env } from "../shared/cors";
 
 const env: Env = {
   SUPABASE_URL: "https://example.supabase.co",
-  SUPABASE_ANON_KEY: "anon-test-key",
+  SUPABASE_PUBLISHABLE_KEY: "publishable-test-key",
   ALLOWED_ORIGINS: "https://app.example",
 };
 
@@ -27,7 +27,7 @@ describe("worker router", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("uses only the anon key and published filter for puzzle details", async () => {
+  test("uses only the publishable key and published filter for puzzle details", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([{
         id: "00000000-0000-0000-0000-000000000001",
@@ -44,7 +44,7 @@ describe("worker router", () => {
     expect(response.status).toBe(200);
     const [url, options] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("published=eq.true");
-    expect(options.headers.apikey).toBe("anon-test-key");
-    expect(options.headers.Authorization).toBe("Bearer anon-test-key");
+    expect(options.headers.apikey).toBe("publishable-test-key");
+    expect(options.headers.Authorization).toBeUndefined();
   });
 });
