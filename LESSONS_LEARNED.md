@@ -242,6 +242,8 @@
 
 **[2026-08-13]** Cloudflare historic build retry — retrying a Workers Build rebuilds its original commit even after project settings change. Verify the displayed SHA against GitHub `main`; use a fresh in-scope push to validate updated root/path settings.
 
+**[2026-08-13]** Publication quality gates — an absolute verified-clue minimum does not scale with puzzle size. Gate on verification ratio plus minimum clue-quality score; audit legacy rows with structured metadata first and description parsing only as compatibility fallback.
+
 ---
 
 ## Archive

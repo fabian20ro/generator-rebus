@@ -17,3 +17,19 @@ Romanian rebus generator. Pipeline CLI: build puzzles from Scrabble dictionary, 
 ```
 run_all / cli -> workflows -> platform -> engines/Supabase/LM Studio/apps
 ```
+
+## Publication quality
+
+New puzzles require a consensus pass rate of at least `50%` and a minimum
+rebus score of `5/10`. Override these defaults with
+`PUBLICATION_MIN_PASS_RATE` and `PUBLICATION_MIN_REBUS_SCORE`.
+
+Audit the public catalog without mutations:
+
+```sh
+uv run python -m rebus_generator.workflows.generate.catalog_audit \
+  --api-base https://generator-rebus.fabian20ro.workers.dev \
+  --output build/catalog-quality.json
+```
+
+Use `--input puzzles.json` instead of `--api-base` for a saved API response.

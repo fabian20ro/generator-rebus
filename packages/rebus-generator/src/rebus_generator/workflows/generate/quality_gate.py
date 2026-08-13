@@ -7,6 +7,10 @@ from rebus_generator.platform.llm.llm_dispatch import run_single_model_call
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import PRIMARY_MODEL
 from rebus_generator.platform.io.runtime_logging import log
+from rebus_generator.platform.config import (
+    PUBLICATION_MIN_PASS_RATE,
+    PUBLICATION_MIN_REBUS_SCORE,
+)
 from rebus_generator.domain.selection_engine import choose_puzzle_assessment
 from rebus_generator.domain.quality import QualityReport
 from rebus_generator.domain.score_helpers import _compact_log_text
@@ -20,6 +24,15 @@ class PreparedPuzzleTieBreakRequest:
     candidate: PreparedPuzzle
     a_summary: str
     b_summary: str
+
+
+def _consensus_pass_rate(prepared: PreparedPuzzle) -> float:
+    total_clues = prepared.assessment.total_clues
+    return (
+        prepared.assessment.verified_count / total_clues
+        if total_clues
+        else 0.0
+    )
 
 
 def _compute_difficulty(size: int, report: QualityReport) -> int:
@@ -39,11 +52,14 @@ def _compute_difficulty(size: int, report: QualityReport) -> int:
 
 
 def is_publishable(prepared: PreparedPuzzle) -> bool:
+    pass_rate = _consensus_pass_rate(prepared)
     return (
         not prepared.blocking_words
         and not prepared.assessment.blocker_words
         and prepared.assessment.scores_complete
         and prepared.assessment.verified_count >= MIN_PUBLISHABLE_CONSENSUS_CLUES
+        and pass_rate >= PUBLICATION_MIN_PASS_RATE
+        and prepared.assessment.min_rebus >= PUBLICATION_MIN_REBUS_SCORE
     )
 
 
@@ -61,6 +77,16 @@ def describe_publishability_failure(prepared: PreparedPuzzle) -> str:
     if prepared.assessment.verified_count < MIN_PUBLISHABLE_CONSENSUS_CLUES:
         reasons.append(
             "no consensus-verified clue"
+        )
+    pass_rate = _consensus_pass_rate(prepared)
+    if pass_rate < PUBLICATION_MIN_PASS_RATE:
+        reasons.append(
+            f"consensus pass rate {pass_rate:.1%} < {PUBLICATION_MIN_PASS_RATE:.1%}"
+        )
+    if prepared.assessment.min_rebus < PUBLICATION_MIN_REBUS_SCORE:
+        reasons.append(
+            f"minimum rebus score {prepared.assessment.min_rebus}/10 "
+            f"< {PUBLICATION_MIN_REBUS_SCORE}/10"
         )
     if not prepared.assessment.scores_complete:
         detail = (

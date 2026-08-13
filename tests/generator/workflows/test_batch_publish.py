@@ -810,6 +810,52 @@ class BatchPublishTests(unittest.TestCase):
 
         self.assertFalse(_is_publishable(prepared))
 
+    def test_low_consensus_pass_rate_blocks_publication(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=8.0,
+            blocking_words=[],
+            verified_count=1,
+            total_clues=22,
+        )
+
+        self.assertFalse(_is_publishable(prepared))
+
+    def test_low_minimum_rebus_score_blocks_publication(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=8.0,
+            blocking_words=[],
+            min_rebus=4,
+        )
+
+        self.assertFalse(_is_publishable(prepared))
+
+    def test_publishability_failure_reports_required_pass_rate(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=8.0,
+            blocking_words=[],
+            verified_count=1,
+            total_clues=22,
+        )
+
+        message = _describe_publishability_failure(prepared)
+
+        self.assertIn("consensus pass rate 4.5% < 50.0%", message)
+
+    def test_publishability_failure_reports_required_minimum_rebus_score(self):
+        prepared = _prepared_puzzle(
+            title="Test",
+            definition_score=8.0,
+            blocking_words=[],
+            min_rebus=4,
+        )
+
+        message = _describe_publishability_failure(prepared)
+
+        self.assertIn("minimum rebus score 4/10 < 5/10", message)
+
     def test_publishability_failure_reports_missing_consensus_and_incomplete_pairs(self):
         prepared = _prepared_puzzle(
             title="Test",

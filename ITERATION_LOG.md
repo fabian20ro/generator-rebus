@@ -1920,3 +1920,23 @@
 **Outcome:** Production restored from current `main`. Fresh automatic Cloudflare build remains to be proven by merging this in-scope change.
 **Insight:** Retrying a historic Cloudflare build preserves its historic commit; corrected project settings require a fresh build source to prove current-head deployment.
 **Promoted:** yes
+
+---
+
+### [2026-08-13] — post-release health and risk audit
+
+**Happened:** Audited GitHub main/Actions/security, Cloudflare versions/deployments/configuration, live Worker/API/CORS, browser desktop/mobile flow, catalog quality, frontend dependencies, and missing Rust CI coverage. No production mutation.
+**Verification:** Main `64a9cc7`; automatic Worker version `1d527ba2-e6c2-4872-9f20-12e62b29a50f`; health/list/detail/solution/CORS passed; frontend 28 tests/build passed; Worker checks green; Rust 30 tests passed. Catalog: 534 published, 384/516 scored puzzles below 5/10, 366/534 below 50% verification, none fully verified. Main unprotected; Rust absent from Actions; three high dev-dependency findings; four deterministic-seed CodeQL false positives; Workers Logs disabled; favicon 404.
+**Outcome:** Runtime stable and automatic deployment repaired. Primary risk shifted from availability to publication quality and missing release gates.
+**Insight:** Infrastructure recovery can expose the real product constraint: a healthy catalog endpoint is harmful when publication admits one verified clue and surfaces mostly low-confidence content.
+**Promoted:** no
+
+---
+
+### [2026-08-13] — publication quality gate and catalog dry-run
+
+**Happened:** Replaced the one-clue publication floor with configurable minimum consensus pass-rate and rebus-score gates. Added actionable failure reasons and a read-only catalog audit CLI supporting live API or saved JSON, including legacy description fallback. Documented configuration and usage.
+**Verification:** TDD red/green for low ratio, low score, failure messages, legacy metadata, missing metadata, and CLI output. `make lint`; 775 Python tests. Live dry-run: 534 puzzles, 78 passing, 456 failing at 50% pass-rate and 5/10 minimum; no production mutation.
+**Outcome:** New weak puzzles are blocked; current catalog debt is quantified by puzzle and size without automatic unpublishing.
+**Insight:** Absolute verified counts hide size-dependent quality collapse; ratio gates expose it. Legacy public rows may carry canonical metrics only inside human-readable descriptions.
+**Promoted:** yes
