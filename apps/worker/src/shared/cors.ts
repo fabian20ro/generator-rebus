@@ -1,6 +1,6 @@
 export interface Env {
   SUPABASE_URL: string;
-  SUPABASE_ANON_KEY: string;
+  SUPABASE_PUBLISHABLE_KEY: string;
   ALLOWED_ORIGINS?: string;
 }
 

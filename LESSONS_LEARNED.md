@@ -238,6 +238,8 @@
 
 **[2026-07-21]** GitHub Actions token scope — define shared least-privilege `permissions` at workflow scope. Job-scoped permissions leave sibling jobs on repository defaults and trigger CodeQL's missing-permissions alert.
 
+**[2026-08-13]** Supabase publishable-key transport — modern `sb_publishable_*` keys belong in `apikey`, not `Authorization: Bearer`. Use a dedicated application key and declare required Worker secrets so incompatible rotations fail before deploy.
+
 ---
 
 ## Archive

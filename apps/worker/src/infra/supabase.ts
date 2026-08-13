@@ -2,16 +2,15 @@ import type { Env } from "../shared/cors";
 
 export function requireEnv(env: Env): string | null {
   if (!env.SUPABASE_URL) return "Missing SUPABASE_URL";
-  if (!env.SUPABASE_ANON_KEY) return "Missing SUPABASE_ANON_KEY";
+  if (!env.SUPABASE_PUBLISHABLE_KEY) return "Missing SUPABASE_PUBLISHABLE_KEY";
   return null;
 }
 
 export async function fetchFromSupabase(url: string, env: Env): Promise<Response> {
-  const token = env.SUPABASE_ANON_KEY;
+  const token = env.SUPABASE_PUBLISHABLE_KEY;
   return fetch(url, {
     headers: {
       apikey: token,
-      Authorization: `Bearer ${token}`,
     },
   });
 }
