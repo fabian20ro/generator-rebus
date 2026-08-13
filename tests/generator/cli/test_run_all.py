@@ -1752,6 +1752,10 @@ class RunAllPreflightTests(unittest.TestCase):
                 patch("rebus_generator.cli.run_all.create_service_role_client"),
                 patch("rebus_generator.cli.run_all._rust_binary_path"),
                 patch("rebus_generator.cli.run_all.LmRuntime", _PreflightRuntime),
+                patch(
+                    "rebus_generator.cli.run_all.get_available_model_ids",
+                    return_value={PRIMARY_MODEL.model_id},
+                ),
                 patch("rebus_generator.cli.run_all._preflight_unload_all"),
                 patch("rebus_generator.cli.run_all.create_ai_client", return_value=client),
             ):
@@ -1787,6 +1791,10 @@ class RunAllPreflightTests(unittest.TestCase):
                 patch("rebus_generator.cli.run_all.create_service_role_client"),
                 patch("rebus_generator.cli.run_all._rust_binary_path"),
                 patch("rebus_generator.cli.run_all.LmRuntime", _PreflightRuntime),
+                patch(
+                    "rebus_generator.cli.run_all.get_available_model_ids",
+                    return_value={PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id},
+                ),
                 patch("rebus_generator.cli.run_all._preflight_unload_all"),
                 patch("rebus_generator.cli.run_all._chat_completion_create", return_value=SimpleNamespace(
                     choices=[SimpleNamespace(message=SimpleNamespace(content="GUAS"))]
@@ -1798,6 +1806,28 @@ class RunAllPreflightTests(unittest.TestCase):
             report = json.loads(artifact.read_text(encoding="utf-8"))
             self.assertEqual("lmstudio_resource_guard", report["blocking_error"]["signature"])
             self.assertEqual("failed", report["models"][-1]["status"])
+
+    def test_preflight_aborts_before_runtime_when_required_model_is_not_installed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "preflight.json"
+            with (
+                patch("rebus_generator.cli.run_all.SUPABASE_URL", "https://test.supabase.co"),
+                patch("rebus_generator.cli.run_all.SUPABASE_SERVICE_ROLE_KEY", "test-key"),
+                patch("rebus_generator.cli.run_all.create_service_role_client"),
+                patch(
+                    "rebus_generator.cli.run_all.get_available_model_ids",
+                    return_value={PRIMARY_MODEL.model_id},
+                ),
+                patch("rebus_generator.cli.run_all.LmRuntime") as runtime,
+                patch("rebus_generator.cli.run_all._preflight_unload_all") as unload,
+            ):
+                with self.assertRaisesRegex(SystemExit, SECONDARY_MODEL.model_id):
+                    _preflight(topics=["redefine"], artifact_path=artifact, multi_model=True)
+
+            runtime.assert_not_called()
+            unload.assert_not_called()
+            report = json.loads(artifact.read_text(encoding="utf-8"))
+            self.assertEqual("lmstudio_models_missing", report["blocking_error"]["signature"])
 
 
 class ClaimStateTests(unittest.TestCase):

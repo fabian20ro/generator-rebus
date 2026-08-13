@@ -244,6 +244,8 @@
 
 **[2026-08-13]** Publication quality gates — an absolute verified-clue minimum does not scale with puzzle size. Gate on verification ratio plus minimum clue-quality score; audit legacy rows with structured metadata first and description parsing only as compatibility fallback.
 
+**[2026-08-13]** Catalog recovery rollout — require minimum quality coverage per supported size before filtering production. Apply the same visibility predicate to list, detail, and solution routes. Repair/batch CLIs must exit nonzero when any selected item fails.
+
 ---
 
 ## Archive

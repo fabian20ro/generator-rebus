@@ -47,15 +47,18 @@ class LmRuntimeTests(unittest.TestCase):
 
     @patch("rebus_generator.platform.llm.lm_runtime._wait_for_unload_model")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
+    @patch("rebus_generator.platform.llm.lm_runtime.get_available_model_ids")
     @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
     @patch("rebus_generator.platform.llm.lm_runtime.load_model")
     def test_activate_primary_unloads_other_live_model_then_loads(
         self,
         mock_load,
         mock_instances,
+        mock_available,
         mock_unload,
         _mock_wait_unload,
     ):
+        mock_available.return_value = {PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id}
         mock_instances.side_effect = [
             {SECONDARY_MODEL.model_id: "inst-secondary"},
             {SECONDARY_MODEL.model_id: "inst-secondary"},
@@ -73,15 +76,18 @@ class LmRuntimeTests(unittest.TestCase):
 
     @patch("rebus_generator.platform.llm.lm_runtime._wait_for_unload_model")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
+    @patch("rebus_generator.platform.llm.lm_runtime.get_available_model_ids")
     @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
     @patch("rebus_generator.platform.llm.lm_runtime.load_model")
     def test_activate_retries_after_failed_load_with_refresh(
         self,
         mock_load,
         mock_instances,
+        mock_available,
         mock_unload,
         _mock_wait_unload,
     ):
+        mock_available.return_value = {PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id}
         mock_instances.side_effect = [
             {},
             {SECONDARY_MODEL.model_id: "inst-secondary"},
@@ -100,15 +106,18 @@ class LmRuntimeTests(unittest.TestCase):
 
     @patch("rebus_generator.platform.llm.lm_runtime.time.sleep")
     @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
+    @patch("rebus_generator.platform.llm.lm_runtime.get_available_model_ids")
     @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
     @patch("rebus_generator.platform.llm.lm_runtime.load_model")
     def test_activate_raises_after_failed_retry(
         self,
         mock_load,
         mock_instances,
+        mock_available,
         mock_unload,
         _mock_sleep,
     ):
+        mock_available.return_value = {PRIMARY_MODEL.model_id, SECONDARY_MODEL.model_id}
         mock_instances.side_effect = [{}, {}, {}]
         mock_load.side_effect = RuntimeError("500")
 
@@ -119,6 +128,27 @@ class LmRuntimeTests(unittest.TestCase):
 
         self.assertEqual(2, mock_load.call_count)
         mock_unload.assert_not_called()
+
+    @patch("rebus_generator.platform.llm.lm_runtime.unload_instance")
+    @patch("rebus_generator.platform.llm.lm_runtime.get_available_model_ids")
+    @patch("rebus_generator.platform.llm.lm_runtime.get_loaded_model_instances")
+    @patch("rebus_generator.platform.llm.lm_runtime.load_model")
+    def test_activate_missing_target_fails_before_unloading_active_model(
+        self,
+        mock_load,
+        mock_instances,
+        mock_available,
+        mock_unload,
+    ):
+        mock_instances.return_value = {"unrelated/model": "inst-unrelated"}
+        mock_available.return_value = {"unrelated/model"}
+
+        runtime = LmRuntime(multi_model=True)
+        with self.assertRaisesRegex(RuntimeError, PRIMARY_MODEL.model_id):
+            runtime.activate_primary()
+
+        mock_unload.assert_not_called()
+        mock_load.assert_not_called()
 
 
 if __name__ == "__main__":

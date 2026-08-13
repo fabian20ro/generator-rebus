@@ -1940,3 +1940,13 @@
 **Outcome:** New weak puzzles are blocked; current catalog debt is quantified by puzzle and size without automatic unpublishing.
 **Insight:** Absolute verified counts hide size-dependent quality collapse; ratio gates expose it. Legacy public rows may carry canonical metrics only inside human-readable descriptions.
 **Promoted:** yes
+
+---
+
+### [2026-08-13] — catalog recovery guardrails
+
+**Happened:** Added deterministic per-size recovery planning, rollout readiness/deficit reporting, opt-in Worker quality filtering across list/detail/solution, LM Studio installed-model preflight before model unload, and honest nonzero repair CLI status on item failure. Attempted the top 11x11 candidate in dry-run mode; no database mutation.
+**Verification:** TDD red/green; `make lint`; 782 Python tests; Worker 4 tests, typecheck, Wrangler dry-run; frontend 28 tests and production build. Live plan: 11x11 deficit 3, 14x14 deficit 1; rollout blocked. Repair dry-run exits 1 because configured `google/gemma-4-26b-a4b` and `eurollm-22b-instruct-2512-mlx-nvfp4` are absent from LM Studio.
+**Outcome:** Recovery queue and safe rollout path ready; production filter intentionally disabled until per-size coverage reaches three. Next dependency: install both configured models, repair the three queued 11x11 puzzles, then the queued 14x14 puzzle.
+**Insight:** Catalog filtering must preserve size coverage and protect every read route. Batch repair tools must return nonzero when any selected item fails; summary-only errors create false-green automation.
+**Promoted:** yes

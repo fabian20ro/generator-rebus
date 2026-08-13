@@ -2,6 +2,9 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   ALLOWED_ORIGINS?: string;
+  CATALOG_QUALITY_FILTER?: string;
+  CATALOG_MIN_PASS_RATE?: string;
+  CATALOG_MIN_REBUS_SCORE?: string;
 }
 
 const DEFAULT_ALLOWED_ORIGIN = "https://fabian20ro.github.io";

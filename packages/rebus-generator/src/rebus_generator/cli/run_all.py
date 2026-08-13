@@ -26,7 +26,11 @@ from rebus_generator.platform.llm.llm_client import (
 )
 from rebus_generator.platform.llm.lm_runtime import LmRuntime
 from rebus_generator.platform.llm.models import PRIMARY_MODEL, SECONDARY_MODEL
-from rebus_generator.platform.llm.lm_studio_api import get_loaded_model_instances, unload_instance
+from rebus_generator.platform.llm.lm_studio_api import (
+    get_available_model_ids,
+    get_loaded_model_instances,
+    unload_instance,
+)
 from rebus_generator.platform.io.runtime_logging import (
     add_llm_debug_argument,
     install_process_logging,
@@ -205,12 +209,29 @@ def _preflight(*, topics: list[str], artifact_path: Path, multi_model: bool) -> 
             }
             raise SystemExit(message)
         create_service_role_client()
+        models = [PRIMARY_MODEL] + ([SECONDARY_MODEL] if multi_model else [])
+        available_model_ids = get_available_model_ids()
+        missing_model_ids = [
+            model.model_id for model in models if model.model_id not in available_model_ids
+        ]
+        if missing_model_ids:
+            message = "LM Studio models not installed: " + ", ".join(missing_model_ids)
+            report["blocking_error"] = {
+                "model_id": missing_model_ids[0],
+                "purpose": "bootstrap",
+                "signature": "lmstudio_models_missing",
+                "error": message,
+            }
+            report["models"] = [
+                {"model_id": model_id, "status": "missing"}
+                for model_id in missing_model_ids
+            ]
+            raise SystemExit(message)
         runtime = LmRuntime(multi_model=multi_model)
         runtime.sync()
         if "generate" in topics:
             _rust_binary_path()
         smoke_client = create_ai_client()
-        models = [PRIMARY_MODEL] + ([SECONDARY_MODEL] if multi_model else [])
         for model in models:
             purpose = "definition_verify" if model.model_id == PRIMARY_MODEL.model_id else "title_generate"
             started_at = time.monotonic()

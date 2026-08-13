@@ -52,6 +52,19 @@ def get_loaded_models() -> list[str]:
         return []
 
 
+def get_available_model_ids() -> set[str]:
+    """Return all model keys installed in LM Studio, loaded or unloaded."""
+    try:
+        data = _get_json("/api/v1/models")
+    except Exception:
+        return set()
+    return {
+        str(model.get("key") or "").strip()
+        for model in data.get("models", [])
+        if str(model.get("key") or "").strip()
+    }
+
+
 def reset_model_capability_cache() -> None:
     _REASONING_ALLOWED_OPTIONS_CACHE.clear()
 

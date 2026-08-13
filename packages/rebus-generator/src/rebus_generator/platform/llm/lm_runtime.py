@@ -10,6 +10,7 @@ from typing import Callable
 from .models import ModelConfig, PRIMARY_MODEL, SECONDARY_MODEL
 from .lm_studio_api import (
     _wait_for_unload_model,
+    get_available_model_ids,
     get_loaded_model_instances,
     load_model,
     unload_instance,
@@ -83,6 +84,9 @@ class LmRuntime:
             self.current_model = target
             log(f"Model already active: {target.display_name}")
             return target
+
+        if target.model_id not in get_available_model_ids():
+            raise RuntimeError(f"LM Studio model not installed: {target.model_id}")
 
         prior_model_id = self.current_model.model_id if self.current_model else None
         active_step = getattr(self, "_run_all_active_step", None)

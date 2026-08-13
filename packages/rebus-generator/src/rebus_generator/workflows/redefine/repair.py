@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -401,7 +400,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     handle = install_process_logging(
         run_id=f"repair_{path_timestamp()}",
         component="repair_puzzles",
@@ -409,11 +408,11 @@ def main() -> None:
     )
     parser = build_parser()
     try:
-        args = parser.parse_args()
+        args = parser.parse_args(argv)
         set_llm_debug_enabled(args.debug)
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
             log("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env")
-            sys.exit(1)
+            return 1
 
         preload = preload_runtime_prompts()
         audit = prompt_runtime_audit(PROJECT_ROOT)
@@ -433,7 +432,7 @@ def main() -> None:
         rows = fetch_puzzles(supabase, puzzle_id=args.puzzle_id)
         if not rows:
             log("No published puzzles found matching the criteria.")
-            return
+            return 0
         selected = rows if args.puzzle_id else select_puzzles_for_repair(rows, limit=max(1, args.limit))
         log(f"Found {len(selected)} puzzle(s) to repair")
         if args.dry_run:
@@ -469,9 +468,10 @@ def main() -> None:
             f"{counters['skipped']} skipped, "
             f"{counters['failed']} failed"
         )
+        return 1 if counters["failed"] else 0
     finally:
         handle.restore()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

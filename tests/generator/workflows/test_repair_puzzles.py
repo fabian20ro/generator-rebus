@@ -8,6 +8,7 @@ from rebus_generator.domain.puzzle_metrics import PuzzleEvaluationResult
 from rebus_generator.workflows.retitle.sanitize import TitleGenerationResult
 from rebus_generator.workflows.redefine.repair import (
     build_parser,
+    main,
     repair_puzzle,
     select_puzzles_for_repair,
 )
@@ -291,3 +292,40 @@ class ParserTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args([])
         self.assertTrue(args.multi_model)
+
+    @patch("rebus_generator.workflows.redefine.repair.LmRuntime")
+    @patch(
+        "rebus_generator.workflows.redefine.repair.repair_puzzle",
+        side_effect=RuntimeError("model missing"),
+    )
+    @patch(
+        "rebus_generator.workflows.redefine.repair.fetch_puzzles",
+        return_value=[{"id": "p1"}],
+    )
+    @patch("rebus_generator.workflows.redefine.repair.create_ai_client")
+    @patch("rebus_generator.workflows.redefine.repair.create_supabase_client")
+    @patch("rebus_generator.workflows.redefine.repair.prompt_runtime_audit", return_value={})
+    @patch(
+        "rebus_generator.workflows.redefine.repair.preload_runtime_prompts",
+        return_value={"system": [], "user": []},
+    )
+    @patch("rebus_generator.workflows.redefine.repair.install_process_logging")
+    def test_main_returns_failure_when_any_selected_puzzle_fails(
+        self,
+        mock_logging,
+        _mock_preload,
+        _mock_audit,
+        _mock_supabase,
+        _mock_ai,
+        _mock_fetch,
+        _mock_repair,
+        _mock_runtime,
+    ):
+        mock_logging.return_value.restore.return_value = None
+        with (
+            patch("rebus_generator.workflows.redefine.repair.SUPABASE_URL", "https://test"),
+            patch("rebus_generator.workflows.redefine.repair.SUPABASE_SERVICE_ROLE_KEY", "key"),
+        ):
+            exit_code = main(["--puzzle-id", "p1", "--dry-run"])
+
+        self.assertEqual(1, exit_code)

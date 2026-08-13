@@ -20,6 +20,7 @@ from rebus_generator.platform.llm.models import (
 from rebus_generator.platform.llm.lm_studio_api import (
     LoadedModelInstance,
     ensure_model_loaded,
+    get_available_model_ids,
     get_loaded_models,
     get_loaded_model_instances,
     list_loaded_model_instances,
@@ -206,6 +207,20 @@ class ModelManagerTests(unittest.TestCase):
         with patch("rebus_generator.platform.llm.lm_studio_api._get_json", side_effect=Exception("offline")):
             result = get_loaded_models()
             self.assertEqual(result, [])
+
+    @patch("rebus_generator.platform.llm.lm_studio_api._get_json")
+    def test_get_available_model_ids_includes_unloaded_models(self, mock_get):
+        mock_get.return_value = {
+            "models": [
+                {"key": "available/unloaded", "loaded_instances": []},
+                {"key": "available/loaded", "loaded_instances": [{"identifier": "one"}]},
+            ]
+        }
+
+        self.assertEqual(
+            {"available/loaded", "available/unloaded"},
+            get_available_model_ids(),
+        )
 
     @patch("rebus_generator.platform.llm.lm_studio_api.load_model")
     @patch("rebus_generator.platform.llm.lm_studio_api.get_loaded_model_instances")
