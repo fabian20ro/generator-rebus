@@ -1860,3 +1860,43 @@
 **Outcome:** least-privilege CI token boundary restored.
 **Insight:** Job-scoped permissions do not protect sibling jobs; shared least privilege belongs at workflow scope.
 **Promoted:** yes
+
+---
+
+### [2026-07-23] — post-merge production readiness check
+
+**Happened:** Verified latest `main`, post-merge GitHub Actions, frontend deployment, live Supabase migration state, schema contract, and security/performance advisors. No production mutation.
+**Verification:** `main` at merge commit `0e6e120`; App Quality, Python/PostgreSQL, frontend deploy, Dependency Graph, and CodeQL green. Live Supabase lacks `publication_key`, `publish_crossword_puzzle_atomic`, and `merge_canonical_definitions_atomic`; only the January migration is recorded. No Worker deployment workflow exists.
+**Outcome:** next priority is controlled production rollout: Supabase migration rehearsal/deploy, advisor checks, Worker deploy, endpoint and idempotency smoke tests.
+**Insight:** A green application merge is not a completed release when database and edge-runtime deployment surfaces are outside the repository's automatic deployment path.
+**Promoted:** no
+
+---
+
+### [2026-08-13] — production connection diagnosis
+
+**Happened:** Traced GitHub Pages bundle to the deployed Cloudflare Worker, tested CORS/API routes, inspected Worker binding metadata/deployment age, checked current Supabase project state, and reviewed `shared-api-host` / `shared-api-contract` credential boundaries. No provider mutation.
+**Verification:** Static site and `/health` return 200; `/puzzles` returns Cloudflare 530 / error 1016. Supabase project `pdliedweugywbiczajxn` reports `INACTIVE` and its hostname does not resolve. Worker secrets exist, but its last deployment is 2026-04-06. `shared-api-host` already owns Supabase credential sources but lacks a generator-rebus sink and a GitHub `CLOUDFLARE_API_TOKEN`.
+**Outcome:** immediate recovery is Supabase project resume, followed by API smoke. Durable repair: extend the private credential distributor for the generator Worker, deploy current Worker code, then apply/verify the pending DB migration.
+**Insight:** A Worker liveness endpoint that never probes its upstream can stay green while the product is fully unavailable; production readiness needs a separate dependency-health smoke.
+**Promoted:** no
+
+---
+
+### [2026-08-13] — post-resume production smoke
+
+**Happened:** Rechecked Supabase and the public Worker after the operator resumed the project. No mutation.
+**Verification:** Supabase reports `ACTIVE_HEALTHY`; Worker `/health` and `/puzzles` return 200 with correct GitHub Pages CORS. Puzzle detail returned a 15x15 grid with 93 clues; solution payload present. Atomic publication migration remains absent from live schema and migration history.
+**Outcome:** player read path restored. Write/publication path still blocked until the atomic migration is deployed; Worker remains on the April deployment.
+**Insight:** Recovery smoke must cover list, detail, and solution separately; list-only success cannot prove a playable puzzle session.
+**Promoted:** no
+
+---
+
+### [2026-08-13] — production database and Worker rollout
+
+**Happened:** Applied the atomic publication migration to production Supabase; verified function privileges and rollback idempotency; migrated the Worker from the disabled legacy anon key to a dedicated modern publishable key; declared required secrets; deployed current Worker code; removed the obsolete binding. Added generator-rebus credential sinks to private `shared-api-host` and stored the dedicated source key in GitHub Actions secrets.
+**Verification:** Migration history records `atomic_publication_20260721`; both RPCs are `SECURITY INVOKER`, executable only by `service_role`; transaction smoke passed. `make lint`; 766 Python tests; Worker typecheck, 2 tests, and Wrangler dry-run passed. Live Worker version `7a786d2f-83b4-4b6a-9486-5b0b43148121`: health 200, 534-puzzle list, 93-clue detail, solution, and GitHub Pages CORS passed. `shared-api-host` audit/typecheck/test and GitHub Actions credential audit passed.
+**Outcome:** production read and atomic write contracts operational. Remaining operational gap: bootstrap a narrowly scoped `CLOUDFLARE_API_TOKEN` in `shared-api-host`, then automate Worker deployment and dependency smoke.
+**Insight:** Modern Supabase publishable keys are not JWTs; sending them as Bearer is incompatible. Required-secret declarations turn credential drift into a deploy-time failure.
+**Promoted:** yes
